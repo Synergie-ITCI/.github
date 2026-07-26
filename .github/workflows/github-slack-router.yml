@@ -1,0 +1,252 @@
+name: GitHub Slack Router
+
+on:
+  workflow_call:
+    inputs:
+      event_type:
+        required: true
+        type: string
+      event_payload_json:
+        required: true
+        type: string
+      routing_config_json:
+        required: true
+        type: string
+      test_mode:
+        required: false
+        default: true
+        type: boolean
+      production_routes_enabled:
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      SLACK_NOTIFIER_BOT_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  route:
+    name: Route approved GitHub event to Slack
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Normalize, resolve capability, and send
+        shell: bash
+        env:
+          EVENT_TYPE: ${{ inputs.event_type }}
+          EVENT_PAYLOAD_JSON: ${{ inputs.event_payload_json }}
+          ROUTING_CONFIG_JSON: ${{ inputs.routing_config_json }}
+          TEST_MODE: ${{ inputs.test_mode }}
+          PRODUCTION_ROUTES_ENABLED: ${{ inputs.production_routes_enabled }}
+          SLACK_NOTIFIER_BOT_TOKEN: ${{ secrets.SLACK_NOTIFIER_BOT_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          import time
+          from urllib import request
+
+          APPROVED_EVENTS = {
+              "pull_request_review_requested",
+              "pull_request_merged",
+              "workflow_failed",
+              "deployment_succeeded",
+              "deployment_failed",
+          }
+          PRODUCTION_NAMES = {"prod", "production", "live"}
+
+          def getenv_bool(name):
+              return os.environ.get(name, "").lower() == "true"
+
+          def load_json_env(name):
+              value = os.environ.get(name, "")
+              if not value:
+                  raise RuntimeError(f"{name} is required")
+              return json.loads(value)
+
+          def slack_escape(value):
+              return str(value or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+          def normalize(event_type, payload, repo_record):
+              if event_type == "pull_request":
+                  pr = payload.get("pull_request") or {}
+                  action = payload.get("action")
+                  if action == "review_requested":
+                      reviewer = payload.get("requested_reviewer") or payload.get("requested_team") or {}
+                      return {
+                          "event": "pull_request_review_requested",
+                          "status": "ACTION REQUIRED",
+                          "title": pr.get("title"),
+                          "number": pr.get("number"),
+                          "actor": (pr.get("user") or {}).get("login"),
+                          "requested": reviewer.get("login") or reviewer.get("name") or "Unmapped reviewer",
+                          "branch": (pr.get("base") or {}).get("ref"),
+                          "url": pr.get("html_url"),
+                      }
+                  if action == "closed" and pr.get("merged") is True:
+                      return {
+                          "event": "pull_request_merged",
+                          "status": "MERGED",
+                          "title": pr.get("title"),
+                          "number": pr.get("number"),
+                          "actor": ((pr.get("merged_by") or {}).get("login") or (payload.get("sender") or {}).get("login")),
+                          "branch": (pr.get("base") or {}).get("ref"),
+                          "time": pr.get("merged_at"),
+                          "url": pr.get("html_url"),
+                      }
+                  return None
+
+              if event_type == "workflow_run":
+                  run = payload.get("workflow_run") or {}
+                  workflow_name = run.get("name") or (payload.get("workflow") or {}).get("name")
+                  excluded = set(repo_record.get("excluded_workflows") or [])
+                  excluded.update({"GitHub Slack Router", "Slack Notifications"})
+                  if workflow_name in excluded:
+                      return None
+                  if run.get("conclusion") != "failure":
+                      return None
+                  return {
+                      "event": "workflow_failed",
+                      "status": "FAILED",
+                      "title": workflow_name,
+                      "actor": (run.get("actor") or {}).get("login"),
+                      "branch": run.get("head_branch"),
+                      "time": run.get("updated_at"),
+                      "url": run.get("html_url"),
+                      "environment": repo_record.get("default_environment") or "unknown",
+                  }
+
+              if event_type == "deployment_status":
+                  status = payload.get("deployment_status") or {}
+                  deployment = payload.get("deployment") or {}
+                  state = status.get("state")
+                  if state == "success":
+                      approved_event = "deployment_succeeded"
+                  elif state in {"failure", "error"}:
+                      approved_event = "deployment_failed"
+                  else:
+                      return None
+                  return {
+                      "event": approved_event,
+                      "status": state.upper(),
+                      "title": "Deployment",
+                      "actor": (payload.get("sender") or {}).get("login"),
+                      "branch": deployment.get("ref"),
+                      "time": status.get("created_at"),
+                      "url": status.get("target_url") or deployment.get("url"),
+                      "environment": deployment.get("environment") or "unknown",
+                      "commit": deployment.get("sha"),
+                  }
+              return None
+
+          def destination_channels(config, repo_record, normalized, test_mode):
+              channels = config["slack_channels"]
+              if test_mode:
+                  return [channels["integration-test"]["id"]]
+              capability_channel = repo_record["slack_channel"]
+              event = normalized["event"]
+              env = str(normalized.get("environment") or "").lower()
+              destinations = []
+              if event in {"pull_request_review_requested", "pull_request_merged", "workflow_failed"}:
+                  destinations.append(channels[capability_channel]["id"])
+              if event == "deployment_succeeded":
+                  destinations.append(channels["deployments"]["id"])
+                  if env in PRODUCTION_NAMES:
+                      destinations.append(channels[capability_channel]["id"])
+              if event == "deployment_failed":
+                  destinations.extend([channels["deployments"]["id"], channels[capability_channel]["id"]])
+                  if env in PRODUCTION_NAMES:
+                      destinations.append(channels["production-incidents"]["id"])
+              return list(dict.fromkeys(destinations))
+
+          def build_message(config, repo, repo_record, normalized, test_mode):
+              mode = "TEST" if test_mode else "LIVE"
+              env = normalized.get("environment") or "n/a"
+              lines = [
+                  f"*{mode} | {slack_escape(repo_record['capability'])} | {slack_escape(repo_record['system'])}*",
+                  f"*Event:* `{normalized['event']}`",
+                  f"*Status:* {slack_escape(normalized.get('status'))}",
+                  f"*Repository:* `{slack_escape(repo)}`",
+                  f"*Environment:* `{slack_escape(env)}`",
+              ]
+              if normalized.get("title"):
+                  lines.append(f"*Title:* {slack_escape(normalized['title'])}")
+              if normalized.get("number"):
+                  lines.append(f"*Pull request:* #{normalized['number']}")
+              if normalized.get("actor"):
+                  lines.append(f"*Actor:* `{slack_escape(normalized['actor'])}`")
+              if normalized.get("requested"):
+                  lines.append(f"*Requested reviewer/team:* `{slack_escape(normalized['requested'])}`")
+              if normalized.get("branch"):
+                  lines.append(f"*Branch:* `{slack_escape(normalized['branch'])}`")
+              if normalized.get("time"):
+                  lines.append(f"*Time:* `{slack_escape(normalized['time'])}`")
+              if normalized.get("commit"):
+                  lines.append(f"*Commit:* `{slack_escape(str(normalized['commit'])[:12])}`")
+              if normalized.get("url"):
+                  lines.append(f"*GitHub link:* {slack_escape(normalized['url'])}")
+              lines.append("*Action required:* review the linked GitHub item; no raw logs are included.")
+              return "\n".join(lines)
+
+          def post_slack(channel_id, text, token):
+              body = json.dumps({"channel": channel_id, "text": text, "mrkdwn": True}).encode()
+              headers = {
+                  "Authorization": f"Bearer {token}",
+                  "Content-Type": "application/json; charset=utf-8",
+              }
+              req = request.Request("https://slack.com/api/chat.postMessage", data=body, headers=headers)
+              last_error = None
+              for attempt in range(3):
+                  try:
+                      with request.urlopen(req, timeout=10) as response:
+                          data = json.loads(response.read().decode())
+                      if data.get("ok"):
+                          print(f"sent Slack notification to {channel_id}")
+                          return
+                      last_error = data.get("error", "unknown_error")
+                  except Exception as exc:
+                      last_error = str(exc)
+                  time.sleep(2 ** attempt)
+              raise RuntimeError(f"Slack post failed after bounded retries: {last_error}")
+
+          def main():
+              token = os.environ.get("SLACK_NOTIFIER_BOT_TOKEN")
+              if not token:
+                  raise RuntimeError("SLACK_NOTIFIER_BOT_TOKEN is missing")
+              event_type = os.environ["EVENT_TYPE"]
+              payload = load_json_env("EVENT_PAYLOAD_JSON")
+              config = load_json_env("ROUTING_CONFIG_JSON")
+              test_mode = getenv_bool("TEST_MODE")
+              production_enabled = getenv_bool("PRODUCTION_ROUTES_ENABLED")
+              if not test_mode and not production_enabled:
+                  raise RuntimeError("production routing is disabled")
+              repo = (payload.get("repository") or {}).get("full_name")
+              if not repo:
+                  print("suppressed: repository missing from event payload")
+                  return
+              repo_record = (config.get("repositories") or {}).get(repo)
+              if not repo_record or not repo_record.get("routing_eligible"):
+                  print(f"suppressed: repository not eligible: {repo}")
+                  return
+              if not test_mode and not repo_record.get("production_enabled"):
+                  print(f"suppressed: production route disabled for {repo}")
+                  return
+              normalized = normalize(event_type, payload, repo_record)
+              if not normalized:
+                  print(f"suppressed: event is not approved or not actionable: {event_type}")
+                  return
+              if normalized["event"] not in APPROVED_EVENTS:
+                  print(f"suppressed: unapproved event {normalized['event']}")
+                  return
+              text = build_message(config, repo, repo_record, normalized, test_mode)
+              for channel_id in destination_channels(config, repo_record, normalized, test_mode):
+                  post_slack(channel_id, text, token)
+
+          if __name__ == "__main__":
+              main()
+          PY
