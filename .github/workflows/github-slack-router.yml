@@ -233,6 +233,9 @@ jobs:
               if not repo_record or not repo_record.get("routing_eligible"):
                   print(f"suppressed: repository not eligible: {repo}")
                   return
+              if test_mode and not repo_record.get("test_enabled"):
+                  print(f"suppressed: test route disabled for {repo}")
+                  return
               if not test_mode and not repo_record.get("production_enabled"):
                   print(f"suppressed: production route disabled for {repo}")
                   return
