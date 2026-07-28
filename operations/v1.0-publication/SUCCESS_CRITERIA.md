@@ -82,6 +82,10 @@ Organisation rollout succeeds only when:
 | Wave 3 | remaining active repositories handled after Wave 2 success |
 | Automatic merge | none |
 | Branch Protection changes | none |
+| Executive approval | `SaurabhVermaIN` approval required for protected-branch rollout PRs |
+| Developer self-approval | no protected-branch merge from self-approval |
+| Mandatory gates | build, tests, secrets, dependency security, deployment risk, migration risk, documentation validation, protected resource validation, and repository integrity executed or failed closed |
+| Rollout file scope | only `.github/workflows/pr-qa.yml` and `.github/pr-qa.yml` when required |
 | Dashboard | all rollout PRs tracked |
 | Rollback readiness | verified for each wave |
 | Owner feedback | no unresolved blockers |

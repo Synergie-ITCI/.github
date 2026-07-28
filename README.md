@@ -11,15 +11,13 @@ It validates and reports. It does not approve, merge, deploy, bypass repository 
 - Technology adapters: `pr-qa/adapters/`
 - Per-repository caller workflow: `.github/workflows/pr-qa.yml`
 - Per-repository configuration: `.github/pr-qa.yml`
-- Standard PR template: `.github/pull_request_template.md`
 
 ## Quick Start
 
 1. Commit this bundle into the `Synergie-ITCI/.github` repository.
 2. In a pilot repository, copy `examples/caller-workflow.yml` to `.github/workflows/pr-qa.yml`.
 3. In the same repository, copy `examples/pr-qa.yml` to `.github/pr-qa.yml` and tune only thresholds or adapter overrides.
-4. Copy `examples/pull_request_template.md` to `.github/pull_request_template.md`.
-5. Open a pull request and review the single `PR QUALITY REPORT` job summary.
+4. Open a pull request and review the single `PR QUALITY REPORT` job summary.
 
 ## Quality Gates
 
@@ -66,8 +64,12 @@ Adapters must:
 - [Validation Report](docs/validation-report.md)
 - [Migration Guide](docs/migration-guide.md)
 - [Security Hardening Report](docs/security-hardening-report.md)
+- [Executive Approval Policy](docs/executive-approval-policy.md)
 - [Executive Release Policy](docs/executive-release-policy.md)
 - [Governance Validation](docs/governance-validation.md)
+- [Final Organisation Governance Policy](docs/final-organisation-governance-policy.md)
+- [GitHub Configuration Checklist](docs/github-configuration-checklist.md)
+- [Organisation Rollout Readiness Report](docs/organisation-rollout-readiness-report.md)
 - [Repository Profiles](docs/repository-profiles.md)
 - [Emergency Override Governance Note](docs/emergency-override-governance-note.md)
 - [Before vs After Comparison](docs/before-after-comparison.md)

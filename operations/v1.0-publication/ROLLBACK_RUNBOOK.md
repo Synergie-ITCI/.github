@@ -51,7 +51,6 @@ git fetch origin --prune
 git switch -c "$REVERT_BRANCH" "origin/$DEFAULT_BRANCH"
 git rm .github/workflows/pr-qa.yml
 git rm .github/pr-qa.yml
-git rm .github/pull_request_template.md
 git status --short
 git diff --check
 git commit -m "ci: revert Synergie PR QA framework rollout"
@@ -64,7 +63,7 @@ gh pr create \
   --body "Reverts the Synergie PR QA rollout in this repository. This PR does not change application code or deployments."
 ```
 
-If a repository already had a PR template before rollout, restore that exact previous template from Git history instead of deleting it.
+Do not change pull request templates during rollback unless a prior approved rollout PR changed one. If that happened, restore the exact previous template from Git history in the revert PR.
 
 ## Scenario 3: Framework Release Must Be Suspended
 

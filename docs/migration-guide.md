@@ -11,7 +11,6 @@ Each repository gets a thin onboarding PR containing only:
 ```text
 .github/workflows/pr-qa.yml
 .github/pr-qa.yml
-.github/pull_request_template.md
 ```
 
 Do not fix unrelated quality findings in the onboarding PR. The first PR QA report is evidence, not a cleanup mandate.
@@ -34,7 +33,7 @@ The existing governance inventories can seed this data.
 ## Migration Steps
 
 1. Create branch `chore/onboard-pr-qa`.
-2. Add the caller workflow, config, and PR template.
+2. Add the caller workflow and config when required.
 3. Set repository criticality.
 4. Add protected paths already relevant to the repository.
 5. Open the PR.
@@ -51,7 +50,7 @@ Default behavior:
 - missing formatter: WARNING
 - missing linter: WARNING
 - missing tests: WARNING with "No automated test suite configured."
-- missing dependency audit tooling: WARNING
+- missing mandatory scanner or dependency audit tooling: infrastructure blocker or FAIL
 - changed secrets, generated artifacts, oversized files, destructive migrations, and incomplete evidence: FAIL
 
 ## After Migration
@@ -64,7 +63,7 @@ Create follow-up backlog items for warnings:
 - add formatter in check mode
 - install Gitleaks/actionlint/hadolint/tfsec on self-hosted runners
 - improve CODEOWNERS coverage
-- improve PR template evidence quality
+- improve PR evidence quality in a separate documentation PR when required
 
 ## Existing Workflow Interaction
 

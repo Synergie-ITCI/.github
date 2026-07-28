@@ -51,7 +51,6 @@ Copy only the approved rollout files:
 mkdir -p .github/workflows
 cp /absolute/path/to/synergie-pr-qa-framework/examples/caller-workflow.yml .github/workflows/pr-qa.yml
 cp /absolute/path/to/synergie-pr-qa-framework/examples/pr-qa.yml .github/pr-qa.yml
-cp /absolute/path/to/synergie-pr-qa-framework/examples/pull_request_template.md .github/pull_request_template.md
 ```
 
 Verify the caller reference:
@@ -66,7 +65,7 @@ git diff --check
 ## 3. Open Rollout PR
 
 ```bash
-git add .github/workflows/pr-qa.yml .github/pr-qa.yml .github/pull_request_template.md
+git add .github/workflows/pr-qa.yml .github/pr-qa.yml
 git commit -m "ci: add Synergie PR QA framework pilot"
 git push -u origin "$ROLLOUT_BRANCH"
 gh pr create \

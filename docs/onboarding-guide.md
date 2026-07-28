@@ -13,19 +13,17 @@ Copy these files into the repository:
 ```text
 .github/workflows/pr-qa.yml
 .github/pr-qa.yml
-.github/pull_request_template.md
 ```
 
 Use:
 
 - `examples/caller-workflow.yml` as `.github/workflows/pr-qa.yml`
 - `examples/pr-qa.yml` as `.github/pr-qa.yml`
-- `examples/pull_request_template.md` as `.github/pull_request_template.md`
 
 ## Onboarding Steps
 
 1. Create a branch named `chore/onboard-pr-qa`.
-2. Add the three files above.
+2. Add the approved rollout files above.
 3. Set `repository.criticality` in `.github/pr-qa.yml`.
 4. Tune thresholds only when the repository has a documented reason.
 5. Open a pull request.
@@ -35,13 +33,12 @@ Use:
 
 ## Configuration Rules
 
-Allowed repository-specific changes:
+Allowed repository-specific configuration:
 
-- enable or disable a gate with justification
 - tune size and risk thresholds
 - declare protected paths
 - configure known script names for adapters
-- disable Docker image builds where the runner cannot build safely
+- configure approved non-mutating build behavior where the runner cannot build safely, without skipping the mandatory build gate
 
 Not allowed:
 
@@ -51,6 +48,7 @@ Not allowed:
 - changing Branch Protection
 - changing CODEOWNERS
 - adding secrets for PR QA without administrator approval
+- disabling mandatory protected-branch gates
 
 ## Expected First Run
 
@@ -59,10 +57,11 @@ Legacy repositories may initially show warnings for:
 - no formatter configured
 - no linter configured
 - no automated test suite configured
-- missing Gitleaks/actionlint/hadolint/tfsec runner tooling
 - missing documentation for configuration or API changes
 
 Warnings are visible audit evidence. They do not block merges unless the repository config or future policy makes them blocking.
+
+Missing mandatory security or validation tooling is an infrastructure blocker. It must fail closed or be remediated before repository validation is treated as complete.
 
 ## Blocking Failures
 

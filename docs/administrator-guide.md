@@ -24,8 +24,9 @@ Participating repositories should only contain:
 ```text
 .github/workflows/pr-qa.yml
 .github/pr-qa.yml
-.github/pull_request_template.md
 ```
+
+Rollout pull requests must add only `.github/workflows/pr-qa.yml` and `.github/pr-qa.yml` when repository configuration is required. Pull request templates, CODEOWNERS, Branch Protection, deployment workflows, and application files are outside rollout scope.
 
 ## Runner Requirements
 
@@ -68,7 +69,7 @@ Security tooling is mandatory for the gates it supports. Gitleaks is mandatory. 
 
 ## Required Status Check
 
-After Phase 1 validation, administrators may mark the caller workflow status as required in Branch Protection or repository rulesets.
+For protected branches, administrators must mark the Enterprise PR QA caller workflow status as required in Branch Protection or repository rulesets after the rollout PR has produced the exact GitHub check context.
 
 Do this outside the PR QA workflow. The workflow itself must not mutate GitHub settings.
 
@@ -94,28 +95,33 @@ Approved governance assets such as `.gitleaks.toml`, `.github/**`, `.gitignore`,
 
 Protected branches must use GitHub Branch Protection or repository rulesets as the merge authority. PR QA supplies required technical evidence; it does not approve, merge, or bypass rules.
 
+The final governance source of truth is [Final Organisation Governance Policy](final-organisation-governance-policy.md). Manual GitHub enforcement settings are listed in [GitHub Configuration Checklist](github-configuration-checklist.md).
+
 Configure the organisation governance model as follows:
 
 | Control | Required Setting |
 | --- | --- |
-| Required QA | Enterprise PR QA required on every pull request |
+| Required QA | Enterprise PR QA required on every protected-branch pull request |
 | Required approval | one approval from the Executive Release Authority |
 | Current Executive Release Authority | `SaurabhVermaIN` |
+| Protected-branch merge requirement | `SaurabhVermaIN` approval or recorded Executive administrator bypass after QA |
 | Developer self-approval | prohibited |
 | Non-authority approval | may comment or review, but cannot satisfy protected-branch approval |
 | Require Last Push Approval | enabled |
 | Review thread resolution | enabled |
 | Stale review dismissal | enabled |
 
-Recommended GitHub configuration:
+Required manual GitHub configuration:
 
 - Use a protected branch ruleset for `main` and every protected release branch.
 - Require pull requests before merging.
 - Require at least one approving review.
-- Require review from `SaurabhVermaIN` directly, or from a GitHub team/role that only contains the current Executive Release Authority.
+- Require review from `SaurabhVermaIN` directly, or from a GitHub team/role that only contains `SaurabhVermaIN`.
+- Require the Enterprise PR QA status check emitted by `.github/workflows/pr-qa.yml`.
 - Keep `require_last_push_approval` enabled so the PR author or last pusher cannot satisfy their own approval requirement.
 - Restrict ruleset bypass actors to the Executive Release Authority or the controlled Executive Release Authority team.
 - Permit administrator bypass only through GitHub's explicit bypass flow and only after PR QA has completed.
+- Disable automatic merge for rollout pull requests operationally. Repository owners may merge only through normal protected-branch flow after Executive Release Authority approval.
 
 When `SaurabhVermaIN` opens or last-pushes a pull request, GitHub must continue to block self-approval. The expected governance path is:
 

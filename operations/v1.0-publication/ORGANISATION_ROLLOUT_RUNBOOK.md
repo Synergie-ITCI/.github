@@ -17,6 +17,7 @@ Objective: after successful publication, single pilot, and expanded pilot, open 
 | Executive Release Authority | `SaurabhVermaIN` is configured as required reviewer or sole role holder |
 | Last push approval | enabled on protected branches |
 | Repository profile | `application` unless governance has approved another profile |
+| Final governance package | Final Organisation Governance Policy, Executive Approval Policy, GitHub Configuration Checklist, Governance Validation Report, and Organisation Rollout Readiness Report reviewed |
 
 ## Rollout Principles
 
@@ -24,8 +25,9 @@ Objective: after successful publication, single pilot, and expanded pilot, open 
 - Repository owners decide merge timing.
 - No automatic merge.
 - No Branch Protection updates.
-- No deployment workflow changes except the caller workflow PR content.
+- No deployment workflow changes.
 - Enterprise PR QA must complete for every rollout PR and subsequent pull request.
+- Build, tests, secret scanning, dependency security, deployment risk, migration risk, documentation validation, protected resource validation, and repository integrity may never be skipped.
 - Production application repositories use the `application` profile by default.
 - The `framework` profile is not used for rollout repositories unless the target is an approved internal engineering framework.
 - `SaurabhVermaIN` is the only reviewer who may satisfy protected-branch approval.
@@ -112,12 +114,11 @@ git switch -c "$ROLLOUT_BRANCH" "origin/$DEFAULT_BRANCH"
 mkdir -p .github/workflows
 cp /absolute/path/to/synergie-pr-qa-framework/examples/caller-workflow.yml .github/workflows/pr-qa.yml
 cp /absolute/path/to/synergie-pr-qa-framework/examples/pr-qa.yml .github/pr-qa.yml
-cp /absolute/path/to/synergie-pr-qa-framework/examples/pull_request_template.md .github/pull_request_template.md
 rg -n "Synergie-ITCI/.github/.github/workflows/pr-qa.yml@pr-qa-v1-rc2" .github/workflows/pr-qa.yml
 actionlint .github/workflows/pr-qa.yml
 check-jsonschema --schemafile /absolute/path/to/synergie-pr-qa-framework/schemas/pr-qa.schema.json .github/pr-qa.yml
 git diff --check
-git add .github/workflows/pr-qa.yml .github/pr-qa.yml .github/pull_request_template.md
+git add .github/workflows/pr-qa.yml .github/pr-qa.yml
 git commit -m "ci: add Synergie PR QA framework"
 git push -u origin "$ROLLOUT_BRANCH"
 gh pr create \
@@ -125,8 +126,10 @@ gh pr create \
   --base "$DEFAULT_BRANCH" \
   --head "$ROLLOUT_BRANCH" \
   --title "ci: add Synergie PR QA framework" \
-  --body "Adds the approved Synergie Enterprise PR QA Framework v1.0 caller workflow pinned to $RELEASE_REF. Repository owners must review. Protected-branch approval must be satisfied by the Executive Release Authority. Do not merge automatically."
+  --body "Adds the approved Synergie Enterprise PR QA Framework v1.0 caller workflow pinned to $RELEASE_REF. This PR changes only PR QA onboarding files. Repository owners must review. Protected-branch approval must be satisfied by SaurabhVermaIN. Do not merge automatically."
 ```
+
+If a repository already has an approved `.github/pr-qa.yml` on the default branch, do not replace it unless schema validation requires the minimal production profile configuration. Do not include pull request templates, CODEOWNERS, branch-protection changes, deployment workflows, or application files in rollout PRs.
 
 ## Wave Exit Criteria
 

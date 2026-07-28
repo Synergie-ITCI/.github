@@ -14,23 +14,21 @@ application code.
 
 Add this file to participating repositories:
 
-`.github/workflows/pr-quality-gate.yml`
+`.github/workflows/pr-qa.yml`
 
 ```yaml
-name: PR Quality Gate
+name: Synergie PR QA
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
-  pull-requests: write
-  checks: write
+  pull-requests: read
 
 jobs:
-  pr-quality-gate:
-    uses: Synergie-ITCI/.github/.github/workflows/reusable-pr-quality-gate.yml@main
+  pr-qa:
+    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@pr-qa-v1-rc2
 ```
 
 ## Optional Repository Config
@@ -38,46 +36,34 @@ jobs:
 Repositories may add `.github/pr-qa.yml`:
 
 ```yaml
-checks:
-  formatting: true
-  lint: true
-  build: true
-  tests: true
-  git_validation: true
-  secrets: true
-  dependency_security: true
-  deployment_risk: true
-  migration_risk: true
-  large_files: true
-  documentation: true
-  ai_advisory: true
-
-large_file_threshold_mb: 10
-fail_on_dependency_vulnerabilities: false
+version: 1
+repository:
+  profile: application
+  criticality: medium
 ```
 
 ## Failure Rules
 
-The gate fails only on objective blockers:
+The gate reports the true technical state of every mandatory control. Findings must not be suppressed or altered for governance convenience.
+
+Blocking failures include:
 
 - build failure when a build command is configured
 - test failure when tests are configured
 - lint failure when lint is configured
 - `git diff --check` failures
 - confirmed secret or credential material
+- dependency security failures
+- deployment and migration risk failures
+- protected-resource and repository-integrity failures
 
-The gate does not fail because tests, linters, build steps, or formatters are
-absent. It reports those as not configured.
-
-Dependency vulnerabilities, deployment risk, migration risk, documentation gaps,
-large files, and AI advisory observations are reported as warnings unless a repo
-explicitly opts into stricter behavior.
+Missing mandatory security or validation tooling is an infrastructure blocker. Missing repository-specific project commands are reported truthfully as configured by the frozen framework.
 
 ## Validation Checklist
 
 - Reusable workflow exists in `Synergie-ITCI/.github`
 - Caller workflow exists in the participating repository
-- A test PR runs `PR Quality Gate`
+- A test PR runs Enterprise PR QA
 - The check summary is posted on the PR
 - File annotations appear for failures and warnings
 - Branch Protection, CODEOWNERS, approvals, and merge permissions remain owned by GitHub
