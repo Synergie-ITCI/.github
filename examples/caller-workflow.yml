@@ -1,0 +1,23 @@
+name: PR Quality Assurance
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+      - edited
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: pr-qa-${{ github.repository }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-qa:
+    if: github.event.pull_request.draft == false
+    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@pr-qa-v1-rc2

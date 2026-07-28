@@ -1,0 +1,88 @@
+version: 1
+
+repository:
+  criticality: medium
+  protected_paths:
+    - .github/**
+    - deployment/**
+    - deploy/**
+    - infra/**
+    - terraform/**
+    - k8s/**
+    - kubernetes/**
+    - Dockerfile
+    - docker-compose*.yml
+    - nginx/**
+    - apache/**
+    - scripts/deploy*
+    - .env.example
+
+gates:
+  repository_hygiene: true
+  formatting: true
+  lint: true
+  build: true
+  tests: true
+  git_validation: true
+  secrets: true
+  dependencies: true
+  licence: true
+  deployment_safety: true
+  database_safety: true
+  documentation: true
+  protected_resources: true
+  advisory_review: true
+  risk: true
+  evidence: true
+
+thresholds:
+  max_file_bytes: 5242880
+  max_changed_files: 200
+  max_additions: 5000
+  risk_warning: 40
+  risk_fail: 85
+
+branch_naming:
+  allowed_patterns:
+    - ^(feature|feat|fix|hotfix|release|chore|docs|test|refactor|security|codex)/[a-zA-Z0-9._/-]+$
+    - ^(main|master|develop|development|staging)$
+
+commit_messages:
+  allowed_patterns:
+    - '^(feat|fix|docs|style|refactor|test|chore|build|ci|perf|security|revert)(\([^)]+\))?: .+'
+    - '^Merge .+'
+
+evidence:
+  required_fields:
+    - business purpose
+    - testing performed
+    - rollback strategy
+    - linked issue
+  screenshots_required_for_ui_changes: true
+
+runtime:
+  install_dependencies: true
+  allow_network_installs: true
+  fail_fast_on_secrets: true
+
+adapters:
+  node:
+    install: auto
+    lint_script_names:
+      - lint
+    build_script_names:
+      - build
+      - production
+      - prod
+    test_script_names:
+      - test
+      - test:ci
+  php:
+    install: auto
+    laravel_env: testing
+  python:
+    install: auto
+  docker:
+    build_images: false
+  terraform:
+    init_backend: false

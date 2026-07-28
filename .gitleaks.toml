@@ -1,0 +1,11 @@
+title = "Synergie PR QA Framework Gitleaks Configuration"
+
+[[allowlists]]
+description = "Intentional regression fixture for encoded secret detection tests only."
+condition = "AND"
+paths = [
+  '''^tests/test_pr_qa_regressions\.py$''',
+]
+regexes = [
+  '''Z2hwX2Zha2VmYWtlZmFrZWZha2VmYWtlZmFrZWZha2VmYWtl''',
+]

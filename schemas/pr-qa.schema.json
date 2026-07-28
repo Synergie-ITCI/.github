@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synergie.in/schemas/pr-qa.schema.json",
+  "title": "Synergie PR QA repository configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "criticality": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "critical"]
+        },
+        "protected_paths": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      }
+    },
+    "gates": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repository_hygiene": { "const": true },
+        "formatting": { "const": true },
+        "lint": { "const": true },
+        "build": { "const": true },
+        "tests": { "const": true },
+        "git_validation": { "const": true },
+        "secrets": { "const": true },
+        "dependencies": { "const": true },
+        "licence": { "const": true },
+        "deployment_safety": { "const": true },
+        "database_safety": { "const": true },
+        "documentation": { "const": true },
+        "protected_resources": { "const": true },
+        "risk": { "const": true },
+        "evidence": { "const": true },
+        "advisory_review": { "type": "boolean" }
+      }
+    },
+    "thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_file_bytes": { "type": "integer", "minimum": 1, "maximum": 5242880 },
+        "max_changed_files": { "type": "integer", "minimum": 1, "maximum": 200 },
+        "max_additions": { "type": "integer", "minimum": 1, "maximum": 5000 },
+        "risk_warning": { "type": "integer", "minimum": 0, "maximum": 40 },
+        "risk_fail": { "type": "integer", "minimum": 0, "maximum": 85 }
+      }
+    },
+    "branch_naming": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allowed_patterns": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      }
+    },
+    "commit_messages": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allowed_patterns": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "required_fields": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "screenshots_required_for_ui_changes": {
+          "type": "boolean"
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "install_dependencies": { "const": true },
+        "allow_network_installs": { "type": "boolean" },
+        "fail_fast_on_secrets": { "const": true }
+      }
+    },
+    "adapters": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}
