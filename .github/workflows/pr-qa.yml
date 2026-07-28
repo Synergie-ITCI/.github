@@ -1,0 +1,190 @@
+name: Synergie PR QA
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  PR_QA_COMMAND_TIMEOUT_MINUTES: "20"
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  detect:
+    name: Detect repository technologies
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      technologies: ${{ steps.detect.outputs.technologies }}
+      php: ${{ steps.detect.outputs.php }}
+      node: ${{ steps.detect.outputs.node }}
+      python: ${{ steps.detect.outputs.python }}
+      go: ${{ steps.detect.outputs.go }}
+      gradle: ${{ steps.detect.outputs.gradle }}
+      java: ${{ steps.detect.outputs.java }}
+      dotnet: ${{ steps.detect.outputs.dotnet }}
+      rust: ${{ steps.detect.outputs.rust }}
+      swift: ${{ steps.detect.outputs.swift }}
+    steps:
+      - name: Checkout pull request
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout immutable central PR QA framework
+        uses: actions/checkout@v4
+        with:
+          repository: Synergie-ITCI/.github
+          ref: pr-qa-v1-rc2
+          path: .pr-qa-framework
+          persist-credentials: false
+
+      - name: Detect technologies
+        id: detect
+        run: |
+          python3 .pr-qa-framework/pr-qa/pr_qa.py \
+            --repo "$GITHUB_WORKSPACE" \
+            --detect-only \
+            --github-output "$GITHUB_OUTPUT"
+
+  qa:
+    name: Pull Request Quality Assurance
+    runs-on: ubuntu-latest
+    needs: detect
+    timeout-minutes: 60
+    steps:
+      - name: Checkout pull request
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout immutable central PR QA framework
+        uses: actions/checkout@v4
+        with:
+          repository: Synergie-ITCI/.github
+          ref: pr-qa-v1-rc2
+          path: .pr-qa-framework
+          persist-credentials: false
+
+      - name: Phase 1 static preflight
+        id: static
+        run: |
+          mkdir -p pr-qa-results
+          set +e
+          python3 .pr-qa-framework/pr-qa/pr_qa.py \
+            --repo "$GITHUB_WORKSPACE" \
+            --static-only \
+            --out pr-qa-results/pr-quality-report.md \
+            --json-out pr-qa-results/pr-quality-report.json \
+            --command-timeout-minutes "$PR_QA_COMMAND_TIMEOUT_MINUTES"
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Publish Phase 1 report
+        if: always()
+        run: |
+          if [ -f pr-qa-results/pr-quality-report.md ]; then
+            cat pr-qa-results/pr-quality-report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "# PR QUALITY REPORT"
+              echo ""
+              echo "FAIL: Phase 1 report was not generated."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload Phase 1 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-qa-phase-1-results
+          path: pr-qa-results/
+          retention-days: 30
+
+      - name: Enforce Phase 1 static preflight
+        if: steps.static.outputs.exit_code != '0'
+        run: exit 1
+
+      - name: Set up Node.js
+        if: needs.detect.outputs.node == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Set up PHP
+        if: needs.detect.outputs.php == 'true'
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          tools: composer
+          coverage: none
+
+      - name: Set up Python
+        if: needs.detect.outputs.python == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Go
+        if: needs.detect.outputs.go == 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Set up Java
+        if: needs.detect.outputs.gradle == 'true' || needs.detect.outputs.java == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up .NET
+        if: needs.detect.outputs.dotnet == 'true'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Phase 2 and Phase 3 validation
+        id: full
+        run: |
+          rm -rf pr-qa-results
+          mkdir -p pr-qa-results
+          set +e
+          python3 .pr-qa-framework/pr-qa/pr_qa.py \
+            --repo "$GITHUB_WORKSPACE" \
+            --out pr-qa-results/pr-quality-report.md \
+            --json-out pr-qa-results/pr-quality-report.json \
+            --command-timeout-minutes "$PR_QA_COMMAND_TIMEOUT_MINUTES"
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Publish final PR QA report
+        if: always()
+        run: |
+          if [ -f pr-qa-results/pr-quality-report.md ]; then
+            cat pr-qa-results/pr-quality-report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "# PR QUALITY REPORT"
+              echo ""
+              echo "FAIL: final report was not generated."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload final PR QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-qa-results
+          path: pr-qa-results/
+          retention-days: 30
+
+      - name: Enforce final PR QA result
+        if: steps.full.outputs.exit_code != '0'
+        run: exit 1

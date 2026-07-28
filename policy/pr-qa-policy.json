@@ -1,0 +1,253 @@
+{
+  "version": 1,
+  "policy_id": "synergie-pr-qa-enterprise-v1",
+  "mandatory_gates": [
+    "repository_hygiene",
+    "formatting",
+    "lint",
+    "build",
+    "tests",
+    "git_validation",
+    "secrets",
+    "dependencies",
+    "licence",
+    "deployment_safety",
+    "database_safety",
+    "documentation",
+    "protected_resources",
+    "risk",
+    "evidence"
+  ],
+  "optional_gates": [
+    "advisory_review"
+  ],
+  "emergency_override": {
+    "authorized_actors": [
+      "SaurabhVermaIN"
+    ],
+    "audit_artifact": "emergency-override-audit.json"
+  },
+  "governance": {
+    "executive_release_authority": {
+      "current_holder": "SaurabhVermaIN",
+      "required_reviewers": [
+        "SaurabhVermaIN"
+      ],
+      "developer_self_approval_allowed": false,
+      "non_authority_approval_satisfies_protection": false,
+      "require_last_push_approval": true,
+      "administrator_bypass": {
+        "eligible_actors": [
+          "SaurabhVermaIN"
+        ],
+        "requires_completed_qa": true,
+        "requires_reason": true,
+        "preserve_qa_evidence": true
+      }
+    }
+  },
+  "minimum_thresholds": {
+    "max_file_bytes": 5242880,
+    "max_changed_files": 200,
+    "max_additions": 5000,
+    "risk_warning": 40,
+    "risk_fail": 85
+  },
+  "defaults": {
+    "version": 1,
+    "repository": {
+      "profile": "application",
+      "criticality": "medium",
+      "protected_paths": [
+        ".gitleaks.toml",
+        ".github/**",
+        "CODEOWNERS",
+        "docs/CODEOWNERS",
+        ".github/CODEOWNERS",
+        "policy/**",
+        "schemas/**",
+        "deployment/**",
+        "deploy/**",
+        "infra/**",
+        "terraform/**",
+        "k8s/**",
+        "kubernetes/**",
+        "Dockerfile",
+        "Dockerfile.*",
+        "docker-compose*.yml",
+        "docker-compose*.yaml",
+        "nginx/**",
+        "apache/**",
+        "scripts/deploy*",
+        ".env.example"
+      ]
+    },
+    "gates": {},
+    "thresholds": {
+      "max_file_bytes": 5242880,
+      "max_changed_files": 200,
+      "max_additions": 5000,
+      "risk_warning": 40,
+      "risk_fail": 85
+    },
+    "branch_naming": {
+      "allowed_patterns": [
+        "^(feature|feat|fix|hotfix|release|chore|docs|test|refactor|security|codex)/[a-zA-Z0-9._/-]+$",
+        "^(main|master|develop|development|staging)$"
+      ]
+    },
+    "commit_messages": {
+      "allowed_patterns": [
+        "^(feat|fix|docs|style|refactor|test|chore|build|ci|perf|security|release|revert)(\\([^)]+\\))?: .+",
+        "^Merge .+"
+      ]
+    },
+    "evidence": {
+      "required_fields": [
+        "business purpose",
+        "testing performed",
+        "rollback strategy",
+        "linked issue"
+      ],
+      "screenshots_required_for_ui_changes": true
+    },
+    "runtime": {
+      "install_dependencies": true,
+      "allow_network_installs": true,
+      "fail_fast_on_secrets": true
+    },
+    "adapters": {}
+  },
+  "generated_path_components": [
+    "node_modules",
+    "vendor",
+    "dist",
+    "build",
+    "coverage",
+    ".next",
+    ".gradle",
+    "target",
+    "Pods",
+    "__pycache__"
+  ],
+  "generated_artifact_patterns": [
+    "*.pyc",
+    "*.pyo",
+    "*.class",
+    "*.o",
+    "*.so",
+    "*.dll",
+    "*.dylib",
+    "*.min.js.map",
+    "storage/logs/**"
+  ],
+  "allowed_binary_extensions": [
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".pdf"
+  ],
+  "allowed_hidden_files": [
+    ".github",
+    ".gitleaks.toml",
+    ".gitignore",
+    ".gitattributes",
+    ".editorconfig",
+    ".styleci.yml",
+    ".dockerignore",
+    ".env.example",
+    ".env.sample",
+    ".env.template"
+  ],
+  "approved_governance_assets": [
+    ".gitleaks.toml",
+    ".github/**",
+    ".gitignore",
+    ".gitattributes",
+    ".editorconfig",
+    ".dockerignore",
+    ".styleci.yml",
+    ".github/CODEOWNERS",
+    "CODEOWNERS",
+    "docs/CODEOWNERS",
+    "policy/**",
+    "schemas/**"
+  ],
+  "repository_profiles": {
+    "application": {
+      "purpose": "Production and customer-facing application repositories.",
+      "approved_governance_assets": [],
+      "approved_regression_fixtures": []
+    },
+    "framework": {
+      "purpose": "Internal engineering frameworks that carry policy, schema, test, and release-governance assets.",
+      "approved_governance_assets": [
+        "docs/**",
+        "examples/**",
+        "operations/**",
+        "releases/**",
+        "tests/**"
+      ],
+      "approved_regression_fixtures": [
+        ".gitleaks.toml",
+        "tests/test_pr_qa_regressions.py"
+      ]
+    },
+    "infrastructure": {
+      "purpose": "Terraform, Kubernetes, and deployment-control repositories.",
+      "approved_governance_assets": [],
+      "approved_regression_fixtures": []
+    },
+    "library": {
+      "purpose": "Shared libraries consumed by application repositories.",
+      "approved_governance_assets": [],
+      "approved_regression_fixtures": []
+    },
+    "documentation": {
+      "purpose": "Documentation-only repositories.",
+      "approved_governance_assets": [],
+      "approved_regression_fixtures": []
+    }
+  },
+  "executable_extensions": [
+    ".php",
+    ".js",
+    ".jsx",
+    ".ts",
+    ".tsx",
+    ".py",
+    ".go",
+    ".java",
+    ".kt",
+    ".kts",
+    ".swift",
+    ".cs",
+    ".rs",
+    ".rb",
+    ".sh",
+    ".bash",
+    ".ps1",
+    ".sql"
+  ],
+  "known_technology_markers": [
+    "composer.json",
+    "package.json",
+    "pyproject.toml",
+    "requirements.txt",
+    "go.mod",
+    "build.gradle",
+    "build.gradle.kts",
+    "pom.xml",
+    "Package.swift",
+    "Cargo.toml",
+    "*.sln",
+    "*.csproj"
+  ],
+  "secret_scan": {
+    "require_gitleaks": true,
+    "scan_encoded_values": true,
+    "minimum_base64_length": 24
+  }
+}

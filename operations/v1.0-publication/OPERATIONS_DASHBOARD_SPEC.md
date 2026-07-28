@@ -1,0 +1,149 @@
+# Operations Dashboard Specification
+
+Release reference: `pr-qa-v1-rc2`
+
+Objective: define the dashboard needed to monitor publication, pilot, expanded pilot, and organisation rollout without changing the framework.
+
+## Data Sources
+
+| Source | Purpose |
+| --- | --- |
+| GitHub pull requests | rollout status, owner review, merge state |
+| GitHub Actions runs | runtime, conclusion, runner stability, workflow failures |
+| PR QA report artifacts | gate results, risk levels, scanner output summaries |
+| Release evidence register | publication integrity, tag SHA, workflow SHA |
+| Repository inventory | rollout wave scope and exclusions |
+| GitHub rulesets | required reviewer, last-push approval, bypass actor configuration |
+| Emergency override audit artifacts | administrator bypass reason, actor, QA summary at bypass time |
+| Repository profile register | approved repository profile and any profile-change approval |
+| Developer feedback form | usability, clarity, false positives |
+| Reviewer feedback form | report usefulness, review time, confidence |
+
+## Dashboard Sections
+
+### 1. Publication Health
+
+| Metric | Definition | Target |
+| --- | --- | --- |
+| Release tag exists | `pr-qa-v1-rc2` present in central repo | yes |
+| Tag protected | ruleset or tag protection active | yes |
+| Workflow resolvable | reusable workflow readable by API at release ref | yes |
+| Release published | GitHub release exists for release ref | yes |
+| Integrity hash recorded | archive SHA-256 and workflow SHA recorded | yes |
+
+### 2. Adoption
+
+| Metric | Definition | Target |
+| --- | --- | --- |
+| Repositories protected | repositories with merged caller workflow | increasing by wave |
+| Open rollout PRs | rollout PRs awaiting owner review | tracked daily |
+| Merged rollout PRs | rollout PRs merged by owners | tracked daily |
+| Closed rollout PRs | rollout PRs closed or rolled back | reviewed |
+| Excluded repositories | no default branch, archived, or owner blocked | explicitly listed |
+| Repository profiles | `application`, `framework`, `infrastructure`, `library`, or `documentation` | approved and tracked |
+
+### 3. Workflow Performance
+
+| Metric | Definition | Target |
+| --- | --- | --- |
+| Average runtime | mean PR QA runtime | stable |
+| p95 runtime | slowest routine runs | no uncontrolled growth |
+| Queue delay | run queued time before start | monitored |
+| Runner failure rate | infrastructure failures divided by total runs | near zero |
+| Retry rate | runs re-executed due to platform instability | low |
+
+### 4. Gate Outcomes
+
+| Metric | Definition |
+| --- | --- |
+| Secrets blocked | PRs failed by secret detection |
+| Broken builds detected | PRs failed by build/test gates |
+| High-risk PRs | PRs classified high risk |
+| Deployment-change PRs | PRs touching deploy workflows or manifests |
+| Migration PRs | PRs touching database migration paths |
+| Documentation-only PRs | PRs classified low risk |
+
+### 5. Quality Signal
+
+| Metric | Definition | Review Cadence |
+| --- | --- | --- |
+| False positives | expected safe PRs blocked unexpectedly | daily during pilot, weekly after rollout |
+| False negatives | expected risky PRs not flagged | immediate incident review |
+| Reviewer confidence | reviewer survey score | per wave |
+| Developer satisfaction | developer survey score | per wave |
+| Review duration | time from PR open to review decision | per wave |
+
+### 6. Security Assurance
+
+| Metric | Definition | Target |
+| --- | --- | --- |
+| Secret redaction failures | logs or artifacts exposing synthetic or real secret values | zero |
+| Mandatory scanner execution | required scanners actually ran | 100 percent |
+| Dependency audit coverage | supported ecosystems scanned | per repo |
+| Artifact retention compliance | reports retained according to policy | 100 percent |
+
+### 7. Executive Release Governance
+
+| Metric | Definition | Target |
+| --- | --- | --- |
+| Executive approval coverage | protected-branch PRs approved by `SaurabhVermaIN` or the Executive Release Authority role | 100 percent |
+| Non-authority approvals | approvals by reviewers that did not satisfy protected-branch approval | tracked |
+| Developer self-approval attempts | PRs where author and approving reviewer match | zero merges from self-approval |
+| Last-push approval enforcement | PRs blocked because the author or last pusher attempted self-approval | enforced |
+| Administrator bypass events | explicit GitHub administrator bypasses by the Executive Release Authority | reviewed individually |
+| Bypass reason completeness | bypass events with a specific recorded reason | 100 percent |
+| Override audit retention | bypass events with retained `emergency-override-audit.json` and QA report artifacts | 100 percent |
+| Failing-QA bypass events | administrator bypasses where QA did not pass | immediate post-event review |
+
+## Recommended Views
+
+- Executive view: adoption by wave, go/no-go status, unresolved blockers.
+- DevSecOps view: scanner execution, secret detections, false negatives, runner failures.
+- QA view: test/build failures, report clarity, false positives, scenario outcomes.
+- Release Manager view: PR status, Executive Release Authority approval, administrator bypass evidence, evidence completeness, rollback readiness.
+
+## Minimal Implementation
+
+A spreadsheet or GitHub Project is sufficient for pilot and expanded pilot. Required columns:
+
+| Column |
+| --- |
+| phase |
+| wave |
+| repository |
+| repository profile |
+| default branch |
+| rollout PR |
+| rollout PR status |
+| reusable ref |
+| latest run |
+| conclusion |
+| runtime minutes |
+| false positive count |
+| false negative count |
+| runner failures |
+| owner approval |
+| executive release authority approval |
+| author equals approver |
+| last push approval blocked |
+| administrator bypass used |
+| administrator bypass reason |
+| emergency override audit artifact |
+| rollback status |
+| go/no-go |
+
+## Alerts
+
+Create manual or automated alerts for:
+
+- workflow resolution failure
+- synthetic secret not blocked
+- unredacted secret in logs or artifacts
+- p95 runtime greater than agreed pilot threshold
+- more than one runner failure in a wave
+- rollout PR merged without owner approval
+- protected-branch PR merged without Executive Release Authority approval or recorded administrator bypass
+- developer self-approval satisfies merge
+- administrator bypass without a specific reason
+- administrator bypass without retained QA evidence
+- release tag mutation or deletion
