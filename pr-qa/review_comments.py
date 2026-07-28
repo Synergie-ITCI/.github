@@ -12,21 +12,28 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
+from evidence import validate_qa_evidence
+
 
 DEFAULT_MARKER_NAMESPACE = "synergie-pr-qa:inline-review"
 AI_MARKER_NAMESPACE = "synergie-ai-review:inline-review"
 MAX_BATCH_COMMENTS = 50
+DEFAULT_TRUSTED_COMMENT_AUTHORS = "github-actions[bot]"
 
 
 def main() -> int:
     args = parse_args()
     event = read_json_file(args.event_path)
-    report = read_json_file(args.report_json)
     pr_number = extract_pr_number(event)
     repository = args.repository or os.environ.get("GITHUB_REPOSITORY", "") or extract_repository(event)
     if not pr_number or not repository:
         print("Synergie inline review comments skipped: pull request context is unavailable.")
         return 0
+    evidence = validate_qa_evidence(args.report_json, event, require_pass=False)
+    if not evidence.valid:
+        print(f"Synergie inline review comments skipped: {evidence.reason}.")
+        return 0
+    report = evidence.report
 
     findings = list(report.get("inline_review", {}).get("findings", []) or [])
     if args.dry_run:
@@ -47,6 +54,8 @@ def main() -> int:
         findings,
         marker_namespace=args.marker_namespace,
         review_body=args.review_body,
+        expected_head_sha=evidence.head_sha,
+        trusted_author_logins=parse_trusted_authors(args.trusted_comment_authors),
     )
     print(json.dumps(outcome, indent=2, sort_keys=True))
     return 0
@@ -61,6 +70,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--token-env", default="GITHUB_TOKEN", help="Environment variable containing the GitHub token.")
     parser.add_argument("--marker-namespace", default=DEFAULT_MARKER_NAMESPACE, help="Comment marker namespace owned by this publisher.")
     parser.add_argument("--review-body", default="Synergie Enterprise PR QA inline review findings.", help="Body for new submitted reviews.")
+    parser.add_argument(
+        "--trusted-comment-authors",
+        default=os.environ.get("SYNERGIE_TRUSTED_COMMENT_AUTHORS", DEFAULT_TRUSTED_COMMENT_AUTHORS),
+        help="Comma-separated GitHub logins whose marker comments may be managed.",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print comment plan without calling GitHub.")
     return parser.parse_args()
 
@@ -107,6 +121,10 @@ class GitHubClient:
 
     def list_review_comments(self, pr_number: int) -> list[dict[str, Any]]:
         return self.paginated(f"/repos/{self.owner}/{self.repo}/pulls/{pr_number}/comments")
+
+    def get_pull(self, pr_number: int) -> dict[str, Any]:
+        payload = self.request_json("GET", f"/repos/{self.owner}/{self.repo}/pulls/{pr_number}")
+        return payload if isinstance(payload, dict) else {}
 
     def create_review(self, pr_number: int, comments: list[dict[str, Any]], body: str = "Synergie Enterprise PR QA inline review findings.") -> dict[str, Any]:
         return self.request_json(
@@ -175,17 +193,21 @@ def synchronize_inline_review_comments(
     findings: list[dict[str, Any]],
     marker_namespace: str = DEFAULT_MARKER_NAMESPACE,
     review_body: str = "Synergie Enterprise PR QA inline review findings.",
+    expected_head_sha: str = "",
+    trusted_author_logins: set[str] | None = None,
 ) -> dict[str, Any]:
     files = client.list_pull_files(pr_number)
     positions = build_diff_positions(files)
     desired = map_findings_to_diff(dedupe_findings(findings), positions)
-    existing_comments = synergie_comments(client.list_review_comments(pr_number), marker_namespace)
+    existing_comments = synergie_comments(client.list_review_comments(pr_number), marker_namespace, trusted_author_logins)
     desired_by_fingerprint = {finding["fingerprint"]: finding for finding in desired[:MAX_BATCH_COMMENTS]}
 
     created: list[str] = []
     updated: list[str] = []
     deleted: list[str] = []
     new_comments: list[dict[str, Any]] = []
+    updates: list[tuple[dict[str, Any], str]] = []
+    deletions: list[dict[str, Any]] = []
 
     existing_by_fingerprint: dict[str, dict[str, Any]] = {}
     duplicate_existing: list[dict[str, Any]] = []
@@ -196,25 +218,20 @@ def synchronize_inline_review_comments(
         else:
             existing_by_fingerprint[fingerprint] = comment
 
-    for comment in duplicate_existing:
-        client.delete_comment(int(comment["id"]))
-        deleted.append(comment["fingerprint"])
+    deletions.extend(duplicate_existing)
 
     for fingerprint, comment in existing_by_fingerprint.items():
         desired_finding = desired_by_fingerprint.get(fingerprint)
         if not desired_finding:
-            client.delete_comment(int(comment["id"]))
-            deleted.append(fingerprint)
+            deletions.append(comment)
             continue
         body = render_comment_body(desired_finding, marker_namespace)
         if location_changed(comment, desired_finding):
-            client.delete_comment(int(comment["id"]))
-            deleted.append(fingerprint)
+            deletions.append(comment)
             new_comments.append(review_comment_payload(desired_finding, body))
             created.append(fingerprint)
         elif str(comment.get("body") or "") != body:
-            client.update_comment(int(comment["id"]), body)
-            updated.append(fingerprint)
+            updates.append((comment, body))
 
     for fingerprint, desired_finding in desired_by_fingerprint.items():
         if fingerprint not in existing_by_fingerprint:
@@ -222,8 +239,32 @@ def synchronize_inline_review_comments(
             new_comments.append(review_comment_payload(desired_finding, body))
             created.append(fingerprint)
 
+    write_operations = bool(new_comments or updates or deletions)
+    if write_operations:
+        stale = stale_head_outcome(client, pr_number, expected_head_sha)
+        if stale:
+            return base_outcome(findings, desired, desired_by_fingerprint) | stale
+
     if new_comments:
-        client.create_review(pr_number, new_comments, review_body)
+        response = client.create_review(pr_number, new_comments, review_body)
+        if not isinstance(response, dict) or not response.get("id"):
+            raise RuntimeError("GitHub review publication was not acknowledged.")
+
+    if updates or deletions:
+        stale = stale_head_outcome(client, pr_number, expected_head_sha)
+        if stale:
+            outcome = base_outcome(findings, desired, desired_by_fingerprint)
+            outcome["created"] = len(created) if new_comments else 0
+            outcome["fingerprints"]["created"] = created if new_comments else []
+            return outcome | stale
+
+    for comment, body in updates:
+        client.update_comment(int(comment["id"]), body)
+        updated.append(comment["fingerprint"])
+
+    for comment in deletions:
+        client.delete_comment(int(comment["id"]))
+        deleted.append(comment["fingerprint"])
 
     return {
         "candidate_findings": len(findings),
@@ -239,6 +280,43 @@ def synchronize_inline_review_comments(
             "removed": deleted,
         },
     }
+
+
+def base_outcome(findings: list[dict[str, Any]], desired: list[dict[str, Any]], desired_by_fingerprint: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "candidate_findings": len(findings),
+        "diff_mappable_findings": len(desired),
+        "published_findings": len(desired_by_fingerprint),
+        "created": 0,
+        "updated": 0,
+        "removed": 0,
+        "skipped": max(0, len(desired) - len(desired_by_fingerprint)),
+        "fingerprints": {
+            "created": [],
+            "updated": [],
+            "removed": [],
+        },
+    }
+
+
+def stale_head_outcome(client: Any, pr_number: int, expected_head_sha: str) -> dict[str, Any]:
+    if not expected_head_sha:
+        return {}
+    current = current_pr_head_sha(client, pr_number)
+    if current == expected_head_sha:
+        return {}
+    return {
+        "publication_skipped": True,
+        "skipped_reason": "stale review skipped because the pull request head SHA changed before publication",
+        "expected_head_sha": expected_head_sha,
+        "current_head_sha": current,
+    }
+
+
+def current_pr_head_sha(client: Any, pr_number: int) -> str:
+    pull = client.get_pull(pr_number)
+    head = pull.get("head", {}) if isinstance(pull, dict) else {}
+    return str((head or {}).get("sha") or "")
 
 
 def build_diff_positions(files: list[dict[str, Any]]) -> dict[str, dict[str, set[int]]]:
@@ -318,10 +396,16 @@ def marker_template(marker_namespace: str) -> str:
     return f"<!-- {marker_namespace} fingerprint={{fingerprint}} -->"
 
 
-def synergie_comments(comments: list[dict[str, Any]], marker_namespace: str = DEFAULT_MARKER_NAMESPACE) -> list[dict[str, Any]]:
+def synergie_comments(
+    comments: list[dict[str, Any]],
+    marker_namespace: str = DEFAULT_MARKER_NAMESPACE,
+    trusted_author_logins: set[str] | None = None,
+) -> list[dict[str, Any]]:
     regex = marker_regex(marker_namespace)
     matched = []
     for comment in comments:
+        if trusted_author_logins is not None and comment_author(comment) not in trusted_author_logins:
+            continue
         body = str(comment.get("body") or "")
         marker = regex.search(body)
         if not marker:
@@ -330,6 +414,15 @@ def synergie_comments(comments: list[dict[str, Any]], marker_namespace: str = DE
         copied["fingerprint"] = marker.group(1)
         matched.append(copied)
     return matched
+
+
+def parse_trusted_authors(raw: str) -> set[str]:
+    return {item.strip() for item in raw.split(",") if item.strip()}
+
+
+def comment_author(comment: dict[str, Any]) -> str:
+    user = comment.get("user", {}) or {}
+    return str(user.get("login") or "")
 
 
 def render_comment_body(finding: dict[str, Any], marker_namespace: str = DEFAULT_MARKER_NAMESPACE) -> str:

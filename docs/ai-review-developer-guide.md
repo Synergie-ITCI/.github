@@ -27,6 +27,8 @@ pr-qa-results/ai-review-report.json
 
 These artifacts appear alongside the normal Enterprise PR QA report artifacts.
 
+AI Review is published from a separate trusted GitHub Actions job. Repository build, lint, and test commands run earlier in the read-only QA job and never receive the AI provider credential or pull request write token.
+
 ## Severity
 
 | Severity | Meaning | Merge Effect |
@@ -51,9 +53,9 @@ When you push a new commit:
 
 1. Enterprise PR QA reruns.
 2. If QA succeeds, AI Review reruns.
-3. Existing AI comments are updated when the finding remains.
-4. Resolved AI comments are removed.
-5. New AI findings are added in a batched review.
+3. The publisher confirms the workflow event, QA report, and current pull request head SHA all match.
+4. New AI findings are added in a batched review.
+5. Existing AI comments are updated or removed only after publication succeeds and the head SHA is still current.
 
 The automation avoids reposting duplicate comments.
 
@@ -61,7 +63,7 @@ The automation avoids reposting duplicate comments.
 
 The PR may show `AI Review unavailable` in the job summary or artifacts. This does not fail Enterprise QA and does not change merge governance.
 
-Examples include provider downtime, missing provider credentials, rate limits, or comment publication issues.
+Examples include provider downtime, missing provider credentials, unapproved provider destination, missing authoritative QA PASS evidence, rate limits, stale workflow runs after force-push, or comment publication issues.
 
 ## Review Expectations
 

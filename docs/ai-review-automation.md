@@ -12,23 +12,26 @@ Enterprise PR QA remains the deterministic gatekeeper. AI Review never changes Q
 
 The automation runs inside GitHub Actions. It does not depend on a local Mac, an open Codex workspace, or an interactive ChatGPT session.
 
-The reusable workflow and caller example are pinned to the pending immutable `pr-qa-v1.1` release reference. The governed implementation pull request does not create this tag; the tag must be created and protected only during reviewed publication.
+The caller example is pinned to the pending immutable `pr-qa-v1.1` release reference. Inside the reusable workflow, framework source is also checked out from `Synergie-ITCI/.github` at `pr-qa-v1.1`. The governed implementation pull request does not create the release tag; the tag must be created and protected only during reviewed publication.
 
 Required sequence:
 
 1. Developer opens or updates a pull request.
-2. Enterprise PR QA runs.
-3. If final QA exits successfully, AI Review starts.
-4. The AI Review Service analyzes only reviewable changed lines.
-5. Inline GitHub Pull Request review comments are created, updated, or removed.
-6. The AI Review Markdown and JSON reports are retained with the normal PR QA artifacts.
-7. Executive Release Authority review remains required before merge.
+2. Enterprise PR QA runs in a read-only untrusted QA job.
+3. The QA job uploads sanitized report evidence.
+4. A fresh trusted publisher job checks out only `Synergie-ITCI/.github@pr-qa-v1.1`.
+5. The publisher validates the evidence bundle, repository, PR number, head SHA, schema, completion, sanitisation, and explicit QA PASS.
+6. The AI Review Service analyzes only reviewable changed lines.
+7. Inline GitHub Pull Request review comments are created, updated, or removed only after current-head verification.
+8. The AI Review Markdown and JSON reports are retained with the publisher artifacts.
+9. Executive Release Authority review remains required before merge.
 
 ## Components
 
 | Component | Responsibility |
 | --- | --- |
-| `.github/workflows/pr-qa.yml` | Invokes AI Review after successful final QA. |
+| `.github/workflows/pr-qa.yml` | Separates read-only untrusted QA from the trusted publisher job that invokes AI Review after validated final QA PASS evidence. |
+| `pr-qa/evidence.py` | Validates downloaded QA evidence as untrusted data before comments or provider calls are allowed. |
 | `pr-qa/ai_review.py` | Builds the changed-line context, calls the provider, normalizes findings, writes reports, and publishes advisory comments. |
 | `pr-qa/review_comments.py` | Manages GitHub Review API comment lifecycle, de-duplication, updates, and stale comment removal. |
 | `docs/ai-review-developer-guide.md` | Developer-facing behavior and expectations. |
@@ -101,7 +104,16 @@ AI_REVIEW_PROVIDER_URL
 AI_REVIEW_PROVIDER_TOKEN
 ```
 
-If either value is missing, the AI Review step reports `AI Review unavailable` and exits successfully. Enterprise QA is unaffected.
+Configure approved provider destinations as variables:
+
+```text
+AI_REVIEW_APPROVED_HOSTS
+AI_REVIEW_APPROVED_INTERNAL_HOSTS
+```
+
+Host matching is exact. A URL such as `approved.example.com.attacker.net` does not match `approved.example.com`.
+
+If the endpoint, token, or approved-host governance is missing or invalid, the AI Review step reports `AI Review unavailable` and exits successfully. Enterprise QA is unaffected.
 
 ## Scope Controls
 
@@ -137,12 +149,13 @@ The lifecycle manager modifies only comments carrying the matching namespace. AI
 
 On each successful AI Review run:
 
-- existing matching comments are updated
-- obsolete AI comments are removed
 - new findings are batched into one submitted GitHub Pull Request review
+- existing matching comments are updated after publication succeeds
+- obsolete AI comments are removed only after publication succeeds and the PR head SHA is still current
 - no ordinary issue comments are created
 
 If the provider is unavailable, existing AI comments are left untouched to avoid hiding unresolved observations during an outage.
+If the workflow run is stale because the PR was force-pushed or updated, publication and cleanup are skipped.
 
 ## Failure Behavior
 

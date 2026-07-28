@@ -19,7 +19,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
 
 env:
   PR_QA_COMMAND_TIMEOUT_MINUTES: "20"
@@ -30,6 +29,8 @@ jobs:
     name: Detect repository technologies
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
     outputs:
       technologies: ${{ steps.detect.outputs.technologies }}
       php: ${{ steps.detect.outputs.php }}
@@ -69,6 +70,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: detect
     timeout-minutes: 60
+    permissions:
+      contents: read
+    outputs:
+      static_exit_code: ${{ steps.static.outputs.exit_code }}
+      full_exit_code: ${{ steps.full.outputs.exit_code }}
     steps:
       - name: Checkout pull request
         uses: actions/checkout@v4
@@ -112,22 +118,16 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Publish Phase 1 inline review comments
-        if: always() && github.event_name == 'pull_request'
-        continue-on-error: true
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          python3 .pr-qa-framework/pr-qa/review_comments.py \
-            --event-path "$GITHUB_EVENT_PATH" \
-            --report-json pr-qa-results/pr-quality-report.json
-
       - name: Upload Phase 1 evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: pr-qa-phase-1-results
-          path: pr-qa-results/
+          path: |
+            pr-qa-results/pr-quality-report.md
+            pr-qa-results/pr-quality-report.json
+            pr-qa-results/gitleaks.json
+            pr-qa-results/emergency-override-audit.json
           retention-days: 30
 
       - name: Enforce Phase 1 static preflight
@@ -201,18 +201,81 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Publish final inline review comments
-        if: always() && github.event_name == 'pull_request'
+      - name: Upload final PR QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-qa-results
+          path: |
+            pr-qa-results/pr-quality-report.md
+            pr-qa-results/pr-quality-report.json
+            pr-qa-results/gitleaks.json
+            pr-qa-results/emergency-override-audit.json
+          retention-days: 30
+
+      - name: Enforce final PR QA result
+        if: steps.full.outputs.exit_code != '0'
+        run: exit 1
+
+  publisher:
+    name: Publish Pull Request Review Evidence
+    runs-on: ubuntu-latest
+    needs: qa
+    if: always() && github.event_name == 'pull_request' && github.event.pull_request.draft == false && needs.qa.result != 'cancelled'
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout immutable central PR QA framework
+        uses: actions/checkout@v4
+        with:
+          repository: Synergie-ITCI/.github
+          ref: pr-qa-v1.1
+          path: .pr-qa-framework
+          persist-credentials: false
+
+      - name: Download final PR QA evidence
+        id: download-final
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: pr-qa-results
+          path: trusted-evidence/final
+
+      - name: Download Phase 1 PR QA evidence
+        id: download-phase-1
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: pr-qa-phase-1-results
+          path: trusted-evidence/phase-1
+
+      - name: Select authoritative QA evidence
+        id: evidence
+        run: |
+          if [ -f trusted-evidence/final/pr-quality-report.json ]; then
+            echo "report_json=trusted-evidence/final/pr-quality-report.json" >> "$GITHUB_OUTPUT"
+            echo "source=final" >> "$GITHUB_OUTPUT"
+          elif [ -f trusted-evidence/phase-1/pr-quality-report.json ]; then
+            echo "report_json=trusted-evidence/phase-1/pr-quality-report.json" >> "$GITHUB_OUTPUT"
+            echo "source=phase-1" >> "$GITHUB_OUTPUT"
+          else
+            echo "report_json=" >> "$GITHUB_OUTPUT"
+            echo "source=none" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish inline PR QA comments
+        if: steps.evidence.outputs.report_json != ''
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           python3 .pr-qa-framework/pr-qa/review_comments.py \
             --event-path "$GITHUB_EVENT_PATH" \
-            --report-json pr-qa-results/pr-quality-report.json
+            --report-json "${{ steps.evidence.outputs.report_json }}"
 
       - name: AI engineering review
-        if: always() && github.event_name == 'pull_request' && steps.full.outputs.exit_code == '0'
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -220,11 +283,14 @@ jobs:
           AI_REVIEW_MODEL: ${{ inputs.ai-review-model }}
           AI_REVIEW_PROVIDER_URL: ${{ secrets.AI_REVIEW_PROVIDER_URL }}
           AI_REVIEW_PROVIDER_TOKEN: ${{ secrets.AI_REVIEW_PROVIDER_TOKEN }}
+          AI_REVIEW_APPROVED_HOSTS: ${{ vars.AI_REVIEW_APPROVED_HOSTS }}
+          AI_REVIEW_APPROVED_INTERNAL_HOSTS: ${{ vars.AI_REVIEW_APPROVED_INTERNAL_HOSTS }}
         run: |
+          mkdir -p pr-qa-results
           python3 .pr-qa-framework/pr-qa/ai_review.py \
             --repo "$GITHUB_WORKSPACE" \
             --event-path "$GITHUB_EVENT_PATH" \
-            --qa-report-json pr-qa-results/pr-quality-report.json \
+            --qa-report-json "${{ steps.evidence.outputs.report_json }}" \
             --out pr-qa-results/ai-review-report.md \
             --json-out pr-qa-results/ai-review-report.json \
             --publish-comments
@@ -232,14 +298,10 @@ jobs:
             cat pr-qa-results/ai-review-report.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Upload final PR QA evidence
+      - name: Upload publisher evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pr-qa-results
+          name: pr-qa-ai-review-results
           path: pr-qa-results/
           retention-days: 30
-
-      - name: Enforce final PR QA result
-        if: steps.full.outputs.exit_code != '0'
-        run: exit 1

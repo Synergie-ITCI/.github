@@ -3,21 +3,26 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import ipaddress
 import json
 import os
 import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from evidence import validate_qa_evidence
 from review_comments import (
     AI_MARKER_NAMESPACE,
+    DEFAULT_TRUSTED_COMMENT_AUTHORS,
     GitHubClient,
     extract_pr_number,
     extract_repository,
+    parse_trusted_authors,
     read_json_file,
     redact,
     safe_int,
@@ -109,8 +114,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model", default=os.environ.get("AI_REVIEW_MODEL", DEFAULT_MODEL), help="AI review model or provider profile.")
     parser.add_argument("--provider-url", default=os.environ.get("AI_REVIEW_PROVIDER_URL", ""), help="Approved AI review provider HTTPS endpoint.")
     parser.add_argument("--provider-token-env", default="AI_REVIEW_PROVIDER_TOKEN", help="Environment variable containing the provider token.")
+    parser.add_argument("--approved-provider-hosts", default=os.environ.get("AI_REVIEW_APPROVED_HOSTS", ""), help="Comma-separated exact hostnames approved for AI provider traffic.")
+    parser.add_argument("--approved-internal-provider-hosts", default=os.environ.get("AI_REVIEW_APPROVED_INTERNAL_HOSTS", ""), help="Comma-separated exact internal hostnames or IPs explicitly governed for AI provider traffic.")
     parser.add_argument("--github-token-env", default="GITHUB_TOKEN", help="Environment variable containing the GitHub token.")
     parser.add_argument("--api-url", default=os.environ.get("GITHUB_API_URL", "https://api.github.com"), help="GitHub API base URL.")
+    parser.add_argument(
+        "--trusted-comment-authors",
+        default=os.environ.get("SYNERGIE_TRUSTED_COMMENT_AUTHORS", DEFAULT_TRUSTED_COMMENT_AUTHORS),
+        help="Comma-separated GitHub logins whose AI marker comments may be managed.",
+    )
     parser.add_argument("--max-files", type=int, default=80)
     parser.add_argument("--max-patch-chars", type=int, default=120000)
     parser.add_argument("--max-findings", type=int, default=50)
@@ -122,10 +134,9 @@ def parse_args() -> argparse.Namespace:
 
 def execute_ai_review(args: argparse.Namespace, client: Any | None = None, provider: "AIReviewProvider | None" = None) -> dict[str, Any]:
     event = read_json_file(args.event_path)
-    qa_report = read_json_file(args.qa_report_json)
-    qa_status = str(qa_report.get("summary", {}).get("overall_result") or "").upper()
-    if qa_status and qa_status != "PASS":
-        return skipped_report(args, "Enterprise QA has blocking findings; AI review waits until QA completes successfully.")
+    evidence = validate_qa_evidence(args.qa_report_json, event, require_pass=True)
+    if not evidence.valid:
+        return unavailable_report(args, f"AI Review Unavailable: {evidence.reason}.")
 
     pr_number = extract_pr_number(event)
     repository = extract_repository(event) or os.environ.get("GITHUB_REPOSITORY", "")
@@ -153,6 +164,8 @@ def execute_ai_review(args: argparse.Namespace, client: Any | None = None, provi
                 [],
                 marker_namespace=AI_MARKER_NAMESPACE,
                 review_body=DEFAULT_REVIEW_BODY,
+                expected_head_sha=evidence.head_sha,
+                trusted_author_logins=parse_trusted_authors(args.trusted_comment_authors),
             )
         return report
 
@@ -171,6 +184,8 @@ def execute_ai_review(args: argparse.Namespace, client: Any | None = None, provi
                 findings,
                 marker_namespace=AI_MARKER_NAMESPACE,
                 review_body=DEFAULT_REVIEW_BODY,
+                expected_head_sha=evidence.head_sha,
+                trusted_author_logins=parse_trusted_authors(args.trusted_comment_authors),
             )
         except Exception as exc:
             report["status"] = UNAVAILABLE
@@ -381,10 +396,11 @@ class HttpProvider(AIReviewProvider):
             },
         )
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+            opener = urllib.request.build_opener(NoRedirectHandler)
+            with opener.open(request, timeout=self.timeout_seconds) as response:
                 raw = response.read().decode("utf-8")
         except urllib.error.HTTPError as exc:
-            message = exc.read().decode("utf-8", errors="replace")
+            message = exc.read().decode("utf-8", errors="replace")[:600]
             return ProviderResult(UNAVAILABLE, f"AI provider returned HTTP {exc.code}: {redact(message)}", {})
         except OSError as exc:
             return ProviderResult(UNAVAILABLE, f"AI provider request failed: {redact(str(exc))}", {})
@@ -397,6 +413,11 @@ class HttpProvider(AIReviewProvider):
         return ProviderResult(COMPLETED, "AI provider review completed.", decoded)
 
 
+class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str) -> None:
+        return None
+
+
 def provider_from_args(args: argparse.Namespace) -> AIReviewProvider:
     provider = str(args.provider or DEFAULT_PROVIDER).strip().lower()
     if provider == "fixture":
@@ -406,7 +427,55 @@ def provider_from_args(args: argparse.Namespace) -> AIReviewProvider:
         return UnavailableProvider("AI Review unavailable: approved provider endpoint is not configured.")
     if not token:
         return UnavailableProvider(f"AI Review unavailable: ${args.provider_token_env} is not configured.")
+    validation_error = validate_provider_destination(args.provider_url, args.approved_provider_hosts, args.approved_internal_provider_hosts)
+    if validation_error:
+        return UnavailableProvider(f"AI Review unavailable: {validation_error}.")
     return HttpProvider(provider, args.model, args.provider_url, token, args.provider_timeout_seconds)
+
+
+def validate_provider_destination(url: str, approved_hosts_raw: str, approved_internal_hosts_raw: str = "") -> str:
+    approved_hosts = parse_host_set(approved_hosts_raw)
+    approved_internal_hosts = parse_host_set(approved_internal_hosts_raw)
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme.lower() != "https":
+        return "provider endpoint must use HTTPS"
+    if parsed.username or parsed.password:
+        return "provider endpoint must not contain embedded credentials"
+    host = normalize_host(parsed.hostname or "")
+    if not host:
+        return "provider endpoint hostname is missing"
+    if host not in approved_hosts and host not in approved_internal_hosts:
+        return "provider endpoint hostname is not approved"
+    network_error = prohibited_network_host(host, approved_internal_hosts)
+    if network_error:
+        return network_error
+    return ""
+
+
+def parse_host_set(raw: str) -> set[str]:
+    return {normalize_host(item) for item in raw.split(",") if normalize_host(item)}
+
+
+def normalize_host(host: str) -> str:
+    return host.strip().strip("[]").rstrip(".").lower()
+
+
+def prohibited_network_host(host: str, approved_internal_hosts: set[str]) -> str:
+    if host in {"localhost", "localhost.localdomain"}:
+        return "provider endpoint must not target localhost"
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return ""
+    if ip.is_loopback:
+        return "provider endpoint must not target loopback addresses"
+    if ip.is_link_local:
+        return "provider endpoint must not target link-local addresses"
+    if ip.is_private and host not in approved_internal_hosts:
+        return "provider endpoint must not target private network addresses without explicit internal-provider governance"
+    if ip.is_unspecified or ip.is_multicast or ip.is_reserved:
+        return "provider endpoint must not target unsupported network addresses"
+    return ""
 
 
 def normalize_provider_findings(payload: dict[str, Any], context: dict[str, Any], provider_name: str, max_findings: int) -> list[dict[str, Any]]:

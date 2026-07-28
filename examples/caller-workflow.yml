@@ -8,6 +8,7 @@ on:
       - reopened
       - ready_for_review
       - edited
+  merge_group:
 
 permissions:
   contents: read
@@ -19,7 +20,7 @@ concurrency:
 
 jobs:
   pr-qa:
-    if: github.event.pull_request.draft == false
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@pr-qa-v1.1
     with:
       ai-review-provider: codex

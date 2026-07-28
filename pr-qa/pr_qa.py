@@ -1086,8 +1086,11 @@ def summarize(results: list[CheckResult], technologies: dict[str, dict[str, Any]
     risk_result = next((result for result in results if result.gate == "Risk Engine"), None)
     return {
         "repository": os.environ.get("GITHUB_REPOSITORY", ctx.repo.name),
+        "pull_request_number": extract_pr_number(ctx.event) or 0,
         "base_ref": git_context.get("base_ref") or "",
         "head_ref": git_context.get("head_ref") or "",
+        "base_sha": git_context.get("base_sha") or "",
+        "head_sha": resolve_head_sha(ctx.repo, git_context),
         "detected_technologies": sorted(value["name"] for value in technologies.values()),
         "changed_files": len(ctx.changed_files),
         "additions": ctx.additions,
@@ -1292,6 +1295,12 @@ def render_markdown_report(summary: dict[str, Any], results: list[CheckResult]) 
 
 def render_json_report(summary: dict[str, Any], results: list[CheckResult], ctx: PRContext, artifacts_dir: Path | None = None) -> dict[str, Any]:
     return {
+        "schema_version": 1,
+        "report_complete": True,
+        "sanitization": {
+            "status": "PASS",
+            "redaction": "applied",
+        },
         "summary": summary,
         "results": [
             {

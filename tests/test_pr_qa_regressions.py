@@ -241,8 +241,18 @@ class PrQaRegressionTests(unittest.TestCase):
         caller = (ROOT / "examples" / "caller-workflow.yml").read_text(encoding="utf-8")
         self.assertNotIn("framework-ref", workflow + caller)
         self.assertIn("persist-credentials: false", workflow)
+        self.assertIn("repository: Synergie-ITCI/.github", workflow)
         self.assertIn("ref: pr-qa-v1.1", workflow)
         self.assertIn("@pr-qa-v1.1", caller)
+        self.assertIn("publisher:", workflow)
+        self.assertIn("pull-requests: write", workflow.split("publisher:", 1)[1])
+        qa_job = workflow.split("  qa:", 1)[1].split("  publisher:", 1)[0]
+        self.assertNotIn("AI_REVIEW_PROVIDER_TOKEN", qa_job)
+        self.assertNotIn("GITHUB_TOKEN", qa_job)
+        self.assertNotIn("Checkout pull request", workflow.split("publisher:", 1)[1])
+        self.assertIn("pr-qa-results/pr-quality-report.json", qa_job)
+        self.assertIn("pr-qa-results/pr-quality-report.md", qa_job)
+        self.assertNotIn("path: pr-qa-results/\n          retention-days", qa_job)
 
     def test_output_redaction_removes_fake_tokens(self) -> None:
         code = "from adapters.base import redact; print(redact('token=\"ghp_abcdefghijklmnopqrstuvwxyz123456\"'))"

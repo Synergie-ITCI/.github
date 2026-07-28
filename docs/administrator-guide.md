@@ -175,6 +175,8 @@ The Markdown report is the concise human report. The JSON report is the audit tr
 
 Inline review comments are also published for findings that map to a changed pull request diff line. They are generated through the GitHub Pull Request Review API using `pull-requests: write`, contain no raw secrets, and are self-healing on later pushes. See `docs/inline-review-comments-architecture.md` for the implementation model.
 
+Inline review publication runs in an isolated trusted publisher job. The untrusted QA job has `contents: read` only, receives no provider credential, receives no pull request write token, and may execute repository build, lint, and test commands. The publisher job starts on a fresh runner, checks out only the immutable central release reference, downloads approved QA evidence files as untrusted data, validates the evidence bundle, and only then publishes comments.
+
 AI Engineering Review runs after final Enterprise QA succeeds. Configure the approved hosted AI review provider through repository or organisation secrets:
 
 ```text
@@ -182,18 +184,27 @@ AI_REVIEW_PROVIDER_URL
 AI_REVIEW_PROVIDER_TOKEN
 ```
 
-If the provider endpoint or token is unavailable, the workflow reports `AI Review unavailable` and Enterprise QA remains unchanged. The automation runs in GitHub Actions and does not depend on a local Codex workspace or an operator machine being online.
+Configure approved provider destinations through organisation or repository variables:
+
+```text
+AI_REVIEW_APPROVED_HOSTS
+AI_REVIEW_APPROVED_INTERNAL_HOSTS
+```
+
+`AI_REVIEW_APPROVED_HOSTS` is an exact hostname allowlist. Do not use broad suffix rules. Provider URLs must use HTTPS, must not contain embedded credentials, and must not target localhost, loopback, link-local, or private network addresses unless the destination is explicitly governed through the internal-provider allowlist.
+
+If the provider endpoint, token, destination governance, or authoritative QA PASS evidence is unavailable, the workflow reports `AI Review unavailable` and Enterprise QA remains unchanged. The automation runs in GitHub Actions and does not depend on a local Codex workspace or an operator machine being online.
 
 AI Review artifacts are retained with the final PR QA evidence:
 
 ```text
-pr-qa-results/ai-review-report.md
-pr-qa-results/ai-review-report.json
+pr-qa-ai-review-results/ai-review-report.md
+pr-qa-ai-review-results/ai-review-report.json
 ```
 
 AI Review is advisory only. It never changes QA status, risk score, merge readiness, approvals, Branch Protection, CODEOWNERS, release governance, or merge requirements.
 
-The reusable workflow checks out the central framework source from the same immutable release reference used by callers. For Version 1.1 this pending reference is `pr-qa-v1.1`. Do not replace it with a caller-controlled framework reference.
+Caller workflows pin the reusable workflow to the approved immutable release reference. For Version 1.1 this pending reference is `pr-qa-v1.1`. Inside the reusable workflow, framework source is also checked out from `Synergie-ITCI/.github` at `pr-qa-v1.1`. Do not add a caller-controlled framework reference.
 
 ## Upgrade Process
 

@@ -20,12 +20,14 @@ ai_review = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader
 sys.modules["ai_review"] = ai_review
 SPEC.loader.exec_module(ai_review)
+import evidence
 
 
 class FakeGitHubClient:
-    def __init__(self, files: list[dict], comments: list[dict] | None = None) -> None:
+    def __init__(self, files: list[dict], comments: list[dict] | None = None, *, head_sha: str = "head") -> None:
         self.files = files
         self.comments = comments or []
+        self.head_sha = head_sha
         self.created_reviews: list[dict] = []
         self.updated_comments: list[tuple[int, str]] = []
         self.deleted_comments: list[int] = []
@@ -35,6 +37,9 @@ class FakeGitHubClient:
 
     def list_review_comments(self, pr_number: int) -> list[dict]:
         return self.comments
+
+    def get_pull(self, pr_number: int) -> dict:
+        return {"head": {"sha": self.head_sha}}
 
     def create_review(self, pr_number: int, comments: list[dict], body: str = "") -> dict:
         self.created_reviews.append({"pr_number": pr_number, "comments": comments, "body": body})
@@ -136,6 +141,7 @@ class AIReviewServiceTests(unittest.TestCase):
                     "line": 1,
                     "side": "RIGHT",
                     "body": f"<!-- synergie-ai-review:inline-review fingerprint={ai_fingerprint} -->\nstale",
+                    "user": {"login": "github-actions[bot]"},
                 },
                 {
                     "id": 11,
@@ -143,6 +149,7 @@ class AIReviewServiceTests(unittest.TestCase):
                     "line": 1,
                     "side": "RIGHT",
                     "body": "<!-- synergie-pr-qa:inline-review fingerprint=bbbbbbbbbbbbbbbbbbbbbbbb -->\nqa",
+                    "user": {"login": "github-actions[bot]"},
                 },
             ],
         )
@@ -185,6 +192,7 @@ class AIReviewServiceTests(unittest.TestCase):
                     "line": 1,
                     "side": "RIGHT",
                     "body": "<!-- synergie-ai-review:inline-review fingerprint=aaaaaaaaaaaaaaaaaaaaaaaa -->\nstale",
+                    "user": {"login": "github-actions[bot]"},
                 }
             ],
         )
@@ -196,21 +204,186 @@ class AIReviewServiceTests(unittest.TestCase):
         self.assertFalse(client.deleted_comments)
         self.assertFalse(client.created_reviews)
 
-    def test_ai_review_skips_when_enterprise_qa_has_blocking_findings(self) -> None:
+    def test_ai_review_is_unavailable_when_enterprise_qa_has_blocking_findings(self) -> None:
         event_path, qa_path = self.write_inputs("FAIL")
         provider = FakeProvider({"findings": []})
 
         report = ai_review.execute_ai_review(self.args(event_path=event_path, qa_report_json=qa_path), FakeGitHubClient([]), provider)
 
-        self.assertEqual(report["status"], ai_review.SKIPPED)
+        self.assertEqual(report["status"], ai_review.UNAVAILABLE)
         self.assertFalse(provider.called)
+
+    def test_authoritative_qa_evidence_fail_closed_cases(self) -> None:
+        event_path = self.tmp / "event.json"
+        event_path.write_text(json.dumps(self.event()), encoding="utf-8")
+        cases = {
+            "missing": None,
+            "empty": "",
+            "malformed": "{not-json",
+            "unsupported_top_level_field": self.qa_payload(extra={"python_module": "ai_review.py"}),
+            "incomplete_report": self.qa_payload(report_complete=False),
+            "bad_sanitization": self.qa_payload(sanitization={"status": "FAIL"}),
+            "missing_status": self.qa_payload(status_missing=True),
+            "null_status": self.qa_payload(status=None),
+            "unknown_status": self.qa_payload(status="UNKNOWN"),
+            "fail_status": self.qa_payload(status="FAIL"),
+            "warning_status": self.qa_payload(status="WARNING"),
+            "mismatched_repository": self.qa_payload(repository="Synergie-ITCI/other"),
+            "mismatched_pr": self.qa_payload(pr_number=7),
+            "mismatched_sha": self.qa_payload(head_sha="other-head"),
+            "unsupported_schema": self.qa_payload(schema_version=999),
+        }
+
+        for name, payload in cases.items():
+            with self.subTest(name=name):
+                qa_path = self.tmp / f"{name}" / "pr-quality-report.json"
+                qa_path.parent.mkdir()
+                if payload is not None:
+                    qa_path.write_text(payload if isinstance(payload, str) else json.dumps(payload), encoding="utf-8")
+                provider = FakeProvider({"findings": []})
+
+                report = ai_review.execute_ai_review(
+                    self.args(event_path=str(event_path), qa_report_json=str(qa_path)),
+                    FakeGitHubClient([]),
+                    provider,
+                )
+
+                self.assertEqual(report["status"], ai_review.UNAVAILABLE)
+                self.assertFalse(provider.called)
+
+    def test_authoritative_qa_evidence_requires_pull_request_identity_context(self) -> None:
+        qa_path = self.tmp / "identity" / "pr-quality-report.json"
+        qa_path.parent.mkdir()
+        qa_path.write_text(json.dumps(self.qa_payload(status="PASS")), encoding="utf-8")
+        event_path = self.tmp / "event-missing-identity.json"
+        event_path.write_text(json.dumps({"repository": {"full_name": "Synergie-ITCI/example"}, "pull_request": {"head": {"sha": "head"}}}), encoding="utf-8")
+        provider = FakeProvider({"findings": []})
+
+        report = ai_review.execute_ai_review(
+            self.args(event_path=str(event_path), qa_report_json=str(qa_path)),
+            FakeGitHubClient([]),
+            provider,
+        )
+
+        self.assertEqual(report["status"], ai_review.UNAVAILABLE)
+        self.assertFalse(provider.called)
+
+    def test_authoritative_qa_pass_evidence_allows_ai_review(self) -> None:
+        event_path, qa_path = self.write_inputs("PASS")
+        provider = FakeProvider({"findings": []})
+
+        report = ai_review.execute_ai_review(
+            self.args(event_path=event_path, qa_report_json=qa_path),
+            FakeGitHubClient([{"filename": "src/app.py", "patch": "@@ -0,0 +1,1 @@\n+return 1"}]),
+            provider,
+        )
+
+        self.assertEqual(report["status"], ai_review.COMPLETED)
+        self.assertTrue(provider.called)
+
+    def test_provider_destination_governance(self) -> None:
+        cases = [
+            ("https://approved.example.com/review", "approved.example.com", "", ""),
+            ("https://unapproved.example.com/review", "approved.example.com", "", "not approved"),
+            ("http://approved.example.com/review", "approved.example.com", "", "HTTPS"),
+            ("ftp://approved.example.com/review", "approved.example.com", "", "HTTPS"),
+            ("https://user:pass@approved.example.com/review", "approved.example.com", "", "embedded credentials"),
+            ("https://localhost/review", "localhost", "", "localhost"),
+            ("https://127.0.0.1/review", "127.0.0.1", "", "loopback"),
+            ("https://[::1]/review", "::1", "", "loopback"),
+            ("https://169.254.1.1/review", "169.254.1.1", "", "link-local"),
+            ("https://10.0.0.10/review", "10.0.0.10", "", "private network"),
+            ("https://10.0.0.10/review", "", "10.0.0.10", ""),
+            ("https://approved.example.com.attacker.net/review", "approved.example.com", "", "not approved"),
+        ]
+
+        for url, approved, internal, expected in cases:
+            with self.subTest(url=url):
+                error = ai_review.validate_provider_destination(url, approved, internal)
+                if expected:
+                    self.assertIn(expected, error)
+                else:
+                    self.assertEqual(error, "")
+
+    def test_redirects_are_disabled_for_provider_requests(self) -> None:
+        handler = ai_review.NoRedirectHandler()
+        self.assertIsNone(handler.redirect_request(None, None, 302, "Found", {}, "https://attacker.example/review"))
+
+    def test_malicious_evidence_artifact_files_are_rejected(self) -> None:
+        event_path = self.tmp / "event.json"
+        event = self.event()
+        event_path.write_text(json.dumps(event), encoding="utf-8")
+        evidence_dir = self.tmp / "evidence-artifact"
+        evidence_dir.mkdir()
+        report = evidence_dir / "pr-quality-report.json"
+        report.write_text(json.dumps(self.qa_payload(status="PASS")), encoding="utf-8")
+
+        malicious_ai = evidence_dir / "ai_review.py"
+        malicious_ai.write_text("print('exfiltrate')\n", encoding="utf-8")
+        validation = evidence.validate_qa_evidence(str(report), event, require_pass=True)
+        self.assertFalse(validation.valid)
+        self.assertIn("unexpected file", validation.reason)
+
+        malicious_ai.unlink()
+        malicious_review = evidence_dir / "review_comments.py"
+        malicious_review.write_text("print('exfiltrate')\n", encoding="utf-8")
+        malicious_review.chmod(0o755)
+        validation = evidence.validate_qa_evidence(str(report), event, require_pass=True)
+        self.assertFalse(validation.valid)
+        self.assertIn("unexpected file", validation.reason)
+
+    def test_symlink_evidence_artifact_is_rejected(self) -> None:
+        event = self.event()
+        evidence_dir = self.tmp / "symlink-artifact"
+        evidence_dir.mkdir()
+        report = evidence_dir / "pr-quality-report.json"
+        report.write_text(json.dumps(self.qa_payload(status="PASS")), encoding="utf-8")
+        (evidence_dir / "gitleaks.json").symlink_to(report)
+
+        validation = evidence.validate_qa_evidence(str(report), event, require_pass=True)
+
+        self.assertFalse(validation.valid)
+        self.assertIn("symlink", validation.reason)
 
     def write_inputs(self, qa_status: str) -> tuple[str, str]:
         event_path = self.tmp / "event.json"
-        qa_path = self.tmp / "qa.json"
+        evidence_dir = self.tmp / f"evidence-{qa_status.lower()}"
+        evidence_dir.mkdir()
+        qa_path = evidence_dir / "pr-quality-report.json"
         event_path.write_text(json.dumps(self.event()), encoding="utf-8")
-        qa_path.write_text(json.dumps({"summary": {"overall_result": qa_status}}), encoding="utf-8")
+        qa_path.write_text(json.dumps(self.qa_payload(status=qa_status)), encoding="utf-8")
         return str(event_path), str(qa_path)
+
+    def qa_payload(
+        self,
+        *,
+        status: str | None = "PASS",
+        status_missing: bool = False,
+        repository: str = "Synergie-ITCI/example",
+        pr_number: int = 6,
+        head_sha: str = "head",
+        schema_version: int = 1,
+        report_complete: bool = True,
+        sanitization: dict | None = None,
+        extra: dict | None = None,
+    ) -> dict:
+        summary = {
+            "repository": repository,
+            "pull_request_number": pr_number,
+            "head_sha": head_sha,
+        }
+        if not status_missing:
+            summary["overall_result"] = status
+        payload = {
+            "schema_version": schema_version,
+            "report_complete": report_complete,
+            "sanitization": sanitization if sanitization is not None else {"status": "PASS"},
+            "summary": summary,
+            "inline_review": {"schema_version": 1, "findings": []},
+        }
+        if extra:
+            payload.update(extra)
+        return payload
 
     def event(self) -> dict:
         return {
@@ -243,6 +416,9 @@ class AIReviewServiceTests(unittest.TestCase):
             "provider_timeout_seconds": 60,
             "fixture_json": "",
             "publish_comments": False,
+            "approved_provider_hosts": "",
+            "approved_internal_provider_hosts": "",
+            "trusted_comment_authors": "github-actions[bot]",
         }
         values.update(overrides)
         return argparse.Namespace(**values)
