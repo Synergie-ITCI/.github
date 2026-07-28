@@ -87,7 +87,7 @@ Result:
 | Build | `npm run build`, `composer validate`, `go build`, `dotnet build` pass | no build step for non-buildable manifests | build command exits nonzero |
 | Tests | PHPUnit, Pytest, Vitest, Go test pass | "No automated test suite configured." | configured tests fail |
 | Git Validation | `git diff --check` clean | CRLF detected | trailing whitespace or conflict markers in diff |
-| Secrets | Gitleaks and fallback scan clean | Gitleaks unavailable but fallback clean | API key, private key, `.env`, token, hardcoded credential |
+| Secrets | Gitleaks and fallback scan clean | N/A; Gitleaks unavailability fails closed | API key, private key, `.env`, token, hardcoded credential |
 | Dependencies | Composer/npm/dotnet audit clean | audit tooling unavailable | high or critical vulnerability found |
 | Licence | no GPL/AGPL/unknown licence found | full licence inventory tooling unavailable | repository may configure restricted licence findings as blocking |
 | Deployment Safety | no deployment-sensitive file changed | Dockerfile or workflow changed, risk reported | handled through risk threshold if overall risk is critical |

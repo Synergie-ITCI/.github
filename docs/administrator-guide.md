@@ -50,7 +50,7 @@ Recommended runner tools:
 | Terraform | Terraform, TFLint, tfsec or Checkov |
 | Kubernetes | kubeconform, kubeval, or kubectl |
 
-Security tooling is mandatory for the gates it supports. Gitleaks is mandatory. Dependency audit tooling is mandatory for repositories whose technologies are detected.
+Security tooling is mandatory for the gates it supports. The reusable workflow installs pinned Gitleaks `8.30.1` with SHA-256 verification before Phase 1 and fails closed if it is unavailable. Dependency audit tooling is mandatory for repositories whose technologies are detected.
 
 ## Security Model
 
@@ -87,6 +87,8 @@ Supported profiles:
 | `documentation` | documentation-only repositories |
 
 The `framework` profile permits only centrally approved regression fixture paths and fixture manifests to be classified as non-blocking. It does not disable Gitleaks, does not suppress findings globally, and does not apply to production application repositories by default.
+
+The reusable workflow accepts a `repository-profile` input for governed central self-validation. Organisation rollout callers should omit that input and inherit the `application` profile unless an approved governance decision assigns another profile.
 
 Approved governance assets such as `.gitleaks.toml`, `.github/**`, `.gitignore`, `.editorconfig`, `policy/**`, and `schemas/**` bypass only the hidden-file integrity warning. They remain subject to protected-resource review, workflow/deployment warnings, secret scanning, and human governance.
 

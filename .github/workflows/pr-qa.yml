@@ -11,6 +11,10 @@ on:
         required: false
         type: string
         default: codex-review-v1
+      repository-profile:
+        required: false
+        type: string
+        default: ""
     secrets:
       AI_REVIEW_PROVIDER_URL:
         required: false
@@ -22,6 +26,8 @@ permissions:
 
 env:
   PR_QA_COMMAND_TIMEOUT_MINUTES: "20"
+  PR_QA_GITLEAKS_LINUX_X64_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+  PR_QA_GITLEAKS_VERSION: "8.30.1"
   PYTHONDONTWRITEBYTECODE: "1"
 
 jobs:
@@ -47,6 +53,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Checkout immutable central PR QA framework
@@ -80,6 +87,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Checkout immutable central PR QA framework
@@ -90,6 +98,18 @@ jobs:
           path: .pr-qa-framework
           persist-credentials: false
 
+      - name: Install mandatory Gitleaks
+        run: |
+          curl -fsSL \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${PR_QA_GITLEAKS_VERSION}/gitleaks_${PR_QA_GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            -o /tmp/gitleaks.tar.gz
+          echo "${PR_QA_GITLEAKS_LINUX_X64_SHA256}  /tmp/gitleaks.tar.gz" | sha256sum -c -
+          mkdir -p "$HOME/.local/bin"
+          tar -xzf /tmp/gitleaks.tar.gz -C "$HOME/.local/bin" gitleaks
+          chmod 0755 "$HOME/.local/bin/gitleaks"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/gitleaks" version
+
       - name: Phase 1 static preflight
         id: static
         run: |
@@ -98,6 +118,7 @@ jobs:
           python3 .pr-qa-framework/pr-qa/pr_qa.py \
             --repo "$GITHUB_WORKSPACE" \
             --static-only \
+            --repository-profile "${{ inputs.repository-profile }}" \
             --out pr-qa-results/pr-quality-report.md \
             --json-out pr-qa-results/pr-quality-report.json \
             --command-timeout-minutes "$PR_QA_COMMAND_TIMEOUT_MINUTES"
@@ -181,6 +202,7 @@ jobs:
           set +e
           python3 .pr-qa-framework/pr-qa/pr_qa.py \
             --repo "$GITHUB_WORKSPACE" \
+            --repository-profile "${{ inputs.repository-profile }}" \
             --out pr-qa-results/pr-quality-report.md \
             --json-out pr-qa-results/pr-quality-report.json \
             --command-timeout-minutes "$PR_QA_COMMAND_TIMEOUT_MINUTES"

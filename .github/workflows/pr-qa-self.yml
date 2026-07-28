@@ -25,6 +25,7 @@ jobs:
     with:
       ai-review-provider: codex
       ai-review-model: codex-review-v1
+      repository-profile: framework
     secrets:
       AI_REVIEW_PROVIDER_URL: ${{ secrets.AI_REVIEW_PROVIDER_URL }}
       AI_REVIEW_PROVIDER_TOKEN: ${{ secrets.AI_REVIEW_PROVIDER_TOKEN }}

@@ -15,7 +15,7 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: pr-qa-${{ github.repository }}-${{ github.event.pull_request.number }}
+  group: pr-qa-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:

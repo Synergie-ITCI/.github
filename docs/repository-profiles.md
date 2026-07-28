@@ -54,6 +54,8 @@ Controls:
 
 Use `application` for rollout repositories unless an approved governance decision assigns another profile.
 
+GitHub Actions rollout callers should omit the reusable workflow `repository-profile` input. The central framework self-validation workflow may set `repository-profile: framework` because it is governed in `Synergie-ITCI/.github`.
+
 Use `framework` only for internal framework self-validation, for example:
 
 ```bash
