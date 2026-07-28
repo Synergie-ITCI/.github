@@ -101,20 +101,17 @@ class PythonAdapter(TechnologyAdapter):
         results: list[CheckResult] = []
         for root in roots:
             prefix = f"{ctx.rel(root)}: "
-            if command_exists("pip-audit"):
-                outcome = ctx.run(["pip-audit"], cwd=root)
-                if outcome.ok:
-                    results.append(passed("Dependencies", self.name, f"{prefix}pip-audit passed."))
-                else:
-                    results.append(failed("Dependencies", self.name, f"{prefix}pip-audit found vulnerabilities.", [outcome.concise_output()], score=18))
+            command = self._pip_audit_command(root)
+            if not command:
+                results.append(warning("Dependencies", self.name, f"{prefix}No Python dependency manifest found; pip-audit is not applicable."))
+                continue
+            outcome = ctx.run(command, cwd=root)
+            if outcome.ok:
+                results.append(passed("Dependencies", self.name, f"{prefix}pip-audit passed."))
+            elif "No module named" in outcome.concise_output():
+                results.append(failed("Dependencies", self.name, f"{prefix}pip-audit is mandatory and is not installed on the runner.", score=18))
             else:
-                outcome = ctx.run(["python", "-m", "pip_audit"], cwd=root)
-                if outcome.ok:
-                    results.append(passed("Dependencies", self.name, f"{prefix}pip-audit module passed."))
-                elif "No module named" in outcome.concise_output():
-                    results.append(failed("Dependencies", self.name, f"{prefix}pip-audit is mandatory and is not installed on the runner.", score=18))
-                else:
-                    results.append(failed("Dependencies", self.name, f"{prefix}pip-audit found vulnerabilities.", [outcome.concise_output()], score=18))
+                results.append(failed("Dependencies", self.name, f"{prefix}pip-audit found vulnerabilities.", [outcome.concise_output()], score=18))
         return results
 
     def licences(self, ctx: PRContext, roots: list[Path]) -> list[CheckResult]:
@@ -155,3 +152,15 @@ class PythonAdapter(TechnologyAdapter):
             if not outcome.ok:
                 results.append(failed(gate, self.name, f"{ctx.rel(root)}: Python dependency install failed.", [outcome.concise_output()], score=10))
                 return
+
+    def _pip_audit_command(self, root: Path) -> list[str]:
+        base = ["pip-audit"] if command_exists("pip-audit") else ["python", "-m", "pip_audit"]
+        requirements = [name for name in ["requirements.txt", "requirements-dev.txt"] if (root / name).exists()]
+        if requirements:
+            command = [*base]
+            for name in requirements:
+                command.extend(["-r", name])
+            return command
+        if (root / "pyproject.toml").exists():
+            return [*base, "."]
+        return []

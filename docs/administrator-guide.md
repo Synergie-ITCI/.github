@@ -50,7 +50,7 @@ Recommended runner tools:
 | Terraform | Terraform, TFLint, tfsec or Checkov |
 | Kubernetes | kubeconform, kubeval, or kubectl |
 
-Security tooling is mandatory for the gates it supports. The reusable workflow installs pinned Gitleaks `8.30.1` with SHA-256 verification before Phase 1 and fails closed if it is unavailable. Dependency audit tooling is mandatory for repositories whose technologies are detected.
+Security tooling is mandatory for the gates it supports. The reusable workflow installs pinned Gitleaks `8.30.1` with SHA-256 verification before Phase 1 and fails closed if it is unavailable. For Python repositories, the workflow installs pinned Pytest `9.1.1` and pip-audit `2.10.1` after Phase 1; pip-audit runs only when a Python dependency manifest is present. Other dependency audit tooling is mandatory for repositories whose technologies are detected.
 
 ## Security Model
 

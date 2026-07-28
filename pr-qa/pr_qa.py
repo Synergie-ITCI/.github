@@ -1058,7 +1058,8 @@ def field_has_value(body: str, field: str) -> bool:
         start = index + len(field)
     else:
         start = match.end()
-    after = re.sub(r"^[\s:#*\-_]+", "", body[start:])
+    prefix_pattern = r"^[\s:*\-_]+" if field.lower() == "linked issue" else r"^[\s:#*\-_]+"
+    after = re.sub(prefix_pattern, "", body[start:])
     next_heading = re.search(r"\n\s*#{1,6}\s+|\n\s*\*\*[^*]+\*\*", after)
     value = (after[: next_heading.start()] if next_heading else after).strip()
     if not value:

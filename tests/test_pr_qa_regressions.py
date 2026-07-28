@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,6 +13,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ENGINE = ROOT / "pr-qa" / "pr_qa.py"
+sys.path.insert(0, str(ROOT / "pr-qa"))
+import pr_qa  # noqa: E402
 
 
 class PrQaRegressionTests(unittest.TestCase):
@@ -22,6 +25,9 @@ class PrQaRegressionTests(unittest.TestCase):
         fake_gitleaks = self.bin / "gitleaks"
         fake_gitleaks.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
         fake_gitleaks.chmod(0o755)
+        fake_python = self.bin / "python"
+        fake_python.write_text("#!/usr/bin/env bash\nexec python3 \"$@\"\n", encoding="utf-8")
+        fake_python.chmod(0o755)
         self.env = dict(os.environ)
         self.env["PATH"] = str(self.bin) + os.pathsep + self.env.get("PATH", "")
         self.env["PYTHONDONTWRITEBYTECODE"] = "1"
@@ -208,6 +214,25 @@ class PrQaRegressionTests(unittest.TestCase):
         self.assertIn("High-confidence secret indicators found", report)
         self.assertIn("tests/test_pr_qa_regressions.py: GitHub token", report)
 
+    def test_hash_issue_reference_counts_as_linked_issue_evidence(self) -> None:
+        body = (
+            "## Business Purpose\nRegression test.\n"
+            "## Testing Performed\nLocal automated regression.\n"
+            "## Rollback Strategy\nRevert this PR.\n"
+            "## Linked Issue\n#123\n"
+            "## Screenshots\nN/A\n"
+        )
+        self.assertTrue(pr_qa.field_has_value(body, "linked issue"))
+
+    def test_python_without_dependency_manifest_does_not_audit_runner_environment(self) -> None:
+        repo, base = self.init_repo("python-no-deps")
+        self.write(repo / "app.py", "print('ok')\n")
+        self.commit(repo, "feat: add python script")
+        code, report = self.run_engine(repo, base)
+        self.assertEqual(code, 0, report)
+        self.assertIn("No Python dependency manifest found; pip-audit is not applicable.", report)
+        self.assertNotIn("pip-audit is mandatory and is not installed", report)
+
     def test_obfuscated_destructive_migration_fails(self) -> None:
         repo, base = self.init_repo("migration")
         self.write(repo / "database" / "migrations" / "2026_01_01_000001_drop.php", "<?php\nDB::statement('DR' . 'OP TABLE users');\n")
@@ -247,6 +272,9 @@ class PrQaRegressionTests(unittest.TestCase):
         self.assertIn("ref: ${{ job.workflow_sha }}", workflow)
         self.assertIn("PR_QA_GITLEAKS_LINUX_X64_SHA256", workflow)
         self.assertIn("Install mandatory Gitleaks", workflow)
+        self.assertIn("PR_QA_PIP_AUDIT_VERSION", workflow)
+        self.assertIn("PR_QA_PYTEST_VERSION", workflow)
+        self.assertIn("Install Python QA tooling", workflow)
         self.assertIn("--repository-profile \"${{ inputs.repository-profile }}\"", workflow)
         self.assertIn("@pr-qa-v1.1", caller)
         self.assertIn("github.event.pull_request.number || github.ref", caller)
@@ -411,7 +439,7 @@ class PrQaRegressionTests(unittest.TestCase):
         self.commit(repo, "chore: add config fixture")
         code, _, report_json, _ = self.run_engine_with_artifacts(repo, base)
 
-        self.assertNotEqual(code, 0)
+        self.assertEqual(code, 0)
         finding = self.inline_finding(report_json, "Documentation", ".env.example")
         self.assertEqual(finding["line"], 1)
         self.assertEqual(finding["severity"], "WARNING")
