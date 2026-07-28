@@ -39,6 +39,7 @@ The `framework` profile may classify centrally approved regression fixture paths
 Current approved fixture path:
 
 ```text
+.gitleaks.toml
 tests/test_pr_qa_regressions.py
 ```
 

@@ -191,6 +191,7 @@
         "tests/**"
       ],
       "approved_regression_fixtures": [
+        ".gitleaks.toml",
         "tests/test_pr_qa_regressions.py"
       ]
     },

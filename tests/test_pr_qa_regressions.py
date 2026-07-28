@@ -180,6 +180,25 @@ class PrQaRegressionTests(unittest.TestCase):
             )
         )
 
+    def test_framework_profile_classifies_gitleaks_fixture_manifest(self) -> None:
+        repo, base = self.init_repo("framework-gitleaks-fixture", profile="framework")
+        self.write(
+            repo / ".gitleaks.toml",
+            "regexes = [\n  '''Z2hwX2Zha2VmYWtlZmFrZWZha2VmYWtlZmFrZWZha2VmYWtl'''\n]\n",
+        )
+        self.commit(repo, "test: add approved fixture manifest")
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+        self.assertEqual(code, 0)
+        self.assertNotIn("High-confidence secret indicators found", report)
+        self.assertTrue(
+            any(
+                result["gate"] == "Secrets"
+                and result["status"] == "PASS"
+                and result["message"] == "Approved framework regression fixtures remain detectable and isolated."
+                for result in report_json["results"]
+            )
+        )
+
     def test_application_profile_does_not_inherit_regression_fixture_allowance(self) -> None:
         repo, base = self.init_repo("application-fixture")
         self.write(repo / "tests" / "test_pr_qa_regressions.py", "TOKEN = 'ghp_abcdefghijklmnopqrstuvwxyz123456'\n")
