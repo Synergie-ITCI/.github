@@ -86,7 +86,7 @@ Supported profiles:
 | `library` | shared libraries |
 | `documentation` | documentation-only repositories |
 
-The `framework` profile permits only centrally approved regression fixture paths to be classified as non-blocking. It does not disable Gitleaks, does not suppress findings globally, and does not apply to production application repositories by default.
+The `framework` profile permits only centrally approved regression fixture paths and fixture manifests to be classified as non-blocking. It does not disable Gitleaks, does not suppress findings globally, and does not apply to production application repositories by default.
 
 Approved governance assets such as `.gitleaks.toml`, `.github/**`, `.gitignore`, `.editorconfig`, `policy/**`, and `schemas/**` bypass only the hidden-file integrity warning. They remain subject to protected-resource review, workflow/deployment warnings, secret scanning, and human governance.
 
