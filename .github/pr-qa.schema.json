@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Synergie PR QA Configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "formatting": { "type": "boolean" },
+        "lint": { "type": "boolean" },
+        "build": { "type": "boolean" },
+        "tests": { "type": "boolean" },
+        "git_validation": { "type": "boolean" },
+        "secrets": { "type": "boolean" },
+        "dependency_security": { "type": "boolean" },
+        "deployment_risk": { "type": "boolean" },
+        "migration_risk": { "type": "boolean" },
+        "large_files": { "type": "boolean" },
+        "documentation": { "type": "boolean" },
+        "ai_advisory": { "type": "boolean" }
+      }
+    },
+    "large_file_threshold_mb": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 10
+    },
+    "fail_on_dependency_vulnerabilities": {
+      "type": "boolean",
+      "default": false
+    }
+  }
+}
