@@ -19,7 +19,7 @@ It validates and reports. It does not approve, merge, deploy, bypass repository 
 2. In a pilot repository, copy `examples/caller-workflow.yml` to `.github/workflows/pr-qa.yml`.
 3. In the same repository, copy `examples/pr-qa.yml` to `.github/pr-qa.yml` and tune only thresholds or adapter overrides.
 4. Copy `examples/pull_request_template.md` to `.github/pull_request_template.md`.
-5. Open a pull request and review the single `PR QUALITY REPORT` job summary.
+5. Open a pull request and review inline QA comments, the `PR QUALITY REPORT` job summary, and the retained report artifacts.
 
 ## Quality Gates
 
@@ -70,6 +70,8 @@ Adapters must:
 - [Governance Validation](docs/governance-validation.md)
 - [Repository Profiles](docs/repository-profiles.md)
 - [Emergency Override Governance Note](docs/emergency-override-governance-note.md)
+- [Inline Review Comments Architecture](docs/inline-review-comments-architecture.md)
+- [Inline Review Comments Validation](docs/inline-review-comments-validation.md)
 - [Before vs After Comparison](docs/before-after-comparison.md)
 - [Residual Risk Register](docs/residual-risk-register.md)
 - Sample reports: `examples/reports/`

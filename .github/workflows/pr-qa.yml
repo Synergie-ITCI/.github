@@ -5,7 +5,7 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
+  pull-requests: write
 
 env:
   PR_QA_COMMAND_TIMEOUT_MINUTES: "20"
@@ -98,6 +98,16 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      - name: Publish Phase 1 inline review comments
+        if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 .pr-qa-framework/pr-qa/review_comments.py \
+            --event-path "$GITHUB_EVENT_PATH" \
+            --report-json pr-qa-results/pr-quality-report.json
+
       - name: Upload Phase 1 evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -176,6 +186,16 @@ jobs:
               echo "FAIL: final report was not generated."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      - name: Publish final inline review comments
+        if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 .pr-qa-framework/pr-qa/review_comments.py \
+            --event-path "$GITHUB_EVENT_PATH" \
+            --report-json pr-qa-results/pr-quality-report.json
 
       - name: Upload final PR QA evidence
         if: always()

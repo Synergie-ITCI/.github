@@ -54,7 +54,7 @@ Security tooling is mandatory for the gates it supports. Gitleaks is mandatory. 
 
 ## Security Model
 
-- The caller workflow uses read-only repository and pull-request permissions.
+- The caller workflow uses read-only repository permissions and pull-request write permission only for inline review comments.
 - The workflow does not request deployment, environment, package-write, or repository-administration permissions.
 - All checkout steps use `persist-credentials: false`.
 - Static preflight runs before setup, dependency installation, build, lint, or tests.
@@ -172,6 +172,8 @@ pr-qa-results/emergency-override-audit.json
 ```
 
 The Markdown report is the concise human report. The JSON report is the audit trail for future analytics.
+
+Inline review comments are also published for findings that map to a changed pull request diff line. They are generated through the GitHub Pull Request Review API using `pull-requests: write`, contain no raw secrets, and are self-healing on later pushes. See `docs/inline-review-comments-architecture.md` for the implementation model.
 
 ## Upgrade Process
 

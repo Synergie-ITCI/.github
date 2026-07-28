@@ -335,6 +335,79 @@ class PrQaRegressionTests(unittest.TestCase):
         self.assertEqual(audit["pr_author"], "another-author")
         self.assertEqual(audit["qa_summary"]["gate_statuses"], report_json["summary"]["gate_statuses"])
 
+    def test_inline_review_maps_git_diff_check_to_offending_line(self) -> None:
+        repo, base = self.init_repo("inline-formatting")
+        self.write(repo / "notes.txt", "clean\ntrailing whitespace   \n")
+        self.commit(repo, "docs: add whitespace fixture")
+        code, _, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertNotEqual(code, 0)
+        finding = self.inline_finding(report_json, "Git Validation", "notes.txt")
+        self.assertEqual(finding["line"], 2)
+        self.assertEqual(finding["severity"], "BLOCKING")
+        self.assertIn("DIFF FORMATTING ISSUE", finding["title"])
+
+    def test_inline_review_maps_secret_without_exposing_secret_value(self) -> None:
+        repo, base = self.init_repo("inline-secret")
+        raw_secret = "ghp_abcdefghijklmnopqrstuvwxyz123456"
+        self.write(repo / "app.py", f"TOKEN = '{raw_secret}'\n")
+        self.commit(repo, "feat: add token fixture")
+        code, _, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertNotEqual(code, 0)
+        finding = self.inline_finding(report_json, "Secrets", "app.py")
+        self.assertEqual(finding["line"], 1)
+        self.assertEqual(finding["severity"], "BLOCKING")
+        self.assertNotIn(raw_secret, json.dumps(finding))
+        self.assertIn("approved secrets management", finding["recommendation"])
+
+    def test_inline_review_maps_destructive_migration_to_line(self) -> None:
+        repo, base = self.init_repo("inline-migration")
+        self.write(repo / "database" / "migrations" / "2026_01_01_000001_drop.sql", "CREATE TABLE users(id int);\nDROP TABLE users;\n")
+        self.commit(repo, "feat: add migration fixture")
+        code, _, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertNotEqual(code, 0)
+        finding = self.inline_finding(report_json, "Migration Risk", "database/migrations/2026_01_01_000001_drop.sql")
+        self.assertEqual(finding["line"], 2)
+        self.assertEqual(finding["severity"], "BLOCKING")
+
+    def test_inline_review_maps_deployment_workflow_to_changed_line(self) -> None:
+        repo, base = self.init_repo("inline-deployment")
+        self.write(repo / ".github" / "workflows" / "deploy.yml", "name: deploy\nsteps:\n  - run: kubectl apply -f k8s/prod.yaml\n")
+        self.commit(repo, "ci: add deployment workflow")
+        code, _, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertEqual(code, 0)
+        finding = self.inline_finding(report_json, "Deployment Risk", ".github/workflows/deploy.yml")
+        self.assertEqual(finding["line"], 3)
+        self.assertEqual(finding["severity"], "WARNING")
+
+    def test_inline_review_maps_documentation_warning_to_env_line(self) -> None:
+        repo, base = self.init_repo("inline-documentation")
+        self.write(repo / ".env.example", "NEW_REQUIRED_SETTING=true\n")
+        self.commit(repo, "chore: add config fixture")
+        code, _, report_json, _ = self.run_engine_with_artifacts(repo, base)
+
+        self.assertNotEqual(code, 0)
+        finding = self.inline_finding(report_json, "Documentation", ".env.example")
+        self.assertEqual(finding["line"], 1)
+        self.assertEqual(finding["severity"], "WARNING")
+        self.assertEqual(
+            1,
+            sum(
+                1
+                for item in report_json.get("inline_review", {}).get("findings", [])
+                if item["gate"] == "Documentation" and item["path"] == ".env.example" and item["line"] == 1
+            ),
+        )
+
+    def inline_finding(self, report_json: dict, gate: str, path: str) -> dict:
+        findings = report_json.get("inline_review", {}).get("findings", [])
+        matches = [finding for finding in findings if finding["gate"] == gate and finding["path"] == path]
+        self.assertTrue(matches, f"No inline finding for {gate} at {path}. Got: {findings}")
+        return matches[0]
+
     def override_digest(self, record: dict) -> str:
         payload = {key: value for key, value in record.items() if key != "record_sha256"}
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")

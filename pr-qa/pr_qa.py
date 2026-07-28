@@ -66,6 +66,9 @@ GATE_ORDER = [
     ("evidence", "Evidence"),
 ]
 
+INLINE_REVIEW_VERSION = 1
+INLINE_REVIEW_MAX_FINDINGS = 100
+
 ADAPTER_EXTENSIONS = {
     "php": {".php"},
     "node": {".js", ".jsx", ".ts", ".tsx"},
@@ -1117,7 +1120,8 @@ def extract_risk_score(message: str) -> int:
 
 def write_reports(args: argparse.Namespace, summary: dict[str, Any], results: list[CheckResult], ctx: PRContext) -> None:
     report = render_markdown_report(summary, results)
-    json_report = render_json_report(summary, results, ctx)
+    artifacts_dir = Path(args.json_out).parent if args.json_out else Path(args.out).parent if args.out else ctx.repo / "pr-qa-results"
+    json_report = render_json_report(summary, results, ctx, artifacts_dir)
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.out).write_text(report, encoding="utf-8")
@@ -1286,7 +1290,7 @@ def render_markdown_report(summary: dict[str, Any], results: list[CheckResult]) 
     return "\n".join(lines) + "\n"
 
 
-def render_json_report(summary: dict[str, Any], results: list[CheckResult], ctx: PRContext) -> dict[str, Any]:
+def render_json_report(summary: dict[str, Any], results: list[CheckResult], ctx: PRContext, artifacts_dir: Path | None = None) -> dict[str, Any]:
     return {
         "summary": summary,
         "results": [
@@ -1301,8 +1305,376 @@ def render_json_report(summary: dict[str, Any], results: list[CheckResult], ctx:
             }
             for result in results
         ],
+        "inline_review": {
+            "schema_version": INLINE_REVIEW_VERSION,
+            "findings": build_inline_review_findings(results, ctx, artifacts_dir),
+        },
         "commands": ctx.command_log,
     }
+
+
+def build_inline_review_findings(results: list[CheckResult], ctx: PRContext, artifacts_dir: Path | None = None) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for result in results:
+        if result.status not in {FAIL, WARNING}:
+            continue
+        for location in inline_locations_for_result(result, ctx, artifacts_dir):
+            rel = str(location.get("path", "")).strip()
+            side = str(location.get("side", "RIGHT") or "RIGHT").upper()
+            line = safe_int(location.get("line"))
+            detail = redact(str(location.get("detail") or result.message))
+            if side not in {"RIGHT", "LEFT"} or not rel or line < 1:
+                continue
+            if rel not in set(ctx.changed_files):
+                continue
+            if side == "RIGHT" and not line_exists(ctx, rel, line):
+                continue
+            severity = inline_severity(result)
+            title = inline_title(result)
+            identity = {
+                "gate": result.gate,
+                "technology": result.technology or "",
+                "path": rel,
+                "line": line,
+                "side": side,
+                "detail": detail,
+                "severity": severity,
+            }
+            fingerprint = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()[:24]
+            if fingerprint in seen:
+                continue
+            seen.add(fingerprint)
+            findings.append(
+                {
+                    "fingerprint": fingerprint,
+                    "path": rel,
+                    "line": line,
+                    "side": side,
+                    "gate": result.gate,
+                    "technology": result.technology,
+                    "status": result.status,
+                    "severity": severity,
+                    "title": title,
+                    "explanation": inline_explanation(result, detail),
+                    "recommendation": inline_recommendation(result),
+                }
+            )
+            if len(findings) >= INLINE_REVIEW_MAX_FINDINGS:
+                return findings
+    return findings
+
+
+def inline_locations_for_result(result: CheckResult, ctx: PRContext, artifacts_dir: Path | None) -> list[dict[str, Any]]:
+    if result.gate == "Secrets":
+        return secret_inline_locations(ctx, artifacts_dir)
+    if result.gate == "Deployment Risk":
+        return deployment_inline_locations(ctx)
+    if result.gate == "Migration Risk":
+        return migration_inline_locations(result, ctx)
+    if result.gate == "Documentation":
+        return documentation_inline_locations(result, ctx)
+
+    parsed = parse_detail_inline_locations(result.details, ctx)
+    if parsed:
+        return parsed
+    if result.gate in {"Config Validation", "Repository Integrity", "Executable Classification", "Protected Resources"}:
+        return path_level_inline_locations(result.details, ctx)
+    return []
+
+
+def parse_detail_inline_locations(details: list[str], ctx: PRContext) -> list[dict[str, Any]]:
+    locations: list[dict[str, Any]] = []
+    changed = set(ctx.changed_files)
+    for detail in details:
+        for raw_line in str(detail).splitlines():
+            cleaned = raw_line.strip().strip("`")
+            for match in re.finditer(r"(?P<path>(?:\.?/)?[A-Za-z0-9_@{}()[\]./ +~-]+?):(?P<line>[0-9]+)(?::|\s|$)", cleaned):
+                rel = normalize_inline_path(ctx, match.group("path"))
+                if rel in changed:
+                    locations.append({"path": rel, "line": int(match.group("line")), "side": "RIGHT", "detail": cleaned})
+                    continue
+            rel = path_from_detail(cleaned, ctx)
+            if rel:
+                locations.append({"path": rel, "line": 1, "side": "RIGHT", "detail": cleaned})
+    return dedupe_locations(locations)
+
+
+def path_level_inline_locations(details: list[str], ctx: PRContext) -> list[dict[str, Any]]:
+    locations = []
+    for detail in details:
+        rel = path_from_detail(str(detail), ctx)
+        if rel:
+            locations.append({"path": rel, "line": 1, "side": "RIGHT", "detail": redact(str(detail))})
+    return dedupe_locations(locations)
+
+
+def documentation_inline_locations(result: CheckResult, ctx: PRContext) -> list[dict[str, Any]]:
+    parsed = parse_detail_inline_locations(result.details, ctx)
+    if parsed:
+        return parsed
+    return path_level_inline_locations(result.details, ctx)
+
+
+def secret_inline_locations(ctx: PRContext, artifacts_dir: Path | None) -> list[dict[str, Any]]:
+    locations: list[dict[str, Any]] = []
+    locations.extend(gitleaks_inline_locations(ctx, artifacts_dir))
+    regexes = {
+        "AWS access key": r"AKIA[0-9A-Z]{16}",
+        "private key": r"-----BEGIN [A-Z ]+PRIVATE KEY-----",
+        "GitHub token": r"(ghp|github_pat)_[A-Za-z0-9_]{20,}",
+        "generic credential assignment": r"(?i)\b(password|passwd|secret|token|api[_-]?key)\b\s*[:=]\s*['\"][^'\"\s]{8,}['\"]",
+    }
+    env_patterns = [".env", ".env.*"]
+    allowed_env = {".env.example", ".env.sample", ".env.template", ".env.local.example"}
+    for rel in ctx.changed_files:
+        if is_approved_regression_fixture(ctx, rel):
+            continue
+        path = ctx.repo / rel
+        name = Path(rel).name
+        if any(fnmatch.fnmatch(name, pattern) for pattern in env_patterns) and name not in allowed_env:
+            locations.append({"path": rel, "line": first_text_line(path), "side": "RIGHT", "detail": "environment file committed"})
+        if name.endswith((".pem", ".key", ".p12", ".pfx")):
+            locations.append({"path": rel, "line": 1, "side": "RIGHT", "detail": "key or certificate container committed"})
+        text = read_text(path)
+        if not text:
+            continue
+        for line_number, line in enumerate(text.splitlines(), 1):
+            normalized = normalize_secret_text(line)
+            for label, pattern in regexes.items():
+                if re.search(pattern, normalized):
+                    locations.append({"path": rel, "line": line_number, "side": "RIGHT", "detail": label})
+            for decoded in decode_base64_candidates(line, ctx.policy):
+                for label, pattern in regexes.items():
+                    if re.search(pattern, decoded):
+                        locations.append({"path": rel, "line": line_number, "side": "RIGHT", "detail": f"base64-encoded {label}"})
+    return dedupe_locations(locations)
+
+
+def gitleaks_inline_locations(ctx: PRContext, artifacts_dir: Path | None) -> list[dict[str, Any]]:
+    if not artifacts_dir:
+        return []
+    report = artifacts_dir / "gitleaks.json"
+    if not report.exists():
+        return []
+    try:
+        payload = json.loads(report.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(payload, list):
+        return []
+    locations: list[dict[str, Any]] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        rel = normalize_inline_path(ctx, str(item.get("File") or item.get("file") or ""))
+        if rel not in set(ctx.changed_files) or is_approved_regression_fixture(ctx, rel):
+            continue
+        line = safe_int(item.get("StartLine") or item.get("Line") or item.get("line"))
+        label = str(item.get("RuleID") or item.get("Description") or item.get("SecretType") or "secret detected")
+        if line > 0:
+            locations.append({"path": rel, "line": line, "side": "RIGHT", "detail": redact(label)})
+    return dedupe_locations(locations)
+
+
+def deployment_inline_locations(ctx: PRContext) -> list[dict[str, Any]]:
+    deployment_patterns = [
+        ".github/workflows/**",
+        "deploy/**",
+        "deployment/**",
+        "scripts/deploy*",
+        "Dockerfile",
+        "Dockerfile.*",
+        "docker-compose*.yml",
+        "docker-compose*.yaml",
+        "terraform/**",
+        "infra/**",
+        "k8s/**",
+        "kubernetes/**",
+        "nginx/**",
+        "apache/**",
+        "**/*.service",
+        "**/*.env",
+        ".env.example",
+    ]
+    risky_tokens = ["production", "prod", "ssh", "rsync", "sudo", "kubectl apply", "terraform apply"]
+    locations: list[dict[str, Any]] = []
+    for rel in ctx.changed_files:
+        if not match_any(rel, deployment_patterns):
+            continue
+        text = read_text(ctx.repo / rel)
+        matched = False
+        for line_number, line in enumerate(text.splitlines(), 1):
+            lowered = (rel + "\n" + line).lower()
+            hits = [token for token in risky_tokens if token in lowered]
+            if hits:
+                locations.append({"path": rel, "line": line_number, "side": "RIGHT", "detail": "deployment token: " + ", ".join(hits)})
+                matched = True
+        if not matched:
+            locations.append({"path": rel, "line": first_text_line(ctx.repo / rel), "side": "RIGHT", "detail": "deployment-sensitive file changed"})
+    return dedupe_locations(locations)
+
+
+def migration_inline_locations(result: CheckResult, ctx: PRContext) -> list[dict[str, Any]]:
+    migration_patterns = ["**/migrations/**", "**/migration/**", "database/**", "db/migrate/**", "**/*.sql"]
+    locations: list[dict[str, Any]] = []
+    message = result.message.upper()
+    for rel in ctx.changed_files:
+        if not match_any(rel, migration_patterns):
+            continue
+        path = ctx.repo / rel
+        text = read_text(path)
+        matched = False
+        for line_number, line in enumerate(text.splitlines(), 1):
+            upper = line.upper()
+            collapsed = re.sub(r"[^A-Z]+", "", upper)
+            if any(token in collapsed for token in ["DROPTABLE", "DROPDATABASE", "DROPSCHEMA", "TRUNCATE", "DELETEFROM"]) or re.search(r"drop(Column|IfExists|Table|Database|Schema)", line):
+                if "CRITICAL" in message:
+                    locations.append({"path": rel, "line": line_number, "side": "RIGHT", "detail": "destructive database operation"})
+                matched = True
+            elif re.search(r"\bDROP\s+COLUMN\b|\bRENAME\s+COLUMN\b|\bALTER\s+TABLE\b|dropColumn|renameColumn", line, re.IGNORECASE):
+                if "HIGH" in message:
+                    locations.append({"path": rel, "line": line_number, "side": "RIGHT", "detail": "schema change may be destructive or irreversible"})
+                matched = True
+            elif re.search(r"\bCREATE\s+TABLE\b|\bADD\s+COLUMN\b|\bCREATE\s+INDEX\b|createTable|addColumn", line, re.IGNORECASE):
+                if "MEDIUM" in message:
+                    locations.append({"path": rel, "line": line_number, "side": "RIGHT", "detail": "additive schema change"})
+                matched = True
+        if not matched:
+            locations.append({"path": rel, "line": first_text_line(path), "side": "RIGHT", "detail": "migration file changed"})
+    return dedupe_locations(locations)
+
+
+def inline_severity(result: CheckResult) -> str:
+    if result.status == FAIL:
+        return "BLOCKING"
+    if result.gate == "Architecture":
+        return "ADVISORY"
+    return "WARNING"
+
+
+def inline_title(result: CheckResult) -> str:
+    titles = {
+        "Config Validation": "QA CONFIGURATION POLICY ISSUE",
+        "Repository Integrity": "REPOSITORY INTEGRITY ISSUE",
+        "Repository Hygiene": "REPOSITORY HYGIENE ISSUE",
+        "Git Validation": "DIFF FORMATTING ISSUE",
+        "Secrets": "SECRET DETECTED",
+        "Executable Classification": "UNCLASSIFIED EXECUTABLE CODE",
+        "Protected Resources": "PROTECTED RESOURCE CHANGE",
+        "Deployment Risk": "DEPLOYMENT CHANGE",
+        "Migration Risk": "MIGRATION RISK",
+        "Formatting": "FORMATTING FAILURE",
+        "Lint": "LINT FAILURE",
+        "Build": "BUILD FAILURE",
+        "Tests": "TEST FAILURE",
+        "Dependencies": "DEPENDENCY SECURITY FINDING",
+        "Licence": "LICENCE REVIEW FINDING",
+        "Documentation": "DOCUMENTATION EVIDENCE NEEDED",
+        "Architecture": "ADVISORY REVIEW",
+        "Risk Engine": "PR RISK FINDING",
+        "Evidence": "PR EVIDENCE NEEDED",
+    }
+    return titles.get(result.gate, f"{result.gate.upper()} FINDING")
+
+
+def inline_explanation(result: CheckResult, detail: str) -> str:
+    explanation = redact(result.message)
+    if detail and detail not in explanation:
+        explanation = f"{explanation} Detail: {detail}."
+    return explanation
+
+
+def inline_recommendation(result: CheckResult) -> str:
+    recommendations = {
+        "Config Validation": "Restore repository QA configuration to the approved schema and keep mandatory gates enabled.",
+        "Repository Integrity": "Remove or justify the repository integrity risk before requesting merge review.",
+        "Repository Hygiene": "Update the branch, commit, or file content to match organisation governance.",
+        "Git Validation": "Fix the reported diff issue locally and push a clean commit.",
+        "Secrets": "Remove the credential from the repository and use approved secrets management. Rotate the credential if it was real.",
+        "Executable Classification": "Move executable code into a supported technology stack or obtain governance approval before merge.",
+        "Protected Resources": "Confirm required ownership review and repository protection before merge.",
+        "Deployment Risk": "Confirm deployment validation, approval, and rollback evidence before merge.",
+        "Migration Risk": "Provide migration safety evidence and rollback strategy; remove destructive operations unless approved.",
+        "Formatting": "Run the repository formatter or correct the formatting issue without changing behaviour.",
+        "Lint": "Fix the lint finding or update the source to satisfy the configured lint policy.",
+        "Build": "Fix the build failure and push the corrected commit.",
+        "Tests": "Fix the failing test or update the test evidence before merge review.",
+        "Dependencies": "Resolve the vulnerable or unauditable dependency state using the approved package process.",
+        "Licence": "Confirm the licence risk with the repository owner before merge.",
+        "Documentation": "Add or update the required user, operational, or configuration documentation.",
+        "Architecture": "Review the maintainability observation and address it when it improves clarity or reduces risk.",
+        "Risk Engine": "Reduce PR risk or provide explicit reviewer evidence for the risk profile.",
+        "Evidence": "Complete the required PR evidence fields before requesting merge review.",
+    }
+    return recommendations.get(result.gate, "Review the QA finding and address it before merge review.")
+
+
+def normalize_inline_path(ctx: PRContext, raw_path: str) -> str:
+    cleaned = raw_path.strip().strip("`'\"")
+    cleaned = cleaned[2:] if cleaned.startswith("./") else cleaned
+    if not cleaned:
+        return ""
+    path = Path(cleaned)
+    if path.is_absolute():
+        try:
+            return path.resolve().relative_to(ctx.repo.resolve()).as_posix()
+        except ValueError:
+            return cleaned
+    return Path(cleaned).as_posix()
+
+
+def path_from_detail(detail: str, ctx: PRContext) -> str:
+    changed = set(ctx.changed_files)
+    cleaned = detail.strip().strip("`")
+    candidates = [cleaned.split(":", 1)[0], cleaned.split(" ", 1)[0], cleaned]
+    for candidate in candidates:
+        rel = normalize_inline_path(ctx, candidate)
+        if rel in changed:
+            return rel
+    for rel in ctx.changed_files:
+        if rel in cleaned:
+            return rel
+    return ""
+
+
+def line_exists(ctx: PRContext, rel: str, line: int) -> bool:
+    path = ctx.repo / rel
+    if not path.is_file() or is_binary_file(path):
+        return False
+    count = len(read_text(path).splitlines())
+    return 1 <= line <= max(count, 1)
+
+
+def first_text_line(path: Path) -> int:
+    text = read_text(path)
+    for line_number, line in enumerate(text.splitlines(), 1):
+        if line.strip():
+            return line_number
+    return 1
+
+
+def safe_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def dedupe_locations(locations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    seen: set[tuple[str, int, str]] = set()
+    for location in locations:
+        key = (
+            str(location.get("path", "")),
+            safe_int(location.get("line")),
+            str(location.get("side", "RIGHT")),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(location)
+    return deduped
 
 
 if __name__ == "__main__":

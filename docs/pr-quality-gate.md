@@ -26,11 +26,10 @@ on:
 permissions:
   contents: read
   pull-requests: write
-  checks: write
 
 jobs:
-  pr-quality-gate:
-    uses: Synergie-ITCI/.github/.github/workflows/reusable-pr-quality-gate.yml@main
+  pr-qa:
+    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@pr-qa-v1-rc2
 ```
 
 ## Optional Repository Config
@@ -78,8 +77,9 @@ explicitly opts into stricter behavior.
 - Reusable workflow exists in `Synergie-ITCI/.github`
 - Caller workflow exists in the participating repository
 - A test PR runs `PR Quality Gate`
-- The check summary is posted on the PR
-- File annotations appear for failures and warnings
+- Inline review comments appear for failures and warnings that map to changed diff lines
+- The check summary is posted in the GitHub Actions job summary
+- Markdown and JSON evidence artifacts are retained
 - Branch Protection, CODEOWNERS, approvals, and merge permissions remain owned by GitHub
 
 ## Sample Report
