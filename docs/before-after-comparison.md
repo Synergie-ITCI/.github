@@ -16,3 +16,4 @@
 | Dependency audits | Missing tools were warnings | Missing mandatory audit tooling fails dependency gate |
 | Evidence | `#123` could be treated as missing | Issue references like `#123` are accepted |
 | Binary files | All binary files failed | Common screenshot/document evidence extensions are allowed within size limits |
+| Engineering review | Automated AI review provider, publisher job, and PR comment lifecycle were present | Human-driven review by Saurabh using Codex's native GitHub integration; framework remains deterministic QA only |

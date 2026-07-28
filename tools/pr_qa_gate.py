@@ -39,7 +39,7 @@ DEFAULT_CHECKS = {
     "migration_risk": True,
     "large_files": True,
     "documentation": True,
-    "ai_advisory": True,
+    "architecture_review": True,
 }
 
 SECRET_PATTERNS = [
@@ -153,7 +153,7 @@ class Gate:
         self.check_build()
         self.check_tests()
         self.check_dependency_security()
-        self.check_ai_advisory()
+        self.check_architecture_review()
         self.write_outputs()
         return 0
 
@@ -493,9 +493,9 @@ class Gate:
                 findings.append(Finding("fail" if fail_on_vuln else "warn", name, "`npm audit` reported high or critical vulnerabilities."))
         self.record(CheckResult(name, "FAIL" if any(f.severity == "fail" for f in findings) else ("WARN" if findings else "PASS"), ", ".join(ran) if ran else "No supported dependency audit configured.", findings))
 
-    def check_ai_advisory(self) -> None:
-        name = "AI Advisory"
-        if not self.enabled("ai_advisory"):
+    def check_architecture_review(self) -> None:
+        name = "Architecture"
+        if not self.enabled("architecture_review"):
             self.record(CheckResult(name, "SKIPPED", "Disabled by repository configuration."))
             return
         findings = []
@@ -507,7 +507,7 @@ class Gate:
                 if "console.log(" in text or "var_dump(" in text or "print_r(" in text:
                     findings.append(Finding("warn", name, "Debug logging statement detected; confirm no sensitive data is logged.", path, 1))
                     break
-        self.record(CheckResult(name, "INFO", "Advisory-only heuristic review. This check never blocks merges.", findings))
+        self.record(CheckResult(name, "INFO", "Deterministic architecture observations. This check never blocks merges.", findings))
 
     def write_outputs(self) -> None:
         overall = "FAIL" if self.failures else "PASS"

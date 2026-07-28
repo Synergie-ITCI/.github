@@ -12,7 +12,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
 
 concurrency:
   group: pr-qa-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}
@@ -22,9 +21,3 @@ jobs:
   pr-qa:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@pr-qa-v1.1
-    with:
-      ai-review-provider: codex
-      ai-review-model: codex-review-v1
-    secrets:
-      AI_REVIEW_PROVIDER_URL: ${{ secrets.AI_REVIEW_PROVIDER_URL }}
-      AI_REVIEW_PROVIDER_TOKEN: ${{ secrets.AI_REVIEW_PROVIDER_TOKEN }}

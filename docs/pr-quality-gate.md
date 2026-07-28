@@ -25,7 +25,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
   pr-qa:
@@ -49,7 +48,6 @@ checks:
   migration_risk: true
   large_files: true
   documentation: true
-  ai_advisory: true
 
 large_file_threshold_mb: 10
 fail_on_dependency_vulnerabilities: false
@@ -69,18 +67,17 @@ The gate does not fail because tests, linters, build steps, or formatters are
 absent. It reports those as not configured.
 
 Dependency vulnerabilities, deployment risk, migration risk, documentation gaps,
-large files, and AI advisory observations are reported as warnings unless a repo
-explicitly opts into stricter behavior.
+large files, and deterministic architecture observations are reported as warnings
+unless a repo explicitly opts into stricter behavior.
 
 ## Validation Checklist
 
 - Reusable workflow exists in `Synergie-ITCI/.github`
 - Caller workflow exists in the participating repository
 - A test PR runs `PR Quality Gate`
-- Inline review comments appear for failures and warnings that map to changed diff lines
 - The check summary is posted in the GitHub Actions job summary
 - Markdown and JSON evidence artifacts are retained
-- AI Engineering Review runs only after final Enterprise QA succeeds and is reported as advisory evidence
+- Saurabh performs engineering review manually using Codex's native GitHub integration
 - Branch Protection, CODEOWNERS, approvals, and merge permissions remain owned by GitHub
 
 ## Sample Report
@@ -124,20 +121,11 @@ PASS
 Documentation
 PASS
 
-AI Advisory
-INFO
-
 Overall Result
 PASS
 
 Merge Readiness
 READY FOR REVIEW
-
-AI Engineering Review
-ADVISORY
-
-Observations
-3
 ```
 
 ## Rollout Plan
@@ -149,8 +137,8 @@ Observations
 5. Add the `PR Quality Gate` status check to branch protection manually only
    after the workflow is observed to be stable for that repository.
 
-## Current Limitation
+## Engineering Review
 
-AI advisory is implemented as a non-blocking heuristic review. A real model-backed
-review requires explicit approval for the AI provider, credentials, data-retention
-terms, and prompt policy.
+Enterprise QA is automated. Engineering review is performed manually by the Executive Reviewer using Codex's native GitHub integration.
+
+The framework intentionally does not automate AI review, call an AI provider, store provider credentials, or publish pull request review comments.

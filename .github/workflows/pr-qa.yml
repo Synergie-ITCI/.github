@@ -3,23 +3,10 @@ name: Synergie PR QA
 on:
   workflow_call:
     inputs:
-      ai-review-provider:
-        required: false
-        type: string
-        default: codex
-      ai-review-model:
-        required: false
-        type: string
-        default: codex-review-v1
       repository-profile:
         required: false
         type: string
         default: ""
-    secrets:
-      AI_REVIEW_PROVIDER_URL:
-        required: false
-      AI_REVIEW_PROVIDER_TOKEN:
-        required: false
 
 permissions:
   contents: read
@@ -61,8 +48,8 @@ jobs:
       - name: Checkout immutable central PR QA framework
         uses: actions/checkout@v4
         with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
+          repository: Synergie-ITCI/.github
+          ref: ${{ github.workflow_sha }}
           path: .pr-qa-framework
           persist-credentials: false
 
@@ -95,8 +82,8 @@ jobs:
       - name: Checkout immutable central PR QA framework
         uses: actions/checkout@v4
         with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
+          repository: Synergie-ITCI/.github
+          ref: ${{ github.workflow_sha }}
           path: .pr-qa-framework
           persist-credentials: false
 
@@ -246,92 +233,3 @@ jobs:
       - name: Enforce final PR QA result
         if: steps.full.outputs.exit_code != '0'
         run: exit 1
-
-  publisher:
-    name: Publish Pull Request Review Evidence
-    runs-on: ubuntu-latest
-    needs: qa
-    if: always() && github.event_name == 'pull_request' && github.event.pull_request.draft == false && needs.qa.result != 'cancelled'
-    timeout-minutes: 20
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - name: Checkout immutable central PR QA framework
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          path: .pr-qa-framework
-          persist-credentials: false
-
-      - name: Download final PR QA evidence
-        id: download-final
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: pr-qa-results
-          path: trusted-evidence/final
-
-      - name: Download Phase 1 PR QA evidence
-        id: download-phase-1
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: pr-qa-phase-1-results
-          path: trusted-evidence/phase-1
-
-      - name: Select authoritative QA evidence
-        id: evidence
-        run: |
-          if [ -f trusted-evidence/final/pr-quality-report.json ]; then
-            echo "report_json=trusted-evidence/final/pr-quality-report.json" >> "$GITHUB_OUTPUT"
-            echo "source=final" >> "$GITHUB_OUTPUT"
-          elif [ -f trusted-evidence/phase-1/pr-quality-report.json ]; then
-            echo "report_json=trusted-evidence/phase-1/pr-quality-report.json" >> "$GITHUB_OUTPUT"
-            echo "source=phase-1" >> "$GITHUB_OUTPUT"
-          else
-            echo "report_json=" >> "$GITHUB_OUTPUT"
-            echo "source=none" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Publish inline PR QA comments
-        if: steps.evidence.outputs.report_json != ''
-        continue-on-error: true
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          python3 .pr-qa-framework/pr-qa/review_comments.py \
-            --event-path "$GITHUB_EVENT_PATH" \
-            --report-json "${{ steps.evidence.outputs.report_json }}"
-
-      - name: AI engineering review
-        continue-on-error: true
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          AI_REVIEW_PROVIDER: ${{ inputs.ai-review-provider }}
-          AI_REVIEW_MODEL: ${{ inputs.ai-review-model }}
-          AI_REVIEW_PROVIDER_URL: ${{ secrets.AI_REVIEW_PROVIDER_URL }}
-          AI_REVIEW_PROVIDER_TOKEN: ${{ secrets.AI_REVIEW_PROVIDER_TOKEN }}
-          AI_REVIEW_APPROVED_HOSTS: ${{ vars.AI_REVIEW_APPROVED_HOSTS }}
-          AI_REVIEW_APPROVED_INTERNAL_HOSTS: ${{ vars.AI_REVIEW_APPROVED_INTERNAL_HOSTS }}
-        run: |
-          mkdir -p pr-qa-results
-          python3 .pr-qa-framework/pr-qa/ai_review.py \
-            --repo "$GITHUB_WORKSPACE" \
-            --event-path "$GITHUB_EVENT_PATH" \
-            --qa-report-json "${{ steps.evidence.outputs.report_json }}" \
-            --out pr-qa-results/ai-review-report.md \
-            --json-out pr-qa-results/ai-review-report.json \
-            --publish-comments
-          if [ -f pr-qa-results/ai-review-report.md ]; then
-            cat pr-qa-results/ai-review-report.md >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Upload publisher evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pr-qa-ai-review-results
-          path: pr-qa-results/
-          retention-days: 30

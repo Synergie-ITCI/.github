@@ -30,38 +30,53 @@ The inventory shows active use of PHP/Laravel, Node/React/TypeScript, Python/Fas
 Commands executed:
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 python3 -c "import ast, pathlib; [ast.parse(p.read_text(encoding='utf-8'), filename=str(p)) for p in pathlib.Path('synergie-pr-qa-framework/pr-qa').rglob('*.py')]; [ast.parse(p.read_text(encoding='utf-8'), filename=str(p)) for p in pathlib.Path('synergie-pr-qa-framework/tests').rglob('*.py')]; print('AST syntax OK')"
-PYTHONDONTWRITEBYTECODE=1 python3 synergie-pr-qa-framework/pr-qa/pr_qa.py --repo synergie-pr-qa-framework --detect-only
-python3 -m json.tool synergie-pr-qa-framework/policy/pr-qa-policy.json >/dev/null
-python3 -m json.tool synergie-pr-qa-framework/schemas/pr-qa.schema.json >/dev/null
-PYTHONDONTWRITEBYTECODE=1 python3 -c "import pathlib, sys; sys.path.insert(0, 'synergie-pr-qa-framework/pr-qa'); import pr_qa; print(type(pr_qa.parse_yaml_or_json(pathlib.Path('synergie-pr-qa-framework/.github/workflows/pr-qa.yml').read_text(encoding='utf-8'))).__name__); print(type(pr_qa.parse_yaml_or_json(pathlib.Path('synergie-pr-qa-framework/examples/caller-workflow.yml').read_text(encoding='utf-8'))).__name__)"
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s synergie-pr-qa-framework/tests -v
-actionlint synergie-pr-qa-framework/.github/workflows/pr-qa.yml
-check-jsonschema --schemafile synergie-pr-qa-framework/schemas/pr-qa.schema.json synergie-pr-qa-framework/examples/pr-qa.yml
-gitleaks detect --no-git --source synergie-pr-qa-framework --redact --exit-code 1 --report-format json --report-path /private/tmp/prqa-validation-gitleaks-framework.json
-gitleaks detect --no-git --source synergie-pr-qa-framework/tests/test_pr_qa_regressions.py --redact --exit-code 1 --report-format json --report-path /private/tmp/prqa-validation-gitleaks-fixture.json
-rg -n "framework-ref|runner-label|config-path|persist-credentials: true|PR_QA_FRAMEWORK_REF" synergie-pr-qa-framework/.github synergie-pr-qa-framework/examples synergie-pr-qa-framework/pr-qa synergie-pr-qa-framework/schemas synergie-pr-qa-framework/tests
-find synergie-pr-qa-framework -path '*__pycache__*' -print
+PYTHONDONTWRITEBYTECODE=1 python3 -c "import ast, pathlib; [ast.parse(p.read_text(encoding='utf-8'), filename=str(p)) for p in pathlib.Path('pr-qa').rglob('*.py')]; [ast.parse(p.read_text(encoding='utf-8'), filename=str(p)) for p in pathlib.Path('tests').rglob('*.py')]; [ast.parse(p.read_text(encoding='utf-8'), filename=str(p)) for p in pathlib.Path('tools').rglob('*.py')]; print('AST syntax OK')"
+PYTHONDONTWRITEBYTECODE=1 python3 pr-qa/pr_qa.py --repo . --detect-only
+python3 -m json.tool policy/pr-qa-policy.json
+python3 -m json.tool schemas/pr-qa.schema.json
+python3 -m json.tool .github/pr-qa.schema.json
+PYTHONDONTWRITEBYTECODE=1 python3 -c "import pathlib, sys; sys.path.insert(0, 'pr-qa'); import pr_qa; files=['.github/workflows/pr-qa.yml','.github/workflows/pr-qa-self.yml','.github/workflows/reusable-pr-quality-gate.yml','examples/caller-workflow.yml','examples/pr-qa.yml']; [print(f'{path}: {type(pr_qa.parse_yaml_or_json(pathlib.Path(path).read_text(encoding=\"utf-8\"))).__name__}') for path in files]"
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
+actionlint .github/workflows/pr-qa.yml
+actionlint .github/workflows/pr-qa-self.yml
+actionlint .github/workflows/reusable-pr-quality-gate.yml
+gitleaks detect --no-git --source . --redact --exit-code 1 --report-format json --report-path /private/tmp/prqa-simplification-gitleaks.json
+rg -n "AI_REVIEW|ai-review|ai_review.py|review_comments.py|pull-requests: write|checks: write|publisher:|GITHUB_TOKEN|github-script|pr-qa-ai-review-results|ai_advisory|AI Advisory|AI Engineering" .github examples pr-qa tests tools policy schemas
+find . -path '*__pycache__*' -print
 ```
 
 Results:
 
 - AST syntax OK.
 - Technology detection OK: `GitHub Actions`, `Python`.
-- JSON policy/schema parse OK.
-- Workflow and caller YAML parse OK.
-- Regression suite: 10 tests passed.
-- actionlint OK.
-- Strict schema validation OK.
-- Framework Gitleaks scan OK with fixture-only allowlist.
-- Direct Gitleaks fixture scan still detects the intentional fixture secret.
-- Stale workflow input scan found only the regression assertion string.
+- JSON policy and schema parse OK, including the legacy `.github/pr-qa.schema.json`.
+- Workflow and caller YAML parse OK for `.github/workflows/pr-qa.yml`, `.github/workflows/pr-qa-self.yml`, `.github/workflows/reusable-pr-quality-gate.yml`, `examples/caller-workflow.yml`, and `examples/pr-qa.yml`.
+- Regression suite: 20 tests passed.
+- actionlint OK for all three workflow files.
+- Gitleaks OK; no leaks found.
+- Removed-component scan found no workflow, engine, schema, policy, example, or tool references to AI provider secrets, AI review scripts, GitHub write tokens, PR review/comment publishing, trusted publisher jobs, or AI review artifacts. Matches were limited to negative regression assertions and removal documentation.
 - No Python bytecode cache files remain.
 
 NOT VERIFIED LOCALLY:
 
 - GitHub Actions execution in GitHub-hosted runners.
 - Live GitHub CODEOWNERS approval-state verification.
+
+## AI Review Simplification Validation
+
+Enterprise QA remains automated. Automated AI review is removed from the active framework.
+
+| Validation | Result |
+| --- | --- |
+| Reusable v1.1 workflow has no AI inputs or secrets | PASS |
+| Caller workflow has no AI inputs or secrets | PASS |
+| Workflow permissions are read-only | PASS |
+| Trusted publisher job removed | PASS |
+| GitHub Review API and issue-comment publishing removed | PASS |
+| AI provider code removed | PASS |
+| AI/comment lifecycle tests removed | PASS |
+| Removed implementation preserved on `feature/automated-ai-review-v1.1` | PASS |
+| Manual Codex review documented | PASS |
 
 ## Previous Smoke Test
 

@@ -54,8 +54,9 @@ Security tooling is mandatory for the gates it supports. The reusable workflow i
 
 ## Security Model
 
-- The caller workflow uses read-only repository permissions and pull-request write permission only for inline review comments.
+- The caller workflow uses read-only repository permissions.
 - The workflow does not request deployment, environment, package-write, or repository-administration permissions.
+- The workflow does not request pull request write permission.
 - All checkout steps use `persist-credentials: false`.
 - Static preflight runs before setup, dependency installation, build, lint, or tests.
 - Mandatory gates are defined in `policy/pr-qa-policy.json` and cannot be disabled by repository configuration.
@@ -175,38 +176,11 @@ pr-qa-results/emergency-override-audit.json
 
 The Markdown report is the concise human report. The JSON report is the audit trail for future analytics.
 
-Inline review comments are also published for findings that map to a changed pull request diff line. They are generated through the GitHub Pull Request Review API using `pull-requests: write`, contain no raw secrets, and are self-healing on later pushes. See `docs/inline-review-comments-architecture.md` for the implementation model.
+Engineering review is manual. After Enterprise QA produces PASS or FAIL evidence, the Executive Reviewer reviews the pull request interactively using Codex's native GitHub integration.
 
-Inline review publication runs in an isolated trusted publisher job. The untrusted QA job has `contents: read` only, receives no provider credential, receives no pull request write token, and may execute repository build, lint, and test commands. The publisher job starts on a fresh runner, checks out only the workflow-defining framework commit, downloads approved QA evidence files as untrusted data, validates the evidence bundle, and only then publishes comments.
+The framework intentionally does not automate AI review. It does not call an AI provider, publish pull request review comments, manage AI provider credentials, generate AI review artifacts, or attempt to replace Executive Release Authority judgment.
 
-AI Engineering Review runs after final Enterprise QA succeeds. Configure the approved hosted AI review provider through repository or organisation secrets:
-
-```text
-AI_REVIEW_PROVIDER_URL
-AI_REVIEW_PROVIDER_TOKEN
-```
-
-Configure approved provider destinations through organisation or repository variables:
-
-```text
-AI_REVIEW_APPROVED_HOSTS
-AI_REVIEW_APPROVED_INTERNAL_HOSTS
-```
-
-`AI_REVIEW_APPROVED_HOSTS` is an exact hostname allowlist. Do not use broad suffix rules. Provider URLs must use HTTPS, must not contain embedded credentials, and must not target localhost, loopback, link-local, or private network addresses unless the destination is explicitly governed through the internal-provider allowlist.
-
-If the provider endpoint, token, destination governance, or authoritative QA PASS evidence is unavailable, the workflow reports `AI Review unavailable` and Enterprise QA remains unchanged. The automation runs in GitHub Actions and does not depend on a local Codex workspace or an operator machine being online.
-
-AI Review artifacts are retained with the final PR QA evidence:
-
-```text
-pr-qa-ai-review-results/ai-review-report.md
-pr-qa-ai-review-results/ai-review-report.json
-```
-
-AI Review is advisory only. It never changes QA status, risk score, merge readiness, approvals, Branch Protection, CODEOWNERS, release governance, or merge requirements.
-
-Caller workflows pin the reusable workflow to the approved immutable release reference. For Version 1.1 this pending reference is `pr-qa-v1.1`. Inside the reusable workflow, framework source is checked out from `job.workflow_repository` at `job.workflow_sha`, so every job uses the exact commit that defines the called workflow. Do not add a caller-controlled framework reference.
+Caller workflows pin the reusable workflow to the approved immutable release reference. For Version 1.1 this pending reference is `pr-qa-v1.1`. Inside the reusable workflow, framework source is checked out from `Synergie-ITCI/.github` at `github.workflow_sha`, so every job uses the exact commit that defines the called workflow. Do not add a caller-controlled framework reference.
 
 ## Upgrade Process
 

@@ -10,3 +10,4 @@
 | Full migration semantic parsing is ecosystem-specific | PARTIALLY CLOSED | Current parser catches prior bypass and common destructive patterns; add AST/database-specific parsers per adapter over time. | QA/Security |
 | Mutable release tags could undermine immutable framework ref | OPEN | Protect `pr-qa-v1.1` tag or replace with commit SHA after release approval. | GitHub administrators |
 | Self-hosted runner contamination | PARTIALLY CLOSED | Workflow now uses GitHub-hosted runners only; keep PR QA off persistent self-hosted runners unless they are ephemeral and isolated. | DevSecOps |
+| Executive Reviewer availability gates engineering review | ACCEPTED | Enterprise QA remains automated; Saurabh performs engineering review manually using Codex's native GitHub integration before Executive approval. | Executive Release Authority |
