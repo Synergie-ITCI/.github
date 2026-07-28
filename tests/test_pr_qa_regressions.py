@@ -238,12 +238,13 @@ class PrQaRegressionTests(unittest.TestCase):
 
     def test_workflow_has_no_framework_override_or_checkout_credentials(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "pr-qa.yml").read_text(encoding="utf-8")
+        self_workflow = (ROOT / ".github" / "workflows" / "pr-qa-self.yml").read_text(encoding="utf-8")
         caller = (ROOT / "examples" / "caller-workflow.yml").read_text(encoding="utf-8")
-        self.assertNotIn("framework-ref", workflow + caller)
+        self.assertNotIn("framework-ref", workflow + caller + self_workflow)
         self.assertIn("persist-credentials: false", workflow)
-        self.assertIn("repository: Synergie-ITCI/.github", workflow)
-        self.assertIn("ref: pr-qa-v1.1", workflow)
         self.assertIn("@pr-qa-v1.1", caller)
+        self.assertIn("uses: ./.github/workflows/pr-qa.yml", self_workflow)
+        self.assertIn("merge_group:", self_workflow)
         self.assertIn("publisher:", workflow)
         self.assertIn("pull-requests: write", workflow.split("publisher:", 1)[1])
         qa_job = workflow.split("  qa:", 1)[1].split("  publisher:", 1)[0]
