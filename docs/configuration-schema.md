@@ -67,7 +67,7 @@ Risk score warnings do not block. A score at or above `risk_fail` blocks.
 ```yaml
 branch_naming:
   allowed_patterns:
-    - '^(feature|fix|hotfix|release|chore|docs|test|refactor|security|codex)/[a-zA-Z0-9._/-]+$'
+    - '^(feature|feat|fix|hotfix|release|rollout|chore|docs|test|refactor|security|codex)/[a-zA-Z0-9._/-]+$'
 
 commit_messages:
   allowed_patterns:

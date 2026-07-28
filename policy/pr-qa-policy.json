@@ -92,7 +92,7 @@
     },
     "branch_naming": {
       "allowed_patterns": [
-        "^(feature|feat|fix|hotfix|release|chore|docs|test|refactor|security|codex)/[a-zA-Z0-9._/-]+$",
+        "^(feature|feat|fix|hotfix|release|rollout|chore|docs|test|refactor|security|codex)/[a-zA-Z0-9._/-]+$",
         "^(main|master|develop|development|staging)$"
       ]
     },

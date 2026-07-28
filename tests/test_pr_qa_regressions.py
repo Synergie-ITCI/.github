@@ -57,16 +57,20 @@ class PrQaRegressionTests(unittest.TestCase):
         actor: str = "",
         pr_author: str = "SaurabhVermaIN",
         override_reason: str = "",
+        base_ref: str = "main",
+        head_ref: str = "feature/regression",
+        head_sha: str = "",
     ) -> tuple[int, str, dict, Path]:
         event = repo / "event.json"
+        resolved_head_sha = head_sha or self.git(repo, "rev-parse", "HEAD").stdout.strip()
         event.write_text(
             json.dumps(
                 {
                     "pull_request": {
                         "number": 123,
                         "user": {"login": pr_author},
-                        "base": {"sha": base, "ref": "main"},
-                        "head": {"sha": "HEAD", "ref": "feature/regression"},
+                        "base": {"sha": base, "ref": base_ref},
+                        "head": {"sha": resolved_head_sha, "ref": head_ref},
                         "body": (
                             "## Business Purpose\nRegression test.\n"
                             "## Testing Performed\nLocal automated regression.\n"
@@ -156,6 +160,78 @@ class PrQaRegressionTests(unittest.TestCase):
         self.assertNotEqual(code, 0)
         self.assertIn("unexpected hidden file or directory `.unknownrc`", report)
 
+    def test_rollout_branch_is_approved_governance_branch(self) -> None:
+        repo, base = self.init_repo("rollout-branch")
+        self.git(repo, "checkout", "-q", "-B", "rollout/pr-qa-v1-rc2")
+        self.write(repo / "docs" / "rollout.md", "Wave 1 rollout evidence.\n")
+        self.commit(repo, "docs: add rollout evidence")
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            static_only=True,
+            head_ref="rollout/pr-qa-v1-rc2",
+        )
+        self.assertEqual(code, 0)
+        self.assertNotIn("does not match allowed convention", report)
+        self.assertTrue(
+            any(
+                result["gate"] == "Repository Hygiene"
+                and result["status"] == "PASS"
+                and result["message"] == "Branch name `rollout/pr-qa-v1-rc2` matches allowed convention."
+                for result in report_json["results"]
+            )
+        )
+
+    def test_synthetic_pr_merge_commit_is_not_treated_as_pr_merge_commit(self) -> None:
+        repo, _ = self.init_repo("synthetic-pr-merge")
+        self.git(repo, "checkout", "-q", "main")
+        self.git(repo, "checkout", "-q", "-b", "historical-side")
+        self.write(repo / "docs" / "historical.md", "Historical base merge.\n")
+        self.commit(repo, "docs: historical base work")
+        self.git(repo, "checkout", "-q", "main")
+        self.write(repo / "README.md", "# regression\n\nBase branch work.\n")
+        self.commit(repo, "docs: update base")
+        self.git(repo, "merge", "--no-ff", "historical-side", "-m", "Merge historical side branch")
+        base = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        self.git(repo, "checkout", "-q", "-b", "rollout/pr-qa-v1-rc2")
+        self.write(repo / ".github" / "workflows" / "pr-qa.yml", "name: Synergie PR QA\non:\n  pull_request:\n")
+        self.commit(repo, "ci: add Synergie PR QA framework")
+        pr_head = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        self.git(repo, "checkout", "-q", "-b", "pull-request-merge", "main")
+        self.git(repo, "merge", "--no-ff", "rollout/pr-qa-v1-rc2", "-m", "Merge pull request #123 from rollout/pr-qa-v1-rc2")
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            static_only=True,
+            head_ref="rollout/pr-qa-v1-rc2",
+            head_sha=pr_head,
+        )
+        self.assertEqual(code, 0)
+        self.assertNotIn("Accidental merge commits detected", report)
+        self.assertTrue(
+            any(
+                result["gate"] == "Repository Hygiene"
+                and result["status"] == "PASS"
+                and result["message"] == "No accidental merge commits detected."
+                for result in report_json["results"]
+            )
+        )
+
+    def test_merge_commit_introduced_by_pr_still_fails(self) -> None:
+        repo, base = self.init_repo("introduced-merge")
+        self.write(repo / "feature.txt", "Feature work.\n")
+        self.commit(repo, "feat: add feature work")
+        self.git(repo, "checkout", "-q", "-b", "side-work")
+        self.write(repo / "side.txt", "Side branch work.\n")
+        self.commit(repo, "feat: add side work")
+        self.git(repo, "checkout", "-q", "feature/regression")
+        self.git(repo, "merge", "--no-ff", "side-work", "-m", "Merge side work")
+        code, report = self.run_engine(repo, base, static_only=True)
+        self.assertNotEqual(code, 0)
+        self.assertIn("Accidental merge commits detected", report)
+
     def test_codeowners_modification_fails(self) -> None:
         repo, base = self.init_repo("codeowners-change")
         self.write(repo / ".github" / "CODEOWNERS", "* @attacker\n")
@@ -242,6 +318,19 @@ class PrQaRegressionTests(unittest.TestCase):
         self.assertNotIn("framework-ref", workflow + caller)
         self.assertIn("persist-credentials: false", workflow)
         self.assertIn("@pr-qa-v1-rc2", caller)
+
+    def test_workflow_prepares_pinned_gitleaks_before_phase_one(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "pr-qa.yml").read_text(encoding="utf-8")
+        self.assertIn('PR_QA_GITLEAKS_VERSION: "8.30.1"', workflow)
+        self.assertIn(
+            'PR_QA_GITLEAKS_LINUX_X64_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"',
+            workflow,
+        )
+        self.assertIn("Prepare mandatory security tooling", workflow)
+        self.assertIn("gitleaks_${PR_QA_GITLEAKS_VERSION}_linux_x64.tar.gz", workflow)
+        self.assertIn("checksum mismatch", workflow)
+        self.assertLess(workflow.index("Prepare mandatory security tooling"), workflow.index("Phase 1 static preflight"))
+        self.assertNotIn("install.sh", workflow)
 
     def test_output_redaction_removes_fake_tokens(self) -> None:
         code = "from adapters.base import redact; print(redact('token=\"ghp_abcdefghijklmnopqrstuvwxyz123456\"'))"

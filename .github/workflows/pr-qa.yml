@@ -9,6 +9,8 @@ permissions:
 
 env:
   PR_QA_COMMAND_TIMEOUT_MINUTES: "20"
+  PR_QA_GITLEAKS_VERSION: "8.30.1"
+  PR_QA_GITLEAKS_LINUX_X64_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
   PYTHONDONTWRITEBYTECODE: "1"
 
 jobs:
@@ -69,6 +71,37 @@ jobs:
           ref: pr-qa-v1-rc2
           path: .pr-qa-framework
           persist-credentials: false
+
+      - name: Prepare mandatory security tooling
+        run: |
+          if command -v gitleaks >/dev/null 2>&1; then
+            gitleaks version
+            exit 0
+          fi
+
+          case "$(uname -s)-$(uname -m)" in
+            Linux-x86_64)
+              asset="gitleaks_${PR_QA_GITLEAKS_VERSION}_linux_x64.tar.gz"
+              expected_sha="$PR_QA_GITLEAKS_LINUX_X64_SHA256"
+              ;;
+            *)
+              echo "::error::Gitleaks is mandatory but no approved bootstrap asset is configured for $(uname -s)-$(uname -m)."
+              exit 1
+              ;;
+          esac
+
+          tool_dir="$RUNNER_TEMP/pr-qa-tools/gitleaks"
+          mkdir -p "$tool_dir"
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${PR_QA_GITLEAKS_VERSION}/${asset}" -o "$tool_dir/${asset}"
+          actual_sha="$(shasum -a 256 "$tool_dir/${asset}" | awk '{print $1}')"
+          if [ "$actual_sha" != "$expected_sha" ]; then
+            echo "::error::Gitleaks bootstrap checksum mismatch for ${asset}."
+            exit 1
+          fi
+          tar -xzf "$tool_dir/${asset}" -C "$tool_dir" gitleaks
+          chmod +x "$tool_dir/gitleaks"
+          echo "$tool_dir" >> "$GITHUB_PATH"
+          "$tool_dir/gitleaks" version
 
       - name: Phase 1 static preflight
         id: static

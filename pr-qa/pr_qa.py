@@ -437,8 +437,9 @@ def gather_git_context(repo: Path, event: dict[str, Any], base_ref: str, head_re
 
     changed = git_lines(repo, ["diff", "--name-only", "--diff-filter=ACMRTUXB", diff_range])
     additions, deletions = git_numstat(repo, diff_range)
-    commits = git_lines(repo, ["log", "--format=%s", f"{base_sha}..HEAD"]) if base_sha else git_lines(repo, ["log", "--format=%s", "-n", "1"])
-    context.update({"changed_files": changed, "commits": commits, "additions": additions, "deletions": deletions, "diff_range": diff_range})
+    commit_range = pr_introduced_commit_range(repo, context)
+    commits = git_lines(repo, ["log", "--format=%s", commit_range]) if commit_range else git_lines(repo, ["log", "--format=%s", "-n", "1"])
+    context.update({"changed_files": changed, "commits": commits, "additions": additions, "deletions": deletions, "diff_range": diff_range, "commit_range": commit_range})
     return context
 
 
@@ -481,6 +482,39 @@ def git_numstat(repo: Path, diff_range: str) -> tuple[int, int]:
             except ValueError:
                 pass
     return additions, deletions
+
+
+def pr_introduced_commit_range(repo: Path, git_context: dict[str, Any]) -> str:
+    if not git_context.get("is_git_repo"):
+        return ""
+    head_ref = git_context.get("head_sha") or "HEAD"
+    head = head_ref if commit_exists(repo, head_ref) else "HEAD"
+    fallback_base = ""
+    for base in pr_base_candidates(git_context):
+        if not commit_exists(repo, base):
+            continue
+        fallback_base = fallback_base or base
+        merge_base = git_lines(repo, ["merge-base", base, head])
+        if merge_base:
+            return f"{merge_base[0]}..{head}"
+    if fallback_base:
+        return f"{fallback_base}..{head}"
+    return ""
+
+
+def pr_base_candidates(git_context: dict[str, Any]) -> list[str]:
+    candidates: list[str] = []
+    base_ref = git_context.get("base_ref") or ""
+    if base_ref:
+        candidates.extend([f"origin/{base_ref}", base_ref])
+    base_sha = git_context.get("base_sha") or ""
+    if base_sha:
+        candidates.append(base_sha)
+    deduped: list[str] = []
+    for candidate in candidates:
+        if candidate and candidate not in deduped:
+            deduped.append(candidate)
+    return deduped
 
 
 def read_base_file(repo: Path, git_context: dict[str, Any], rel: str) -> str:
@@ -649,8 +683,8 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
     else:
         results.append(passed("Repository Hygiene", None, "No merge conflict markers found in changed files."))
 
-    if git_context.get("is_git_repo") and git_context.get("base_sha"):
-        merge_commits = git_lines(ctx.repo, ["rev-list", "--merges", f"{git_context['base_sha']}..HEAD"])
+    if git_context.get("is_git_repo") and git_context.get("commit_range"):
+        merge_commits = git_lines(ctx.repo, ["rev-list", "--merges", git_context["commit_range"]])
         if merge_commits and not ctx.config.get("repository", {}).get("allow_merge_commits", False):
             results.append(failed("Repository Hygiene", None, "Accidental merge commits detected.", merge_commits[:20], score=8))
         else:

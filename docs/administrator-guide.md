@@ -50,7 +50,7 @@ Recommended runner tools:
 | Terraform | Terraform, TFLint, tfsec or Checkov |
 | Kubernetes | kubeconform, kubeval, or kubectl |
 
-Security tooling is mandatory for the gates it supports. Gitleaks is mandatory. Dependency audit tooling is mandatory for repositories whose technologies are detected.
+Security tooling is mandatory for the gates it supports. Gitleaks is mandatory. The reusable workflow uses the runner copy when available; otherwise it bootstraps the approved pinned Gitleaks version before repository validation begins. Dependency audit tooling is mandatory for repositories whose technologies are detected.
 
 ## Security Model
 
