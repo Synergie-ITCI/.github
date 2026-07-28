@@ -8,6 +8,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "repository_hygiene": { "type": "boolean" },
         "formatting": { "type": "boolean" },
         "lint": { "type": "boolean" },
         "build": { "type": "boolean" },
@@ -15,11 +16,15 @@
         "git_validation": { "type": "boolean" },
         "secrets": { "type": "boolean" },
         "dependency_security": { "type": "boolean" },
+        "licence_compliance": { "type": "boolean" },
         "deployment_risk": { "type": "boolean" },
         "migration_risk": { "type": "boolean" },
         "large_files": { "type": "boolean" },
         "documentation": { "type": "boolean" },
-        "ai_advisory": { "type": "boolean" }
+        "protected_resources": { "type": "boolean" },
+        "ai_advisory": { "type": "boolean" },
+        "risk_engine": { "type": "boolean" },
+        "evidence_validation": { "type": "boolean" }
       }
     },
     "large_file_threshold_mb": {
@@ -30,6 +35,21 @@
     "fail_on_dependency_vulnerabilities": {
       "type": "boolean",
       "default": false
+    },
+    "evidence_enforcement": {
+      "type": "string",
+      "enum": ["fail", "warn"],
+      "default": "fail"
+    },
+    "repository_criticality": {
+      "type": "string",
+      "enum": ["low", "medium", "high", "critical"],
+      "default": "medium"
+    },
+    "max_changed_files_for_low_risk": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 20
     }
   }
 }

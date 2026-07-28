@@ -28,6 +28,7 @@ REPORT_MD = ROOT / "pr-qa-report.md"
 REPORT_JSON = ROOT / "pr-qa-result.json"
 
 DEFAULT_CHECKS = {
+    "repository_hygiene": True,
     "formatting": True,
     "lint": True,
     "build": True,
@@ -35,11 +36,15 @@ DEFAULT_CHECKS = {
     "git_validation": True,
     "secrets": True,
     "dependency_security": True,
+    "licence_compliance": True,
     "deployment_risk": True,
     "migration_risk": True,
     "large_files": True,
     "documentation": True,
+    "protected_resources": True,
     "ai_advisory": True,
+    "risk_engine": True,
+    "evidence_validation": True,
 }
 
 SECRET_PATTERNS = [
@@ -78,6 +83,289 @@ MIGRATION_PATTERNS = [
     re.compile(r"migrations?/.*\.(php|sql|py|js|ts)$", re.I),
 ]
 
+PROTECTED_PATH_PATTERNS = [
+    re.compile(r"^\.github/"),
+    re.compile(r"^(deploy|deployment|infra|infrastructure|terraform|k8s|kubernetes)/", re.I),
+    re.compile(r"(^|/)(Dockerfile|docker-compose\.ya?ml)$", re.I),
+]
+
+GENERATED_PATH_PATTERNS = [
+    re.compile(r"(^|/)(dist|build|coverage|target|DerivedData|Pods)/"),
+    re.compile(r"(?i)\.(min\.js|map|generated\.(js|ts|php|py|kt|swift))$"),
+]
+
+EVIDENCE_FIELDS = {
+    "business purpose": ["business purpose", "purpose"],
+    "testing performed": ["testing performed", "testing", "qa evidence"],
+    "rollback strategy": ["rollback strategy", "rollback"],
+    "linked issue": ["linked issue", "issue", "ticket", "jira"],
+    "screenshots": ["screenshots", "screenshots / evidence", "evidence"],
+}
+
+
+@dataclass
+class AdapterCommand:
+    label: str
+    args: list[str]
+    timeout: int = 900
+    env: dict[str, str] = field(default_factory=dict)
+    cwd: Path | None = None
+
+
+class TechnologyAdapter:
+    name = "Unknown"
+
+    def detect(self, root: Path) -> bool:
+        return False
+
+    def labels(self, root: Path) -> list[str]:
+        return [self.name]
+
+    def setup(self, gate: "Gate") -> None:
+        return
+
+    def formatting(self, gate: "Gate") -> list[AdapterCommand]:
+        return []
+
+    def lint(self, gate: "Gate") -> list[AdapterCommand]:
+        return []
+
+    def build(self, gate: "Gate") -> list[AdapterCommand]:
+        return []
+
+    def tests(self, gate: "Gate") -> list[AdapterCommand]:
+        return []
+
+    def dependency_audit(self, gate: "Gate") -> list[AdapterCommand]:
+        return []
+
+
+class NodeAdapter(TechnologyAdapter):
+    name = "Node"
+
+    def detect(self, root: Path) -> bool:
+        return (root / "package.json").exists()
+
+    def labels(self, root: Path) -> list[str]:
+        labels = ["Node"]
+        text = (root / "package.json").read_text(encoding="utf-8", errors="replace")
+        if "typescript" in text:
+            labels.append("TypeScript")
+        if "react-native" in text:
+            labels.append("React Native")
+        elif "react" in text:
+            labels.append("React")
+        return labels
+
+    def setup(self, gate: "Gate") -> None:
+        gate.ensure_node_dependencies()
+
+    def formatting(self, gate: "Gate") -> list[AdapterCommand]:
+        scripts = gate.package_scripts()
+        for script in ("format:check", "prettier:check"):
+            if script in scripts and shutil.which("npm"):
+                return [AdapterCommand(f"npm run {script}", ["npm", "run", script], env={"CI": "true"})]
+        return []
+
+    def lint(self, gate: "Gate") -> list[AdapterCommand]:
+        scripts = gate.package_scripts()
+        if "lint" in scripts and shutil.which("npm"):
+            return [AdapterCommand("npm run lint", ["npm", "run", "lint"], env={"CI": "true"})]
+        return []
+
+    def build(self, gate: "Gate") -> list[AdapterCommand]:
+        scripts = gate.package_scripts()
+        if "build" in scripts and shutil.which("npm"):
+            return [AdapterCommand("npm run build", ["npm", "run", "build"], timeout=1200, env={"CI": "true"})]
+        return []
+
+    def tests(self, gate: "Gate") -> list[AdapterCommand]:
+        scripts = gate.package_scripts()
+        if "test" in scripts and shutil.which("npm"):
+            return [AdapterCommand("npm test", ["npm", "test"], timeout=1200, env={"CI": "true", "WATCHMAN_DISABLE": "1"})]
+        return []
+
+    def dependency_audit(self, gate: "Gate") -> list[AdapterCommand]:
+        if shutil.which("npm"):
+            return [AdapterCommand("npm audit --audit-level=high", ["npm", "audit", "--audit-level=high"], timeout=600)]
+        return []
+
+
+class PHPAdapter(TechnologyAdapter):
+    name = "PHP"
+
+    def detect(self, root: Path) -> bool:
+        return (root / "composer.json").exists() or any(root.glob("**/*.php"))
+
+    def labels(self, root: Path) -> list[str]:
+        labels = ["PHP"]
+        if (root / "artisan").exists():
+            labels.append("Laravel")
+        return labels
+
+    def setup(self, gate: "Gate") -> None:
+        gate.ensure_php_dependencies()
+
+    def lint(self, gate: "Gate") -> list[AdapterCommand]:
+        commands = []
+        for path in gate.changed_files:
+            if path.endswith(".php") and (ROOT / path).exists() and shutil.which("php"):
+                commands.append(AdapterCommand(f"php -l {path}", ["php", "-l", path], timeout=120))
+        return commands
+
+    def tests(self, gate: "Gate") -> list[AdapterCommand]:
+        phpunit = ROOT / "vendor/bin/phpunit"
+        if phpunit.exists():
+            return [AdapterCommand("vendor/bin/phpunit", [str(phpunit)], timeout=1200)]
+        return []
+
+    def dependency_audit(self, gate: "Gate") -> list[AdapterCommand]:
+        if (ROOT / "composer.json").exists() and shutil.which("composer"):
+            return [AdapterCommand("composer audit", ["composer", "audit", "--no-interaction"], timeout=600)]
+        return []
+
+
+class GradleAdapter(TechnologyAdapter):
+    name = "Kotlin/Gradle"
+
+    def detect(self, root: Path) -> bool:
+        return (root / "gradlew").exists() or (root / "build.gradle").exists() or (root / "build.gradle.kts").exists()
+
+    def build(self, gate: "Gate") -> list[AdapterCommand]:
+        if (ROOT / "gradlew").exists():
+            return [AdapterCommand("./gradlew assemble", ["./gradlew", "assemble"], timeout=1800)]
+        return []
+
+    def tests(self, gate: "Gate") -> list[AdapterCommand]:
+        if (ROOT / "gradlew").exists():
+            return [AdapterCommand("./gradlew test", ["./gradlew", "test"], timeout=1800)]
+        return []
+
+
+class SwiftAdapter(TechnologyAdapter):
+    name = "Swift"
+
+    def detect(self, root: Path) -> bool:
+        return any(root.glob("**/Package.swift"))
+
+    def tests(self, gate: "Gate") -> list[AdapterCommand]:
+        commands = []
+        for package_swift in sorted(ROOT.glob("**/Package.swift")):
+            if shutil.which("swift"):
+                commands.append(AdapterCommand(f"swift test ({package_swift.parent})", ["swift", "test"], timeout=1200, cwd=package_swift.parent))
+        return commands
+
+
+class PythonAdapter(TechnologyAdapter):
+    name = "Python"
+
+    def detect(self, root: Path) -> bool:
+        return (root / "pyproject.toml").exists() or (root / "requirements.txt").exists()
+
+    def lint(self, gate: "Gate") -> list[AdapterCommand]:
+        if shutil.which("ruff") and (ROOT / "pyproject.toml").exists():
+            return [AdapterCommand("ruff check .", ["ruff", "check", "."], timeout=600)]
+        return []
+
+    def tests(self, gate: "Gate") -> list[AdapterCommand]:
+        if shutil.which("pytest"):
+            return [AdapterCommand("pytest", ["pytest"], timeout=1200)]
+        return []
+
+    def dependency_audit(self, gate: "Gate") -> list[AdapterCommand]:
+        if shutil.which("pip-audit"):
+            return [AdapterCommand("pip-audit", ["pip-audit"], timeout=600)]
+        return []
+
+
+class GoAdapter(TechnologyAdapter):
+    name = "Go"
+
+    def detect(self, root: Path) -> bool:
+        return (root / "go.mod").exists()
+
+    def build(self, gate: "Gate") -> list[AdapterCommand]:
+        if shutil.which("go"):
+            return [AdapterCommand("go test ./...", ["go", "test", "./..."], timeout=900)]
+        return []
+
+    def tests(self, gate: "Gate") -> list[AdapterCommand]:
+        return []
+
+
+class RustAdapter(TechnologyAdapter):
+    name = "Rust"
+
+    def detect(self, root: Path) -> bool:
+        return (root / "Cargo.toml").exists()
+
+    def formatting(self, gate: "Gate") -> list[AdapterCommand]:
+        if shutil.which("cargo"):
+            return [AdapterCommand("cargo fmt --check", ["cargo", "fmt", "--check"], timeout=600)]
+        return []
+
+    def lint(self, gate: "Gate") -> list[AdapterCommand]:
+        if shutil.which("cargo"):
+            return [AdapterCommand("cargo clippy -- -D warnings", ["cargo", "clippy", "--", "-D", "warnings"], timeout=1200)]
+        return []
+
+    def build(self, gate: "Gate") -> list[AdapterCommand]:
+        if shutil.which("cargo"):
+            return [AdapterCommand("cargo build", ["cargo", "build"], timeout=1200)]
+        return []
+
+    def tests(self, gate: "Gate") -> list[AdapterCommand]:
+        if shutil.which("cargo"):
+            return [AdapterCommand("cargo test", ["cargo", "test"], timeout=1200)]
+        return []
+
+
+class DotNetAdapter(TechnologyAdapter):
+    name = ".NET"
+
+    def detect(self, root: Path) -> bool:
+        return any(root.glob("*.sln")) or any(root.glob("**/*.csproj"))
+
+    def build(self, gate: "Gate") -> list[AdapterCommand]:
+        if shutil.which("dotnet"):
+            return [AdapterCommand("dotnet build", ["dotnet", "build", "--no-restore"], timeout=1200)]
+        return []
+
+    def tests(self, gate: "Gate") -> list[AdapterCommand]:
+        if shutil.which("dotnet"):
+            return [AdapterCommand("dotnet test", ["dotnet", "test", "--no-build"], timeout=1200)]
+        return []
+
+
+class MavenAdapter(TechnologyAdapter):
+    name = "Java/Maven"
+
+    def detect(self, root: Path) -> bool:
+        return (root / "pom.xml").exists()
+
+    def build(self, gate: "Gate") -> list[AdapterCommand]:
+        if shutil.which("mvn"):
+            return [AdapterCommand("mvn -DskipTests package", ["mvn", "-DskipTests", "package"], timeout=1800)]
+        return []
+
+    def tests(self, gate: "Gate") -> list[AdapterCommand]:
+        if shutil.which("mvn"):
+            return [AdapterCommand("mvn test", ["mvn", "test"], timeout=1800)]
+        return []
+
+
+ALL_ADAPTERS: list[TechnologyAdapter] = [
+    NodeAdapter(),
+    PHPAdapter(),
+    GradleAdapter(),
+    SwiftAdapter(),
+    PythonAdapter(),
+    GoAdapter(),
+    RustAdapter(),
+    DotNetAdapter(),
+    MavenAdapter(),
+]
+
 
 @dataclass
 class Finding:
@@ -101,9 +389,12 @@ class Gate:
         self.config = self.load_config()
         self.results: dict[str, CheckResult] = {}
         self.changed_files = self.get_changed_files()
+        self.adapters = self.detect_adapters()
         self.technologies = self.detect_technologies()
         self.failures: list[Finding] = []
         self.warnings: list[Finding] = []
+        self.risk_score = 0
+        self.risk_level = "LOW"
 
     def enabled(self, check: str) -> bool:
         return bool(self.config["checks"].get(check, True))
@@ -113,6 +404,9 @@ class Gate:
             "checks": dict(DEFAULT_CHECKS),
             "large_file_threshold_mb": int(os.getenv("PR_QA_LARGE_FILE_THRESHOLD_MB", "10")),
             "fail_on_dependency_vulnerabilities": os.getenv("PR_QA_FAIL_ON_DEPENDENCY_VULNERABILITIES", "false").lower() == "true",
+            "evidence_enforcement": os.getenv("PR_QA_EVIDENCE_ENFORCEMENT", "fail"),
+            "repository_criticality": os.getenv("PR_QA_REPOSITORY_CRITICALITY", "medium"),
+            "max_changed_files_for_low_risk": int(os.getenv("PR_QA_MAX_CHANGED_FILES_FOR_LOW_RISK", "20")),
         }
         config_path = ROOT / os.getenv("PR_QA_CONFIG_PATH", ".github/pr-qa.yml")
         if not config_path.exists():
@@ -139,21 +433,35 @@ class Gate:
                     pass
             elif key == "fail_on_dependency_vulnerabilities":
                 config["fail_on_dependency_vulnerabilities"] = value_bool
+            elif key == "evidence_enforcement" and value.lower() in {"fail", "warn"}:
+                config["evidence_enforcement"] = value.lower()
+            elif key == "repository_criticality":
+                config["repository_criticality"] = value.lower()
+            elif key == "max_changed_files_for_low_risk":
+                try:
+                    config["max_changed_files_for_low_risk"] = int(value)
+                except ValueError:
+                    pass
         return config
 
     def run(self) -> int:
+        self.check_repository_hygiene()
         self.check_git_validation()
         self.check_secrets()
         self.check_large_files()
         self.check_deployment_risk()
         self.check_migration_risk()
+        self.check_licence_compliance()
         self.check_documentation()
+        self.check_protected_resources()
         self.check_formatting()
         self.check_lint()
         self.check_build()
         self.check_tests()
         self.check_dependency_security()
+        self.check_evidence_validation()
         self.check_ai_advisory()
+        self.check_risk_engine()
         self.write_outputs()
         return 0
 
@@ -201,32 +509,44 @@ class Gate:
 
     def detect_technologies(self) -> list[str]:
         tech: list[str] = []
-        if (ROOT / "composer.json").exists():
-            tech.append("PHP")
-        if (ROOT / "artisan").exists():
-            tech.append("Laravel")
-        if (ROOT / "package.json").exists():
-            tech.append("Node")
-            text = (ROOT / "package.json").read_text(encoding="utf-8", errors="replace")
-            if "react-native" in text:
-                tech.append("React Native")
-            elif "react" in text:
-                tech.append("React")
-        if any(ROOT.glob("**/Package.swift")):
-            tech.append("Swift")
-        if (ROOT / "gradlew").exists() or (ROOT / "build.gradle").exists() or (ROOT / "build.gradle.kts").exists():
-            tech.append("Kotlin/Gradle")
-        if (ROOT / "pyproject.toml").exists() or (ROOT / "requirements.txt").exists():
-            tech.append("Python")
-        if (ROOT / "go.mod").exists():
-            tech.append("Go")
+        for adapter in self.adapters:
+            for label in adapter.labels(ROOT):
+                if label not in tech:
+                    tech.append(label)
+        if any((ROOT / path).exists() for path in ("Dockerfile", "docker-compose.yml", "docker-compose.yaml")):
+            tech.append("Docker")
+        if any(ROOT.glob("**/*.tf")):
+            tech.append("Terraform")
+        if any(ROOT.glob(".github/workflows/*.y*ml")):
+            tech.append("GitHub Actions")
+        if any("kind:" in p.read_text(encoding="utf-8", errors="ignore")[:2000] for p in ROOT.glob("**/*.y*ml") if p.is_file() and p.stat().st_size < 200_000):
+            tech.append("Kubernetes")
         return tech or ["Unknown"]
+
+    def detect_adapters(self) -> list[TechnologyAdapter]:
+        return [adapter for adapter in ALL_ADAPTERS if adapter.detect(ROOT)]
 
     def read_package_json(self) -> dict[str, Any]:
         try:
             return json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
         except Exception:
             return {}
+
+    def package_scripts(self) -> dict[str, Any]:
+        package = self.read_package_json()
+        scripts = package.get("scripts", {})
+        return scripts if isinstance(scripts, dict) else {}
+
+    def run_adapter_commands(self, check: str, commands: list[AdapterCommand], fail_message: str) -> CheckResult:
+        findings: list[Finding] = []
+        ran: list[str] = []
+        for command in commands:
+            ran.append(command.label)
+            cp = self.command(command.args, timeout=command.timeout, env=command.env, cwd=command.cwd)
+            if cp.returncode != 0:
+                findings.append(Finding("fail", check, fail_message.format(label=command.label)))
+        status = "FAIL" if findings else "PASS"
+        return CheckResult(check, status, ", ".join(ran), findings)
 
     def ensure_node_dependencies(self) -> None:
         if not (ROOT / "package.json").exists() or (ROOT / "node_modules").exists():
@@ -260,6 +580,41 @@ class Gate:
                 elif line.strip():
                     findings.append(Finding("fail", name, line.strip()))
         self.record(CheckResult(name, "FAIL" if findings else "PASS", "git diff --check completed.", findings))
+
+    def check_repository_hygiene(self) -> None:
+        name = "Repository Hygiene"
+        if not self.enabled("repository_hygiene"):
+            self.record(CheckResult(name, "SKIPPED", "Disabled by repository configuration."))
+            return
+        findings: list[Finding] = []
+        branch = os.getenv("GITHUB_HEAD_REF") or self.command(["git", "rev-parse", "--abbrev-ref", "HEAD"], timeout=120).stdout.strip()
+        if branch and branch != "HEAD" and not re.match(r"^(feature|fix|bugfix|hotfix|chore|ci|docs|refactor|test|release|codex)/[A-Za-z0-9._/-]+$", branch):
+            findings.append(Finding("warn", name, f"Branch name `{branch}` does not follow the expected prefix/name convention."))
+
+        base = os.getenv("PR_QA_BASE_SHA") or "HEAD~1"
+        head = os.getenv("PR_QA_HEAD_SHA") or "HEAD"
+        merges = self.command(["git", "rev-list", "--merges", f"{base}..{head}"], timeout=120)
+        if merges.returncode == 0 and merges.stdout.strip():
+            findings.append(Finding("warn", name, "PR contains merge commits. Prefer rebasing or a clean feature branch unless intentionally preserving history."))
+
+        subjects = self.command(["git", "log", "--format=%s", f"{base}..{head}"], timeout=120)
+        nonconforming = []
+        if subjects.returncode == 0:
+            for subject in subjects.stdout.splitlines():
+                if subject and not re.match(r"^(feat|fix|docs|style|refactor|test|chore|ci|build|perf|revert)(\([^)]+\))?: .+", subject):
+                    nonconforming.append(subject)
+        if nonconforming:
+            findings.append(Finding("warn", name, f"{len(nonconforming)} commit message(s) do not follow Conventional Commits."))
+
+        for path in self.changed_files:
+            if any(pattern.search(path) for pattern in GENERATED_PATH_PATTERNS):
+                findings.append(Finding("warn", name, "Generated/build artifact changed; confirm this belongs in source control.", path, 1))
+            file_path = ROOT / path
+            if file_path.exists() and file_path.is_file() and file_path.stat().st_size < 2_000_000:
+                text = file_path.read_text(encoding="utf-8", errors="ignore")
+                if re.search(r"^<<<<<<< |^=======|^>>>>>>> ", text, re.M):
+                    findings.append(Finding("fail", name, "Merge conflict marker detected in changed file.", path, 1))
+        self.record(CheckResult(name, "FAIL" if any(f.severity == "fail" for f in findings) else ("WARN" if findings else "PASS"), "Repository hygiene checks completed.", findings))
 
     def check_secrets(self) -> None:
         name = "Secrets"
@@ -337,14 +692,35 @@ class Gate:
                 continue
             text = (ROOT / path).read_text(encoding="utf-8", errors="ignore") if (ROOT / path).exists() else ""
             if re.search(r"(?i)\b(drop\s+table|drop\s+column|alter\s+primary\s+key|rename\s+column|truncate)\b", text):
-                status = "HIGH"
-                findings.append(Finding("warn", name, "Potentially destructive migration detected. Manual release review required.", path, 1))
+                status = "CRITICAL"
+                findings.append(Finding("warn", name, "Destructive or irreversible migration detected. Manual release review and rollback evidence required.", path, 1))
+            elif re.search(r"(?is)\b(delete\s+from|update\s+\w+\s+set)\b(?![^;]*\bwhere\b)", text):
+                status = "HIGH" if status != "CRITICAL" else status
+                findings.append(Finding("warn", name, "Potentially destructive data update without an obvious WHERE clause detected.", path, 1))
             elif re.search(r"(?i)\b(alter\s+table|modify\s+column|change\s+column)\b", text):
-                status = "MEDIUM" if status != "HIGH" else status
+                status = "MEDIUM" if status not in {"HIGH", "CRITICAL"} else status
                 findings.append(Finding("warn", name, "Schema-altering migration detected. Confirm manual migration/runbook plan.", path, 1))
             else:
                 findings.append(Finding("warn", name, "Migration file changed. Confirm rollout and rollback plan.", path, 1))
         self.record(CheckResult(name, status, "Migration risk analysis completed.", findings))
+
+    def check_licence_compliance(self) -> None:
+        name = "Licence Compliance"
+        if not self.enabled("licence_compliance"):
+            self.record(CheckResult(name, "SKIPPED", "Disabled by repository configuration."))
+            return
+        findings: list[Finding] = []
+        paths = [p for p in self.changed_files if re.search(r"(?i)(package(-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|composer\.lock|go\.sum|Cargo\.lock|LICENSE|NOTICE)", p)]
+        for path in paths:
+            file_path = ROOT / path
+            if not file_path.exists() or file_path.stat().st_size > 5_000_000:
+                continue
+            text = file_path.read_text(encoding="utf-8", errors="ignore")
+            if re.search(r"(?i)\b(AGPL|GPL-?3|GPL-?2|GNU GENERAL PUBLIC LICENSE)\b", text):
+                findings.append(Finding("warn", name, "GPL/AGPL-family licence reference detected; confirm licence compatibility before merge.", path, 1))
+            if re.search(r"(?i)\"license\"\s*:\s*\"(UNKNOWN|UNLICENSED)\"", text):
+                findings.append(Finding("warn", name, "Unknown or unlicensed dependency metadata detected.", path, 1))
+        self.record(CheckResult(name, "WARN" if findings else "PASS", "Licence compliance scan completed.", findings))
 
     def check_documentation(self) -> None:
         name = "Documentation"
@@ -358,119 +734,76 @@ class Gate:
             findings.append(Finding("warn", name, "Configuration/API/deployment-related changes detected without accompanying docs or example config update."))
         self.record(CheckResult(name, "WARN" if findings else "PASS", "Documentation impact check completed.", findings))
 
+    def check_protected_resources(self) -> None:
+        name = "Protected Resource Validation"
+        if not self.enabled("protected_resources"):
+            self.record(CheckResult(name, "SKIPPED", "Disabled by repository configuration."))
+            return
+        findings: list[Finding] = []
+        protected_files = [p for p in self.changed_files if any(pattern.search(p) for pattern in PROTECTED_PATH_PATTERNS)]
+        if protected_files:
+            codeowners_exists = any((ROOT / p).exists() for p in (".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"))
+            for path in protected_files:
+                findings.append(Finding("warn", name, "Protected path changed; ensure CODEOWNERS review and explicit operational approval before merge.", path, 1))
+            if not codeowners_exists:
+                findings.append(Finding("warn", name, "Protected paths changed but no CODEOWNERS file was found in a recognised location."))
+        self.record(CheckResult(name, "WARN" if findings else "PASS", "Protected resource validation completed.", findings))
+
     def check_formatting(self) -> None:
         name = "Formatting"
         if not self.enabled("formatting"):
             self.record(CheckResult(name, "SKIPPED", "Disabled by repository configuration."))
             return
-        findings = []
-        ran = []
-        package = self.read_package_json()
-        scripts = package.get("scripts", {}) if isinstance(package.get("scripts"), dict) else {}
-        self.ensure_node_dependencies()
-        for script in ("format:check", "prettier:check"):
-            if script in scripts and shutil.which("npm"):
-                cp = self.command(["npm", "run", script], timeout=900, env={"CI": "true"})
-                ran.append(f"npm run {script}")
-                if cp.returncode != 0:
-                    findings.append(Finding("fail", name, f"`npm run {script}` failed."))
-                break
-        if not ran:
+        commands: list[AdapterCommand] = []
+        for adapter in self.adapters:
+            adapter.setup(self)
+            commands.extend(adapter.formatting(self))
+        if not commands:
             self.record(CheckResult(name, "PASS", "No formatter check configured."))
         else:
-            self.record(CheckResult(name, "FAIL" if findings else "PASS", ", ".join(ran), findings))
+            self.record(self.run_adapter_commands(name, commands, "`{label}` failed."))
 
     def check_lint(self) -> None:
         name = "Lint"
         if not self.enabled("lint"):
             self.record(CheckResult(name, "SKIPPED", "Disabled by repository configuration."))
             return
-        findings = []
-        ran = []
-        package = self.read_package_json()
-        scripts = package.get("scripts", {}) if isinstance(package.get("scripts"), dict) else {}
-        self.ensure_node_dependencies()
-        if "lint" in scripts and shutil.which("npm"):
-            cp = self.command(["npm", "run", "lint"], timeout=900, env={"CI": "true"})
-            ran.append("npm run lint")
-            if cp.returncode != 0:
-                findings.append(Finding("fail", name, "`npm run lint` failed."))
-        if "Python" in self.technologies and shutil.which("ruff") and (ROOT / "pyproject.toml").exists():
-            cp = self.command(["ruff", "check", "."], timeout=600)
-            ran.append("ruff check .")
-            if cp.returncode != 0:
-                findings.append(Finding("fail", name, "`ruff check .` failed."))
-        self.record(CheckResult(name, "FAIL" if findings else "PASS", ", ".join(ran) if ran else "No lint configuration detected.", findings))
+        commands: list[AdapterCommand] = []
+        for adapter in self.adapters:
+            adapter.setup(self)
+            commands.extend(adapter.lint(self))
+        if not commands:
+            self.record(CheckResult(name, "PASS", "No lint configuration detected."))
+        else:
+            self.record(self.run_adapter_commands(name, commands, "`{label}` failed."))
 
     def check_build(self) -> None:
         name = "Build"
         if not self.enabled("build"):
             self.record(CheckResult(name, "SKIPPED", "Disabled by repository configuration."))
             return
-        findings = []
-        ran = []
-        package = self.read_package_json()
-        scripts = package.get("scripts", {}) if isinstance(package.get("scripts"), dict) else {}
-        self.ensure_node_dependencies()
-        if "build" in scripts and shutil.which("npm"):
-            cp = self.command(["npm", "run", "build"], timeout=1200, env={"CI": "true"})
-            ran.append("npm run build")
-            if cp.returncode != 0:
-                findings.append(Finding("fail", name, "`npm run build` failed."))
-        if "Go" in self.technologies and shutil.which("go"):
-            cp = self.command(["go", "test", "./..."], timeout=900)
-            ran.append("go test ./...")
-            if cp.returncode != 0:
-                findings.append(Finding("fail", name, "`go test ./...` failed."))
-        self.record(CheckResult(name, "FAIL" if findings else "PASS", ", ".join(ran) if ran else "No build step configured.", findings))
+        commands: list[AdapterCommand] = []
+        for adapter in self.adapters:
+            adapter.setup(self)
+            commands.extend(adapter.build(self))
+        if not commands:
+            self.record(CheckResult(name, "PASS", "No build step configured."))
+        else:
+            self.record(self.run_adapter_commands(name, commands, "`{label}` failed."))
 
     def check_tests(self) -> None:
         name = "Tests"
         if not self.enabled("tests"):
             self.record(CheckResult(name, "SKIPPED", "Disabled by repository configuration."))
             return
-        findings = []
-        ran = []
-        package = self.read_package_json()
-        scripts = package.get("scripts", {}) if isinstance(package.get("scripts"), dict) else {}
-        self.ensure_node_dependencies()
-        self.ensure_php_dependencies()
-        if "test" in scripts and shutil.which("npm"):
-            cp = self.command(["npm", "test"], timeout=1200, env={"CI": "true", "WATCHMAN_DISABLE": "1"})
-            ran.append("npm test")
-            if cp.returncode != 0:
-                findings.append(Finding("fail", name, "`npm test` failed."))
-        changed_php = [p for p in self.changed_files if p.endswith(".php") and (ROOT / p).exists()]
-        if changed_php and shutil.which("php"):
-            for path in changed_php:
-                cp = self.command(["php", "-l", path], timeout=120)
-                ran.append(f"php -l {path}")
-                if cp.returncode != 0:
-                    findings.append(Finding("fail", name, f"PHP syntax check failed for {path}.", path, 1))
-        phpunit = ROOT / "vendor/bin/phpunit"
-        if phpunit.exists():
-            cp = self.command([str(phpunit)], timeout=1200)
-            ran.append("vendor/bin/phpunit")
-            if cp.returncode != 0:
-                findings.append(Finding("fail", name, "`vendor/bin/phpunit` failed."))
-        if "Kotlin/Gradle" in self.technologies and (ROOT / "gradlew").exists():
-            cp = self.command(["./gradlew", "test"], timeout=1800)
-            ran.append("./gradlew test")
-            if cp.returncode != 0:
-                findings.append(Finding("fail", name, "`./gradlew test` failed."))
-        for package_swift in sorted(ROOT.glob("**/Package.swift")):
-            if shutil.which("swift"):
-                cp = self.command(["swift", "test"], timeout=1200, env={}, cwd=package_swift.parent)
-                ran.append(f"swift test ({package_swift.parent})")
-                if cp.returncode != 0:
-                    findings.append(Finding("fail", name, f"`swift test` failed in {package_swift.parent}."))
-                break
-        if "Python" in self.technologies and shutil.which("pytest"):
-            cp = self.command(["pytest"], timeout=1200)
-            ran.append("pytest")
-            if cp.returncode != 0:
-                findings.append(Finding("fail", name, "`pytest` failed."))
-        self.record(CheckResult(name, "FAIL" if findings else "PASS", ", ".join(ran) if ran else "No automated tests configured.", findings))
+        commands: list[AdapterCommand] = []
+        for adapter in self.adapters:
+            adapter.setup(self)
+            commands.extend(adapter.tests(self))
+        if not commands:
+            self.record(CheckResult(name, "PASS", "No automated test suite configured."))
+        else:
+            self.record(self.run_adapter_commands(name, commands, "`{label}` failed."))
 
     def check_dependency_security(self) -> None:
         name = "Dependency Security"
@@ -480,17 +813,15 @@ class Gate:
         findings = []
         ran = []
         fail_on_vuln = bool(self.config["fail_on_dependency_vulnerabilities"])
-        if (ROOT / "composer.json").exists() and shutil.which("composer"):
-            cp = self.command(["composer", "audit", "--no-interaction"], timeout=600)
-            ran.append("composer audit")
+        commands: list[AdapterCommand] = []
+        for adapter in self.adapters:
+            adapter.setup(self)
+            commands.extend(adapter.dependency_audit(self))
+        for command in commands:
+            ran.append(command.label)
+            cp = self.command(command.args, timeout=command.timeout, env=command.env, cwd=command.cwd)
             if cp.returncode != 0:
-                findings.append(Finding("fail" if fail_on_vuln else "warn", name, "`composer audit` reported vulnerabilities."))
-        if (ROOT / "package.json").exists() and shutil.which("npm"):
-            self.ensure_node_dependencies()
-            cp = self.command(["npm", "audit", "--audit-level=high"], timeout=600)
-            ran.append("npm audit --audit-level=high")
-            if cp.returncode != 0:
-                findings.append(Finding("fail" if fail_on_vuln else "warn", name, "`npm audit` reported high or critical vulnerabilities."))
+                findings.append(Finding("fail" if fail_on_vuln else "warn", name, f"`{command.label}` reported vulnerabilities."))
         self.record(CheckResult(name, "FAIL" if any(f.severity == "fail" for f in findings) else ("WARN" if findings else "PASS"), ", ".join(ran) if ran else "No supported dependency audit configured.", findings))
 
     def check_ai_advisory(self) -> None:
@@ -509,6 +840,100 @@ class Gate:
                     break
         self.record(CheckResult(name, "INFO", "Advisory-only heuristic review. This check never blocks merges.", findings))
 
+    def check_evidence_validation(self) -> None:
+        name = "Evidence Validation"
+        if not self.enabled("evidence_validation"):
+            self.record(CheckResult(name, "SKIPPED", "Disabled by repository configuration."))
+            return
+        body = self.pr_body()
+        severity = "fail" if self.config.get("evidence_enforcement") == "fail" else "warn"
+        findings: list[Finding] = []
+        if not body.strip():
+            findings.append(Finding(severity, name, "PR body is empty. Complete the standard PR template before merge."))
+        else:
+            lower = body.lower()
+            for field, aliases in EVIDENCE_FIELDS.items():
+                if not any(alias in lower for alias in aliases):
+                    findings.append(Finding(severity, name, f"PR evidence is missing mandatory field: {field}."))
+                elif field != "screenshots" and not self.section_has_content(body, aliases):
+                    findings.append(Finding(severity, name, f"PR evidence field appears incomplete: {field}."))
+        status = "FAIL" if any(f.severity == "fail" for f in findings) else ("WARN" if findings else "PASS")
+        self.record(CheckResult(name, status, f"Evidence enforcement mode: {self.config.get('evidence_enforcement')}.", findings))
+
+    def pr_body(self) -> str:
+        event_path = os.getenv("GITHUB_EVENT_PATH")
+        if event_path and Path(event_path).exists():
+            try:
+                event = json.loads(Path(event_path).read_text(encoding="utf-8"))
+                return (event.get("pull_request") or {}).get("body") or ""
+            except Exception:
+                return ""
+        return os.getenv("PR_QA_PR_BODY", "")
+
+    def section_has_content(self, body: str, aliases: list[str]) -> bool:
+        lines = body.splitlines()
+        start = None
+        for idx, line in enumerate(lines):
+            normalized = re.sub(r"[*_#:\[\]\-]", "", line.lower()).strip()
+            if any(alias in normalized for alias in aliases):
+                start = idx + 1
+                break
+        if start is None:
+            return False
+        collected: list[str] = []
+        for line in lines[start:]:
+            stripped = line.strip()
+            if stripped.startswith("#") or re.match(r"^\*\*.+\*\*\s*:?\s*$", stripped):
+                break
+            if stripped and not re.match(r"(?i)^(-|\[ \]|n/?a|none|todo|tbd|not done)$", stripped):
+                collected.append(stripped)
+        return bool(collected)
+
+    def check_risk_engine(self) -> None:
+        name = "Risk Engine"
+        if not self.enabled("risk_engine"):
+            self.record(CheckResult(name, "SKIPPED", "Disabled by repository configuration."))
+            return
+        score = 0
+        score += min(20, max(0, len(self.changed_files) - int(self.config["max_changed_files_for_low_risk"])) // 5 * 2)
+        criticality = str(self.config.get("repository_criticality", "medium")).lower()
+        score += {"low": 0, "medium": 5, "high": 10, "critical": 15}.get(criticality, 5)
+        for finding in self.failures:
+            if finding.check == "Secrets":
+                score += 50
+            elif finding.check in {"Build", "Tests", "Lint", "Git Validation", "Evidence Validation"}:
+                score += 20
+            else:
+                score += 10
+        for finding in self.warnings:
+            if finding.check == "Migration Risk" and "Destructive" in finding.message:
+                score += 25
+            elif finding.check == "Migration Risk":
+                score += 15
+            elif finding.check == "Deployment Risk":
+                score += 15
+            elif finding.check == "Protected Resource Validation":
+                score += 10
+            elif finding.check in {"Dependency Security", "Licence Compliance"}:
+                score += 8
+            else:
+                score += 3
+        score = min(score, 100)
+        if score >= 80:
+            level = "CRITICAL"
+        elif score >= 50:
+            level = "HIGH"
+        elif score >= 25:
+            level = "MEDIUM"
+        else:
+            level = "LOW"
+        self.risk_score = score
+        self.risk_level = level
+        findings = []
+        if level in {"HIGH", "CRITICAL"}:
+            findings.append(Finding("warn", name, f"Overall PR risk is {level}. Human reviewer should inspect operational/security evidence before merge."))
+        self.record(CheckResult(name, level, f"Risk Score: {score} / 100. Repository criticality: {criticality}.", findings))
+
     def write_outputs(self) -> None:
         overall = "FAIL" if self.failures else "PASS"
         readiness = "NOT READY" if self.failures else "READY FOR REVIEW"
@@ -519,7 +944,7 @@ class Gate:
             "PR QUALITY REPORT",
             "",
             f"Repository: {os.getenv('GITHUB_REPOSITORY', ROOT.name)}",
-            f"Technology: {', '.join(self.technologies)}",
+            f"Detected Technologies: {', '.join(self.technologies)}",
             "",
         ]
         for result in self.results.values():
@@ -538,11 +963,13 @@ class Gate:
             if len(self.warnings) > 30:
                 lines.append(f"- {len(self.warnings) - 30} additional warnings omitted from summary.")
             lines.append("")
-        lines.extend(["Overall Result", overall, "", "Merge Readiness", readiness, "", "========================================", ""])
+        lines.extend(["Risk Score", f"{self.risk_score} / 100 ({self.risk_level})", "", "Overall Result", overall, "", "Merge Readiness", readiness, "", "========================================", ""])
         REPORT_MD.write_text("\n".join(lines), encoding="utf-8")
         REPORT_JSON.write_text(json.dumps({
             "overall": overall,
             "merge_readiness": readiness,
+            "risk_score": self.risk_score,
+            "risk_level": self.risk_level,
             "technologies": self.technologies,
             "checks": {name: result.__dict__ | {"findings": [f.__dict__ for f in result.findings]} for name, result in self.results.items()},
             "blocking_findings": [f.__dict__ for f in self.failures],

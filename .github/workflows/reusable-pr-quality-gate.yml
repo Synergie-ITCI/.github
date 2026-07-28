@@ -18,6 +18,21 @@ on:
         required: false
         type: boolean
         default: false
+      evidence-enforcement:
+        description: Whether missing PR evidence fails the gate or only warns.
+        required: false
+        type: string
+        default: fail
+      repository-criticality:
+        description: low, medium, high, or critical. Used by the risk engine.
+        required: false
+        type: string
+        default: medium
+      max-changed-files-for-low-risk:
+        description: Changed file count allowed before PR size increases risk.
+        required: false
+        type: string
+        default: "20"
 
 permissions:
   contents: read
@@ -59,11 +74,25 @@ jobs:
         with:
           go-version: "stable"
 
+      - name: Setup .NET
+        if: ${{ hashFiles('*.sln', '**/*.csproj') != '' }}
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
+
+      - name: Install Gitleaks
+        continue-on-error: true
+        run: |
+          version="8.24.3"
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_linux_x64.tar.gz" \
+            | tar -xz gitleaks
+          sudo mv gitleaks /usr/local/bin/gitleaks
 
       - name: Run Synergie PR QA
         id: qa
@@ -74,6 +103,9 @@ jobs:
           PR_QA_CONFIG_PATH: ${{ inputs.config-path }}
           PR_QA_LARGE_FILE_THRESHOLD_MB: ${{ inputs.large-file-threshold-mb }}
           PR_QA_FAIL_ON_DEPENDENCY_VULNERABILITIES: ${{ inputs.fail-on-dependency-vulnerabilities }}
+          PR_QA_EVIDENCE_ENFORCEMENT: ${{ inputs.evidence-enforcement }}
+          PR_QA_REPOSITORY_CRITICALITY: ${{ inputs.repository-criticality }}
+          PR_QA_MAX_CHANGED_FILES_FOR_LOW_RISK: ${{ inputs.max-changed-files-for-low-risk }}
         run: |
           python .synergie-pr-qa/tools/pr_qa_gate.py
 
