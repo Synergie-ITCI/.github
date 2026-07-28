@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -44,11 +45,26 @@ class PrQaRegressionTests(unittest.TestCase):
         return repo, base
 
     def run_engine(self, repo: Path, base: str, *, static_only: bool = False) -> tuple[int, str]:
+        code, report, _, _ = self.run_engine_with_artifacts(repo, base, static_only=static_only)
+        return code, report
+
+    def run_engine_with_artifacts(
+        self,
+        repo: Path,
+        base: str,
+        *,
+        static_only: bool = False,
+        actor: str = "",
+        pr_author: str = "SaurabhVermaIN",
+        override_reason: str = "",
+    ) -> tuple[int, str, dict, Path]:
         event = repo / "event.json"
         event.write_text(
             json.dumps(
                 {
                     "pull_request": {
+                        "number": 123,
+                        "user": {"login": pr_author},
                         "base": {"sha": base, "ref": "main"},
                         "head": {"sha": "HEAD", "ref": "feature/regression"},
                         "body": (
@@ -64,11 +80,31 @@ class PrQaRegressionTests(unittest.TestCase):
             encoding="utf-8",
         )
         report = repo / "report.md"
-        args = ["python3", str(ENGINE), "--repo", str(repo), "--event-path", str(event), "--out", str(report)]
+        json_report = repo / "report.json"
+        audit = repo / "emergency-override-audit.json"
+        args = [
+            "python3",
+            str(ENGINE),
+            "--repo",
+            str(repo),
+            "--event-path",
+            str(event),
+            "--out",
+            str(report),
+            "--json-out",
+            str(json_report),
+        ]
         if static_only:
             args.append("--static-only")
-        completed = subprocess.run(args, text=True, capture_output=True, env=self.env, check=False)
-        return completed.returncode, report.read_text(encoding="utf-8") if report.exists() else completed.stdout
+        env = dict(self.env)
+        if actor:
+            env["GITHUB_ACTOR"] = actor
+        if override_reason:
+            args.extend(["--emergency-override-reason", override_reason, "--emergency-override-out", str(audit)])
+        completed = subprocess.run(args, text=True, capture_output=True, env=env, check=False)
+        report_text = report.read_text(encoding="utf-8") if report.exists() else completed.stdout
+        parsed_json = json.loads(json_report.read_text(encoding="utf-8")) if json_report.exists() else {}
+        return completed.returncode, report_text, parsed_json, audit
 
     def test_pr_cannot_disable_mandatory_gates(self) -> None:
         repo, base = self.init_repo("config-disable")
@@ -152,6 +188,96 @@ class PrQaRegressionTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0)
         self.assertIn("[REDACTED]", completed.stdout)
         self.assertNotIn("ghp_abcdefghijklmnopqrstuvwxyz123456", completed.stdout)
+
+    def test_emergency_override_rejects_normal_user_without_changing_findings(self) -> None:
+        repo, base = self.init_repo("override-normal-user")
+        self.write(repo / ".env", "PASSWORD=\"super-secret-value\"\n")
+        self.commit(repo, "feat: add env")
+        baseline_code, _, baseline_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+        override_code, _, override_json, audit_path = self.run_engine_with_artifacts(
+            repo,
+            base,
+            static_only=True,
+            actor="ordinary-user",
+            pr_author="ordinary-user",
+            override_reason="Emergency production continuity request.",
+        )
+
+        self.assertNotEqual(baseline_code, 0)
+        self.assertEqual(override_code, baseline_code)
+        self.assertEqual(override_json["summary"], baseline_json["summary"])
+        self.assertEqual(override_json["results"], baseline_json["results"])
+        audit = json.loads(audit_path.read_text(encoding="utf-8"))
+        self.assertFalse(audit["authorized"])
+        self.assertEqual(audit["decision"], "REJECTED_UNAUTHORIZED_ACTOR")
+        self.assertEqual(audit["actor"], "ordinary-user")
+        self.assertEqual(audit["pr_author"], "ordinary-user")
+
+    def test_emergency_override_requires_admin_bypass_for_saurabh_authored_pr(self) -> None:
+        repo, base = self.init_repo("override-authorised-user")
+        self.write(repo / ".env", "PASSWORD=\"super-secret-value\"\n")
+        self.commit(repo, "feat: add env")
+        baseline_code, _, baseline_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+        code, _, report_json, audit_path = self.run_engine_with_artifacts(
+            repo,
+            base,
+            static_only=True,
+            actor="SaurabhVermaIN",
+            pr_author="SaurabhVermaIN",
+            override_reason="Emergency production continuity request.",
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(code, baseline_code)
+        self.assertEqual(report_json["summary"], baseline_json["summary"])
+        self.assertEqual(report_json["results"], baseline_json["results"])
+        audit = json.loads(audit_path.read_text(encoding="utf-8"))
+        self.assertTrue(audit["authorized"])
+        self.assertTrue(audit["actor_authorized"])
+        self.assertTrue(audit["administrator_bypass_required"])
+        self.assertFalse(audit["self_approval_allowed"])
+        self.assertFalse(audit["self_merge_authorized"])
+        self.assertEqual(audit["decision"], "ADMINISTRATOR_BYPASS_REQUIRED")
+        self.assertEqual(audit["actor"], "SaurabhVermaIN")
+        self.assertEqual(audit["pr_author"], "SaurabhVermaIN")
+        self.assertEqual(audit["repository"], repo.name)
+        self.assertEqual(audit["branch"], "feature/regression")
+        self.assertEqual(audit["pr_number"], 123)
+        self.assertRegex(audit["commit_sha"], r"^[0-9a-f]{40}$")
+        self.assertEqual(audit["qa_summary"]["overall_result"], report_json["summary"]["overall_result"])
+        self.assertEqual(audit["qa_summary"]["gate_statuses"], report_json["summary"]["gate_statuses"])
+        self.assertTrue(any(finding["gate"] == "Repository Integrity" for finding in audit["qa_summary"]["failed_findings"]))
+        self.assertEqual(audit["record_sha256"], self.override_digest(audit))
+
+    def test_emergency_override_records_executive_review_for_developer_pr(self) -> None:
+        repo, base = self.init_repo("override-other-author")
+        self.write(repo / ".env", "PASSWORD=\"super-secret-value\"\n")
+        self.commit(repo, "feat: add env")
+        code, _, report_json, audit_path = self.run_engine_with_artifacts(
+            repo,
+            base,
+            static_only=True,
+            actor="SaurabhVermaIN",
+            pr_author="another-author",
+            override_reason="Emergency production continuity request.",
+        )
+
+        self.assertNotEqual(code, 0)
+        audit = json.loads(audit_path.read_text(encoding="utf-8"))
+        self.assertTrue(audit["authorized"])
+        self.assertTrue(audit["actor_authorized"])
+        self.assertFalse(audit["administrator_bypass_required"])
+        self.assertFalse(audit["self_approval_allowed"])
+        self.assertFalse(audit["self_merge_authorized"])
+        self.assertEqual(audit["decision"], "EXECUTIVE_RELEASE_AUTHORITY_REVIEW_RECORDED")
+        self.assertEqual(audit["actor"], "SaurabhVermaIN")
+        self.assertEqual(audit["pr_author"], "another-author")
+        self.assertEqual(audit["qa_summary"]["gate_statuses"], report_json["summary"]["gate_statuses"])
+
+    def override_digest(self, record: dict) -> str:
+        payload = {key: value for key, value in record.items() if key != "record_sha256"}
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
 
     def git(self, repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(["git", *args], cwd=repo, text=True, capture_output=True, check=False)

@@ -5,11 +5,13 @@ import argparse
 import base64
 import binascii
 import fnmatch
+import hashlib
 import json
 import os
 import re
 import subprocess
 from copy import deepcopy
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -40,6 +42,7 @@ from adapters.base import (
 FRAMEWORK_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_POLICY_PATH = FRAMEWORK_ROOT / "policy" / "pr-qa-policy.json"
 CONFIG_PATH = ".github/pr-qa.yml"
+EMERGENCY_OVERRIDE_REASON_ENV = "PR_QA_EMERGENCY_OVERRIDE_REASON"
 
 GATE_ORDER = [
     ("config_validation", "Config Validation"),
@@ -115,12 +118,14 @@ def main() -> int:
         if static_failed and not args.static_only:
             add_phase_skips(results, "Phase 1 static preflight failed; no repository-controlled commands were executed.")
         summary = summarize(results, technologies, ctx, git_context)
+        write_emergency_override_audit(args, summary, results, ctx, git_context)
         write_reports(args, summary, results, ctx)
         return 1 if summary["overall_result"] == FAIL else 0
 
     results.extend(run_sandboxed_validation(ctx, technologies))
     results.extend(run_governance(ctx, results))
     summary = summarize(results, technologies, ctx, git_context)
+    write_emergency_override_audit(args, summary, results, ctx, git_context)
     write_reports(args, summary, results, ctx)
     return 1 if summary["overall_result"] == FAIL else 0
 
@@ -140,6 +145,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--static-only", action="store_true", help="Run only Phase 1 static preflight.")
     parser.add_argument("--github-output", default="", help="GITHUB_OUTPUT file for detection mode.")
     parser.add_argument("--no-command-runs", action="store_true", help="Do not execute adapter commands.")
+    parser.add_argument("--emergency-override-reason", default=os.environ.get(EMERGENCY_OVERRIDE_REASON_ENV, ""), help="Governance-only emergency override reason.")
+    parser.add_argument("--emergency-override-out", default="", help="Emergency override audit record path.")
     return parser.parse_args()
 
 
@@ -1066,6 +1073,133 @@ def write_reports(args: argparse.Namespace, summary: dict[str, Any], results: li
         Path(args.json_out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.json_out).write_text(json.dumps(json_report, indent=2), encoding="utf-8")
     print(report)
+
+
+def write_emergency_override_audit(
+    args: argparse.Namespace,
+    summary: dict[str, Any],
+    results: list[CheckResult],
+    ctx: PRContext,
+    git_context: dict[str, Any],
+) -> None:
+    reason = str(args.emergency_override_reason or "").strip()
+    if not reason:
+        return
+
+    policy_override = ctx.policy.get("emergency_override", {}) or {}
+    authorized_actors = set(policy_override.get("authorized_actors", []))
+    actor = resolve_override_actor(ctx.event)
+    pr_author = extract_pr_author(ctx.event)
+    actor_authorized = actor in authorized_actors
+    administrator_bypass_required = actor_authorized and actor == pr_author
+    record = {
+        "schema_version": 1,
+        "type": "emergency_administrative_override",
+        "decision": emergency_override_decision(actor_authorized, administrator_bypass_required),
+        "authorized": actor_authorized,
+        "actor_authorized": actor_authorized,
+        "administrator_bypass_required": administrator_bypass_required,
+        "self_approval_allowed": False,
+        "self_merge_authorized": False,
+        "actor": actor,
+        "pr_author": pr_author,
+        "authorized_actors": sorted(authorized_actors),
+        "repository": summary["repository"],
+        "branch": summary["head_ref"] or "",
+        "commit_sha": resolve_head_sha(ctx.repo, git_context),
+        "pr_number": extract_pr_number(ctx.event),
+        "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "reason": redact(reason),
+        "qa_summary": build_override_qa_summary(summary, results),
+        "invariants": [
+            "QA executed before this audit record was generated.",
+            "QA findings, gate statuses, overall result, merge readiness, and process exit code are not changed by emergency override.",
+            "No developer or Executive Release Authority may approve their own pull request.",
+            "Executive-authored pull requests require GitHub Administrator Bypass after QA, with a mandatory reason and preserved QA evidence.",
+            "This record is governance evidence only and does not bypass GitHub Branch Protection automatically.",
+        ],
+    }
+    record["record_sha256"] = emergency_override_digest(record)
+    out_path = emergency_override_path(args, ctx, policy_override)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def resolve_head_sha(repo: Path, git_context: dict[str, Any]) -> str:
+    head_sha = str(git_context.get("head_sha") or "")
+    if head_sha and head_sha != "HEAD":
+        return head_sha
+    if is_git_repo(repo):
+        return run_git(repo, ["rev-parse", "HEAD"]).strip()
+    return head_sha
+
+
+def extract_pr_number(event: dict[str, Any]) -> int | str:
+    pull_request = event.get("pull_request", {}) or {}
+    return pull_request.get("number") or event.get("number") or ""
+
+
+def extract_pr_author(event: dict[str, Any]) -> str:
+    pull_request = event.get("pull_request", {}) or {}
+    return (pull_request.get("user", {}) or {}).get("login", "")
+
+
+def resolve_override_actor(event: dict[str, Any]) -> str:
+    sender = (event.get("sender", {}) or {}).get("login", "")
+    return os.environ.get("GITHUB_TRIGGERING_ACTOR") or os.environ.get("GITHUB_ACTOR") or sender
+
+
+def emergency_override_decision(actor_authorized: bool, administrator_bypass_required: bool) -> str:
+    if not actor_authorized:
+        return "REJECTED_UNAUTHORIZED_ACTOR"
+    if administrator_bypass_required:
+        return "ADMINISTRATOR_BYPASS_REQUIRED"
+    if actor_authorized:
+        return "EXECUTIVE_RELEASE_AUTHORITY_REVIEW_RECORDED"
+    return "REJECTED_UNAUTHORIZED_ACTOR"
+
+
+def build_override_qa_summary(summary: dict[str, Any], results: list[CheckResult]) -> dict[str, Any]:
+    return {
+        "overall_result": summary["overall_result"],
+        "merge_readiness": summary["merge_readiness"],
+        "risk_score": summary["risk_score"],
+        "gate_statuses": summary["gate_statuses"],
+        "failed_findings": [
+            {
+                "gate": result.gate,
+                "message": redact(result.message),
+                "technology": result.technology,
+                "details": [redact(str(detail)) for detail in result.details],
+            }
+            for result in results
+            if result.status == FAIL
+        ],
+        "warning_findings": [
+            {
+                "gate": result.gate,
+                "message": redact(result.message),
+                "technology": result.technology,
+                "details": [redact(str(detail)) for detail in result.details],
+            }
+            for result in results
+            if result.status == WARNING
+        ],
+    }
+
+
+def emergency_override_path(args: argparse.Namespace, ctx: PRContext, policy_override: dict[str, Any]) -> Path:
+    if args.emergency_override_out:
+        return Path(args.emergency_override_out)
+    default_name = str(policy_override.get("audit_artifact", "emergency-override-audit.json"))
+    base = Path(args.json_out).parent if args.json_out else Path(args.out).parent if args.out else ctx.repo / "pr-qa-results"
+    return base / default_name
+
+
+def emergency_override_digest(record: dict[str, Any]) -> str:
+    payload = {key: value for key, value in record.items() if key != "record_sha256"}
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def render_markdown_report(summary: dict[str, Any], results: list[CheckResult]) -> str:

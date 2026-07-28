@@ -72,6 +72,76 @@ After Phase 1 validation, administrators may mark the caller workflow status as 
 
 Do this outside the PR QA workflow. The workflow itself must not mutate GitHub settings.
 
+## Executive Release Governance
+
+Protected branches must use GitHub Branch Protection or repository rulesets as the merge authority. PR QA supplies required technical evidence; it does not approve, merge, or bypass rules.
+
+Configure the organisation governance model as follows:
+
+| Control | Required Setting |
+| --- | --- |
+| Required QA | Enterprise PR QA required on every pull request |
+| Required approval | one approval from the Executive Release Authority |
+| Current Executive Release Authority | `SaurabhVermaIN` |
+| Developer self-approval | prohibited |
+| Non-authority approval | may comment or review, but cannot satisfy protected-branch approval |
+| Require Last Push Approval | enabled |
+| Review thread resolution | enabled |
+| Stale review dismissal | enabled |
+
+Recommended GitHub configuration:
+
+- Use a protected branch ruleset for `main` and every protected release branch.
+- Require pull requests before merging.
+- Require at least one approving review.
+- Require review from `SaurabhVermaIN` directly, or from a GitHub team/role that only contains the current Executive Release Authority.
+- Keep `require_last_push_approval` enabled so the PR author or last pusher cannot satisfy their own approval requirement.
+- Restrict ruleset bypass actors to the Executive Release Authority or the controlled Executive Release Authority team.
+- Permit administrator bypass only through GitHub's explicit bypass flow and only after PR QA has completed.
+
+When `SaurabhVermaIN` opens or last-pushes a pull request, GitHub must continue to block self-approval. The expected governance path is:
+
+1. PR QA runs and publishes all findings.
+2. The Executive Release Authority reviews the PR evidence.
+3. If the change must proceed and GitHub blocks self-approval because of `require_last_push_approval`, the Executive Release Authority uses GitHub Administrator Bypass intentionally.
+4. The bypass reason is mandatory.
+5. The emergency override audit artifact is retained with the QA report.
+
+## Emergency Administrative Override
+
+Emergency override is a governance record only. It never suppresses findings, changes gate status, changes the overall QA result, changes merge readiness, or changes the workflow exit code.
+
+The only authorised actor in the immutable central policy is:
+
+```text
+SaurabhVermaIN
+```
+
+An Executive-authored pull request must not be treated as self-approved. If the actor and pull request author are both `SaurabhVermaIN`, the audit decision is `ADMINISTRATOR_BYPASS_REQUIRED`.
+
+If `SaurabhVermaIN` records an override on a pull request authored by another developer, the audit decision is `EXECUTIVE_RELEASE_AUTHORITY_REVIEW_RECORDED`. This does not alter the QA result; it records the Executive Release Authority governance action.
+
+When an emergency override reason is supplied after QA execution, the engine writes an audit record to `pr-qa-results/emergency-override-audit.json` unless an explicit audit path is provided. The record contains:
+
+- actor
+- PR author
+- repository
+- branch
+- commit SHA
+- PR number
+- timestamp
+- reason
+- QA summary at the time of override
+- administrator bypass required flag
+- self-approval allowed flag
+- record SHA-256
+
+Unauthorised actors produce a rejected audit record. They do not receive an effective governance override.
+
+The override request is triggered by `PR_QA_EMERGENCY_OVERRIDE_REASON` or the equivalent engine argument `--emergency-override-reason`. The actor is resolved from GitHub's triggering actor, GitHub actor, or event sender metadata.
+
+The override does not bypass GitHub Branch Protection automatically. Administrator bypass remains a separate GitHub action. Keep PR QA enabled and required so the truthful QA result remains visible before any emergency decision.
+
 ## Operations
 
 Review the generated artifacts for every failed run:
@@ -80,6 +150,7 @@ Review the generated artifacts for every failed run:
 pr-qa-results/pr-quality-report.md
 pr-qa-results/pr-quality-report.json
 pr-qa-results/gitleaks.json
+pr-qa-results/emergency-override-audit.json
 ```
 
 The Markdown report is the concise human report. The JSON report is the audit trail for future analytics.

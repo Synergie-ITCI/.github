@@ -14,6 +14,8 @@ Objective: after successful publication, single pilot, and expanded pilot, open 
 | Rollback path | Tested through PR close/revert procedure |
 | Monitoring | Dashboard ready |
 | Stakeholder approval | Release Manager, CTO, DevSecOps, QA, repository owners |
+| Executive Release Authority | `SaurabhVermaIN` is configured as required reviewer or sole role holder |
+| Last push approval | enabled on protected branches |
 
 ## Rollout Principles
 
@@ -22,6 +24,11 @@ Objective: after successful publication, single pilot, and expanded pilot, open 
 - No automatic merge.
 - No Branch Protection updates.
 - No deployment workflow changes except the caller workflow PR content.
+- Enterprise PR QA must complete for every rollout PR and subsequent pull request.
+- `SaurabhVermaIN` is the only reviewer who may satisfy protected-branch approval.
+- No developer may approve their own pull request.
+- `require_last_push_approval` remains enabled.
+- Administrator bypass is permitted only for the Executive Release Authority after QA has completed, with a mandatory reason and retained audit evidence.
 - Pause waves on the first systemic blocker.
 
 ## Wave Plan
@@ -68,6 +75,7 @@ export DEFAULT_BRANCH=<default-branch>
 gh repo view "$TARGET_REPO" --json nameWithOwner,defaultBranchRef,isArchived,isPrivate
 gh api "repos/$TARGET_REPO/actions/permissions"
 gh api "repos/$TARGET_REPO/branches/$DEFAULT_BRANCH/protection"
+gh api "repos/$TARGET_REPO/rulesets"
 gh api "repos/$TARGET_REPO/contents/.github?ref=$DEFAULT_BRANCH"
 gh pr list --repo "$TARGET_REPO" --state open --limit 20
 ```
@@ -78,6 +86,10 @@ Expected:
 - default branch exists
 - repository not archived
 - Actions enabled
+- protected-branch rulesets require Enterprise PR QA
+- protected-branch rulesets require Executive Release Authority approval
+- last-push approval is enabled
+- bypass actors are restricted to the Executive Release Authority
 - open PR volume reviewed
 - repository owner notified
 
@@ -109,7 +121,7 @@ gh pr create \
   --base "$DEFAULT_BRANCH" \
   --head "$ROLLOUT_BRANCH" \
   --title "ci: add Synergie PR QA framework" \
-  --body "Adds the approved Synergie Enterprise PR QA Framework v1.0 caller workflow pinned to $RELEASE_REF. Repository owners must review and merge manually."
+  --body "Adds the approved Synergie Enterprise PR QA Framework v1.0 caller workflow pinned to $RELEASE_REF. Repository owners must review. Protected-branch approval must be satisfied by the Executive Release Authority. Do not merge automatically."
 ```
 
 ## Wave Exit Criteria
@@ -118,6 +130,8 @@ Each wave may proceed only when:
 
 - all rollout PRs opened successfully
 - no rollout PR was merged automatically
+- every merged rollout PR has Executive Release Authority approval or a recorded administrator bypass
+- every administrator bypass includes a reason and retained QA evidence
 - at least 90 percent of rollout PR checks completed without runner infrastructure failure
 - every secret-detection failure was expected and redacted
 - no high-severity false negative is reported
@@ -134,12 +148,16 @@ Pause the rollout if:
 - any real secret appears in logs or artifacts
 - false positives block ordinary documentation or low-risk changes at unacceptable frequency
 - repository owners cannot review rollout PRs
+- a protected-branch PR merges through developer self-approval
+- a non-authority reviewer satisfies protected-branch approval
+- administrator bypass is used without completed QA evidence or a specific reason
 
 ## Completion Criteria
 
 Organisation rollout is complete only after all selected repositories have:
 
 - an owner-approved rollout PR
+- Executive Release Authority approval, or a documented administrator bypass when the Executive Release Authority authored or last-pushed the PR
 - a passing or policy-accepted PR QA run
 - owner-controlled manual merge
 - post-merge workflow verification

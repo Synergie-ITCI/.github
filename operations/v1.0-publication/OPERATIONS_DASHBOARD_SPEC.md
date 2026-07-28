@@ -13,6 +13,8 @@ Objective: define the dashboard needed to monitor publication, pilot, expanded p
 | PR QA report artifacts | gate results, risk levels, scanner output summaries |
 | Release evidence register | publication integrity, tag SHA, workflow SHA |
 | Repository inventory | rollout wave scope and exclusions |
+| GitHub rulesets | required reviewer, last-push approval, bypass actor configuration |
+| Emergency override audit artifacts | administrator bypass reason, actor, QA summary at bypass time |
 | Developer feedback form | usability, clarity, false positives |
 | Reviewer feedback form | report usefulness, review time, confidence |
 
@@ -78,12 +80,25 @@ Objective: define the dashboard needed to monitor publication, pilot, expanded p
 | Dependency audit coverage | supported ecosystems scanned | per repo |
 | Artifact retention compliance | reports retained according to policy | 100 percent |
 
+### 7. Executive Release Governance
+
+| Metric | Definition | Target |
+| --- | --- | --- |
+| Executive approval coverage | protected-branch PRs approved by `SaurabhVermaIN` or the Executive Release Authority role | 100 percent |
+| Non-authority approvals | approvals by reviewers that did not satisfy protected-branch approval | tracked |
+| Developer self-approval attempts | PRs where author and approving reviewer match | zero merges from self-approval |
+| Last-push approval enforcement | PRs blocked because the author or last pusher attempted self-approval | enforced |
+| Administrator bypass events | explicit GitHub administrator bypasses by the Executive Release Authority | reviewed individually |
+| Bypass reason completeness | bypass events with a specific recorded reason | 100 percent |
+| Override audit retention | bypass events with retained `emergency-override-audit.json` and QA report artifacts | 100 percent |
+| Failing-QA bypass events | administrator bypasses where QA did not pass | immediate post-event review |
+
 ## Recommended Views
 
 - Executive view: adoption by wave, go/no-go status, unresolved blockers.
 - DevSecOps view: scanner execution, secret detections, false negatives, runner failures.
 - QA view: test/build failures, report clarity, false positives, scenario outcomes.
-- Release Manager view: PR status, approvals, evidence completeness, rollback readiness.
+- Release Manager view: PR status, Executive Release Authority approval, administrator bypass evidence, evidence completeness, rollback readiness.
 
 ## Minimal Implementation
 
@@ -105,6 +120,12 @@ A spreadsheet or GitHub Project is sufficient for pilot and expanded pilot. Requ
 | false negative count |
 | runner failures |
 | owner approval |
+| executive release authority approval |
+| author equals approver |
+| last push approval blocked |
+| administrator bypass used |
+| administrator bypass reason |
+| emergency override audit artifact |
 | rollback status |
 | go/no-go |
 
@@ -118,4 +139,8 @@ Create manual or automated alerts for:
 - p95 runtime greater than agreed pilot threshold
 - more than one runner failure in a wave
 - rollout PR merged without owner approval
+- protected-branch PR merged without Executive Release Authority approval or recorded administrator bypass
+- developer self-approval satisfies merge
+- administrator bypass without a specific reason
+- administrator bypass without retained QA evidence
 - release tag mutation or deletion

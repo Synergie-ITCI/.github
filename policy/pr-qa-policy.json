@@ -21,6 +21,31 @@
   "optional_gates": [
     "advisory_review"
   ],
+  "emergency_override": {
+    "authorized_actors": [
+      "SaurabhVermaIN"
+    ],
+    "audit_artifact": "emergency-override-audit.json"
+  },
+  "governance": {
+    "executive_release_authority": {
+      "current_holder": "SaurabhVermaIN",
+      "required_reviewers": [
+        "SaurabhVermaIN"
+      ],
+      "developer_self_approval_allowed": false,
+      "non_authority_approval_satisfies_protection": false,
+      "require_last_push_approval": true,
+      "administrator_bypass": {
+        "eligible_actors": [
+          "SaurabhVermaIN"
+        ],
+        "requires_completed_qa": true,
+        "requires_reason": true,
+        "preserve_qa_evidence": true
+      }
+    }
+  },
   "minimum_thresholds": {
     "max_file_bytes": 5242880,
     "max_changed_files": 200,

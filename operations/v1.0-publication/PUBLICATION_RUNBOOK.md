@@ -15,6 +15,9 @@ Objective: publish the approved framework package into the central GitHub reposi
 | Framework code | Frozen |
 | GitHub permissions | Maintainer or release-manager access to `Synergie-ITCI/.github` |
 | Release identity | `pr-qa-v1-rc2` only |
+| Executive Release Authority | `SaurabhVermaIN` configured as required reviewer or sole role holder |
+| Required QA | Enterprise PR QA required before merge |
+| Last push approval | enabled |
 
 ## Operator Variables
 
@@ -38,6 +41,7 @@ gh auth status
 gh api user
 gh repo view "$CENTRAL_REPO" --json nameWithOwner,defaultBranchRef,isPrivate
 gh api "repos/$CENTRAL_REPO/actions/permissions"
+gh api "repos/$CENTRAL_REPO/rulesets"
 gh api rate_limit
 ```
 
@@ -46,6 +50,7 @@ Expected:
 - `gh auth status` shows a valid authenticated user.
 - The authenticated user can read `Synergie-ITCI/.github`.
 - Actions permissions are readable.
+- Rulesets are readable and confirm protected-branch governance.
 - API rate limit has enough remaining calls for publication and verification.
 
 Stop if any command fails.
@@ -159,16 +164,49 @@ gh pr create \
   --head "$RELEASE_BRANCH" \
   --title "release: publish Synergie PR QA framework v1.0" \
   --body "Publishes the approved Synergie PR QA Framework v1.0 package with immutable reusable workflow reference $RELEASE_REF. This PR does not roll out the framework to application repositories."
+
+export PUBLICATION_PR_NUMBER=<created-publication-pr-number>
 ```
 
-Required manual approvals:
+Required governance approval:
+
+- Executive Release Authority: `SaurabhVermaIN`
+
+Supplemental publication sign-off:
 
 - Release Manager
 - Principal DevSecOps Engineer
 - Platform Owner
 - GitHub Organisation Administrator
 
+Supplemental sign-off does not satisfy protected-branch approval unless the reviewer is also the Executive Release Authority.
+
 Do not merge until all approvals and PR checks pass.
+
+Publication governance requirements:
+
+- PR QA must complete before any merge decision.
+- `SaurabhVermaIN` is the only reviewer who may satisfy the protected-branch approval requirement.
+- No author or last pusher may satisfy their own approval.
+- `require_last_push_approval` must remain enabled.
+- If the publication PR is authored or last-pushed by `SaurabhVermaIN`, GitHub must not treat the PR as self-approved.
+- If GitHub blocks the Executive Release Authority from approving because of self-approval protection, use GitHub Administrator Bypass only after QA has completed.
+- The administrator bypass reason is mandatory.
+- Preserve the PR QA Markdown report, PR QA JSON report, and emergency override audit artifact with the publication evidence.
+
+Record before merge:
+
+```bash
+gh pr view "$PUBLICATION_PR_NUMBER" \
+  --repo "$CENTRAL_REPO" \
+  --json author,headRefName,headRefOid,mergeStateStatus,reviewDecision,latestReviews,statusCheckRollup,url
+```
+
+Expected:
+
+- PR QA evidence is available.
+- protected-branch review decision is satisfied by the Executive Release Authority, or GitHub Administrator Bypass is explicitly required for an Executive-authored or last-pushed PR.
+- no merge occurs without either a valid Executive Release Authority approval or a recorded administrator bypass.
 
 ## 8. Post-Merge Integrity Verification
 

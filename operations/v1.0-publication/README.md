@@ -32,6 +32,8 @@ Do not introduce alias references such as `pr-qa-v1`, `pr-qa-v1.0`, or `latest` 
 - [Operations Dashboard Specification](OPERATIONS_DASHBOARD_SPEC.md)
 - [Success Criteria](SUCCESS_CRITERIA.md)
 - [Go / No-Go Checklist](GO_NO_GO_CHECKLIST.md)
+- [Executive Release Policy](../../docs/executive-release-policy.md)
+- [Governance Validation](../../docs/governance-validation.md)
 
 ## Operational Evidence Available
 
@@ -50,6 +52,10 @@ Do not introduce alias references such as `pr-qa-v1`, `pr-qa-v1.0`, or `latest` 
 - Select exactly one pilot repository for the first pilot.
 - Open rollout PRs only. Do not merge them automatically.
 - Use scenario PRs that target the pilot rollout branch, not the protected default branch.
+- Require Enterprise PR QA on every pull request.
+- Require Executive Release Authority approval from `SaurabhVermaIN`, or the active Executive Release Authority role.
+- Keep developer self-approval blocked and `require_last_push_approval` enabled.
+- Use GitHub Administrator Bypass only for Executive-authored or last-pushed PRs after QA completes, with a mandatory reason and retained audit evidence.
 - Stop immediately on unexpected secret leakage, workflow instability, runner instability, or unresolved false negatives.
 
 ## Final Operational Verdict
