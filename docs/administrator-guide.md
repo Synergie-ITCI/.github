@@ -175,7 +175,7 @@ The Markdown report is the concise human report. The JSON report is the audit tr
 
 Inline review comments are also published for findings that map to a changed pull request diff line. They are generated through the GitHub Pull Request Review API using `pull-requests: write`, contain no raw secrets, and are self-healing on later pushes. See `docs/inline-review-comments-architecture.md` for the implementation model.
 
-Inline review publication runs in an isolated trusted publisher job. The untrusted QA job has `contents: read` only, receives no provider credential, receives no pull request write token, and may execute repository build, lint, and test commands. The publisher job starts on a fresh runner, checks out only the immutable central release reference, downloads approved QA evidence files as untrusted data, validates the evidence bundle, and only then publishes comments.
+Inline review publication runs in an isolated trusted publisher job. The untrusted QA job has `contents: read` only, receives no provider credential, receives no pull request write token, and may execute repository build, lint, and test commands. The publisher job starts on a fresh runner, checks out only the workflow-defining framework commit, downloads approved QA evidence files as untrusted data, validates the evidence bundle, and only then publishes comments.
 
 AI Engineering Review runs after final Enterprise QA succeeds. Configure the approved hosted AI review provider through repository or organisation secrets:
 
@@ -204,7 +204,7 @@ pr-qa-ai-review-results/ai-review-report.json
 
 AI Review is advisory only. It never changes QA status, risk score, merge readiness, approvals, Branch Protection, CODEOWNERS, release governance, or merge requirements.
 
-Caller workflows pin the reusable workflow to the approved immutable release reference. For Version 1.1 this pending reference is `pr-qa-v1.1`. Inside the reusable workflow, framework source is also checked out from `Synergie-ITCI/.github` at `pr-qa-v1.1`. Do not add a caller-controlled framework reference.
+Caller workflows pin the reusable workflow to the approved immutable release reference. For Version 1.1 this pending reference is `pr-qa-v1.1`. Inside the reusable workflow, framework source is checked out from `job.workflow_repository` at `job.workflow_sha`, so every job uses the exact commit that defines the called workflow. Do not add a caller-controlled framework reference.
 
 ## Upgrade Process
 

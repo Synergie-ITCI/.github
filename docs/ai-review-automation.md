@@ -12,14 +12,14 @@ Enterprise PR QA remains the deterministic gatekeeper. AI Review never changes Q
 
 The automation runs inside GitHub Actions. It does not depend on a local Mac, an open Codex workspace, or an interactive ChatGPT session.
 
-The caller example is pinned to the pending immutable `pr-qa-v1.1` release reference. Inside the reusable workflow, framework source is also checked out from `Synergie-ITCI/.github` at `pr-qa-v1.1`. The governed implementation pull request does not create the release tag; the tag must be created and protected only during reviewed publication.
+The caller example is pinned to the pending immutable `pr-qa-v1.1` release reference. Inside the reusable workflow, framework source is checked out from `job.workflow_repository` at `job.workflow_sha`, so every job uses the exact commit that defines the called workflow. The governed implementation pull request does not create the release tag; the tag must be created and protected only during reviewed publication.
 
 Required sequence:
 
 1. Developer opens or updates a pull request.
 2. Enterprise PR QA runs in a read-only untrusted QA job.
 3. The QA job uploads sanitized report evidence.
-4. A fresh trusted publisher job checks out only `Synergie-ITCI/.github@pr-qa-v1.1`.
+4. A fresh trusted publisher job checks out only `job.workflow_repository` at `job.workflow_sha`.
 5. The publisher validates the evidence bundle, repository, PR number, head SHA, schema, completion, sanitisation, and explicit QA PASS.
 6. The AI Review Service analyzes only reviewable changed lines.
 7. Inline GitHub Pull Request review comments are created, updated, or removed only after current-head verification.

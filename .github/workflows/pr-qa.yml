@@ -52,8 +52,8 @@ jobs:
       - name: Checkout immutable central PR QA framework
         uses: actions/checkout@v4
         with:
-          repository: Synergie-ITCI/.github
-          ref: pr-qa-v1.1
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: .pr-qa-framework
           persist-credentials: false
 
@@ -85,8 +85,8 @@ jobs:
       - name: Checkout immutable central PR QA framework
         uses: actions/checkout@v4
         with:
-          repository: Synergie-ITCI/.github
-          ref: pr-qa-v1.1
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: .pr-qa-framework
           persist-credentials: false
 
@@ -230,8 +230,8 @@ jobs:
       - name: Checkout immutable central PR QA framework
         uses: actions/checkout@v4
         with:
-          repository: Synergie-ITCI/.github
-          ref: pr-qa-v1.1
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: .pr-qa-framework
           persist-credentials: false
 

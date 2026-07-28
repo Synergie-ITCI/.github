@@ -45,7 +45,7 @@ Participating caller workflows must grant the same minimum pull request write pe
 1. PR QA executes normally in the read-only QA job.
 2. The QA engine writes the existing Markdown and JSON reports with schema, completion, sanitisation, repository, PR number, and head SHA metadata.
 3. The QA job uploads report evidence as an artifact.
-4. The trusted publisher job starts on a fresh runner and checks out only `Synergie-ITCI/.github@pr-qa-v1.1`, the immutable central release reference.
+4. The trusted publisher job starts on a fresh runner and checks out only `job.workflow_repository` at `job.workflow_sha`, the exact commit that defines the called reusable workflow.
 5. The publisher downloads only the QA evidence artifact and validates expected filenames, regular files, no symlinks, maximum file sizes, schema, completion, sanitisation, repository, PR number, and head SHA.
 6. The review comment service reads the GitHub pull request event and validated QA JSON report.
 7. The service fetches the PR file diff through the GitHub API.

@@ -8,7 +8,7 @@ Status: completed before governed pull request update
 | --- | --- |
 | AI review could be mistaken for a merge gate | Reports and docs state AI Review is advisory only; findings include `blocking: false`; workflow step uses `continue-on-error: true`. |
 | AI could run before QA | AI Review requires validated Enterprise QA evidence with schema version 1, report completion, sanitisation PASS, matching repository, PR number, head SHA, and explicit `PASS` status. Missing, malformed, failed, warning, mismatched, or stale evidence reports AI Review unavailable. |
-| Repository-controlled commands could alter publisher code before tokens are used | The workflow separates read-only untrusted QA from the trusted publisher job. The publisher starts on a fresh runner, checks out only `Synergie-ITCI/.github@pr-qa-v1.1`, and never checks out or executes PR repository code. |
+| Repository-controlled commands could alter publisher code before tokens are used | The workflow separates read-only untrusted QA from the trusted publisher job. The publisher starts on a fresh runner, checks out only `job.workflow_repository` at `job.workflow_sha`, and never checks out or executes PR repository code. |
 | Workflow could check out a stale framework tag | Callers and internal framework checkouts use the pending immutable `pr-qa-v1.1` release reference. Publication must create and protect the tag only after governed review. |
 | Provider outage could hide unresolved comments | If the provider is unavailable, comment synchronization is not executed and existing AI comments are left untouched. |
 | AI comments could collide with QA comments | AI uses `synergie-ai-review:inline-review`; QA uses `synergie-pr-qa:inline-review`. Each lifecycle run edits only its own namespace. |

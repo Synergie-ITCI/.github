@@ -242,6 +242,8 @@ class PrQaRegressionTests(unittest.TestCase):
         caller = (ROOT / "examples" / "caller-workflow.yml").read_text(encoding="utf-8")
         self.assertNotIn("framework-ref", workflow + caller + self_workflow)
         self.assertIn("persist-credentials: false", workflow)
+        self.assertIn("repository: ${{ job.workflow_repository }}", workflow)
+        self.assertIn("ref: ${{ job.workflow_sha }}", workflow)
         self.assertIn("@pr-qa-v1.1", caller)
         self.assertIn("uses: ./.github/workflows/pr-qa.yml", self_workflow)
         self.assertIn("merge_group:", self_workflow)
