@@ -22,12 +22,15 @@ version: 1
 
 ```yaml
 repository:
+  profile: application
   criticality: medium
   protected_paths:
     - .github/**
     - deployment/**
     - terraform/**
 ```
+
+`profile` selects the repository governance profile. Allowed values are `application`, `framework`, `infrastructure`, `library`, and `documentation`. The default is `application`.
 
 `criticality` affects the risk score. Allowed values are `low`, `medium`, `high`, and `critical`.
 
@@ -68,10 +71,24 @@ branch_naming:
 
 commit_messages:
   allowed_patterns:
-    - '^(feat|fix|docs|style|refactor|test|chore|build|ci|perf|security|revert)(\([^)]+\))?: .+'
+    - '^(feat|fix|docs|style|refactor|test|chore|build|ci|perf|security|release|revert)(\([^)]+\))?: .+'
 ```
 
-Patterns are regular expressions.
+Patterns are regular expressions. The `release:` type is reserved for governed release-publication commits and does not relax commit-message validation.
+
+## Repository Profiles
+
+Profiles let PR QA distinguish production application repositories from internal governance frameworks without changing security gates.
+
+| Profile | Purpose |
+| --- | --- |
+| `application` | production and customer-facing application repositories |
+| `framework` | internal engineering frameworks that carry policy, schema, test, and release-governance assets |
+| `infrastructure` | Terraform, Kubernetes, and deployment-control repositories |
+| `library` | shared libraries consumed by application repositories |
+| `documentation` | documentation-only repositories |
+
+Production repositories inherit the `application` profile by default. The `framework` profile is the only profile allowed to classify approved regression fixture paths as non-blocking. Gitleaks still runs, fixture scans remain detectable, and unknown hidden files continue to fail.
 
 ## Evidence
 

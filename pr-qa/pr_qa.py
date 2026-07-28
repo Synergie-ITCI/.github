@@ -92,6 +92,7 @@ def main() -> int:
     event = load_event(args.event_path)
     git_context = gather_git_context(repo, event, args.base_ref, args.head_ref)
     config, config_violations = load_effective_config(repo, CONFIG_PATH, policy, git_context)
+    config_violations.extend(apply_repository_profile_override(config, args.repository_profile, policy))
     technologies = detect_technologies(repo)
     ctx = PRContext(
         repo=repo,
@@ -143,6 +144,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--command-timeout-minutes", type=float, default=20)
     parser.add_argument("--detect-only", action="store_true")
     parser.add_argument("--static-only", action="store_true", help="Run only Phase 1 static preflight.")
+    parser.add_argument("--repository-profile", default="", help="Operator-selected repository profile for governance-aware self-validation.")
     parser.add_argument("--github-output", default="", help="GITHUB_OUTPUT file for detection mode.")
     parser.add_argument("--no-command-runs", action="store_true", help="Do not execute adapter commands.")
     parser.add_argument("--emergency-override-reason", default=os.environ.get(EMERGENCY_OVERRIDE_REASON_ENV, ""), help="Governance-only emergency override reason.")
@@ -198,6 +200,13 @@ def validate_repo_config(parsed: dict[str, Any], policy: dict[str, Any]) -> list
             violations.append(f"Unknown top-level config key `{key}`.")
     if parsed.get("version") not in {None, 1}:
         violations.append("Unsupported config version.")
+    repository = parsed.get("repository", {})
+    if repository is not None and not isinstance(repository, dict):
+        violations.append("`repository` must be a mapping.")
+    elif isinstance(repository, dict):
+        profile = repository.get("profile")
+        if profile is not None and profile not in set(policy.get("repository_profiles", {})):
+            violations.append(f"`repository.profile` uses unknown profile `{profile}`.")
     gates = parsed.get("gates", {})
     if gates is not None and not isinstance(gates, dict):
         violations.append("`gates` must be a mapping.")
@@ -215,6 +224,18 @@ def validate_repo_config(parsed: dict[str, Any], policy: dict[str, Any]) -> list
             if not isinstance(value, int):
                 violations.append(f"`thresholds.{key}` must be an integer.")
     return violations
+
+
+def apply_repository_profile_override(config: dict[str, Any], profile: str, policy: dict[str, Any]) -> list[str]:
+    repository = dict(config.get("repository", {}) or {})
+    repository.setdefault("profile", "application")
+    normalized = profile.strip().lower()
+    if normalized:
+        if normalized not in set(policy.get("repository_profiles", {})):
+            return [f"Operator selected unknown repository profile `{profile}`."]
+        repository["profile"] = normalized
+    config["repository"] = repository
+    return []
 
 
 def merge_governed_config(base: dict[str, Any], override: dict[str, Any], policy: dict[str, Any], violations: list[str]) -> dict[str, Any]:
@@ -563,10 +584,11 @@ def gate_repository_integrity(ctx: PRContext, git_context: dict[str, Any]) -> li
             findings.append(f"{rel}: path traversal or absolute path marker.")
         if any(ord(char) > 127 for char in rel):
             findings.append(f"{rel}: non-ASCII/Unicode filename is not allowed in protected PR QA.")
-        hidden_parts = [part for part in parts if part.startswith(".") and part not in {".github"}]
-        for hidden in hidden_parts:
-            if hidden not in allowed_hidden:
-                findings.append(f"{rel}: unexpected hidden file or directory `{hidden}`.")
+        if not is_approved_governance_asset(ctx, rel):
+            hidden_parts = [part for part in parts if part.startswith(".") and part not in {".github"}]
+            for hidden in hidden_parts:
+                if hidden not in allowed_hidden:
+                    findings.append(f"{rel}: unexpected hidden file or directory `{hidden}`.")
         if any(part in generated_components for part in parts) or match_any(rel, generated_patterns):
             findings.append(f"{rel}: generated artifact path changed.")
         if path.is_symlink():
@@ -666,11 +688,13 @@ def gate_git_validation(ctx: PRContext, git_context: dict[str, Any]) -> list[Che
 
 def gate_secrets(ctx: PRContext, git_context: dict[str, Any], report_path: str) -> list[CheckResult]:
     results: list[CheckResult] = [run_gitleaks(ctx, git_context, report_path)]
-    findings = fallback_secret_scan(ctx)
+    findings, fixture_findings = fallback_secret_scan(ctx)
     if findings:
         results.append(failed("Secrets", None, "High-confidence secret indicators found in changed files.", findings[:60], score=40))
     elif results[0].status == PASS:
         results.append(passed("Secrets", None, "Fallback and encoded secret scans found no high-confidence issues."))
+    if fixture_findings and not findings and results[0].status == PASS:
+        results.append(passed("Secrets", None, "Approved framework regression fixtures remain detectable and isolated.", fixture_findings[:60]))
     return results
 
 
@@ -700,8 +724,9 @@ def run_gitleaks(ctx: PRContext, git_context: dict[str, Any], report_path: str) 
     return failed("Secrets", None, "Gitleaks detected secrets.", [outcome.concise_output()], score=40)
 
 
-def fallback_secret_scan(ctx: PRContext) -> list[str]:
+def fallback_secret_scan(ctx: PRContext) -> tuple[list[str], list[str]]:
     findings: list[str] = []
+    fixture_findings: list[str] = []
     env_patterns = [".env", ".env.*"]
     allowed_env = {".env.example", ".env.sample", ".env.template", ".env.local.example"}
     regexes = {
@@ -711,25 +736,52 @@ def fallback_secret_scan(ctx: PRContext) -> list[str]:
         "generic credential assignment": r"(?i)\b(password|passwd|secret|token|api[_-]?key)\b\s*[:=]\s*['\"][^'\"\s]{8,}['\"]",
     }
     for rel in ctx.changed_files:
+        rel_findings: list[str] = []
         path = ctx.repo / rel
         name = Path(rel).name
         if any(fnmatch.fnmatch(name, pattern) for pattern in env_patterns) and name not in allowed_env:
-            findings.append(f"{rel}: environment file committed.")
+            rel_findings.append(f"{rel}: environment file committed.")
         if name.endswith((".pem", ".key", ".p12", ".pfx")):
-            findings.append(f"{rel}: key or certificate container committed.")
+            rel_findings.append(f"{rel}: key or certificate container committed.")
         if not path.is_file():
+            findings.extend(rel_findings)
             continue
         texts = decoded_text_variants(path)
         for text in texts:
             normalized = normalize_secret_text(text)
             for label, pattern in regexes.items():
                 if re.search(pattern, normalized):
-                    findings.append(f"{rel}: {label}.")
+                    rel_findings.append(f"{rel}: {label}.")
             for decoded in decode_base64_candidates(text, ctx.policy):
                 for label, pattern in regexes.items():
                     if re.search(pattern, decoded):
-                        findings.append(f"{rel}: base64-encoded {label}.")
-    return sorted(set(findings))
+                        rel_findings.append(f"{rel}: base64-encoded {label}.")
+        if is_approved_regression_fixture(ctx, rel):
+            fixture_findings.extend(rel_findings)
+        else:
+            findings.extend(rel_findings)
+    return sorted(set(findings)), sorted(set(fixture_findings))
+
+
+def repository_profile(ctx: PRContext) -> str:
+    return str(ctx.config.get("repository", {}).get("profile", "application")).lower()
+
+
+def repository_profile_settings(ctx: PRContext) -> dict[str, Any]:
+    return dict(ctx.policy.get("repository_profiles", {}).get(repository_profile(ctx), {}) or {})
+
+
+def is_approved_governance_asset(ctx: PRContext, rel: str) -> bool:
+    patterns = list(ctx.policy.get("approved_governance_assets", []) or [])
+    patterns.extend(repository_profile_settings(ctx).get("approved_governance_assets", []) or [])
+    return match_any(rel, patterns)
+
+
+def is_approved_regression_fixture(ctx: PRContext, rel: str) -> bool:
+    if repository_profile(ctx) != "framework":
+        return False
+    patterns = repository_profile_settings(ctx).get("approved_regression_fixtures", []) or []
+    return match_any(rel, patterns)
 
 
 def decoded_text_variants(path: Path) -> list[str]:

@@ -56,12 +56,16 @@
   "defaults": {
     "version": 1,
     "repository": {
+      "profile": "application",
       "criticality": "medium",
       "protected_paths": [
+        ".gitleaks.toml",
         ".github/**",
         "CODEOWNERS",
         "docs/CODEOWNERS",
         ".github/CODEOWNERS",
+        "policy/**",
+        "schemas/**",
         "deployment/**",
         "deploy/**",
         "infra/**",
@@ -94,7 +98,7 @@
     },
     "commit_messages": {
       "allowed_patterns": [
-        "^(feat|fix|docs|style|refactor|test|chore|build|ci|perf|security|revert)(\\([^)]+\\))?: .+",
+        "^(feat|fix|docs|style|refactor|test|chore|build|ci|perf|security|release|revert)(\\([^)]+\\))?: .+",
         "^Merge .+"
       ]
     },
@@ -147,6 +151,7 @@
   ],
   "allowed_hidden_files": [
     ".github",
+    ".gitleaks.toml",
     ".gitignore",
     ".gitattributes",
     ".editorconfig",
@@ -156,6 +161,55 @@
     ".env.sample",
     ".env.template"
   ],
+  "approved_governance_assets": [
+    ".gitleaks.toml",
+    ".github/**",
+    ".gitignore",
+    ".gitattributes",
+    ".editorconfig",
+    ".dockerignore",
+    ".styleci.yml",
+    ".github/CODEOWNERS",
+    "CODEOWNERS",
+    "docs/CODEOWNERS",
+    "policy/**",
+    "schemas/**"
+  ],
+  "repository_profiles": {
+    "application": {
+      "purpose": "Production and customer-facing application repositories.",
+      "approved_governance_assets": [],
+      "approved_regression_fixtures": []
+    },
+    "framework": {
+      "purpose": "Internal engineering frameworks that carry policy, schema, test, and release-governance assets.",
+      "approved_governance_assets": [
+        "docs/**",
+        "examples/**",
+        "operations/**",
+        "releases/**",
+        "tests/**"
+      ],
+      "approved_regression_fixtures": [
+        "tests/test_pr_qa_regressions.py"
+      ]
+    },
+    "infrastructure": {
+      "purpose": "Terraform, Kubernetes, and deployment-control repositories.",
+      "approved_governance_assets": [],
+      "approved_regression_fixtures": []
+    },
+    "library": {
+      "purpose": "Shared libraries consumed by application repositories.",
+      "approved_governance_assets": [],
+      "approved_regression_fixtures": []
+    },
+    "documentation": {
+      "purpose": "Documentation-only repositories.",
+      "approved_governance_assets": [],
+      "approved_regression_fixtures": []
+    }
+  },
   "executable_extensions": [
     ".php",
     ".js",

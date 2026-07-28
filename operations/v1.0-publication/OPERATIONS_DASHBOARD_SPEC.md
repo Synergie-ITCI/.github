@@ -15,6 +15,7 @@ Objective: define the dashboard needed to monitor publication, pilot, expanded p
 | Repository inventory | rollout wave scope and exclusions |
 | GitHub rulesets | required reviewer, last-push approval, bypass actor configuration |
 | Emergency override audit artifacts | administrator bypass reason, actor, QA summary at bypass time |
+| Repository profile register | approved repository profile and any profile-change approval |
 | Developer feedback form | usability, clarity, false positives |
 | Reviewer feedback form | report usefulness, review time, confidence |
 
@@ -39,6 +40,7 @@ Objective: define the dashboard needed to monitor publication, pilot, expanded p
 | Merged rollout PRs | rollout PRs merged by owners | tracked daily |
 | Closed rollout PRs | rollout PRs closed or rolled back | reviewed |
 | Excluded repositories | no default branch, archived, or owner blocked | explicitly listed |
+| Repository profiles | `application`, `framework`, `infrastructure`, `library`, or `documentation` | approved and tracked |
 
 ### 3. Workflow Performance
 
@@ -109,6 +111,7 @@ A spreadsheet or GitHub Project is sufficient for pilot and expanded pilot. Requ
 | phase |
 | wave |
 | repository |
+| repository profile |
 | default branch |
 | rollout PR |
 | rollout PR status |

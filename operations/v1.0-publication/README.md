@@ -34,6 +34,7 @@ Do not introduce alias references such as `pr-qa-v1`, `pr-qa-v1.0`, or `latest` 
 - [Go / No-Go Checklist](GO_NO_GO_CHECKLIST.md)
 - [Executive Release Policy](../../docs/executive-release-policy.md)
 - [Governance Validation](../../docs/governance-validation.md)
+- [Repository Profiles](../../docs/repository-profiles.md)
 
 ## Operational Evidence Available
 
@@ -55,6 +56,8 @@ Do not introduce alias references such as `pr-qa-v1`, `pr-qa-v1.0`, or `latest` 
 - Require Enterprise PR QA on every pull request.
 - Require Executive Release Authority approval from `SaurabhVermaIN`, or the active Executive Release Authority role.
 - Keep developer self-approval blocked and `require_last_push_approval` enabled.
+- Use `application` as the default repository profile for production rollout repositories.
+- Use `framework` only for approved internal framework self-validation.
 - Use GitHub Administrator Bypass only for Executive-authored or last-pushed PRs after QA completes, with a mandatory reason and retained audit evidence.
 - Stop immediately on unexpected secret leakage, workflow instability, runner instability, or unresolved false negatives.
 

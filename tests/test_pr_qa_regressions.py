@@ -29,13 +29,13 @@ class PrQaRegressionTests(unittest.TestCase):
     def tearDown(self) -> None:
         shutil.rmtree(self.tmp)
 
-    def init_repo(self, name: str) -> tuple[Path, str]:
+    def init_repo(self, name: str, *, profile: str = "application") -> tuple[Path, str]:
         repo = self.tmp / name
         repo.mkdir()
         self.git(repo, "init", "-q")
         self.git(repo, "config", "user.email", "qa@example.invalid")
         self.git(repo, "config", "user.name", "QA Regression")
-        self.write(repo / ".github" / "pr-qa.yml", self.base_config())
+        self.write(repo / ".github" / "pr-qa.yml", self.base_config(profile=profile))
         self.write(repo / ".github" / "CODEOWNERS", "* @synergie/security\n.github/** @synergie/devops\n")
         self.write(repo / "README.md", "# regression\n")
         self.git(repo, "add", ".")
@@ -139,6 +139,23 @@ class PrQaRegressionTests(unittest.TestCase):
         self.assertNotEqual(code, 0)
         self.assertIn("generated artifact path changed", report)
 
+    def test_approved_governance_hidden_asset_is_not_integrity_failure(self) -> None:
+        repo, base = self.init_repo("approved-governance-asset")
+        self.write(repo / ".gitleaks.toml", "[allowlist]\ndescription = \"test config\"\n")
+        self.commit(repo, "chore: add gitleaks governance config")
+        code, report = self.run_engine(repo, base, static_only=True)
+        self.assertEqual(code, 0)
+        self.assertNotIn("unexpected hidden file or directory `.gitleaks.toml`", report)
+        self.assertIn("Protected resources changed", report)
+
+    def test_unknown_hidden_file_still_fails(self) -> None:
+        repo, base = self.init_repo("unknown-hidden")
+        self.write(repo / ".unknownrc", "setting=true\n")
+        self.commit(repo, "chore: add unknown hidden config")
+        code, report = self.run_engine(repo, base, static_only=True)
+        self.assertNotEqual(code, 0)
+        self.assertIn("unexpected hidden file or directory `.unknownrc`", report)
+
     def test_codeowners_modification_fails(self) -> None:
         repo, base = self.init_repo("codeowners-change")
         self.write(repo / ".github" / "CODEOWNERS", "* @attacker\n")
@@ -146,6 +163,31 @@ class PrQaRegressionTests(unittest.TestCase):
         code, report = self.run_engine(repo, base, static_only=True)
         self.assertNotEqual(code, 0)
         self.assertIn("CODEOWNERS changes are not allowed", report)
+
+    def test_framework_profile_classifies_approved_regression_fixture(self) -> None:
+        repo, base = self.init_repo("framework-fixture", profile="framework")
+        self.write(repo / "tests" / "test_pr_qa_regressions.py", "TOKEN = 'ghp_abcdefghijklmnopqrstuvwxyz123456'\n")
+        self.commit(repo, "test: add approved regression fixture")
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+        self.assertEqual(code, 0)
+        self.assertNotIn("High-confidence secret indicators found", report)
+        self.assertTrue(
+            any(
+                result["gate"] == "Secrets"
+                and result["status"] == "PASS"
+                and result["message"] == "Approved framework regression fixtures remain detectable and isolated."
+                for result in report_json["results"]
+            )
+        )
+
+    def test_application_profile_does_not_inherit_regression_fixture_allowance(self) -> None:
+        repo, base = self.init_repo("application-fixture")
+        self.write(repo / "tests" / "test_pr_qa_regressions.py", "TOKEN = 'ghp_abcdefghijklmnopqrstuvwxyz123456'\n")
+        self.commit(repo, "test: add production token regression")
+        code, report = self.run_engine(repo, base, static_only=True)
+        self.assertNotEqual(code, 0)
+        self.assertIn("High-confidence secret indicators found", report)
+        self.assertIn("tests/test_pr_qa_regressions.py: GitHub token", report)
 
     def test_obfuscated_destructive_migration_fails(self) -> None:
         repo, base = self.init_repo("migration")
@@ -290,9 +332,10 @@ class PrQaRegressionTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
 
-    def base_config(self) -> str:
-        return """version: 1
+    def base_config(self, *, profile: str = "application") -> str:
+        return f"""version: 1
 repository:
+  profile: {profile}
   criticality: medium
 gates:
   repository_hygiene: true

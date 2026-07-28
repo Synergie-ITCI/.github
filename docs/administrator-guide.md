@@ -72,6 +72,24 @@ After Phase 1 validation, administrators may mark the caller workflow status as 
 
 Do this outside the PR QA workflow. The workflow itself must not mutate GitHub settings.
 
+## Repository Profiles
+
+The default repository profile is `application`. Production/customer repositories must use this default unless a repository owner obtains explicit governance approval for another profile.
+
+Supported profiles:
+
+| Profile | Purpose |
+| --- | --- |
+| `application` | production and customer-facing applications |
+| `framework` | internal engineering frameworks such as PR QA |
+| `infrastructure` | Terraform, Kubernetes, and deployment-control repositories |
+| `library` | shared libraries |
+| `documentation` | documentation-only repositories |
+
+The `framework` profile permits only centrally approved regression fixture paths to be classified as non-blocking. It does not disable Gitleaks, does not suppress findings globally, and does not apply to production application repositories by default.
+
+Approved governance assets such as `.gitleaks.toml`, `.github/**`, `.gitignore`, `.editorconfig`, `policy/**`, and `schemas/**` bypass only the hidden-file integrity warning. They remain subject to protected-resource review, workflow/deployment warnings, secret scanning, and human governance.
+
 ## Executive Release Governance
 
 Protected branches must use GitHub Branch Protection or repository rulesets as the merge authority. PR QA supplies required technical evidence; it does not approve, merge, or bypass rules.

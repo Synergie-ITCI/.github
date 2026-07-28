@@ -10,13 +10,17 @@
       "type": "integer",
       "const": 1
     },
-    "repository": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "criticality": {
-          "type": "string",
-          "enum": ["low", "medium", "high", "critical"]
+        "repository": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "profile": {
+              "type": "string",
+              "enum": ["application", "framework", "infrastructure", "library", "documentation"]
+            },
+            "criticality": {
+              "type": "string",
+              "enum": ["low", "medium", "high", "critical"]
         },
         "protected_paths": {
           "type": "array",

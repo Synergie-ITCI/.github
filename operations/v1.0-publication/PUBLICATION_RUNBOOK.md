@@ -122,6 +122,7 @@ python3 -m json.tool policy/pr-qa-policy.json >/dev/null
 python3 -m json.tool schemas/pr-qa.schema.json >/dev/null
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
 PYTHONDONTWRITEBYTECODE=1 python3 pr-qa/pr_qa.py --repo . --detect-only
+PYTHONDONTWRITEBYTECODE=1 python3 pr-qa/pr_qa.py --repo . --repository-profile framework --static-only --out /tmp/prqa-publication-self-report.md --json-out /tmp/prqa-publication-self-report.json
 gitleaks detect --no-git --source . --redact --exit-code 1 --report-format json --report-path /tmp/prqa-publication-gitleaks-framework.json
 gitleaks detect --no-git --source tests/test_pr_qa_regressions.py --redact --exit-code 1 --report-format json --report-path /tmp/prqa-publication-gitleaks-fixture.json
 trivy fs --scanners vuln,secret,misconfig --format json --output /tmp/prqa-publication-trivy.json .
@@ -133,6 +134,7 @@ Expected:
 - Version audit confirms active reusable workflow references use `pr-qa-v1-rc2` and do not use `pr-qa-v1`, `pr-qa-v1-rc1`, or `latest`.
 - `actionlint` exits 0.
 - Schema, JSON, Python regression, detect-only, and security scans behave exactly as recorded in the RC2 validation report.
+- Framework self-validation uses the explicit `framework` repository profile. Approved governance assets pass repository integrity, approved regression fixtures are classified as isolated, and workflow/protected-resource/deployment warnings remain visible.
 - Framework Gitleaks scan has 0 findings.
 - Fixture Gitleaks scan detects the expected regression fixture finding.
 
@@ -154,6 +156,8 @@ Record:
 - commit SHA
 - branch URL
 - validation command output
+
+The `release:` commit type is an approved governed release-publication convention. Do not use informal release messages outside the configured convention.
 
 ## 7. Open Publication Pull Request
 

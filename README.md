@@ -68,6 +68,7 @@ Adapters must:
 - [Security Hardening Report](docs/security-hardening-report.md)
 - [Executive Release Policy](docs/executive-release-policy.md)
 - [Governance Validation](docs/governance-validation.md)
+- [Repository Profiles](docs/repository-profiles.md)
 - [Emergency Override Governance Note](docs/emergency-override-governance-note.md)
 - [Before vs After Comparison](docs/before-after-comparison.md)
 - [Residual Risk Register](docs/residual-risk-register.md)

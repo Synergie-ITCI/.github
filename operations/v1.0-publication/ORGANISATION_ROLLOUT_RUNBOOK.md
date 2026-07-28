@@ -16,6 +16,7 @@ Objective: after successful publication, single pilot, and expanded pilot, open 
 | Stakeholder approval | Release Manager, CTO, DevSecOps, QA, repository owners |
 | Executive Release Authority | `SaurabhVermaIN` is configured as required reviewer or sole role holder |
 | Last push approval | enabled on protected branches |
+| Repository profile | `application` unless governance has approved another profile |
 
 ## Rollout Principles
 
@@ -25,6 +26,8 @@ Objective: after successful publication, single pilot, and expanded pilot, open 
 - No Branch Protection updates.
 - No deployment workflow changes except the caller workflow PR content.
 - Enterprise PR QA must complete for every rollout PR and subsequent pull request.
+- Production application repositories use the `application` profile by default.
+- The `framework` profile is not used for rollout repositories unless the target is an approved internal engineering framework.
 - `SaurabhVermaIN` is the only reviewer who may satisfy protected-branch approval.
 - No developer may approve their own pull request.
 - `require_last_push_approval` remains enabled.
@@ -90,6 +93,7 @@ Expected:
 - protected-branch rulesets require Executive Release Authority approval
 - last-push approval is enabled
 - bypass actors are restricted to the Executive Release Authority
+- repository profile is recorded in the operations dashboard
 - open PR volume reviewed
 - repository owner notified
 
