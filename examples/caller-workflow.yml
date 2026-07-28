@@ -20,4 +20,10 @@ concurrency:
 jobs:
   pr-qa:
     if: github.event.pull_request.draft == false
-    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@pr-qa-v1-rc2
+    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@pr-qa-v1.1
+    with:
+      ai-review-provider: codex
+      ai-review-model: codex-review-v1
+    secrets:
+      AI_REVIEW_PROVIDER_URL: ${{ secrets.AI_REVIEW_PROVIDER_URL }}
+      AI_REVIEW_PROVIDER_TOKEN: ${{ secrets.AI_REVIEW_PROVIDER_TOKEN }}

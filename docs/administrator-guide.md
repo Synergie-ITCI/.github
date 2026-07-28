@@ -175,10 +175,30 @@ The Markdown report is the concise human report. The JSON report is the audit tr
 
 Inline review comments are also published for findings that map to a changed pull request diff line. They are generated through the GitHub Pull Request Review API using `pull-requests: write`, contain no raw secrets, and are self-healing on later pushes. See `docs/inline-review-comments-architecture.md` for the implementation model.
 
+AI Engineering Review runs after final Enterprise QA succeeds. Configure the approved hosted AI review provider through repository or organisation secrets:
+
+```text
+AI_REVIEW_PROVIDER_URL
+AI_REVIEW_PROVIDER_TOKEN
+```
+
+If the provider endpoint or token is unavailable, the workflow reports `AI Review unavailable` and Enterprise QA remains unchanged. The automation runs in GitHub Actions and does not depend on a local Codex workspace or an operator machine being online.
+
+AI Review artifacts are retained with the final PR QA evidence:
+
+```text
+pr-qa-results/ai-review-report.md
+pr-qa-results/ai-review-report.json
+```
+
+AI Review is advisory only. It never changes QA status, risk score, merge readiness, approvals, Branch Protection, CODEOWNERS, release governance, or merge requirements.
+
+The reusable workflow checks out the central framework source from the same immutable release reference used by callers. For Version 1.1 this pending reference is `pr-qa-v1.1`. Do not replace it with a caller-controlled framework reference.
+
 ## Upgrade Process
 
 1. Change the central framework in `Synergie-ITCI/.github`.
 2. Validate in Phase 1 representative repositories.
-3. Publish a protected immutable framework release tag such as `pr-qa-v1-rc2`.
+3. Publish a protected immutable framework release tag such as `pr-qa-v1.1`.
 4. Move caller workflows to the approved immutable tag only after validation.
 5. Do not expose framework-ref, runner-label, config-path, or timeout as caller-controlled inputs.

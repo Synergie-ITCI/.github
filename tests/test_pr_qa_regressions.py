@@ -241,7 +241,8 @@ class PrQaRegressionTests(unittest.TestCase):
         caller = (ROOT / "examples" / "caller-workflow.yml").read_text(encoding="utf-8")
         self.assertNotIn("framework-ref", workflow + caller)
         self.assertIn("persist-credentials: false", workflow)
-        self.assertIn("@pr-qa-v1-rc2", caller)
+        self.assertIn("ref: pr-qa-v1.1", workflow)
+        self.assertIn("@pr-qa-v1.1", caller)
 
     def test_output_redaction_removes_fake_tokens(self) -> None:
         code = "from adapters.base import redact; print(redact('token=\"ghp_abcdefghijklmnopqrstuvwxyz123456\"'))"

@@ -29,7 +29,7 @@ permissions:
 
 jobs:
   pr-qa:
-    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@pr-qa-v1-rc2
+    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@pr-qa-v1.1
 ```
 
 ## Optional Repository Config
@@ -80,6 +80,7 @@ explicitly opts into stricter behavior.
 - Inline review comments appear for failures and warnings that map to changed diff lines
 - The check summary is posted in the GitHub Actions job summary
 - Markdown and JSON evidence artifacts are retained
+- AI Engineering Review runs only after final Enterprise QA succeeds and is reported as advisory evidence
 - Branch Protection, CODEOWNERS, approvals, and merge permissions remain owned by GitHub
 
 ## Sample Report
@@ -131,6 +132,12 @@ PASS
 
 Merge Readiness
 READY FOR REVIEW
+
+AI Engineering Review
+ADVISORY
+
+Observations
+3
 ```
 
 ## Rollout Plan

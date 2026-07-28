@@ -65,13 +65,19 @@ Each comment includes:
 - recommendation
 - originating QA gate
 
-Each Synergie-owned comment contains an internal marker:
+Deterministic QA comments contain this internal marker:
 
 ```text
 <!-- synergie-pr-qa:inline-review fingerprint=<fingerprint> -->
 ```
 
-The marker is used only for de-duplication and self-healing. Comments without this marker are never modified.
+AI Engineering Review comments contain this separate marker:
+
+```text
+<!-- synergie-ai-review:inline-review fingerprint=<fingerprint> -->
+```
+
+Markers are used only for de-duplication and self-healing. Comments without the active marker namespace are never modified. QA comment lifecycle runs never edit AI comments, and AI comment lifecycle runs never edit QA comments.
 
 ## Security
 

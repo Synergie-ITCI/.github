@@ -29,8 +29,8 @@ class FakeGitHubClient:
     def list_review_comments(self, pr_number: int) -> list[dict]:
         return self.comments
 
-    def create_review(self, pr_number: int, comments: list[dict]) -> dict:
-        self.created_reviews.append({"pr_number": pr_number, "comments": comments})
+    def create_review(self, pr_number: int, comments: list[dict], body: str = "") -> dict:
+        self.created_reviews.append({"pr_number": pr_number, "comments": comments, "body": body})
         return {"id": 1}
 
     def update_comment(self, comment_id: int, body: str) -> dict:
@@ -139,6 +139,26 @@ class ReviewCommentServiceTests(unittest.TestCase):
 
         self.assertIn("[REDACTED]", body)
         self.assertNotIn("ghp_abcdefghijklmnopqrstuvwxyz123456", body)
+
+    def test_ai_comments_use_separate_namespace_and_staff_review_format(self) -> None:
+        body = review_comments.render_comment_body(
+            {
+                "review_type": "ai",
+                "fingerprint": "222222222222222222222222",
+                "title": "AI REVIEW: POSSIBLE BUG",
+                "severity": "HIGH",
+                "category": "Possible Bug",
+                "observation": "Value may be None before dereference.",
+                "why_it_matters": "This can fail at runtime.",
+                "recommendation": "Guard the value or return early.",
+            },
+            review_comments.AI_MARKER_NAMESPACE,
+        )
+
+        self.assertIn("synergie-ai-review:inline-review", body)
+        self.assertIn("Category: Possible Bug", body)
+        self.assertIn("Why it matters: This can fail at runtime.", body)
+        self.assertIn("Recommended improvement: Guard the value or return early.", body)
 
     def finding(self, fingerprint: str, path: str, line: int, *, explanation: str = "QA finding.") -> dict:
         return {

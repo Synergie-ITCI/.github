@@ -13,8 +13,8 @@ from dataclasses import dataclass
 from typing import Any
 
 
-MARKER_RE = re.compile(r"<!-- synergie-pr-qa:inline-review fingerprint=([a-f0-9]{16,64}) -->")
-MARKER_TEMPLATE = "<!-- synergie-pr-qa:inline-review fingerprint={fingerprint} -->"
+DEFAULT_MARKER_NAMESPACE = "synergie-pr-qa:inline-review"
+AI_MARKER_NAMESPACE = "synergie-ai-review:inline-review"
 MAX_BATCH_COMMENTS = 50
 
 
@@ -41,7 +41,13 @@ def main() -> int:
 
     owner, repo = repository.split("/", 1)
     client = GitHubClient(args.api_url, token, owner, repo)
-    outcome = synchronize_inline_review_comments(client, int(pr_number), findings)
+    outcome = synchronize_inline_review_comments(
+        client,
+        int(pr_number),
+        findings,
+        marker_namespace=args.marker_namespace,
+        review_body=args.review_body,
+    )
     print(json.dumps(outcome, indent=2, sort_keys=True))
     return 0
 
@@ -53,6 +59,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY", ""), help="owner/repo override.")
     parser.add_argument("--api-url", default=os.environ.get("GITHUB_API_URL", "https://api.github.com"), help="GitHub API base URL.")
     parser.add_argument("--token-env", default="GITHUB_TOKEN", help="Environment variable containing the GitHub token.")
+    parser.add_argument("--marker-namespace", default=DEFAULT_MARKER_NAMESPACE, help="Comment marker namespace owned by this publisher.")
+    parser.add_argument("--review-body", default="Synergie Enterprise PR QA inline review findings.", help="Body for new submitted reviews.")
     parser.add_argument("--dry-run", action="store_true", help="Print comment plan without calling GitHub.")
     return parser.parse_args()
 
@@ -100,13 +108,13 @@ class GitHubClient:
     def list_review_comments(self, pr_number: int) -> list[dict[str, Any]]:
         return self.paginated(f"/repos/{self.owner}/{self.repo}/pulls/{pr_number}/comments")
 
-    def create_review(self, pr_number: int, comments: list[dict[str, Any]]) -> dict[str, Any]:
+    def create_review(self, pr_number: int, comments: list[dict[str, Any]], body: str = "Synergie Enterprise PR QA inline review findings.") -> dict[str, Any]:
         return self.request_json(
             "POST",
             f"/repos/{self.owner}/{self.repo}/pulls/{pr_number}/reviews",
             {
                 "event": "COMMENT",
-                "body": "Synergie Enterprise PR QA inline review findings.",
+                "body": body,
                 "comments": comments,
             },
         )
@@ -161,11 +169,17 @@ class GitHubClient:
             return {}
 
 
-def synchronize_inline_review_comments(client: Any, pr_number: int, findings: list[dict[str, Any]]) -> dict[str, Any]:
+def synchronize_inline_review_comments(
+    client: Any,
+    pr_number: int,
+    findings: list[dict[str, Any]],
+    marker_namespace: str = DEFAULT_MARKER_NAMESPACE,
+    review_body: str = "Synergie Enterprise PR QA inline review findings.",
+) -> dict[str, Any]:
     files = client.list_pull_files(pr_number)
     positions = build_diff_positions(files)
     desired = map_findings_to_diff(dedupe_findings(findings), positions)
-    existing_comments = synergie_comments(client.list_review_comments(pr_number))
+    existing_comments = synergie_comments(client.list_review_comments(pr_number), marker_namespace)
     desired_by_fingerprint = {finding["fingerprint"]: finding for finding in desired[:MAX_BATCH_COMMENTS]}
 
     created: list[str] = []
@@ -192,7 +206,7 @@ def synchronize_inline_review_comments(client: Any, pr_number: int, findings: li
             client.delete_comment(int(comment["id"]))
             deleted.append(fingerprint)
             continue
-        body = render_comment_body(desired_finding)
+        body = render_comment_body(desired_finding, marker_namespace)
         if location_changed(comment, desired_finding):
             client.delete_comment(int(comment["id"]))
             deleted.append(fingerprint)
@@ -204,12 +218,12 @@ def synchronize_inline_review_comments(client: Any, pr_number: int, findings: li
 
     for fingerprint, desired_finding in desired_by_fingerprint.items():
         if fingerprint not in existing_by_fingerprint:
-            body = render_comment_body(desired_finding)
+            body = render_comment_body(desired_finding, marker_namespace)
             new_comments.append(review_comment_payload(desired_finding, body))
             created.append(fingerprint)
 
     if new_comments:
-        client.create_review(pr_number, new_comments)
+        client.create_review(pr_number, new_comments, review_body)
 
     return {
         "candidate_findings": len(findings),
@@ -296,11 +310,20 @@ def dedupe_findings(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return deduped
 
 
-def synergie_comments(comments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def marker_regex(marker_namespace: str) -> re.Pattern[str]:
+    return re.compile(rf"<!-- {re.escape(marker_namespace)} fingerprint=([a-f0-9]{{16,64}}) -->")
+
+
+def marker_template(marker_namespace: str) -> str:
+    return f"<!-- {marker_namespace} fingerprint={{fingerprint}} -->"
+
+
+def synergie_comments(comments: list[dict[str, Any]], marker_namespace: str = DEFAULT_MARKER_NAMESPACE) -> list[dict[str, Any]]:
+    regex = marker_regex(marker_namespace)
     matched = []
     for comment in comments:
         body = str(comment.get("body") or "")
-        marker = MARKER_RE.search(body)
+        marker = regex.search(body)
         if not marker:
             continue
         copied = dict(comment)
@@ -309,11 +332,13 @@ def synergie_comments(comments: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return matched
 
 
-def render_comment_body(finding: dict[str, Any]) -> str:
+def render_comment_body(finding: dict[str, Any], marker_namespace: str = DEFAULT_MARKER_NAMESPACE) -> str:
     fingerprint = str(finding["fingerprint"])
+    if finding.get("review_type") == "ai":
+        return render_ai_comment_body(finding, marker_namespace)
     return "\n".join(
         [
-            MARKER_TEMPLATE.format(fingerprint=fingerprint),
+            marker_template(marker_namespace).format(fingerprint=fingerprint),
             f"**{sanitize_line(finding.get('title', 'PR QA FINDING'))}**",
             "",
             f"Severity: {sanitize_line(finding.get('severity', 'WARNING'))}",
@@ -323,6 +348,26 @@ def render_comment_body(finding: dict[str, Any]) -> str:
             f"Recommendation: {sanitize_paragraph(finding.get('recommendation', 'Review and address this finding before merge.'))}",
             "",
             f"Gate: {sanitize_line(finding.get('gate', 'Unknown'))}",
+        ]
+    )
+
+
+def render_ai_comment_body(finding: dict[str, Any], marker_namespace: str = AI_MARKER_NAMESPACE) -> str:
+    fingerprint = str(finding["fingerprint"])
+    return "\n".join(
+        [
+            marker_template(marker_namespace).format(fingerprint=fingerprint),
+            f"**{sanitize_line(finding.get('title', 'AI ENGINEERING REVIEW'))}**",
+            "",
+            f"Severity: {sanitize_line(finding.get('severity', 'INFO'))}",
+            "",
+            f"Category: {sanitize_line(finding.get('category', 'Engineering Review'))}",
+            "",
+            f"Observation: {sanitize_paragraph(finding.get('observation', 'AI review reported an observation at this location.'))}",
+            "",
+            f"Why it matters: {sanitize_paragraph(finding.get('why_it_matters', 'This may affect maintainability, correctness, performance, or clarity.'))}",
+            "",
+            f"Recommended improvement: {sanitize_paragraph(finding.get('recommendation', 'Review this observation and address it if it improves the change.'))}",
         ]
     )
 
@@ -356,6 +401,9 @@ def redact(text: str) -> str:
     replacements = [
         (r"AKIA[0-9A-Z]{16}", "AKIA[REDACTED]"),
         (r"(?i)(password|passwd|secret|token|api[_-]?key)(\s*[:=]\s*)(['\"]?)[^'\"\s]+", r"\1\2\3[REDACTED]"),
+        (r"(?i)(postgres|postgresql|mysql|mongodb|redis|amqp|kafka)://[^\s)\"']+", r"\1://[REDACTED]"),
+        (r"(?i)\b[A-Z0-9_]*(URL|URI|DSN|HOST|ENDPOINT)\b\s*[:=]\s*['\"]?[^'\"\s]+", r"\1=[REDACTED]"),
+        (r"https?://[^\s)\"']+", "[REDACTED_URL]"),
         (r"-----BEGIN [A-Z ]+PRIVATE KEY-----", "-----BEGIN [REDACTED] PRIVATE KEY-----"),
         (r"github_pat_[A-Za-z0-9_]+", "github_pat_[REDACTED]"),
         (r"ghp_[A-Za-z0-9_]+", "ghp_[REDACTED]"),
