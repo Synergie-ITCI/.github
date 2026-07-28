@@ -29,7 +29,7 @@ class PrQaRegressionTests(unittest.TestCase):
         fake_python.write_text("#!/usr/bin/env bash\nexec python3 \"$@\"\n", encoding="utf-8")
         fake_python.chmod(0o755)
         self.env = dict(os.environ)
-        for key in ["GITHUB_BASE_REF", "GITHUB_EVENT_PATH", "GITHUB_HEAD_REF", "GITHUB_REF", "GITHUB_REPOSITORY", "GITHUB_SHA"]:
+        for key in ["GITHUB_ACTOR", "GITHUB_BASE_REF", "GITHUB_EVENT_PATH", "GITHUB_HEAD_REF", "GITHUB_REF", "GITHUB_REPOSITORY", "GITHUB_SHA", "GITHUB_TRIGGERING_ACTOR"]:
             self.env.pop(key, None)
         self.env["PATH"] = str(self.bin) + os.pathsep + self.env.get("PATH", "")
         self.env["PYTHONDONTWRITEBYTECODE"] = "1"
