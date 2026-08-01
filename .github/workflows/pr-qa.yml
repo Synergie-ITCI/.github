@@ -156,6 +156,15 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install mandatory Python QA tools
+        if: needs.detect.outputs.python == 'true'
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install pytest pip-audit
+          python -m pytest --version
+          pip-audit --version
+
       - name: Set up Go
         if: needs.detect.outputs.go == 'true'
         uses: actions/setup-go@v5
