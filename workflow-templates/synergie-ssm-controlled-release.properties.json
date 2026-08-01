@@ -1,0 +1,11 @@
+{
+  "name": "Synergie SSM Controlled Release",
+  "description": "Deploy through AWS Systems Manager with explicit deploy ref, rollback ref, change ticket, and HTTPS validation.",
+  "iconName": "rocket",
+  "categories": [
+    "Deployment",
+    "Automation",
+    "PHP",
+    "JavaScript"
+  ]
+}

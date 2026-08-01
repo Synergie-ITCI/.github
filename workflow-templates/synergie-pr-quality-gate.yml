@@ -1,0 +1,22 @@
+name: Synergie PR Quality Gate
+
+on:
+  pull_request:
+    branches:
+      - main
+      - master
+      - development
+      - staging
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+jobs:
+  quality-gate:
+    uses: Synergie-ITCI/.github/.github/workflows/reusable-pr-quality-gate.yml@main
+    with:
+      config-path: .github/pr-qa.yml
+      fail-on-dependency-vulnerabilities: false
+
