@@ -71,7 +71,7 @@ class PrQaRegressionTests(unittest.TestCase):
                             "## Business Purpose\nRegression test.\n"
                             "## Testing Performed\nLocal automated regression.\n"
                             "## Rollback Strategy\nRevert this PR.\n"
-                            "## Linked Issue\n#123\n"
+                            "## Linked Issue\nhttps://github.com/Synergie-ITCI/.github/issues/123\n"
                             "## Screenshots\nN/A\n"
                         ),
                     }
@@ -235,6 +235,44 @@ class PrQaRegressionTests(unittest.TestCase):
         code, _ = self.run_engine(repo, base)
         self.assertNotEqual(code, 0)
         self.assertFalse((repo / "SHOULD_NOT_EXIST").exists())
+
+    def test_workflow_only_pr_does_not_execute_unrelated_app_commands(self) -> None:
+        composer_marker = self.tmp / "composer-was-run"
+        fake_composer = self.bin / "composer"
+        fake_composer.write_text(f"#!/usr/bin/env bash\ntouch {composer_marker}\nexit 42\n", encoding="utf-8")
+        fake_composer.chmod(0o755)
+
+        repo, base = self.init_repo("workflow-only-governance")
+        self.write(repo / "composer.json", json.dumps({"require": {}, "scripts": {"test": "exit 42"}}))
+        self.write(repo / "composer.lock", json.dumps({"packages": [], "packages-dev": []}))
+        self.write(repo / ".github" / "workflows" / "existing.yml", "name: Existing\non: push\njobs:\n  noop:\n    runs-on: ubuntu-latest\n    steps:\n      - run: true\n")
+        self.git(repo, "add", ".")
+        self.git(repo, "commit", "-q", "-m", "chore: add app markers")
+        base = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        self.write(repo / ".github" / "workflows" / "pr-qa.yml", "name: PR Quality Assurance\non: pull_request\njobs:\n  noop:\n    runs-on: ubuntu-latest\n    steps:\n      - run: true\n")
+        self.commit(repo, "ci: add pr qa workflow")
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base)
+
+        self.assertEqual(code, 0, report)
+        self.assertFalse(composer_marker.exists())
+        self.assertTrue(
+            any(
+                result["gate"] == "Build"
+                and result["technology"] == "PHP/Laravel"
+                and result["status"] == "SKIP"
+                and "No PHP/Laravel-relevant files changed" in result["message"]
+                for result in report_json["results"]
+            )
+        )
+        self.assertTrue(
+            any(
+                result["gate"] == "Build"
+                and result["technology"] == "GitHub Actions"
+                and result["status"] == "PASS"
+                for result in report_json["results"]
+            )
+        )
 
     def test_workflow_has_no_framework_override_or_checkout_credentials(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "pr-qa.yml").read_text(encoding="utf-8")

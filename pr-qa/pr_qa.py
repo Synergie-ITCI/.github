@@ -79,6 +79,60 @@ ADAPTER_EXTENSIONS = {
     "terraform": {".tf"},
 }
 
+TECHNOLOGY_CHANGE_PATTERNS = {
+    "php": [
+        "*.php",
+        "artisan",
+        "composer.json",
+        "composer.lock",
+        "phpunit.xml",
+        "phpunit.xml.dist",
+        ".php-cs-fixer.php",
+        "pint.json",
+    ],
+    "node": [
+        "*.cjs",
+        "*.cts",
+        "*.js",
+        "*.jsx",
+        "*.mjs",
+        "*.mts",
+        "*.ts",
+        "*.tsx",
+        "package.json",
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "bun.lock",
+        "bun.lockb",
+        "vite.config.*",
+        "webpack.config.*",
+        "rollup.config.*",
+        "tsconfig*.json",
+    ],
+    "python": [
+        "*.py",
+        "pyproject.toml",
+        "setup.py",
+        "setup.cfg",
+        "requirements*.txt",
+        "Pipfile",
+        "Pipfile.lock",
+        "poetry.lock",
+        "uv.lock",
+    ],
+    "go": ["*.go", "go.mod", "go.sum"],
+    "gradle": ["*.gradle", "*.gradle.kts", "*.java", "*.kt", "*.kts", "build.gradle", "settings.gradle", "gradle.properties"],
+    "java": ["*.java", "pom.xml"],
+    "swift": ["*.swift", "Package.swift", "*.xcodeproj/**", "*.xcworkspace/**"],
+    "dotnet": ["*.cs", "*.vb", "*.fs", "*.sln", "*.csproj", "*.vbproj", "*.fsproj"],
+    "rust": ["*.rs", "Cargo.toml", "Cargo.lock"],
+    "docker": ["Dockerfile", "Dockerfile.*", "docker-compose*.yml", "docker-compose*.yaml", "compose.yml", "compose.yaml"],
+    "terraform": ["*.tf", "*.tfvars", "*.tf.json", "*.tfvars.json", ".terraform.lock.hcl"],
+    "kubernetes": ["*.yml", "*.yaml"],
+    "github_actions": ["*.yml", "*.yaml"],
+}
+
 
 def main() -> int:
     args = parse_args()
@@ -550,9 +604,32 @@ def run_adapter_gate(ctx: PRContext, technologies: dict[str, dict[str, Any]], ke
         return [passed(display, None, "No supported technology markers detected after executable-code classification.")]
     results: list[CheckResult] = []
     for detected in technologies.values():
+        roots = relevant_roots_for_adapter(ctx, detected["adapter"].key, detected["roots"])
+        if not roots:
+            results.append(skipped(display, detected["name"], f"No {detected['name']}-relevant files changed."))
+            continue
         method = getattr(detected["adapter"], method_name)
-        results.extend(method(ctx, detected["roots"]))
+        results.extend(method(ctx, roots))
     return results or [passed(display, None, "No applicable checks for detected technologies.")]
+
+
+def relevant_roots_for_adapter(ctx: PRContext, adapter_key: str, roots: list[Path]) -> list[Path]:
+    patterns = TECHNOLOGY_CHANGE_PATTERNS.get(adapter_key)
+    if patterns is None:
+        return roots
+    relevant = []
+    for root in roots:
+        if any(match_any(relative_to_root(ctx, root, rel), patterns) for rel in ctx.changed_under(root)):
+            relevant.append(root)
+    return relevant
+
+
+def relative_to_root(ctx: PRContext, root: Path, rel: str) -> str:
+    root_rel = ctx.rel(root).rstrip("/")
+    if root_rel in {"", "."}:
+        return rel
+    prefix = root_rel + "/"
+    return rel[len(prefix) :] if rel.startswith(prefix) else rel
 
 
 def add_phase_skips(results: list[CheckResult], message: str) -> None:
