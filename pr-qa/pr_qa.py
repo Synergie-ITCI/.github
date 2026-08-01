@@ -1219,7 +1219,7 @@ def resolve_override_actor(ctx: PRContext, event: dict[str, Any]) -> str:
     sender = (event.get("sender", {}) or {}).get("login", "")
     if not is_github_workspace_repo(ctx):
         return os.environ.get("GITHUB_ACTOR") or sender
-    return os.environ.get("GITHUB_TRIGGERING_ACTOR") or os.environ.get("GITHUB_ACTOR") or sender
+    return os.environ.get("GITHUB_ACTOR") or os.environ.get("GITHUB_TRIGGERING_ACTOR") or sender
 
 
 def emergency_override_decision(actor_authorized: bool, administrator_bypass_required: bool) -> str:
