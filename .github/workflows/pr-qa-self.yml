@@ -1,4 +1,4 @@
-name: PR Quality Assurance
+name: PR QA
 
 on:
   pull_request:
@@ -20,4 +20,6 @@ concurrency:
 jobs:
   pr-qa:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@pr-qa-v1.1
+    uses: ./.github/workflows/pr-qa.yml
+    with:
+      repository-profile: framework

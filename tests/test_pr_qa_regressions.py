@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,6 +13,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ENGINE = ROOT / "pr-qa" / "pr_qa.py"
+sys.path.insert(0, str(ROOT / "pr-qa"))
+import pr_qa  # noqa: E402
 
 
 class PrQaRegressionTests(unittest.TestCase):
@@ -22,7 +25,12 @@ class PrQaRegressionTests(unittest.TestCase):
         fake_gitleaks = self.bin / "gitleaks"
         fake_gitleaks.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
         fake_gitleaks.chmod(0o755)
+        fake_python = self.bin / "python"
+        fake_python.write_text("#!/usr/bin/env bash\nexec python3 \"$@\"\n", encoding="utf-8")
+        fake_python.chmod(0o755)
         self.env = dict(os.environ)
+        for key in ["GITHUB_ACTOR", "GITHUB_BASE_REF", "GITHUB_EVENT_PATH", "GITHUB_HEAD_REF", "GITHUB_REF", "GITHUB_REPOSITORY", "GITHUB_SHA", "GITHUB_TRIGGERING_ACTOR"]:
+            self.env.pop(key, None)
         self.env["PATH"] = str(self.bin) + os.pathsep + self.env.get("PATH", "")
         self.env["PYTHONDONTWRITEBYTECODE"] = "1"
 
@@ -208,6 +216,25 @@ class PrQaRegressionTests(unittest.TestCase):
         self.assertIn("High-confidence secret indicators found", report)
         self.assertIn("tests/test_pr_qa_regressions.py: GitHub token", report)
 
+    def test_hash_issue_reference_counts_as_linked_issue_evidence(self) -> None:
+        body = (
+            "## Business Purpose\nRegression test.\n"
+            "## Testing Performed\nLocal automated regression.\n"
+            "## Rollback Strategy\nRevert this PR.\n"
+            "## Linked Issue\n#123\n"
+            "## Screenshots\nN/A\n"
+        )
+        self.assertTrue(pr_qa.field_has_value(body, "linked issue"))
+
+    def test_python_without_dependency_manifest_does_not_audit_runner_environment(self) -> None:
+        repo, base = self.init_repo("python-no-deps")
+        self.write(repo / "app.py", "print('ok')\n")
+        self.commit(repo, "feat: add python script")
+        code, report = self.run_engine(repo, base)
+        self.assertEqual(code, 0, report)
+        self.assertIn("No Python dependency manifest found; pip-audit is not applicable.", report)
+        self.assertNotIn("pip-audit is mandatory and is not installed", report)
+
     def test_obfuscated_destructive_migration_fails(self) -> None:
         repo, base = self.init_repo("migration")
         self.write(repo / "database" / "migrations" / "2026_01_01_000001_drop.php", "<?php\nDB::statement('DR' . 'OP TABLE users');\n")
@@ -238,10 +265,44 @@ class PrQaRegressionTests(unittest.TestCase):
 
     def test_workflow_has_no_framework_override_or_checkout_credentials(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "pr-qa.yml").read_text(encoding="utf-8")
+        self_workflow = (ROOT / ".github" / "workflows" / "pr-qa-self.yml").read_text(encoding="utf-8")
+        legacy_workflow = (ROOT / ".github" / "workflows" / "reusable-pr-quality-gate.yml").read_text(encoding="utf-8")
         caller = (ROOT / "examples" / "caller-workflow.yml").read_text(encoding="utf-8")
-        self.assertNotIn("framework-ref", workflow + caller)
+        all_workflows = workflow + caller + self_workflow + legacy_workflow
+        self.assertNotIn("framework-ref", all_workflows)
         self.assertIn("persist-credentials: false", workflow)
-        self.assertIn("@pr-qa-v1-rc2", caller)
+        self.assertIn("persist-credentials: false", legacy_workflow)
+        self.assertIn("ref: ${{ github.event.pull_request.head.sha || github.sha }}", workflow)
+        self.assertIn("repository: Synergie-ITCI/.github", workflow)
+        self.assertIn("ref: ${{ github.workflow_sha }}", workflow)
+        self.assertIn("PR_QA_GITLEAKS_LINUX_X64_SHA256", workflow)
+        self.assertIn("Install mandatory Gitleaks", workflow)
+        self.assertIn("PR_QA_PIP_AUDIT_VERSION", workflow)
+        self.assertIn("PR_QA_PYTEST_VERSION", workflow)
+        self.assertIn("Install Python QA tooling", workflow)
+        self.assertIn("--repository-profile \"${{ inputs.repository-profile }}\"", workflow)
+        self.assertIn("@pr-qa-v1.1", caller)
+        self.assertIn("github.event.pull_request.number || github.ref", caller)
+        self.assertNotIn("repository-profile: framework", caller)
+        self.assertIn("uses: ./.github/workflows/pr-qa.yml", self_workflow)
+        self.assertIn("repository-profile: framework", self_workflow)
+        self.assertIn("merge_group:", self_workflow)
+        self.assertIn("github.event.pull_request.number || github.ref", self_workflow)
+        self.assertNotIn("publisher:", all_workflows)
+        self.assertNotIn("pull-requests: write", all_workflows)
+        self.assertNotIn("checks: write", all_workflows)
+        self.assertNotIn("AI_REVIEW", all_workflows)
+        self.assertNotIn("ai-review", all_workflows)
+        self.assertNotIn("review_comments.py", all_workflows)
+        self.assertNotIn("ai_review.py", all_workflows)
+        self.assertNotIn("GITHUB_TOKEN", all_workflows)
+        self.assertNotIn("github-script", all_workflows)
+        qa_job = workflow.split("  qa:", 1)[1]
+        self.assertNotIn("AI_REVIEW_PROVIDER_TOKEN", qa_job)
+        self.assertNotIn("GITHUB_TOKEN", qa_job)
+        self.assertIn("pr-qa-results/pr-quality-report.json", qa_job)
+        self.assertIn("pr-qa-results/pr-quality-report.md", qa_job)
+        self.assertNotIn("path: pr-qa-results/\n          retention-days", qa_job)
 
     def test_output_redaction_removes_fake_tokens(self) -> None:
         code = "from adapters.base import redact; print(redact('token=\"ghp_abcdefghijklmnopqrstuvwxyz123456\"'))"

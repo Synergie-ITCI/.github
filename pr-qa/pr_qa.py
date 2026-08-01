@@ -1055,7 +1055,8 @@ def field_has_value(body: str, field: str) -> bool:
         start = index + len(field)
     else:
         start = match.end()
-    after = re.sub(r"^[\s:#*\-_]+", "", body[start:])
+    prefix_pattern = r"^[\s:*\-_]+" if field.lower() == "linked issue" else r"^[\s:#*\-_]+"
+    after = re.sub(prefix_pattern, "", body[start:])
     next_heading = re.search(r"\n\s*#{1,6}\s+|\n\s*\*\*[^*]+\*\*", after)
     value = (after[: next_heading.start()] if next_heading else after).strip()
     if not value:
@@ -1083,8 +1084,11 @@ def summarize(results: list[CheckResult], technologies: dict[str, dict[str, Any]
     risk_result = next((result for result in results if result.gate == "Risk Engine"), None)
     return {
         "repository": os.environ.get("GITHUB_REPOSITORY", ctx.repo.name),
+        "pull_request_number": extract_pr_number(ctx.event) or 0,
         "base_ref": git_context.get("base_ref") or "",
         "head_ref": git_context.get("head_ref") or "",
+        "base_sha": git_context.get("base_sha") or "",
+        "head_sha": resolve_head_sha(ctx.repo, git_context),
         "detected_technologies": sorted(value["name"] for value in technologies.values()),
         "changed_files": len(ctx.changed_files),
         "additions": ctx.additions,
@@ -1117,7 +1121,8 @@ def extract_risk_score(message: str) -> int:
 
 def write_reports(args: argparse.Namespace, summary: dict[str, Any], results: list[CheckResult], ctx: PRContext) -> None:
     report = render_markdown_report(summary, results)
-    json_report = render_json_report(summary, results, ctx)
+    artifacts_dir = Path(args.json_out).parent if args.json_out else Path(args.out).parent if args.out else ctx.repo / "pr-qa-results"
+    json_report = render_json_report(summary, results, ctx, artifacts_dir)
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.out).write_text(report, encoding="utf-8")
@@ -1286,8 +1291,14 @@ def render_markdown_report(summary: dict[str, Any], results: list[CheckResult]) 
     return "\n".join(lines) + "\n"
 
 
-def render_json_report(summary: dict[str, Any], results: list[CheckResult], ctx: PRContext) -> dict[str, Any]:
+def render_json_report(summary: dict[str, Any], results: list[CheckResult], ctx: PRContext, artifacts_dir: Path | None = None) -> dict[str, Any]:
     return {
+        "schema_version": 1,
+        "report_complete": True,
+        "sanitization": {
+            "status": "PASS",
+            "redaction": "applied",
+        },
         "summary": summary,
         "results": [
             {

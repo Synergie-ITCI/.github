@@ -4,6 +4,8 @@ This bundle implements a reusable Pull Request Quality Assurance framework for S
 
 It validates and reports. It does not approve, merge, deploy, bypass repository rules, modify CODEOWNERS, or change Branch Protection.
 
+Enterprise QA is automated. Engineering review is performed manually by the Executive Reviewer using Codex's native GitHub integration. The framework intentionally does not automate AI review or call an AI provider.
+
 ## Architecture
 
 - Central reusable workflow: `.github/workflows/pr-qa.yml` in `Synergie-ITCI/.github`
@@ -13,13 +15,32 @@ It validates and reports. It does not approve, merge, deploy, bypass repository 
 - Per-repository configuration: `.github/pr-qa.yml`
 - Standard PR template: `.github/pull_request_template.md`
 
+```text
+Developer
+  |
+  v
+Enterprise QA (automatic)
+  |
+  v
+QA PASS / FAIL evidence
+  |
+  v
+Saurabh reviews manually with Codex
+  |
+  v
+Executive Approval
+  |
+  v
+Merge
+```
+
 ## Quick Start
 
 1. Commit this bundle into the `Synergie-ITCI/.github` repository.
 2. In a pilot repository, copy `examples/caller-workflow.yml` to `.github/workflows/pr-qa.yml`.
 3. In the same repository, copy `examples/pr-qa.yml` to `.github/pr-qa.yml` and tune only thresholds or adapter overrides.
 4. Copy `examples/pull_request_template.md` to `.github/pull_request_template.md`.
-5. Open a pull request and review the single `PR QUALITY REPORT` job summary.
+5. Open a pull request and review the `PR QUALITY REPORT` job summary and retained report artifacts.
 
 ## Quality Gates
 
@@ -58,6 +79,8 @@ Adapters must:
 
 - [Release Candidate 2](releases/rc2/README.md)
 - [v1.0 Production Introduction Runbooks](operations/v1.0-publication/README.md)
+- [Simplified Architecture](docs/simplified-architecture.md)
+- [Removed AI Review Inventory](docs/removed-ai-review-inventory.md)
 - [Administrator Guide](docs/administrator-guide.md)
 - [Repository Onboarding Guide](docs/onboarding-guide.md)
 - [Technology Adapter Guide](docs/technology-adapters.md)

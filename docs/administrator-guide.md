@@ -50,12 +50,13 @@ Recommended runner tools:
 | Terraform | Terraform, TFLint, tfsec or Checkov |
 | Kubernetes | kubeconform, kubeval, or kubectl |
 
-Security tooling is mandatory for the gates it supports. Gitleaks is mandatory. Dependency audit tooling is mandatory for repositories whose technologies are detected.
+Security tooling is mandatory for the gates it supports. The reusable workflow installs pinned Gitleaks `8.30.1` with SHA-256 verification before Phase 1 and fails closed if it is unavailable. For Python repositories, the workflow installs pinned Pytest `9.1.1` and pip-audit `2.10.1` after Phase 1; pip-audit runs only when a Python dependency manifest is present. Other dependency audit tooling is mandatory for repositories whose technologies are detected.
 
 ## Security Model
 
-- The caller workflow uses read-only repository and pull-request permissions.
+- The caller workflow uses read-only repository permissions.
 - The workflow does not request deployment, environment, package-write, or repository-administration permissions.
+- The workflow does not request pull request write permission.
 - All checkout steps use `persist-credentials: false`.
 - Static preflight runs before setup, dependency installation, build, lint, or tests.
 - Mandatory gates are defined in `policy/pr-qa-policy.json` and cannot be disabled by repository configuration.
@@ -87,6 +88,8 @@ Supported profiles:
 | `documentation` | documentation-only repositories |
 
 The `framework` profile permits only centrally approved regression fixture paths and fixture manifests to be classified as non-blocking. It does not disable Gitleaks, does not suppress findings globally, and does not apply to production application repositories by default.
+
+The reusable workflow accepts a `repository-profile` input for governed central self-validation. Organisation rollout callers should omit that input and inherit the `application` profile unless an approved governance decision assigns another profile.
 
 Approved governance assets such as `.gitleaks.toml`, `.github/**`, `.gitignore`, `.editorconfig`, `policy/**`, and `schemas/**` bypass only the hidden-file integrity warning. They remain subject to protected-resource review, workflow/deployment warnings, secret scanning, and human governance.
 
@@ -173,10 +176,16 @@ pr-qa-results/emergency-override-audit.json
 
 The Markdown report is the concise human report. The JSON report is the audit trail for future analytics.
 
+Engineering review is manual. After Enterprise QA produces PASS or FAIL evidence, the Executive Reviewer reviews the pull request interactively using Codex's native GitHub integration.
+
+The framework intentionally does not automate AI review. It does not call an AI provider, publish pull request review comments, manage AI provider credentials, generate AI review artifacts, or attempt to replace Executive Release Authority judgment.
+
+Caller workflows pin the reusable workflow to the approved immutable release reference. For Version 1.1 this pending reference is `pr-qa-v1.1`. Inside the reusable workflow, framework source is checked out from `Synergie-ITCI/.github` at `github.workflow_sha`, so every job uses the exact commit that defines the called workflow. Do not add a caller-controlled framework reference.
+
 ## Upgrade Process
 
 1. Change the central framework in `Synergie-ITCI/.github`.
 2. Validate in Phase 1 representative repositories.
-3. Publish a protected immutable framework release tag such as `pr-qa-v1-rc2`.
+3. Publish a protected immutable framework release tag such as `pr-qa-v1.1`.
 4. Move caller workflows to the approved immutable tag only after validation.
 5. Do not expose framework-ref, runner-label, config-path, or timeout as caller-controlled inputs.

@@ -25,7 +25,7 @@ No application repositories, deployments, GitHub settings, Branch Protection, me
 | Repository code runs before secret scanning | CLOSED | Workflow runs `--static-only` before setup/build/test; engine skips later phases on Phase 1 failure | `test_malicious_install_hook_does_not_execute_when_static_fails` | GitHub checkout itself still materializes PR files, but no repo command executes before static preflight. |
 | Checkout credentials persisted | CLOSED | All checkout steps use `persist-credentials: false` | `test_workflow_has_no_framework_override_or_checkout_credentials` | GitHub-hosted runner isolation is still required operationally. |
 | Raw command output uploaded in artifacts | CLOSED | `CommandOutcome.sanitized_dict()` records redacted excerpts only; JSON report redacts result details | `test_output_redaction_removes_fake_tokens` | External tools may still write their own files; keep artifacts scoped to `pr-qa-results`. |
-| Caller-controlled framework ref | CLOSED | `framework-ref` input removed; caller uses `@pr-qa-v1-rc2`; central checkout uses literal `ref: pr-qa-v1-rc2` | `test_workflow_has_no_framework_override_or_checkout_credentials` | Release tag governance must prevent tag mutation. |
+| Caller-controlled framework ref | CLOSED | `framework-ref` input removed; caller pins `@pr-qa-v1.1`; internal framework checkouts use `Synergie-ITCI/.github` at `github.workflow_sha` | `test_workflow_has_no_framework_override_or_checkout_credentials` | Release tag governance must prevent tag mutation. |
 
 ## Original High Findings
 
@@ -34,13 +34,19 @@ No application repositories, deployments, GitHub settings, Branch Protection, me
 | Strict runtime schema validation | CLOSED | Strict schema in `schemas/pr-qa.schema.json`; runtime config validation in `validate_repo_config()` | Regression config-disable test | `jsonschema` package not installed locally, so standards-compliant schema validation was not run locally. |
 | Base branch CODEOWNERS | CLOSED | `load_base_codeowners()` reads CODEOWNERS from base SHA only | `test_codeowners_modification_fails` | Actual review approval remains enforced by Branch Protection. |
 | Protected resource verification | PARTIALLY CLOSED | CODEOWNERS modification and missing base coverage fail closed | `test_codeowners_modification_fails` | Local engine cannot verify live GitHub review state without API integration. Compensating control: Branch Protection remains required merge authority. |
-| Mandatory Gitleaks | CLOSED | `run_gitleaks()` fails if unavailable | Regression suite uses fake gitleaks to validate control path | Local machine does not have real Gitleaks installed. |
+| Mandatory Gitleaks | CLOSED | The workflow installs pinned Gitleaks `8.30.1` with SHA-256 verification before Phase 1; `run_gitleaks()` fails if unavailable | Regression suite validates mandatory Gitleaks wiring and fail-closed behavior | GitHub release asset availability is still an external dependency. |
 | Encoded secrets missed | CLOSED | Base64 decoding and UTF-16/Latin-1 text variants in fallback scanner | `test_base64_secret_is_detected` | Highly custom encodings still need Gitleaks/custom rules. |
 | Technology detection misses executable code | CLOSED | `gate_executable_classification()` fails unknown executable extensions | `test_unknown_executable_language_fails` | New languages require adding adapter coverage or policy extensions. |
 | Nested dependency/generated artifact bypass | CLOSED | Repository integrity checks path components, not only root globs | `test_nested_node_modules_is_generated_artifact_failure` | Some legitimate generated snapshots may need central allowlisting. |
 | Migration parser too weak | CLOSED | Collapsed-token destructive operation detection plus framework-specific migration calls | `test_obfuscated_destructive_migration_fails` | Full AST/database parser coverage is future hardening, but prior bypass is closed. |
 | Dependency audit warnings instead of enforcement | CLOSED | Adapters now fail when mandatory audit tooling/lockfiles are unavailable | Unit syntax/import validation | Repositories must install required audit tooling or configure approved central runner images. |
 | Licence classification flags LGPL as GPL | CLOSED | `restricted_license_hit()` treats LGPL separately | Unit-level redaction/import validation | Full licence inventory still depends on ecosystem metadata/tooling. |
+
+## Simplification Update
+
+Automated AI review infrastructure has been removed from the active framework. The reusable workflows no longer request pull request write permission, no longer receive `GITHUB_TOKEN` in custom scripts, and no longer accept AI provider credentials or provider host configuration.
+
+Engineering review is now explicitly manual. Saurabh reviews pull requests using Codex's native GitHub integration before Executive Release Authority approval.
 
 ## Final Verdict
 

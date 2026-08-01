@@ -19,7 +19,7 @@
         "migration_risk": { "type": "boolean" },
         "large_files": { "type": "boolean" },
         "documentation": { "type": "boolean" },
-        "ai_advisory": { "type": "boolean" }
+        "architecture_review": { "type": "boolean" }
       }
     },
     "large_file_threshold_mb": {
