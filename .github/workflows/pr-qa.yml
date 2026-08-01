@@ -100,13 +100,18 @@ jobs:
         id: static
         run: |
           mkdir -p pr-qa-results
+          profile_args=()
+          if [ "${GITHUB_REPOSITORY}" = "Synergie-ITCI/.github" ]; then
+            profile_args=(--repository-profile framework)
+          fi
           set +e
           python3 .pr-qa-framework/pr-qa/pr_qa.py \
             --repo "$GITHUB_WORKSPACE" \
             --static-only \
             --out pr-qa-results/pr-quality-report.md \
             --json-out pr-qa-results/pr-quality-report.json \
-            --command-timeout-minutes "$PR_QA_COMMAND_TIMEOUT_MINUTES"
+            --command-timeout-minutes "$PR_QA_COMMAND_TIMEOUT_MINUTES" \
+            "${profile_args[@]}"
           code=$?
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           exit 0
@@ -189,12 +194,17 @@ jobs:
         run: |
           rm -rf pr-qa-results
           mkdir -p pr-qa-results
+          profile_args=()
+          if [ "${GITHUB_REPOSITORY}" = "Synergie-ITCI/.github" ]; then
+            profile_args=(--repository-profile framework)
+          fi
           set +e
           python3 .pr-qa-framework/pr-qa/pr_qa.py \
             --repo "$GITHUB_WORKSPACE" \
             --out pr-qa-results/pr-quality-report.md \
             --json-out pr-qa-results/pr-quality-report.json \
-            --command-timeout-minutes "$PR_QA_COMMAND_TIMEOUT_MINUTES"
+            --command-timeout-minutes "$PR_QA_COMMAND_TIMEOUT_MINUTES" \
+            "${profile_args[@]}"
           code=$?
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           exit 0
