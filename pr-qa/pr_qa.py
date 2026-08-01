@@ -650,7 +650,9 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
         results.append(passed("Repository Hygiene", None, "No merge conflict markers found in changed files."))
 
     if git_context.get("is_git_repo") and git_context.get("base_sha"):
-        merge_commits = git_lines(ctx.repo, ["rev-list", "--merges", f"{git_context['base_sha']}..HEAD"])
+        merge_base = git_lines(ctx.repo, ["merge-base", git_context["base_sha"], "HEAD"])
+        merge_base_sha = merge_base[0] if merge_base else git_context["base_sha"]
+        merge_commits = git_lines(ctx.repo, ["rev-list", "--merges", f"{merge_base_sha}..HEAD"])
         if merge_commits and not ctx.config.get("repository", {}).get("allow_merge_commits", False):
             results.append(failed("Repository Hygiene", None, "Accidental merge commits detected.", merge_commits[:20], score=8))
         else:

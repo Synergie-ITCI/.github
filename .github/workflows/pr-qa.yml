@@ -10,6 +10,8 @@ permissions:
 env:
   PR_QA_COMMAND_TIMEOUT_MINUTES: "20"
   PYTHONDONTWRITEBYTECODE: "1"
+  GITLEAKS_VERSION: "8.30.1"
+  PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc3"
 
 jobs:
   detect:
@@ -31,14 +33,22 @@ jobs:
       - name: Checkout pull request
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Prepare local central PR QA framework
+        if: github.repository == 'Synergie-ITCI/.github'
+        run: |
+          mkdir -p .pr-qa-framework
+          rsync -a --exclude='.git' --exclude='.pr-qa-framework' ./ .pr-qa-framework/
+
       - name: Checkout immutable central PR QA framework
+        if: github.repository != 'Synergie-ITCI/.github'
         uses: actions/checkout@v4
         with:
           repository: Synergie-ITCI/.github
-          ref: pr-qa-v1-rc2
+          ref: ${{ env.PR_QA_FRAMEWORK_RELEASE }}
           path: .pr-qa-framework
           persist-credentials: false
 
@@ -59,16 +69,32 @@ jobs:
       - name: Checkout pull request
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Prepare local central PR QA framework
+        if: github.repository == 'Synergie-ITCI/.github'
+        run: |
+          mkdir -p .pr-qa-framework
+          rsync -a --exclude='.git' --exclude='.pr-qa-framework' ./ .pr-qa-framework/
+
       - name: Checkout immutable central PR QA framework
+        if: github.repository != 'Synergie-ITCI/.github'
         uses: actions/checkout@v4
         with:
           repository: Synergie-ITCI/.github
-          ref: pr-qa-v1-rc2
+          ref: ${{ env.PR_QA_FRAMEWORK_RELEASE }}
           path: .pr-qa-framework
           persist-credentials: false
+
+      - name: Install mandatory Gitleaks
+        run: |
+          set -euo pipefail
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o /tmp/gitleaks.tar.gz
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
 
       - name: Phase 1 static preflight
         id: static
