@@ -1084,7 +1084,7 @@ def summarize(results: list[CheckResult], technologies: dict[str, dict[str, Any]
     overall = FAIL if any(result.is_blocking_failure() for result in results) else PASS
     risk_result = next((result for result in results if result.gate == "Risk Engine"), None)
     return {
-        "repository": os.environ.get("GITHUB_REPOSITORY", ctx.repo.name),
+        "repository": resolve_repository_name(ctx),
         "base_ref": git_context.get("base_ref") or "",
         "head_ref": git_context.get("head_ref") or "",
         "detected_technologies": sorted(value["name"] for value in technologies.values()),
@@ -1097,6 +1097,18 @@ def summarize(results: list[CheckResult], technologies: dict[str, dict[str, Any]
         "risk_score": extract_risk_score(risk_result.message if risk_result else ""),
         "policy_id": ctx.policy.get("policy_id", "unknown"),
     }
+
+
+def resolve_repository_name(ctx: PRContext) -> str:
+    github_repository = os.environ.get("GITHUB_REPOSITORY")
+    github_workspace = os.environ.get("GITHUB_WORKSPACE")
+    if github_repository and github_workspace:
+        try:
+            if Path(github_workspace).resolve() == ctx.repo.resolve():
+                return github_repository
+        except OSError:
+            pass
+    return ctx.repo.name
 
 
 def aggregate_status(results: list[CheckResult]) -> str:
