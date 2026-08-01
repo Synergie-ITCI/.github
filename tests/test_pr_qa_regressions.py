@@ -164,6 +164,29 @@ class PrQaRegressionTests(unittest.TestCase):
         self.assertNotEqual(code, 0)
         self.assertIn("CODEOWNERS changes are not allowed", report)
 
+    def test_codeowners_bootstrap_allows_pr_qa_caller_recovery(self) -> None:
+        repo = self.tmp / "codeowners-bootstrap"
+        repo.mkdir()
+        self.git(repo, "init", "-q")
+        self.git(repo, "config", "user.email", "qa@example.invalid")
+        self.git(repo, "config", "user.name", "QA Regression")
+        self.write(repo / ".github" / "pr-qa.yml", self.base_config())
+        self.write(repo / "README.md", "# regression\n")
+        self.git(repo, "add", ".")
+        self.git(repo, "commit", "-q", "-m", "chore: baseline")
+        base = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.git(repo, "checkout", "-q", "-b", "fix/pr-qa-v1-rc5")
+
+        self.write(repo / ".github" / "CODEOWNERS", ".github/** @Synergie-ITCI/saurabh-pr-review-bypass\n")
+        self.write(
+            repo / ".github" / "workflows" / "pr-qa.yml",
+            "name: PR Quality Assurance\non: [pull_request]\njobs:\n  pr-qa:\n    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@pr-qa-v1-rc5\n",
+        )
+        self.commit(repo, "ci: enable pr qa governance")
+        code, report = self.run_engine(repo, base, static_only=True)
+        self.assertEqual(code, 0)
+        self.assertIn("Base CODEOWNERS bootstrap detected", report)
+
     def test_framework_profile_classifies_approved_regression_fixture(self) -> None:
         repo, base = self.init_repo("framework-fixture", profile="framework")
         self.write(repo / "tests" / "test_pr_qa_regressions.py", "TOKEN = 'ghp_abcdefghijklmnopqrstuvwxyz123456'\n")

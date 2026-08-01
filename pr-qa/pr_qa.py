@@ -914,17 +914,26 @@ def gate_executable_classification(ctx: PRContext, technologies: dict[str, dict[
 def gate_protected_resources(ctx: PRContext, git_context: dict[str, Any]) -> list[CheckResult]:
     protected_patterns = ctx.config.get("repository", {}).get("protected_paths", [])
     changed = [path for path in ctx.changed_files if match_any(path, protected_patterns)]
-    if any(path in {"CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"} for path in ctx.changed_files):
+    codeowners_changed = any(path in {"CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"} for path in ctx.changed_files)
+    codeowners = load_base_codeowners(ctx.repo, git_context)
+    if codeowners_changed and not codeowners and is_codeowners_bootstrap_pr(ctx):
+        return [warning("Protected Resources", None, "Base CODEOWNERS bootstrap detected; Branch Protection must enforce required reviewer approval.", sorted(ctx.changed_files))]
+    if codeowners_changed:
         return [failed("Protected Resources", None, "CODEOWNERS changes are not allowed in PR QA guarded changes.", score=20)]
     if not changed:
         return [passed("Protected Resources", None, "No protected resources changed.")]
-    codeowners = load_base_codeowners(ctx.repo, git_context)
     if not codeowners:
         return [failed("Protected Resources", None, "Protected resources changed but base-branch CODEOWNERS was not found.", changed[:30], score=14)]
     uncovered = [path for path in changed if not codeowners_covers(path, codeowners)]
     if uncovered:
         return [failed("Protected Resources", None, "Protected resources changed without base-branch CODEOWNERS coverage.", uncovered[:30], score=14)]
     return [warning("Protected Resources", None, "Protected resources changed; Branch Protection must enforce CODEOWNERS review.", changed[:30])]
+
+
+def is_codeowners_bootstrap_pr(ctx: PRContext) -> bool:
+    allowed = {"CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS", ".github/workflows/pr-qa.yml"}
+    changed = set(ctx.changed_files)
+    return bool(changed) and changed <= allowed and any(path in changed for path in {"CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"})
 
 
 def load_base_codeowners(repo: Path, git_context: dict[str, Any]) -> list[str]:
