@@ -1,0 +1,13 @@
+{
+  "name": "Synergie PR Quality Gate",
+  "description": "Run the central Synergie PR QA framework on pull requests.",
+  "iconName": "check-circle",
+  "categories": [
+    "PHP",
+    "JavaScript",
+    "Python",
+    "Laravel",
+    "Node"
+  ]
+}
+

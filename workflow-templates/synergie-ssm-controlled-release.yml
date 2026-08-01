@@ -1,0 +1,105 @@
+name: Synergie SSM Controlled Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target GitHub environment.
+        required: true
+        default: production
+        type: choice
+        options:
+          - production
+          - staging
+          - uat
+      instance_id:
+        description: Target EC2 instance ID.
+        required: true
+        type: string
+      deploy_ref:
+        description: Git ref, tag, or commit to deploy.
+        required: true
+        type: string
+      rollback_ref:
+        description: Known-good rollback ref, tag, or commit.
+        required: true
+        type: string
+      change_ticket:
+        description: Change ticket or approved change reference.
+        required: true
+        type: string
+      validation_url:
+        description: HTTPS URL to validate after deployment.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: synergie-release-${{ inputs.environment }}-${{ inputs.instance_id }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Controlled release through SSM
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout deploy ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.deploy_ref }}
+          persist-credentials: false
+
+      - name: Validate release inputs
+        run: |
+          test -n "${{ inputs.deploy_ref }}"
+          test -n "${{ inputs.rollback_ref }}"
+          test -n "${{ inputs.change_ticket }}"
+          test -n "${{ inputs.validation_url }}"
+          case "${{ inputs.validation_url }}" in
+            https://*) ;;
+            *) echo "validation_url must use HTTPS"; exit 1 ;;
+          esac
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.SYNERGIE_DEPLOY_ROLE_ARN }}
+          aws-region: ap-south-1
+
+      - name: Execute repository deployment script through SSM
+        run: |
+          if [ ! -x .github/scripts/deploy-via-ssm.sh ]; then
+            echo "Missing executable .github/scripts/deploy-via-ssm.sh"
+            exit 1
+          fi
+          .github/scripts/deploy-via-ssm.sh \
+            "${{ inputs.instance_id }}" \
+            "${{ inputs.deploy_ref }}" \
+            "${{ inputs.rollback_ref }}" \
+            "${{ inputs.change_ticket }}"
+
+      - name: Validate public endpoint
+        run: |
+          curl --fail --silent --show-error --location --max-time 30 \
+            "${{ inputs.validation_url }}" >/dev/null
+
+      - name: Publish release summary
+        if: always()
+        run: |
+          {
+            echo "## Synergie Controlled Release"
+            echo ""
+            echo "- Environment: ${{ inputs.environment }}"
+            echo "- Instance: ${{ inputs.instance_id }}"
+            echo "- Deploy ref: ${{ inputs.deploy_ref }}"
+            echo "- Rollback ref: ${{ inputs.rollback_ref }}"
+            echo "- Change: ${{ inputs.change_ticket }}"
+            echo "- Validation URL: ${{ inputs.validation_url }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
