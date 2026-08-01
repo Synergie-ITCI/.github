@@ -650,7 +650,9 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
         results.append(passed("Repository Hygiene", None, "No merge conflict markers found in changed files."))
 
     if git_context.get("is_git_repo") and git_context.get("base_sha"):
-        merge_commits = git_lines(ctx.repo, ["rev-list", "--merges", f"{git_context['base_sha']}..HEAD"])
+        merge_base = git_lines(ctx.repo, ["merge-base", git_context["base_sha"], "HEAD"])
+        merge_base_sha = merge_base[0] if merge_base else git_context["base_sha"]
+        merge_commits = git_lines(ctx.repo, ["rev-list", "--merges", f"{merge_base_sha}..HEAD"])
         if merge_commits and not ctx.config.get("repository", {}).get("allow_merge_commits", False):
             results.append(failed("Repository Hygiene", None, "Accidental merge commits detected.", merge_commits[:20], score=8))
         else:
@@ -1082,7 +1084,7 @@ def summarize(results: list[CheckResult], technologies: dict[str, dict[str, Any]
     overall = FAIL if any(result.is_blocking_failure() for result in results) else PASS
     risk_result = next((result for result in results if result.gate == "Risk Engine"), None)
     return {
-        "repository": os.environ.get("GITHUB_REPOSITORY", ctx.repo.name),
+        "repository": resolve_repository_name(ctx),
         "base_ref": git_context.get("base_ref") or "",
         "head_ref": git_context.get("head_ref") or "",
         "detected_technologies": sorted(value["name"] for value in technologies.values()),
@@ -1095,6 +1097,23 @@ def summarize(results: list[CheckResult], technologies: dict[str, dict[str, Any]
         "risk_score": extract_risk_score(risk_result.message if risk_result else ""),
         "policy_id": ctx.policy.get("policy_id", "unknown"),
     }
+
+
+def resolve_repository_name(ctx: PRContext) -> str:
+    github_repository = os.environ.get("GITHUB_REPOSITORY")
+    if github_repository and is_github_workspace_repo(ctx):
+        return github_repository
+    return ctx.repo.name
+
+
+def is_github_workspace_repo(ctx: PRContext) -> bool:
+    github_workspace = os.environ.get("GITHUB_WORKSPACE")
+    if not github_workspace:
+        return False
+    try:
+        return Path(github_workspace).resolve() == ctx.repo.resolve()
+    except OSError:
+        return False
 
 
 def aggregate_status(results: list[CheckResult]) -> str:
@@ -1140,7 +1159,7 @@ def write_emergency_override_audit(
 
     policy_override = ctx.policy.get("emergency_override", {}) or {}
     authorized_actors = set(policy_override.get("authorized_actors", []))
-    actor = resolve_override_actor(ctx.event)
+    actor = resolve_override_actor(ctx, ctx.event)
     pr_author = extract_pr_author(ctx.event)
     actor_authorized = actor in authorized_actors
     administrator_bypass_required = actor_authorized and actor == pr_author
@@ -1196,9 +1215,11 @@ def extract_pr_author(event: dict[str, Any]) -> str:
     return (pull_request.get("user", {}) or {}).get("login", "")
 
 
-def resolve_override_actor(event: dict[str, Any]) -> str:
+def resolve_override_actor(ctx: PRContext, event: dict[str, Any]) -> str:
     sender = (event.get("sender", {}) or {}).get("login", "")
-    return os.environ.get("GITHUB_TRIGGERING_ACTOR") or os.environ.get("GITHUB_ACTOR") or sender
+    if not is_github_workspace_repo(ctx):
+        return os.environ.get("GITHUB_ACTOR") or sender
+    return os.environ.get("GITHUB_ACTOR") or os.environ.get("GITHUB_TRIGGERING_ACTOR") or sender
 
 
 def emergency_override_decision(actor_authorized: bool, administrator_bypass_required: bool) -> str:
