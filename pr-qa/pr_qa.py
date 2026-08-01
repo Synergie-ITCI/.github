@@ -1101,14 +1101,19 @@ def summarize(results: list[CheckResult], technologies: dict[str, dict[str, Any]
 
 def resolve_repository_name(ctx: PRContext) -> str:
     github_repository = os.environ.get("GITHUB_REPOSITORY")
-    github_workspace = os.environ.get("GITHUB_WORKSPACE")
-    if github_repository and github_workspace:
-        try:
-            if Path(github_workspace).resolve() == ctx.repo.resolve():
-                return github_repository
-        except OSError:
-            pass
+    if github_repository and is_github_workspace_repo(ctx):
+        return github_repository
     return ctx.repo.name
+
+
+def is_github_workspace_repo(ctx: PRContext) -> bool:
+    github_workspace = os.environ.get("GITHUB_WORKSPACE")
+    if not github_workspace:
+        return False
+    try:
+        return Path(github_workspace).resolve() == ctx.repo.resolve()
+    except OSError:
+        return False
 
 
 def aggregate_status(results: list[CheckResult]) -> str:
@@ -1154,7 +1159,7 @@ def write_emergency_override_audit(
 
     policy_override = ctx.policy.get("emergency_override", {}) or {}
     authorized_actors = set(policy_override.get("authorized_actors", []))
-    actor = resolve_override_actor(ctx.event)
+    actor = resolve_override_actor(ctx, ctx.event)
     pr_author = extract_pr_author(ctx.event)
     actor_authorized = actor in authorized_actors
     administrator_bypass_required = actor_authorized and actor == pr_author
@@ -1210,8 +1215,10 @@ def extract_pr_author(event: dict[str, Any]) -> str:
     return (pull_request.get("user", {}) or {}).get("login", "")
 
 
-def resolve_override_actor(event: dict[str, Any]) -> str:
+def resolve_override_actor(ctx: PRContext, event: dict[str, Any]) -> str:
     sender = (event.get("sender", {}) or {}).get("login", "")
+    if not is_github_workspace_repo(ctx):
+        return os.environ.get("GITHUB_ACTOR") or sender
     return os.environ.get("GITHUB_TRIGGERING_ACTOR") or os.environ.get("GITHUB_ACTOR") or sender
 
 
