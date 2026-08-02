@@ -1,4 +1,4 @@
-# Governance Validation
+# Governance Validation Report
 
 ## Purpose
 
@@ -6,18 +6,35 @@ This document validates the final Synergie Pull Request Governance Policy for pr
 
 The validation is operational. It does not require framework redesign, workflow changes, application code changes, or automatic GitHub setting updates.
 
+The final policy is [Final Organisation Governance Policy](final-organisation-governance-policy.md). Manual GitHub enforcement settings are listed in [GitHub Configuration Checklist](github-configuration-checklist.md).
+
 ## Required Baseline
 
 | Control | Expected State |
 | --- | --- |
-| Enterprise PR QA | required on every pull request |
+| Enterprise PR QA | required on every protected-branch pull request |
 | Executive Release Authority | `SaurabhVermaIN` |
 | Required approving reviews | 1 |
-| Required reviewer | `SaurabhVermaIN` or Executive Release Authority role |
+| Required reviewer | `SaurabhVermaIN` or Executive Release Authority team containing only `SaurabhVermaIN` |
 | Developer self-approval | rejected |
 | Require Last Push Approval | enabled |
 | Administrator bypass | Executive Release Authority only, reason required |
 | QA evidence | retained for every scenario |
+| Mandatory gates | build, tests, secrets, dependency security, deployment risk, migration risk, documentation validation, protected resource validation, repository integrity |
+
+## Mandatory Gate Mapping
+
+| Governance control | Framework gate |
+| --- | --- |
+| Build | `build` |
+| Tests | `tests` |
+| Secret scanning | `secrets` |
+| Dependency security | `dependencies` |
+| Deployment risk | `deployment_safety` |
+| Migration risk | `database_safety` |
+| Documentation validation | `documentation` |
+| Protected resource validation | `protected_resources` |
+| Repository integrity | `repository_integrity` |
 
 ## Scenario A: Developer PR
 
@@ -109,6 +126,28 @@ Required evidence:
 - emergency override audit artifact, if used
 - post-event review owner
 
+## Scenario E: Rollout PR
+
+Flow:
+
+1. A rollout branch adds only `.github/workflows/pr-qa.yml` and `.github/pr-qa.yml` when required.
+2. The caller workflow references only `Synergie-ITCI/.github/.github/workflows/pr-qa.yml@pr-qa-v1-rc2`.
+3. Enterprise PR QA executes.
+4. Findings are reported without alteration.
+5. `SaurabhVermaIN` reviews and approves before any merge.
+6. Repository owners merge manually only when GitHub protected-branch rules are satisfied.
+
+Expected result: PASS WITH EXECUTIVE APPROVAL REQUIRED.
+
+Required evidence:
+
+- rollout PR URL
+- changed-file list showing only approved rollout files
+- caller workflow pinned to `pr-qa-v1-rc2`
+- QA run URL
+- `SaurabhVermaIN` approval event
+- no automatic merge event
+
 ## Validation Result Template
 
 | Scenario | Result | Evidence Location | Notes |
@@ -117,14 +156,16 @@ Required evidence:
 | B |  |  |  |
 | C |  |  |  |
 | D |  |  |  |
+| E |  |  |  |
 
 ## Acceptance Criteria
 
 Governance validation passes only when:
 
-- every pull request executes Enterprise PR QA
+- every protected-branch pull request executes Enterprise PR QA
 - QA findings remain unchanged by approval or bypass decisions
 - only the Executive Release Authority satisfies protected-branch approval
 - developer self-approval cannot merge protected branches
 - Executive-authored PRs require explicit administrator bypass when GitHub blocks self-approval
 - every bypass has a specific reason and immutable audit evidence
+- rollout PRs contain only approved onboarding files and are never merged automatically

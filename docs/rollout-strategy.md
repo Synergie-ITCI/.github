@@ -41,7 +41,7 @@ Recommended pilot set from the available governance inventory:
 Phase 1 rules:
 
 - create one onboarding PR per repository
-- add only the caller workflow, `.github/pr-qa.yml`, and PR template
+- add only the caller workflow and `.github/pr-qa.yml` when repository configuration is required
 - do not change application code
 - do not change deployment workflows
 - do not change CODEOWNERS

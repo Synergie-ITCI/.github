@@ -59,12 +59,11 @@ git switch -c "$ROLLOUT_BRANCH" "origin/<default-branch>"
 mkdir -p .github/workflows
 cp /absolute/path/to/synergie-pr-qa-framework/examples/caller-workflow.yml .github/workflows/pr-qa.yml
 cp /absolute/path/to/synergie-pr-qa-framework/examples/pr-qa.yml .github/pr-qa.yml
-cp /absolute/path/to/synergie-pr-qa-framework/examples/pull_request_template.md .github/pull_request_template.md
 rg -n "pr-qa-v1-rc2" .github/workflows/pr-qa.yml .github/pr-qa.yml
 actionlint .github/workflows/pr-qa.yml
 check-jsonschema --schemafile /absolute/path/to/synergie-pr-qa-framework/schemas/pr-qa.schema.json .github/pr-qa.yml
 git diff --check
-git add .github/workflows/pr-qa.yml .github/pr-qa.yml .github/pull_request_template.md
+git add .github/workflows/pr-qa.yml .github/pr-qa.yml
 git commit -m "ci: add Synergie PR QA framework expanded pilot"
 git push -u origin "$ROLLOUT_BRANCH"
 gh pr create \

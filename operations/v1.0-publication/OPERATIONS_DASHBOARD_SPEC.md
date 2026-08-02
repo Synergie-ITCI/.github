@@ -16,6 +16,7 @@ Objective: define the dashboard needed to monitor publication, pilot, expanded p
 | GitHub rulesets | required reviewer, last-push approval, bypass actor configuration |
 | Emergency override audit artifacts | administrator bypass reason, actor, QA summary at bypass time |
 | Repository profile register | approved repository profile and any profile-change approval |
+| GitHub configuration checklist | manual confirmation that protected branches require Enterprise PR QA and `SaurabhVermaIN` approval |
 | Developer feedback form | usability, clarity, false positives |
 | Reviewer feedback form | report usefulness, review time, confidence |
 
@@ -62,6 +63,7 @@ Objective: define the dashboard needed to monitor publication, pilot, expanded p
 | Deployment-change PRs | PRs touching deploy workflows or manifests |
 | Migration PRs | PRs touching database migration paths |
 | Documentation-only PRs | PRs classified low risk |
+| Mandatory gate execution | build, tests, secrets, dependency security, deployment risk, migration risk, documentation validation, protected resource validation, and repository integrity ran or failed closed |
 
 ### 5. Quality Signal
 
@@ -124,6 +126,8 @@ A spreadsheet or GitHub Project is sufficient for pilot and expanded pilot. Requ
 | runner failures |
 | owner approval |
 | executive release authority approval |
+| required status-check context |
+| mandatory gates executed |
 | author equals approver |
 | last push approval blocked |
 | administrator bypass used |
@@ -131,12 +135,14 @@ A spreadsheet or GitHub Project is sufficient for pilot and expanded pilot. Requ
 | emergency override audit artifact |
 | rollback status |
 | go/no-go |
+| GitHub configuration verified |
 
 ## Alerts
 
 Create manual or automated alerts for:
 
 - workflow resolution failure
+- protected-branch PR without Enterprise PR QA execution evidence
 - synthetic secret not blocked
 - unredacted secret in logs or artifacts
 - p95 runtime greater than agreed pilot threshold

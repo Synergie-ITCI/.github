@@ -56,8 +56,8 @@ The framework does not bypass GitHub Branch Protection automatically.
 
 Configure GitHub Branch Protection or repository rulesets outside PR QA so that:
 
-- Enterprise PR QA is required on every pull request.
-- one approval from `SaurabhVermaIN`, or the Executive Release Authority role containing only the current holder, is required.
+- Enterprise PR QA is required on every protected-branch pull request.
+- one approval from `SaurabhVermaIN`, or the Executive Release Authority role containing only `SaurabhVermaIN`, is required.
 - developers cannot approve their own pull requests.
 - approvals from reviewers other than the Executive Release Authority do not satisfy protected-branch approval.
 - `require_last_push_approval` remains enabled.

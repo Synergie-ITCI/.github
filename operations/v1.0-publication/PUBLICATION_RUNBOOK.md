@@ -18,6 +18,7 @@ Objective: publish the approved framework package into the central GitHub reposi
 | Executive Release Authority | `SaurabhVermaIN` configured as required reviewer or sole role holder |
 | Required QA | Enterprise PR QA required before merge |
 | Last push approval | enabled |
+| Governance model | final organisation governance package reviewed |
 
 ## Operator Variables
 
@@ -190,6 +191,8 @@ Do not merge until all approvals and PR checks pass.
 Publication governance requirements:
 
 - PR QA must complete before any merge decision.
+- QA findings must remain unchanged and visible.
+- Build, tests, secret scanning, dependency security, deployment risk, migration risk, documentation validation, protected resource validation, and repository integrity may never be skipped.
 - `SaurabhVermaIN` is the only reviewer who may satisfy the protected-branch approval requirement.
 - No author or last pusher may satisfy their own approval.
 - `require_last_push_approval` must remain enabled.

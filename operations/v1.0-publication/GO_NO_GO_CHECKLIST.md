@@ -92,6 +92,11 @@ Evidence location:
 | Expanded pilot passed | expanded pilot evidence |  |
 | Dashboard live | dashboard URL or file |  |
 | Rollback runbook reviewed | approval record |  |
+| Final governance package reviewed | policy and checklist sign-off |  |
+| GitHub configuration checklist ready | manual settings evidence template |  |
+| Executive Release Authority configured | `SaurabhVermaIN` required reviewer evidence |  |
+| Developer self-approval blocked | ruleset or Branch Protection evidence |  |
+| Mandatory PR QA status check identified | exact GitHub check context |  |
 | Wave 1 owners notified | communication record |  |
 | Wave 1 PRs ready to open | repository list |  |
 | No open blockers | risk register |  |

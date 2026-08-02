@@ -20,7 +20,7 @@ The only reusable workflow reference used by this plan is:
 Synergie-ITCI/.github/.github/workflows/pr-qa.yml@pr-qa-v1-rc2
 ```
 
-Do not introduce alias references such as `pr-qa-v1`, `pr-qa-v1.0`, or `latest` during this rollout. The approved RC2 package is the publication candidate for v1.0 and its validated identity is `pr-qa-v1-rc2`.
+Do not introduce alias references such as `pr-qa-v1`, `pr-qa-v1.0`, or `latest` during this rollout. The approved RC2 package is the published production standard for v1.0 and its validated identity is `pr-qa-v1-rc2`.
 
 ## Runbooks
 
@@ -30,10 +30,14 @@ Do not introduce alias references such as `pr-qa-v1`, `pr-qa-v1.0`, or `latest` 
 - [Organisation Rollout Runbook](ORGANISATION_ROLLOUT_RUNBOOK.md)
 - [Rollback Runbook](ROLLBACK_RUNBOOK.md)
 - [Operations Dashboard Specification](OPERATIONS_DASHBOARD_SPEC.md)
+- [Organisation Rollout Readiness Report](ORGANISATION_ROLLOUT_READINESS_REPORT.md)
 - [Success Criteria](SUCCESS_CRITERIA.md)
 - [Go / No-Go Checklist](GO_NO_GO_CHECKLIST.md)
+- [Final Organisation Governance Policy](../../docs/final-organisation-governance-policy.md)
+- [Executive Approval Policy](../../docs/executive-approval-policy.md)
 - [Executive Release Policy](../../docs/executive-release-policy.md)
-- [Governance Validation](../../docs/governance-validation.md)
+- [GitHub Configuration Checklist](../../docs/github-configuration-checklist.md)
+- [Governance Validation Report](../../docs/governance-validation.md)
 - [Repository Profiles](../../docs/repository-profiles.md)
 
 ## Operational Evidence Available
@@ -42,9 +46,9 @@ Do not introduce alias references such as `pr-qa-v1`, `pr-qa-v1.0`, or `latest` 
 | --- | --- | --- |
 | RC2 validation report | PASS | `releases/rc2/VALIDATION_REPORT.md` |
 | RC2 package audit | PASS | `releases/rc2/PACKAGE_AUDIT.md` |
-| RC2 release checklist | PASS for local package, pending real GitHub publication | `releases/rc2/RELEASE_CHECKLIST.md` |
-| RC2 publication checklist | Prepared, not executed | `releases/rc2/PUBLICATION_CHECKLIST.md` |
-| Publication readiness report | Ready for real-GitHub verification | `releases/rc2/PUBLICATION_READINESS_REPORT.md` |
+| RC2 release checklist | PASS; publication complete | `releases/rc2/RELEASE_CHECKLIST.md` |
+| RC2 publication checklist | PASS; GitHub publication executed | `releases/rc2/PUBLICATION_CHECKLIST.md` |
+| Publication readiness report | PASS; release published and tag governance complete | `releases/rc2/PUBLICATION_READINESS_REPORT.md` |
 
 ## Rollout Guardrails
 
@@ -53,9 +57,10 @@ Do not introduce alias references such as `pr-qa-v1`, `pr-qa-v1.0`, or `latest` 
 - Select exactly one pilot repository for the first pilot.
 - Open rollout PRs only. Do not merge them automatically.
 - Use scenario PRs that target the pilot rollout branch, not the protected default branch.
-- Require Enterprise PR QA on every pull request.
-- Require Executive Release Authority approval from `SaurabhVermaIN`, or the active Executive Release Authority role.
+- Require Enterprise PR QA on every protected-branch pull request.
+- Require Executive Release Authority approval from `SaurabhVermaIN`, or the active Executive Release Authority role containing only `SaurabhVermaIN`.
 - Keep developer self-approval blocked and `require_last_push_approval` enabled.
+- Keep GitHub Branch Protection and repository rulesets as the merge authority.
 - Use `application` as the default repository profile for production rollout repositories.
 - Use `framework` only for approved internal framework self-validation.
 - Use GitHub Administrator Bypass only for Executive-authored or last-pushed PRs after QA completes, with a mandatory reason and retained audit evidence.
@@ -63,4 +68,4 @@ Do not introduce alias references such as `pr-qa-v1`, `pr-qa-v1.0`, or `latest` 
 
 ## Final Operational Verdict
 
-READY TO PUBLISH
+GOVERNANCE PACKAGE READY; ORGANISATION ROLLOUT PAUSED UNTIL MANUAL GITHUB GOVERNANCE VERIFICATION
