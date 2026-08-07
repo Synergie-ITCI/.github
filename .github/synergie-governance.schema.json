@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Synergie-ITCI/.github/synergie-governance.schema.json",
+  "title": "Synergie Repository Governance",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "application",
+    "stack",
+    "branches",
+    "quality_checks",
+    "deployment"
+  ],
+  "properties": {
+    "application": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Business/application name."
+    },
+    "owner": {
+      "type": "string",
+      "description": "Owning team or role. Do not store personal credentials."
+    },
+    "stack": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "auto",
+            "php",
+            "laravel",
+            "codeigniter",
+            "wordpress",
+            "node",
+            "react",
+            "react-native",
+            "android-gradle",
+            "ios",
+            "python-fastapi"
+          ]
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      ],
+      "description": "Repository technology profile. Prefer auto unless a repo needs overrides."
+    },
+    "branches": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "feature_pattern",
+        "development",
+        "staging",
+        "production"
+      ],
+      "properties": {
+        "feature_pattern": {
+          "type": "string",
+          "default": "feature/*"
+        },
+        "development": {
+          "type": "string",
+          "default": "development"
+        },
+        "staging": {
+          "type": "string",
+          "default": "staging"
+        },
+        "production": {
+          "type": "string",
+          "default": "main"
+        },
+        "legacy_production": {
+          "type": "string",
+          "description": "Legacy production branch such as master, only when already used by the repo."
+        }
+      }
+    },
+    "promotion": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "staging_sources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "development"
+          ]
+        },
+        "production_sources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "staging"
+          ]
+        },
+        "emergency_sources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Existing emergency/hotfix sources to preserve. Do not invent unless approved."
+        }
+      }
+    },
+    "quality_checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pr_qa",
+        "secret_scan",
+        "security_scan"
+      ],
+      "properties": {
+        "pr_qa": {
+          "type": "boolean",
+          "default": true
+        },
+        "secret_scan": {
+          "type": "boolean",
+          "default": true
+        },
+        "security_scan": {
+          "type": "boolean",
+          "default": true
+        },
+        "tests": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "required",
+            "informational",
+            "not_available"
+          ],
+          "default": "auto"
+        },
+        "migration_safety": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "required",
+            "not_applicable"
+          ],
+          "default": "auto"
+        }
+      }
+    },
+    "deployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "staging_environment",
+        "production_environment"
+      ],
+      "properties": {
+        "staging_environment": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Existing staging/UAT GitHub environment, or null when not configured."
+        },
+        "production_environment": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Existing production GitHub environment, or null when not configured."
+        },
+        "deployment_mechanism": {
+          "type": "string",
+          "description": "Existing deployment mechanism. Examples: github-actions-ssm, manual, none."
+        },
+        "rollback_required": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "notes": {
+      "type": "string"
+    }
+  }
+}

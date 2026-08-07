@@ -1,0 +1,136 @@
+name: Synergie Quality Gate
+
+on:
+  workflow_call:
+    inputs:
+      governance-config-path:
+        description: Repository governance configuration path.
+        required: false
+        type: string
+        default: .github/synergie-governance.yml
+      require-governance-config:
+        description: Fail if the repository governance config is missing.
+        required: false
+        type: boolean
+        default: false
+      development-branch:
+        description: Shared integration branch.
+        required: false
+        type: string
+        default: development
+      staging-branch:
+        description: Staging quality gate branch.
+        required: false
+        type: string
+        default: staging
+      allowed-staging-sources:
+        description: Comma-separated branch patterns allowed to target staging.
+        required: false
+        type: string
+        default: development
+      enforce-promotion-path:
+        description: Enforce feature/development/staging/main promotion rules for PRs.
+        required: false
+        type: boolean
+        default: true
+      run-pr-qa:
+        description: Run the central Synergie PR QA workflow after governance preflight.
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  governance-preflight:
+    name: Governance Preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout caller repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Validate staging promotion path
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+          GOVERNANCE_CONFIG_PATH: ${{ inputs.governance-config-path }}
+          REQUIRE_GOVERNANCE_CONFIG: ${{ inputs.require-governance-config }}
+          DEVELOPMENT_BRANCH: ${{ inputs.development-branch }}
+          STAGING_BRANCH: ${{ inputs.staging-branch }}
+          ALLOWED_STAGING_SOURCES: ${{ inputs.allowed-staging-sources }}
+          ENFORCE_PROMOTION_PATH: ${{ inputs.enforce-promotion-path }}
+        run: |
+          python3 - <<'PY'
+          from fnmatch import fnmatchcase
+          from pathlib import Path
+          import os
+          import sys
+
+          event_name = os.environ.get("EVENT_NAME", "")
+          base_ref = os.environ.get("BASE_REF", "")
+          head_ref = os.environ.get("HEAD_REF", "")
+          config_path = Path(os.environ["GOVERNANCE_CONFIG_PATH"])
+          require_config = os.environ["REQUIRE_GOVERNANCE_CONFIG"].lower() == "true"
+          enforce_path = os.environ["ENFORCE_PROMOTION_PATH"].lower() == "true"
+          staging_branch = os.environ["STAGING_BRANCH"]
+          allowed_sources = [
+              item.strip()
+              for item in os.environ["ALLOWED_STAGING_SOURCES"].split(",")
+              if item.strip()
+          ]
+
+          if require_config and not config_path.exists():
+              print(f"Missing required governance config: {config_path}", file=sys.stderr)
+              sys.exit(1)
+
+          if config_path.exists():
+              text = config_path.read_text(encoding="utf-8", errors="replace")
+              lowered = text.lower()
+              forbidden = [
+                  "password:",
+                  "secret:",
+                  "access_key",
+                  "private_key",
+                  "token:",
+                  "credential",
+              ]
+              matched = [item for item in forbidden if item in lowered]
+              if matched:
+                  print(
+                      f"Governance config must not contain credentials or secrets. Matched: {', '.join(matched)}",
+                      file=sys.stderr,
+                  )
+                  sys.exit(1)
+              print(f"Governance config present: {config_path}")
+          else:
+              print(f"Governance config not present: {config_path} (allowed by workflow input)")
+
+          if event_name != "pull_request" or not enforce_path:
+              print("Promotion path enforcement skipped for this event/input.")
+              sys.exit(0)
+
+          if base_ref == staging_branch:
+              if not any(fnmatchcase(head_ref, pattern) for pattern in allowed_sources):
+                  print(
+                      "Invalid staging promotion source. "
+                      f"base={base_ref!r}, head={head_ref!r}, allowed={allowed_sources!r}",
+                      file=sys.stderr,
+                  )
+                  sys.exit(1)
+              print(f"Staging promotion source accepted: {head_ref} -> {base_ref}")
+          else:
+              print(f"No staging promotion rule applies to base branch: {base_ref}")
+          PY
+
+  pr-qa:
+    name: Synergie PR QA
+    needs: governance-preflight
+    if: ${{ inputs.run-pr-qa }}
+    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@main

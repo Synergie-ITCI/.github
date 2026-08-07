@@ -7,9 +7,13 @@ It validates and reports. It does not approve, merge, deploy, bypass repository 
 ## Architecture
 
 - Central reusable workflow: `.github/workflows/pr-qa.yml` in `Synergie-ITCI/.github`
+- Company staging gate workflow: `.github/workflows/synergie-quality-gate.yml`
+- Company production gate workflow: `.github/workflows/synergie-production-gate.yml`
 - Central QA engine: `pr-qa/pr_qa.py`
 - Technology adapters: `pr-qa/adapters/`
 - Per-repository caller workflow: `.github/workflows/pr-qa.yml`
+- Per-repository branch governance workflow: `.github/workflows/synergie-branch-governance.yml`
+- Per-repository governance config: `.github/synergie-governance.yml`
 - Per-repository configuration: `.github/pr-qa.yml`
 - Standard PR template: `.github/pull_request_template.md`
 
@@ -56,6 +60,7 @@ Adapters must:
 
 ## Documents
 
+- [Company Branch And Release Governance](docs/company-branch-release-governance.md)
 - [Release Candidate 2](releases/rc2/README.md)
 - [v1.0 Production Introduction Runbooks](operations/v1.0-publication/README.md)
 - [Administrator Guide](docs/administrator-guide.md)

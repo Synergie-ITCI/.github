@@ -1,0 +1,47 @@
+name: Synergie Branch Governance
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+      - edited
+    branches:
+      - staging
+      - main
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: synergie-branch-governance-${{ github.repository }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  staging-quality-gate:
+    name: Staging Quality Gate
+    if: ${{ github.event.pull_request.draft == false && github.base_ref == 'staging' }}
+    uses: Synergie-ITCI/.github/.github/workflows/synergie-quality-gate.yml@main
+    with:
+      require-governance-config: false
+      development-branch: development
+      staging-branch: staging
+      allowed-staging-sources: development
+      enforce-promotion-path: true
+      run-pr-qa: true
+
+  production-release-gate:
+    name: Production Release Gate
+    if: ${{ github.event.pull_request.draft == false && github.base_ref == 'main' }}
+    uses: Synergie-ITCI/.github/.github/workflows/synergie-production-gate.yml@main
+    with:
+      require-governance-config: false
+      staging-branch: staging
+      production-branch: main
+      allowed-production-sources: staging
+      enforce-promotion-path: true
+      require-rollback-evidence: false
+      run-pr-qa: true

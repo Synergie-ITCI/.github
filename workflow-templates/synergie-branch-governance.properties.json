@@ -1,0 +1,14 @@
+{
+  "name": "Synergie Branch Governance",
+  "description": "Company staging and production branch governance gates for feature/development/staging/main flow.",
+  "iconName": "octicon git-pull-request",
+  "categories": [
+    "Automation",
+    "Security",
+    "PHP",
+    "JavaScript",
+    "Python",
+    "Java",
+    "Swift"
+  ]
+}
