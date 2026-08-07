@@ -28,6 +28,19 @@ deployment:
   deployment_mechanism: existing-repository-process
   rollback_required: true
 
+phpmyadmin:
+  local_allowed: true
+  development_allowed: true
+  staging:
+    allowed: true
+    require_authentication: true
+    require_database_isolation: true
+    require_environment_secrets: true
+    prefer_network_restriction: true
+  production:
+    allowed: false
+    block_runtime_exposure: true
+
 notes: >
   This file documents repository governance only. Do not store credentials,
   deployment secrets, database values, access tokens, or personal data here.

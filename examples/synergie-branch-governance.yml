@@ -9,7 +9,6 @@ on:
       - ready_for_review
       - edited
     branches:
-      - staging
       - main
 
 permissions:
@@ -21,18 +20,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  staging-quality-gate:
-    name: Staging Quality Gate
-    if: ${{ github.event.pull_request.draft == false && github.base_ref == 'staging' }}
-    uses: Synergie-ITCI/.github/.github/workflows/synergie-quality-gate.yml@main
-    with:
-      require-governance-config: false
-      development-branch: development
-      staging-branch: staging
-      allowed-staging-sources: development
-      enforce-promotion-path: true
-      run-pr-qa: true
-
   production-release-gate:
     name: Production Release Gate
     if: ${{ github.event.pull_request.draft == false && github.base_ref == 'main' }}
@@ -44,4 +31,5 @@ jobs:
       allowed-production-sources: staging
       enforce-promotion-path: true
       require-rollback-evidence: false
+      enforce-phpmyadmin-production-policy: true
       run-pr-qa: true

@@ -18,8 +18,8 @@ The standard is additive and non-destructive. Existing repository security contr
 | --- | --- | --- |
 | `feature/*` | Developer implementation and work in progress | No company-wide required PR gate, reviewer, status check, merge queue, or deployment approval. Existing repo-specific protections remain. |
 | `development` | Shared integration branch | No new company-wide blocking QA gate. CI may run as informational. Existing required checks/reviews remain. |
-| `staging` | Company quality gate | PR required. Full QA/security/build/test gate should be required before staging deployment. Normal source is `development`. |
-| `main` | Production release gate | PR required. Production/release validation, reviewer approval, and production safety checks should be required. Normal source is `staging`. |
+| `staging` | Staging/UAT landing branch | No company-wide mandatory QA gate before code reaches staging. Staging phpMyAdmin is allowed only with security controls and database isolation. |
+| `main` | Company QA and production release gate | PR required. Production/release validation, reviewer approval, PR QA, and production safety checks are required. Normal source is `staging`. |
 
 ## Promotion Rules
 
@@ -53,8 +53,8 @@ The company reusable workflows are:
 
 | Workflow | Purpose |
 | --- | --- |
-| `.github/workflows/synergie-quality-gate.yml` | Staging boundary governance and central PR QA. |
-| `.github/workflows/synergie-production-gate.yml` | Main/production boundary governance and central PR QA. |
+| `.github/workflows/synergie-quality-gate.yml` | Optional staging-boundary governance for repositories that explicitly retain stronger pre-staging controls. It is not part of the company mandatory baseline. |
+| `.github/workflows/synergie-production-gate.yml` | Main/production boundary governance, central PR QA, and phpMyAdmin production policy enforcement. |
 
 Repository adapters should call these workflows from a repository-local workflow, usually copied from:
 
@@ -132,19 +132,17 @@ Use GitHub rulesets where they add clean governance without overlapping or weake
 
 For `staging`:
 
-- Require pull request.
-- Require successful Synergie staging quality gate.
-- Require successful existing repository QA/build/security checks where already applicable.
-- Require at least one reviewer.
-- Require conversation resolution.
-- Preserve CODEOWNERS where already configured or required.
-- Prevent branch deletion and non-fast-forward updates.
+- Do not add a new company-wide mandatory QA gate before code reaches staging.
+- Preserve any existing repository-specific protections unless separately approved for removal.
+- Staging/UAT phpMyAdmin is allowed only when authentication, database isolation, and secret handling controls are documented and validated by the owning team.
+- Staging/UAT phpMyAdmin must not point to production database hosts, names, or credentials.
 
 For `main`:
 
 - Require pull request.
 - Require successful Synergie production gate.
 - Require successful staging/release QA evidence.
+- Require `phpmyadmin-production-check`; production must not introduce or expose phpMyAdmin.
 - Require at least one reviewer.
 - Require conversation resolution.
 - Preserve CODEOWNERS where already configured or required.
@@ -159,7 +157,7 @@ For `development` and `feature/*`:
 
 ## Staging And Production Deployment
 
-Staging deployment may be triggered after the staging gate passes, but only if the repository already has a staging or UAT target. If no staging target exists, report:
+Staging deployment may be triggered after code reaches `staging`, but only if the repository already has a staging or UAT target. The company baseline does not add a mandatory QA gate before `staging`. If no staging target exists, report:
 
 ```text
 STAGING ENVIRONMENT NOT CONFIGURED
@@ -168,6 +166,21 @@ STAGING ENVIRONMENT NOT CONFIGURED
 Do not point staging deployment at production.
 
 Production deployment must originate only from an approved production source already defined by the repository. Preserve existing GitHub environments, manual approvals, deployment secrets, AWS deployment mechanisms, and rollback controls.
+
+## phpMyAdmin Environment Policy
+
+phpMyAdmin is a runtime/infrastructure service, not merely a Git artifact. The company policy is:
+
+| Environment | Policy |
+| --- | --- |
+| Local/feature | Allowed. |
+| Development | Allowed. |
+| Staging/UAT | Allowed with authentication, HTTPS, staging/UAT database isolation, no hardcoded credentials, and restricted access where practical. |
+| Production/main | Prohibited. The production gate fails if a staging-to-main PR introduces runtime/deployment configuration that exposes phpMyAdmin. |
+
+The reusable production gate runs `phpmyadmin-production-check` through `tools/phpmyadmin_policy.py`. It ignores documentation-only mentions and staging-only phpMyAdmin configuration, but blocks production runtime exposure through Docker, Docker Compose, Apache, Nginx, Caddy, Kubernetes, Terraform, CloudFormation, deployment scripts, package manifests, or production routes such as `/phpmyadmin`, `/phpMyAdmin`, and `/pma`.
+
+If existing production runtime already exposes phpMyAdmin outside the current PR diff, the scanner reports `PRE-EXISTING PRODUCTION PHPMYADMIN VIOLATION` without automatically uninstalling or disabling it. New production exposure fails with `PRODUCTION PHPMYADMIN POLICY VIOLATION`.
 
 ## Existing Synergie-ITCI/.github Protection
 

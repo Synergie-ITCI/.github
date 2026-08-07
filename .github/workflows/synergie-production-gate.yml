@@ -48,6 +48,11 @@ on:
         required: false
         type: boolean
         default: true
+      enforce-phpmyadmin-production-policy:
+        description: Fail staging-to-main releases that introduce production phpMyAdmin exposure.
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -153,6 +158,64 @@ jobs:
           else:
               print(f"No production promotion rule applies to base branch: {base_ref}")
           PY
+
+      - name: Prepare local Synergie policy tooling
+        if: ${{ github.repository == 'Synergie-ITCI/.github' && inputs.enforce-phpmyadmin-production-policy }}
+        run: |
+          mkdir -p .synergie-governance/tools
+          cp tools/phpmyadmin_policy.py .synergie-governance/tools/phpmyadmin_policy.py
+
+      - name: Checkout Synergie policy tooling
+        if: ${{ github.repository != 'Synergie-ITCI/.github' && inputs.enforce-phpmyadmin-production-policy }}
+        uses: actions/checkout@v4
+        with:
+          repository: Synergie-ITCI/.github
+          ref: main
+          path: .synergie-governance
+          persist-credentials: false
+
+      - name: phpMyAdmin production check
+        id: phpmyadmin
+        if: ${{ inputs.enforce-phpmyadmin-production-policy }}
+        env:
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          mkdir -p production-gate-results
+          set +e
+          python3 .synergie-governance/tools/phpmyadmin_policy.py \
+            --repo "$GITHUB_WORKSPACE" \
+            --mode production \
+            --base-sha "$GITHUB_BASE_SHA" \
+            --head-sha "$GITHUB_HEAD_SHA" \
+            --out production-gate-results/phpmyadmin-policy-report.md \
+            --json-out production-gate-results/phpmyadmin-policy-report.json
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Publish phpMyAdmin policy report
+        if: ${{ always() && inputs.enforce-phpmyadmin-production-policy }}
+        run: |
+          if [ -f production-gate-results/phpmyadmin-policy-report.md ]; then
+            cat production-gate-results/phpmyadmin-policy-report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "phpMyAdmin production policy report was not generated." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload production gate evidence
+        if: ${{ always() && inputs.enforce-phpmyadmin-production-policy }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: synergie-production-gate-results
+          path: production-gate-results/
+          retention-days: 30
+
+      - name: Enforce phpMyAdmin production policy
+        if: ${{ inputs.enforce-phpmyadmin-production-policy && steps.phpmyadmin.outputs.exit_code != '0' }}
+        run: |
+          echo "PRODUCTION PHPMYADMIN POLICY VIOLATION"
+          exit 1
 
   pr-qa:
     name: Synergie Release QA

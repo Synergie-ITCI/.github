@@ -115,6 +115,27 @@ runtime:
 
 `fail_fast_on_secrets` stops later gates after secret detection fails, while still generating the final report.
 
+## phpMyAdmin Policy
+
+Repository governance may document phpMyAdmin posture without storing secrets:
+
+```yaml
+phpmyadmin:
+  local_allowed: true
+  development_allowed: true
+  staging:
+    allowed: true
+    require_authentication: true
+    require_database_isolation: true
+    require_environment_secrets: true
+    prefer_network_restriction: true
+  production:
+    allowed: false
+    block_runtime_exposure: true
+```
+
+Production phpMyAdmin exposure is enforced by the reusable production gate, not by a feature-to-development or development-to-staging blocker. Staging/UAT phpMyAdmin is allowed only when it authenticates users, uses environment-specific secrets, and does not connect to production databases.
+
 ## Adapter Overrides
 
 ```yaml

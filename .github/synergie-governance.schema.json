@@ -187,6 +187,69 @@
         }
       }
     },
+    "phpmyadmin": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Environment policy for phpMyAdmin. This section is declarative and must not contain credentials.",
+      "properties": {
+        "local_allowed": {
+          "type": "boolean",
+          "default": true
+        },
+        "development_allowed": {
+          "type": "boolean",
+          "default": true
+        },
+        "staging": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "allowed": {
+              "type": "boolean",
+              "default": true
+            },
+            "require_authentication": {
+              "type": "boolean",
+              "default": true
+            },
+            "require_database_isolation": {
+              "type": "boolean",
+              "default": true
+            },
+            "require_environment_secrets": {
+              "type": "boolean",
+              "default": true
+            },
+            "prefer_network_restriction": {
+              "type": "boolean",
+              "default": true
+            },
+            "url": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Staging/UAT phpMyAdmin URL or path. Do not include credentials."
+            }
+          }
+        },
+        "production": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "allowed": {
+              "type": "boolean",
+              "const": false,
+              "default": false
+            },
+            "block_runtime_exposure": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        }
+      }
+    },
     "notes": {
       "type": "string"
     }
