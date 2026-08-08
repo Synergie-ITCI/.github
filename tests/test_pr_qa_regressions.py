@@ -297,6 +297,65 @@ class PrQaRegressionTests(unittest.TestCase):
             )
         )
 
+    def test_framework_profile_allows_reviewed_governance_workflow_changes(self) -> None:
+        repo, base = self.init_repo("framework-governance-workflow", profile="framework")
+        self.write(
+            repo / ".github" / "workflows" / "synergie-production-gate.yml",
+            """
+name: Synergie Production Gate
+on:
+  workflow_call:
+jobs:
+  production-policy:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo production policy check
+""",
+        )
+        self.commit(repo, "ci: add central production governance workflow")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertEqual(code, 0, report)
+        self.assertTrue(
+            any(
+                result["gate"] == "Deployment Risk"
+                and result["status"] == "WARNING"
+                and "Approved central governance workflow/template changes" in result["message"]
+                for result in report_json["results"]
+            )
+        )
+
+    def test_application_profile_does_not_inherit_framework_workflow_exemption(self) -> None:
+        repo, base = self.init_repo("application-production-workflow")
+        self.write(
+            repo / ".github" / "workflows" / "production-deploy.yml",
+            """
+name: Production Deploy
+on:
+  workflow_dispatch:
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - run: ssh deployer@production.example.invalid ./deploy-production.sh
+""",
+        )
+        self.commit(repo, "ci: add production deploy workflow")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertEqual(code, 0, report)
+        self.assertNotIn("Approved central governance workflow/template changes", report)
+        self.assertTrue(
+            any(
+                result["gate"] == "Deployment Risk"
+                and result["status"] == "WARNING"
+                and "Deployment-sensitive changes detected" in result["message"]
+                for result in report_json["results"]
+            )
+        )
+
     def test_workflow_has_no_framework_override_or_checkout_credentials(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "pr-qa.yml").read_text(encoding="utf-8")
         caller = (ROOT / "examples" / "caller-workflow.yml").read_text(encoding="utf-8")

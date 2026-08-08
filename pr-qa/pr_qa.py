@@ -863,6 +863,13 @@ def is_approved_regression_fixture(ctx: PRContext, rel: str) -> bool:
     return match_any(rel, patterns)
 
 
+def is_approved_deployment_sensitive_asset(ctx: PRContext, rel: str) -> bool:
+    if repository_profile(ctx) != "framework":
+        return False
+    patterns = repository_profile_settings(ctx).get("approved_deployment_sensitive_assets", []) or []
+    return match_any(rel, patterns)
+
+
 def decoded_text_variants(path: Path) -> list[str]:
     try:
         raw = path.read_bytes()
@@ -983,6 +990,24 @@ def gate_deployment_safety(ctx: PRContext) -> list[CheckResult]:
     changed = [path for path in ctx.changed_files if match_any(path, deployment_patterns)]
     if not changed:
         return [passed("Deployment Risk", None, "No deployment-sensitive files changed.")]
+    framework_approved = [path for path in changed if is_approved_deployment_sensitive_asset(ctx, path)]
+    if framework_approved and len(framework_approved) == len(changed):
+        dangerous_tokens = []
+        for path in framework_approved:
+            text = read_text(ctx.repo / path)
+            lower = (path + "\n" + text).lower()
+            for token in ["ssh", "rsync", "sudo", "kubectl apply", "terraform apply"]:
+                if token in lower:
+                    dangerous_tokens.append(f"{path}: `{token}`")
+        if not dangerous_tokens:
+            return [
+                warning(
+                    "Deployment Risk",
+                    None,
+                    "Approved central governance workflow/template changes detected; CODEOWNERS review remains required.",
+                    framework_approved[:40],
+                )
+            ]
     details = []
     score = 0
     risky_tokens = []

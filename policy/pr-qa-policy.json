@@ -190,6 +190,10 @@
         "releases/**",
         "tests/**"
       ],
+      "approved_deployment_sensitive_assets": [
+        ".github/workflows/**",
+        "workflow-templates/**"
+      ],
       "approved_regression_fixtures": [
         ".gitleaks.toml",
         "tests/test_pr_qa_regressions.py"
