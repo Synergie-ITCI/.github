@@ -59,3 +59,41 @@ Non-runtime references found:
 Repository/deployment-config classification: PASS
 
 Runtime exposure classification: NOT VERIFIED
+
+## 2026-08-08 Governance Update
+
+The reusable governance framework now requires an explicit phpMyAdmin environment map before non-production runtime phpMyAdmin is treated as configured:
+
+```text
+repository -> branch -> actual environment -> actual server -> actual database
+```
+
+GitHub branch names and GitHub environment names are evidence of release workflow shape only. They are not sufficient proof of an actual phpMyAdmin runtime, web-server target, or database target.
+
+### GitHub Environment Evidence Found
+
+The following active repositories had GitHub environments that may correspond to non-production targets and should be prioritized for application-owner mapping before any runtime phpMyAdmin setup:
+
+| Repository | GitHub environment evidence | Runtime phpMyAdmin status |
+| --- | --- | --- |
+| `fleet-safety-os-backend` | `uat` | NOT VERIFIED |
+| `fleet-safety-os-edge-runtime` | `uat` | NOT VERIFIED |
+| `fleet-safety-os-frontend` | `uat` | NOT VERIFIED |
+| `muskaan` | `staging` | NOT VERIFIED |
+| `projectdemo.synergielms.com` | `projectdemo-legacy-staging`, `projectdemo-production` | NOT VERIFIED |
+| `sankalp` | `sankalp-uat`, `sankalp-production` | NOT VERIFIED |
+| `scholarship_app` | `uat` | NOT VERIFIED |
+| `synergie-hub` | `production` only | Production phpMyAdmin prohibited; no non-production GitHub environment found |
+| `telepathy-operations-web` | `staging`, `production` | NOT VERIFIED |
+
+No repository in this update had a verified combination of non-production server, document root or equivalent runtime path, and non-production database name sufficient to deploy or expose phpMyAdmin. Runtime installation/configuration therefore remains intentionally not performed.
+
+### Repository Connection Status
+
+The company-level reusable policy is implemented in `Synergie-ITCI/.github`. Application repositories should connect to it only after the central governance PR is merged to `.github@main`; otherwise callers that reference `Synergie-ITCI/.github/...@main` cannot resolve the new reusable workflow.
+
+Until each application maps an actual non-production server and database in `.github/synergie-governance.yml`, any proposed staging/UAT phpMyAdmin runtime configuration must fail non-production validation with:
+
+```text
+PHPMYADMIN ENVIRONMENT MAPPING MISSING
+```
