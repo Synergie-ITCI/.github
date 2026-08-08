@@ -103,6 +103,7 @@ Use the Sankalp staging rollout as the reusable Synergie pattern for future deve
 - disable any package-provided global Apache `/phpmyadmin` alias
 - include the phpMyAdmin Apache alias only inside the approved non-production HTTPS vhost
 - validate unrelated vhosts do not inherit `/synergie-pma/` or `/phpmyadmin`
+- validate public DNS for the non-production hostname resolves to the approved non-production host before declaring the URL ready
 
 The underlying database user remains the real isolation boundary. The database user must be scoped to the assigned application and environment database. A staging database user may administer that staging database, but it must not have global server privileges, `SUPER`, `CREATE USER`, `FILE`, unnecessary `PROCESS`, `GRANT OPTION`, production database access, or cross-application database access.
 
@@ -114,17 +115,17 @@ Use the credential-free generator before future non-production onboarding:
 python3 tools/phpmyadmin_nonprod_onboarding.py \
   --application-name Sankalp \
   --environment staging \
-  --hostname sankalpdev.synergieinsights.in \
-  --database-name sankalpdev_db \
-  --database-user-identity sankalpdev_user \
-  --database-scope sankalpdev_db \
+  --hostname sankalp-staging.synergieinsights.in \
+  --database-name sankalp_staging_db \
+  --database-user-identity sankalp_staging_user \
+  --database-scope sankalp_staging_db \
   --developer-identity "Raveesh Yadav" \
   --db-classification staging \
   --https-available true \
   --output-dir /tmp/synergie-pma-sankalp-staging
 ```
 
-The generator refuses production environments, production database classifications, root/global database users, global or cross-application scopes, missing developer ownership, and missing HTTPS. It never generates or stores credentials.
+The generator refuses production environments, production database classifications, root/global database users, global or cross-application scopes, database names that do not carry the application/environment scope, missing developer ownership, and missing HTTPS. It never generates or stores credentials.
 
 ## Credential Delivery
 
@@ -135,6 +136,8 @@ Do not print, commit, paste, or log the credential. After secure delivery is con
 ```text
 CREDENTIAL DELIVERY CONFIRMATION REQUIRED
 ```
+
+Public endpoint validation must use the real hostname resolution, not only a forced local `--resolve` test. A forced direct-to-host check is useful for diagnosing Apache readiness, but the operating pattern is not complete until DNS also resolves to the approved non-production host.
 
 ## Credential Rotation
 

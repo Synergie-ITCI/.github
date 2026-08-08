@@ -12,10 +12,21 @@ from pathlib import Path
 
 
 PRODUCTION_ENVIRONMENTS = {"prod", "production", "main", "live"}
-NON_PRODUCTION_ENVIRONMENTS = {"local", "dev", "development", "staging", "stage", "uat", "test"}
+NON_PRODUCTION_ENVIRONMENTS = {"local", "dev", "development", "staging", "stage", "uat", "test", "training"}
 PRODUCTION_CLASSIFICATIONS = {"prod", "production", "main", "live", "production-db", "prod-db"}
 ROOT_USERS = {"root", "mysql.root", "admin", "administrator", "dba", "superuser"}
 GLOBAL_SCOPES = {"*", "*.*", "all", "global", "company", "shared", "all_databases", "all-databases"}
+GENERIC_APPLICATION_TOKENS = {"app", "application", "project", "system", "service", "portal", "admin", "new"}
+ENVIRONMENT_SCOPE_TOKENS = {
+    "local": {"local"},
+    "dev": {"dev", "development"},
+    "development": {"dev", "development"},
+    "staging": {"stage", "staging"},
+    "stage": {"stage", "staging"},
+    "uat": {"uat"},
+    "test": {"test"},
+    "training": {"train", "training"},
+}
 
 
 @dataclass
@@ -74,6 +85,27 @@ def slug(value: str) -> str:
     return normalized or "application"
 
 
+def identifier(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", value.lower())
+
+
+def application_scope_tokens(application_name: str) -> set[str]:
+    tokens = {
+        token
+        for token in re.split(r"[^a-z0-9]+", application_name.lower())
+        if len(token) >= 3 and token not in GENERIC_APPLICATION_TOKENS
+    }
+    compact = identifier(application_name)
+    if len(compact) >= 3:
+        tokens.add(compact)
+    return tokens
+
+
+def contains_any_scope_token(value: str, tokens: set[str]) -> bool:
+    normalized = identifier(value)
+    return any(identifier(token) in normalized for token in tokens if identifier(token))
+
+
 def build_input(args: argparse.Namespace) -> OnboardingInput:
     return OnboardingInput(
         application_name=args.application_name.strip(),
@@ -115,6 +147,14 @@ def validate_input(config: OnboardingInput) -> list[str]:
         errors.append("database scope must be application and environment specific")
     if config.database_scope != config.database_name:
         errors.append("database scope must match the approved application/environment database")
+    app_tokens = application_scope_tokens(config.application_name)
+    if app_tokens and not contains_any_scope_token(config.database_name, app_tokens):
+        errors.append("database scope must include the application identity")
+    environment_tokens = ENVIRONMENT_SCOPE_TOKENS.get(config.environment, {config.environment})
+    if not contains_any_scope_token(config.database_name, environment_tokens):
+        errors.append("database scope must include the environment identity")
+    if not contains_any_scope_token(config.database_user_identity, app_tokens | environment_tokens):
+        errors.append("database user identity must include the application or environment scope")
     if not config.developer_identity:
         errors.append("developer owner is required")
     if not config.https_available:

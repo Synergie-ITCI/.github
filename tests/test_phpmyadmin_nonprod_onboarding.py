@@ -32,13 +32,13 @@ class PhpMyAdminNonProdOnboardingTests(unittest.TestCase):
             "--environment",
             "staging",
             "--hostname",
-            "sankalpdev.synergieinsights.in",
+            "sankalp-staging.synergieinsights.in",
             "--database-name",
-            "sankalpdev_db",
+            "sankalp_staging_db",
             "--database-user-identity",
-            "sankalpdev_user",
+            "sankalp_staging_user",
             "--database-scope",
-            "sankalpdev_db",
+            "sankalp_staging_db",
             "--developer-identity",
             "Raveesh Yadav",
             "--db-classification",
@@ -77,6 +77,24 @@ class PhpMyAdminNonProdOnboardingTests(unittest.TestCase):
     def test_rejects_cross_application_database_scope(self) -> None:
         self.assert_refused("--database-scope", "sankalptraining_db", expected="database scope must match")
 
+    def test_rejects_cross_application_database_name(self) -> None:
+        self.assert_refused(
+            "--database-name",
+            "datamatics_staging_db",
+            "--database-scope",
+            "datamatics_staging_db",
+            expected="database scope must include the application identity",
+        )
+
+    def test_rejects_cross_environment_database_name(self) -> None:
+        self.assert_refused(
+            "--database-name",
+            "sankalp_production_db",
+            "--database-scope",
+            "sankalp_production_db",
+            expected="database scope must include the environment identity",
+        )
+
     def test_rejects_missing_developer(self) -> None:
         self.assert_refused("--developer-identity", "", expected="developer owner is required")
 
@@ -95,7 +113,7 @@ class PhpMyAdminNonProdOnboardingTests(unittest.TestCase):
         self.assertIn("Alias /synergie-pma", apache)
         self.assertIn("AuthUserFile /etc/apache2/synergie-pma-sankalp-staging.htpasswd", apache)
         self.assertIn("$cfg['Servers'][1]['auth_type'] = 'cookie';", php)
-        self.assertIn("$cfg['Servers'][1]['only_db'] = array('sankalpdev_db');", php)
+        self.assertIn("$cfg['Servers'][1]['only_db'] = array('sankalp_staging_db');", php)
         self.assertIn("$cfg['AllowArbitraryServer'] = false;", php)
         self.assertIn("Credential Rotation", readme)
         self.assertNotRegex(apache + php + readme, r"(?i)(password|secret)\s*[:=]\s*['\"]?[A-Za-z0-9+/]{8,}")
