@@ -282,6 +282,100 @@ phpmyadmin:
         self.assertIn("SHARED PHPMYADMIN ADMIN ACCOUNT PROHIBITED", output)
         self.assertEqual(parsed["status"], "FAIL")
 
+    def test_staging_phpmyadmin_requires_database_user_and_scope_mapping(self) -> None:
+        repo, _ = self.init_repo("staging-missing-db-user-scope")
+        self.write(
+            repo / ".github" / "synergie-governance.yml",
+            """
+application: Example
+phpmyadmin:
+  access:
+    application_scoped: true
+    shared_company_admin: false
+    database_scoped: true
+    cross_application_access: false
+    unrestricted_database_admin: false
+  environments:
+    - branch: staging
+      environment: staging
+      server: staging.example.invalid
+      database: example_staging
+      status: configured
+  production:
+    allowed: false
+""",
+        )
+        self.write(
+            repo / "docker-compose.staging.yml",
+            """
+services:
+  phpmyadmin:
+    image: phpmyadmin
+    profiles: ["staging"]
+    environment:
+      PMA_HOST: ${STAGING_DB_HOST}
+      PMA_USER: ${STAGING_DB_USER}
+      PMA_AUTH_TYPE: cookie
+""",
+        )
+        self.commit(repo, "feat: add staging phpmyadmin without db user scope")
+
+        code, output, parsed = self.run_policy(repo, "staging")
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("PHPMYADMIN ENVIRONMENT MAPPING MISSING", output)
+        self.assertIn("database user identity", output)
+        self.assertEqual(parsed["status"], "FAIL")
+
+    def test_staging_phpmyadmin_rejects_root_database_user(self) -> None:
+        repo, _ = self.init_repo("staging-root-db-user")
+        self.write_governance_config(repo)
+        self.write(
+            repo / "docker-compose.staging.yml",
+            """
+services:
+  phpmyadmin:
+    image: phpmyadmin
+    profiles: ["staging"]
+    environment:
+      PMA_HOST: ${STAGING_DB_HOST}
+      PMA_USER: root
+      PMA_AUTH_TYPE: cookie
+""",
+        )
+        self.commit(repo, "feat: add staging phpmyadmin with root user")
+
+        code, output, parsed = self.run_policy(repo, "staging")
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("STAGING PHPMYADMIN DATABASE USER NOT LEAST PRIVILEGE", output)
+        self.assertEqual(parsed["status"], "FAIL")
+
+    def test_governance_config_rejects_unscoped_database_access(self) -> None:
+        repo, base = self.init_repo("unscoped-db-access")
+        self.write(
+            repo / ".github" / "synergie-governance.yml",
+            """
+application: Example
+phpmyadmin:
+  access:
+    application_scoped: true
+    shared_company_admin: false
+    database_scoped: false
+    cross_application_access: true
+    unrestricted_database_admin: true
+  production:
+    allowed: false
+""",
+        )
+        self.commit(repo, "feat: allow unscoped database access")
+
+        code, output, parsed = self.run_policy(repo, "production", base)
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("PHPMYADMIN DATABASE ACCESS NOT SCOPED", output)
+        self.assertEqual(parsed["status"], "FAIL")
+
     def test_pre_existing_production_phpmyadmin_reports_without_blocking_unrelated_pr(self) -> None:
         repo, _ = self.init_repo("legacy-production")
         self.write(
@@ -324,11 +418,16 @@ phpmyadmin:
   access:
     application_scoped: true
     shared_company_admin: false
+    database_scoped: true
+    cross_application_access: false
+    unrestricted_database_admin: false
   environments:
     - branch: staging
       environment: staging
       server: staging.example.invalid
       database: example_staging
+      database_user_identity: example_staging_phpmyadmin
+      database_scope: example_staging
       status: configured
   staging:
     allowed: true

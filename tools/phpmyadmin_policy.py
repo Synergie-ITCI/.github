@@ -91,6 +91,21 @@ PRODUCTION_DB_HINTS = [
     re.compile(r"(?i)\bDB_(HOST|DATABASE|NAME)\s*[:=]\s*['\"]?[^'\"\n]*(prod|production|live)"),
 ]
 
+DB_USER_KEYS = r"(PMA_USER|MYSQL_USER|DB_USER|database_user|database_user_identity|db_user)"
+DB_SCOPE_KEYS = r"(database_scope|database_privilege_scope|privilege_scope)"
+
+PRIVILEGED_DB_USER_PATTERNS = [
+    re.compile(rf"(?i)\b{DB_USER_KEYS}\s*[:=]\s*['\"]?(root|mysql\.root|admin|administrator|dba|superuser)\b"),
+    re.compile(rf"(?i)\b{DB_USER_KEYS}\s*[:=]\s*['\"]?[^'\"\n]*(global|company|shared|all[_-]?databases|prod|production|live)[^'\"\n]*"),
+]
+
+UNSCOPED_DB_PRIVILEGE_PATTERNS = [
+    re.compile(r"(?im)^\s*database_scoped\s*:\s*false\s*(?:#.*)?$"),
+    re.compile(r"(?im)^\s*cross_application_access\s*:\s*true\s*(?:#.*)?$"),
+    re.compile(r"(?im)^\s*unrestricted_database_admin\s*:\s*true\s*(?:#.*)?$"),
+    re.compile(rf"(?i)\b{DB_SCOPE_KEYS}\s*[:=]\s*['\"]?(\*|all|global|company|shared|all[_-]?databases)\b"),
+]
+
 HARDCODED_SECRET_PATTERNS = [
     re.compile(r"(?i)\b(PMA_PASSWORD|MYSQL_ROOT_PASSWORD|MYSQL_PASSWORD|DB_PASSWORD)\s*[:=]\s*['\"]?([^\s'\"#{}$][^\s'\"#]*)"),
     re.compile(r"(?i)\b(password|passwd|pwd)\s*[:=]\s*['\"]?([^\s'\"#{}$][^\s'\"#]{5,})"),
@@ -210,6 +225,14 @@ def references_production_db(text: str) -> bool:
     return any(pattern.search(text) for pattern in PRODUCTION_DB_HINTS)
 
 
+def references_privileged_db_user(text: str) -> bool:
+    return any(pattern.search(text) for pattern in PRIVILEGED_DB_USER_PATTERNS)
+
+
+def references_unscoped_db_privileges(text: str) -> bool:
+    return any(pattern.search(text) for pattern in UNSCOPED_DB_PRIVILEGE_PATTERNS)
+
+
 def has_hardcoded_secret(text: str) -> bool:
     for line in text.splitlines():
         stripped = line.strip()
@@ -283,8 +306,24 @@ def has_governance_mapping(phpmyadmin_section: str) -> bool:
     has_branch = "branch:" in lowered
     has_server = re.search(r"(?im)^\s*server\s*:\s*(?!null\s*$)(?!['\"]?not[_ -]?configured['\"]?\s*$).+", mapping_section)
     has_database = re.search(r"(?im)^\s*database\s*:\s*(?!null\s*$)(?!['\"]?not[_ -]?configured['\"]?\s*$).+", mapping_section)
+    has_database_user = re.search(
+        r"(?im)^\s*(database_user|database_user_identity|db_user)\s*:\s*(?!null\s*$)(?!['\"]?not[_ -]?configured['\"]?\s*$).+",
+        mapping_section,
+    )
+    has_database_scope = re.search(
+        r"(?im)^\s*(database_scope|database_privilege_scope)\s*:\s*(?!null\s*$)(?!['\"]?not[_ -]?configured['\"]?\s*$).+",
+        mapping_section,
+    )
     has_configured_status = re.search(r"(?im)^\s*status\s*:\s*configured\s*(?:#.*)?$", mapping_section)
-    return bool(has_branch and has_environment and has_server and has_database and has_configured_status)
+    return bool(
+        has_branch
+        and has_environment
+        and has_server
+        and has_database
+        and has_database_user
+        and has_database_scope
+        and has_configured_status
+    )
 
 
 def governance_config_scan(
@@ -372,13 +411,12 @@ def governance_config_scan(
                 config_line_number(text, re.compile(r"(?im)^\s*application_scoped\s*:\s*false\s*(?:#.*)?$")),
             )
         )
-
     if require_environment_mapping and not has_governance_mapping(phpmyadmin_section):
         failures.append(
             Finding(
                 "fail",
                 "PHPMYADMIN ENVIRONMENT MAPPING MISSING",
-                "A non-production phpMyAdmin runtime exists, but branch, actual environment, server, and database are not all mapped in governance config.",
+                "A non-production phpMyAdmin runtime exists, but branch, actual environment, server, database, database user identity, and database scope are not all mapped in governance config.",
                 str(relative_path),
                 config_line_number(text, re.compile(r"(?im)^\s*phpmyadmin\s*:")),
             )
@@ -391,6 +429,31 @@ def governance_config_scan(
                 "The phpMyAdmin governance mapping appears to target a production database host or database name.",
                 str(relative_path),
                 config_line_number(text, re.compile(r"(?im)^\s*(database|server)\s*:")),
+            )
+        )
+    if references_privileged_db_user(phpmyadmin_section):
+        failures.append(
+            Finding(
+                "fail",
+                "PHPMYADMIN DATABASE USER NOT LEAST PRIVILEGE",
+                "phpMyAdmin must not use root, global administrator, shared, or production database user identities.",
+                str(relative_path),
+                config_line_number(text, re.compile(rf"(?im)^\s*{DB_USER_KEYS}\s*:")),
+            )
+        )
+    if references_unscoped_db_privileges(phpmyadmin_section):
+        failures.append(
+            Finding(
+                "fail",
+                "PHPMYADMIN DATABASE ACCESS NOT SCOPED",
+                "phpMyAdmin database privileges must be limited to the assigned application database, even in development and staging.",
+                str(relative_path),
+                config_line_number(
+                    text,
+                    re.compile(
+                        r"(?im)^\s*(database_scoped|cross_application_access|unrestricted_database_admin|database_scope|database_privilege_scope)\s*:"
+                    ),
+                ),
             )
         )
 
@@ -475,6 +538,16 @@ def staging_scan(repo: Path) -> tuple[list[Finding], list[Finding], bool]:
                     "fail",
                     "STAGING PHPMYADMIN POINTS TO PRODUCTION DATABASE",
                     "Staging/UAT phpMyAdmin configuration appears to target a production database host or database name.",
+                    str(path),
+                    line,
+                )
+            )
+        if references_privileged_db_user(text):
+            failures.append(
+                Finding(
+                    "fail",
+                    "STAGING PHPMYADMIN DATABASE USER NOT LEAST PRIVILEGE",
+                    "Staging/UAT phpMyAdmin must use an application and environment-scoped database user, not root/global/shared/production credentials.",
                     str(path),
                     line,
                 )

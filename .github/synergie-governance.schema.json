@@ -215,6 +215,24 @@
               "const": false,
               "default": false
             },
+            "database_scoped": {
+              "type": "boolean",
+              "const": true,
+              "default": true,
+              "description": "phpMyAdmin database privileges must be limited to the assigned application database."
+            },
+            "cross_application_access": {
+              "type": "boolean",
+              "const": false,
+              "default": false,
+              "description": "Developers must not use phpMyAdmin to administer unrelated application databases."
+            },
+            "unrestricted_database_admin": {
+              "type": "boolean",
+              "const": false,
+              "default": false,
+              "description": "Root, global administrator, shared DBA, and production database users are prohibited for developer phpMyAdmin."
+            },
             "owner_role": {
               "type": "string",
               "description": "Application owner role or group responsible for approving access."
@@ -239,6 +257,8 @@
               "environment",
               "server",
               "database",
+              "database_user_identity",
+              "database_scope",
               "status"
             ],
             "properties": {
@@ -269,6 +289,20 @@
                   "null"
                 ],
                 "description": "Actual non-production database name. Must not be a production database."
+              },
+              "database_user_identity": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Non-secret database username or role identity used by phpMyAdmin. Must be application and environment scoped, not root/global/admin/production."
+              },
+              "database_scope": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Single database this phpMyAdmin database identity is permitted to administer. Use null only when no runtime exists."
               },
               "phpmyadmin_url": {
                 "type": [

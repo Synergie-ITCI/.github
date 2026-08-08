@@ -26,6 +26,8 @@ Staging phpMyAdmin must:
 - require authentication
 - use HTTPS
 - connect only to development, staging, or UAT databases
+- use a database identity scoped only to the assigned application database for that environment
+- avoid root, global administrator, shared DBA, production application, or production database credentials
 - avoid production database names, hosts, users, and credentials
 - avoid hardcoded passwords or database credentials in Git
 - use environment-specific secrets/configuration
@@ -54,14 +56,30 @@ If a repository attempts to declare a shared company-wide phpMyAdmin administrat
 SHARED PHPMYADMIN ADMIN ACCOUNT PROHIBITED
 ```
 
+If a repository attempts to declare unrestricted or cross-application database administration through phpMyAdmin, classify it as:
+
+```text
+PHPMYADMIN DATABASE ACCESS NOT SCOPED
+```
+
+If a staging/UAT phpMyAdmin runtime uses a root, global administrator, shared, or production database user identity, classify it as:
+
+```text
+STAGING PHPMYADMIN DATABASE USER NOT LEAST PRIVILEGE
+```
+
 ## Application-Scoped Access
 
 phpMyAdmin access is granted per application. A developer may access only the databases assigned to that application and environment.
+
+The phpMyAdmin interface is not the control boundary. The underlying database user or database role must also be scoped to a single non-production database for the assigned application, for example `saksham_staging` only for Saksham staging. That database identity may have development/staging administration privileges inside that one database, but it must not have global server, cross-database, production, or unrelated application privileges.
 
 Do not create or reuse:
 
 - one DBA account shared by all developers
 - one phpMyAdmin endpoint pointed at multiple unrelated application databases
+- one database user that can administer multiple unrelated application databases
+- root, global administrator, or production application database credentials
 - production database credentials in local, development, staging, or UAT phpMyAdmin
 
 The application owner must approve the application-specific developer group or database role. Credentials must live in environment secrets or server configuration, never in Git.

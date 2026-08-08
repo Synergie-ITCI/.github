@@ -34,6 +34,9 @@ phpmyadmin:
   access:
     application_scoped: true
     shared_company_admin: false
+    database_scoped: true
+    cross_application_access: false
+    unrestricted_database_admin: false
     owner_role: Application owner
     developer_group: application-developers
   environments:
@@ -41,6 +44,8 @@ phpmyadmin:
       environment: development
       server: null
       database: null
+      database_user_identity: null
+      database_scope: null
       phpmyadmin_url: null
       status: not_configured
       notes: Map this only after the actual development server and database are verified.
@@ -48,6 +53,8 @@ phpmyadmin:
       environment: staging
       server: null
       database: null
+      database_user_identity: null
+      database_scope: null
       phpmyadmin_url: null
       status: not_configured
       notes: Map this only after the actual staging/UAT server and database are verified.
