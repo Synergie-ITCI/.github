@@ -75,6 +75,7 @@ Adapters must:
 - [Governance Validation](docs/governance-validation.md)
 - [Repository Profiles](docs/repository-profiles.md)
 - [Emergency Override Governance Note](docs/emergency-override-governance-note.md)
+- [phpMyAdmin Environment Policy](docs/phpmyadmin-environment-policy.md)
 - [Before vs After Comparison](docs/before-after-comparison.md)
 - [Residual Risk Register](docs/residual-risk-register.md)
 - Sample reports: `examples/reports/`
