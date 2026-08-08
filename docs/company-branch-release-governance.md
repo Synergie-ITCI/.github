@@ -55,6 +55,7 @@ The company reusable workflows are:
 | --- | --- |
 | `.github/workflows/synergie-quality-gate.yml` | Optional staging-boundary governance for repositories that explicitly retain stronger pre-staging controls. It is not part of the company mandatory baseline. |
 | `.github/workflows/synergie-production-gate.yml` | Main/production boundary governance, central PR QA, and phpMyAdmin production policy enforcement. |
+| `.github/workflows/phpmyadmin-environment-policy.yml` | Reusable phpMyAdmin policy scanner for production PRs and manual/opt-in non-production validation. |
 
 Repository adapters should call these workflows from a repository-local workflow, usually copied from:
 
@@ -179,6 +180,14 @@ phpMyAdmin is a runtime/infrastructure service, not merely a Git artifact. The c
 | Production/main | Prohibited. The production gate fails if a staging-to-main PR introduces runtime/deployment configuration that exposes phpMyAdmin. |
 
 The reusable production gate runs `phpmyadmin-production-check` through `tools/phpmyadmin_policy.py`. It ignores documentation-only mentions and staging-only phpMyAdmin configuration, but blocks production runtime exposure through Docker, Docker Compose, Apache, Nginx, Caddy, Kubernetes, Terraform, CloudFormation, deployment scripts, package manifests, or production routes such as `/phpmyadmin`, `/phpMyAdmin`, and `/pma`.
+
+Before runtime phpMyAdmin is enabled for development, staging, or UAT, the repository must declare an application-scoped mapping in `.github/synergie-governance.yml`:
+
+```text
+repository -> branch -> actual environment -> actual server -> actual database
+```
+
+The reusable scanner fails non-production validation with `PHPMYADMIN ENVIRONMENT MAPPING MISSING` when phpMyAdmin runtime configuration exists but this map is absent. It also fails with `SHARED PHPMYADMIN ADMIN ACCOUNT PROHIBITED` when a repository declares a company-wide shared administrator model.
 
 If existing production runtime already exposes phpMyAdmin outside the current PR diff, the scanner reports `PRE-EXISTING PRODUCTION PHPMYADMIN VIOLATION` without automatically uninstalling or disabling it. New production exposure fails with `PRODUCTION PHPMYADMIN POLICY VIOLATION`.
 

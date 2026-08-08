@@ -76,6 +76,7 @@ services:
 
     def test_staging_only_phpmyadmin_config_passes_production_gate(self) -> None:
         repo, base = self.init_repo("staging-compose")
+        self.write_governance_config(repo)
         self.write(
             repo / "docker-compose.staging.yml",
             """
@@ -99,6 +100,7 @@ services:
 
     def test_staging_phpmyadmin_to_production_database_fails(self) -> None:
         repo, _ = self.init_repo("staging-prod-db")
+        self.write_governance_config(repo)
         self.write(
             repo / "docker-compose.staging.yml",
             """
@@ -121,6 +123,7 @@ services:
 
     def test_staging_phpmyadmin_hardcoded_password_fails_without_printing_value(self) -> None:
         repo, _ = self.init_repo("staging-hardcoded-secret")
+        self.write_governance_config(repo)
         self.write(
             repo / "docker-compose.staging.yml",
             """
@@ -141,6 +144,142 @@ services:
         self.assertNotEqual(code, 0)
         self.assertIn("STAGING PHPMYADMIN SECRET IN GIT", output)
         self.assertNotIn("plain-test-password", output)
+        self.assertEqual(parsed["status"], "FAIL")
+
+    def test_staging_phpmyadmin_requires_environment_mapping(self) -> None:
+        repo, _ = self.init_repo("staging-missing-mapping")
+        self.write(
+            repo / ".github" / "synergie-governance.yml",
+            """
+application: Example
+phpmyadmin:
+  staging:
+    allowed: true
+  production:
+    allowed: false
+""",
+        )
+        self.write(
+            repo / "docker-compose.staging.yml",
+            """
+services:
+  phpmyadmin:
+    image: phpmyadmin
+    profiles: ["staging"]
+    environment:
+      PMA_HOST: ${STAGING_DB_HOST}
+      PMA_AUTH_TYPE: cookie
+""",
+        )
+        self.commit(repo, "feat: add unmapped staging phpmyadmin")
+
+        code, output, parsed = self.run_policy(repo, "staging")
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("PHPMYADMIN ENVIRONMENT MAPPING MISSING", output)
+        self.assertEqual(parsed["status"], "FAIL")
+
+    def test_staging_phpmyadmin_with_environment_mapping_passes(self) -> None:
+        repo, _ = self.init_repo("staging-mapped")
+        self.write_governance_config(repo)
+        self.write(
+            repo / "docker-compose.staging.yml",
+            """
+services:
+  phpmyadmin:
+    image: phpmyadmin
+    profiles: ["staging"]
+    environment:
+      PMA_HOST: ${STAGING_DB_HOST}
+      PMA_AUTH_TYPE: cookie
+""",
+        )
+        self.commit(repo, "feat: add mapped staging phpmyadmin")
+
+        code, output, parsed = self.run_policy(repo, "staging")
+
+        self.assertEqual(code, 0, output)
+        self.assertEqual(parsed["status"], "PASS")
+
+    def test_staging_phpmyadmin_rejects_placeholder_environment_mapping(self) -> None:
+        repo, _ = self.init_repo("staging-placeholder-mapping")
+        self.write(
+            repo / ".github" / "synergie-governance.yml",
+            """
+application: Example
+phpmyadmin:
+  access:
+    application_scoped: true
+    shared_company_admin: false
+  environments:
+    - branch: staging
+      environment: staging
+      server: null
+      database: null
+      status: not_configured
+  production:
+    allowed: false
+""",
+        )
+        self.write(
+            repo / "docker-compose.staging.yml",
+            """
+services:
+  phpmyadmin:
+    image: phpmyadmin
+    profiles: ["staging"]
+    environment:
+      PMA_HOST: ${STAGING_DB_HOST}
+      PMA_AUTH_TYPE: cookie
+""",
+        )
+        self.commit(repo, "feat: add placeholder staging phpmyadmin mapping")
+
+        code, output, parsed = self.run_policy(repo, "staging")
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("PHPMYADMIN ENVIRONMENT MAPPING MISSING", output)
+        self.assertEqual(parsed["status"], "FAIL")
+
+    def test_governance_config_cannot_enable_production_phpmyadmin(self) -> None:
+        repo, base = self.init_repo("production-config-enabled")
+        self.write(
+            repo / ".github" / "synergie-governance.yml",
+            """
+application: Example
+phpmyadmin:
+  production:
+    allowed: true
+""",
+        )
+        self.commit(repo, "feat: enable production phpmyadmin")
+
+        code, output, parsed = self.run_policy(repo, "production", base)
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("PRODUCTION PHPMYADMIN ENABLED IN GOVERNANCE CONFIG", output)
+        self.assertEqual(parsed["status"], "FAIL")
+
+    def test_governance_config_cannot_use_shared_company_admin(self) -> None:
+        repo, base = self.init_repo("shared-company-admin")
+        self.write(
+            repo / ".github" / "synergie-governance.yml",
+            """
+application: Example
+phpmyadmin:
+  access:
+    application_scoped: true
+    shared_company_admin: true
+  production:
+    allowed: false
+""",
+        )
+        self.commit(repo, "feat: add shared admin")
+
+        code, output, parsed = self.run_policy(repo, "production", base)
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("SHARED PHPMYADMIN ADMIN ACCOUNT PROHIBITED", output)
         self.assertEqual(parsed["status"], "FAIL")
 
     def test_pre_existing_production_phpmyadmin_reports_without_blocking_unrelated_pr(self) -> None:
@@ -175,6 +314,32 @@ services:
     def write(self, path: Path, text: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
+
+    def write_governance_config(self, repo: Path) -> None:
+        self.write(
+            repo / ".github" / "synergie-governance.yml",
+            """
+application: Example
+phpmyadmin:
+  access:
+    application_scoped: true
+    shared_company_admin: false
+  environments:
+    - branch: staging
+      environment: staging
+      server: staging.example.invalid
+      database: example_staging
+      status: configured
+  staging:
+    allowed: true
+    require_authentication: true
+    require_database_isolation: true
+    require_environment_secrets: true
+  production:
+    allowed: false
+    block_runtime_exposure: true
+""",
+        )
 
 
 if __name__ == "__main__":

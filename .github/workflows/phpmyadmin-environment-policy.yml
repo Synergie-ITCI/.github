@@ -1,0 +1,134 @@
+name: Synergie phpMyAdmin Environment Policy
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: Policy mode to run.
+        required: false
+        type: string
+        default: production
+      governance-config-path:
+        description: Repository governance configuration path.
+        required: false
+        type: string
+        default: .github/synergie-governance.yml
+      base-sha:
+        description: Optional base SHA for pull request diff scoping.
+        required: false
+        type: string
+        default: ""
+      head-sha:
+        description: Optional head SHA for pull request diff scoping.
+        required: false
+        type: string
+        default: ""
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Policy mode to run.
+        required: true
+        type: choice
+        options:
+          - production
+          - staging
+        default: production
+      governance-config-path:
+        description: Repository governance configuration path.
+        required: false
+        type: string
+        default: .github/synergie-governance.yml
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  phpmyadmin-policy:
+    name: phpMyAdmin Environment Policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Validate workflow inputs
+        env:
+          POLICY_MODE: ${{ inputs.mode }}
+        run: |
+          case "$POLICY_MODE" in
+            production|staging)
+              echo "Policy mode accepted: $POLICY_MODE"
+              ;;
+            *)
+              echo "Unsupported phpMyAdmin policy mode: $POLICY_MODE" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Checkout caller repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Prepare local Synergie policy tooling
+        if: ${{ github.repository == 'Synergie-ITCI/.github' }}
+        run: |
+          mkdir -p .synergie-governance/tools
+          cp tools/phpmyadmin_policy.py .synergie-governance/tools/phpmyadmin_policy.py
+
+      - name: Checkout Synergie policy tooling
+        if: ${{ github.repository != 'Synergie-ITCI/.github' }}
+        uses: actions/checkout@v4
+        with:
+          repository: Synergie-ITCI/.github
+          ref: main
+          path: .synergie-governance
+          persist-credentials: false
+
+      - name: Run phpMyAdmin policy
+        id: phpmyadmin
+        env:
+          POLICY_MODE: ${{ inputs.mode }}
+          GOVERNANCE_CONFIG_PATH: ${{ inputs.governance-config-path }}
+          INPUT_BASE_SHA: ${{ inputs.base-sha }}
+          INPUT_HEAD_SHA: ${{ inputs.head-sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          mkdir -p phpmyadmin-policy-results
+          BASE_SHA="${INPUT_BASE_SHA:-$EVENT_BASE_SHA}"
+          HEAD_SHA="${INPUT_HEAD_SHA:-$EVENT_HEAD_SHA}"
+          set +e
+          python3 .synergie-governance/tools/phpmyadmin_policy.py \
+            --repo "$GITHUB_WORKSPACE" \
+            --mode "$POLICY_MODE" \
+            --base-sha "$BASE_SHA" \
+            --head-sha "$HEAD_SHA" \
+            --governance-config "$GOVERNANCE_CONFIG_PATH" \
+            --out phpmyadmin-policy-results/phpmyadmin-policy-report.md \
+            --json-out phpmyadmin-policy-results/phpmyadmin-policy-report.json
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Publish phpMyAdmin policy report
+        if: ${{ always() }}
+        run: |
+          if [ -f phpmyadmin-policy-results/phpmyadmin-policy-report.md ]; then
+            cat phpmyadmin-policy-results/phpmyadmin-policy-report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "phpMyAdmin policy report was not generated." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload phpMyAdmin policy evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: synergie-phpmyadmin-policy-results
+          path: phpmyadmin-policy-results/
+          retention-days: 30
+
+      - name: Enforce phpMyAdmin policy
+        if: ${{ steps.phpmyadmin.outputs.exit_code != '0' }}
+        run: |
+          echo "Synergie phpMyAdmin policy failed."
+          exit 1

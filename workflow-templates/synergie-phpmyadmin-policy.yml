@@ -1,0 +1,47 @@
+name: Synergie phpMyAdmin Policy
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+      - edited
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Policy mode.
+        required: true
+        type: choice
+        options:
+          - production
+          - staging
+        default: production
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: synergie-phpmyadmin-policy-${{ github.repository }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  production-pr-policy:
+    name: Production phpMyAdmin Policy
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft == false && github.base_ref == 'main' }}
+    uses: Synergie-ITCI/.github/.github/workflows/phpmyadmin-environment-policy.yml@main
+    with:
+      mode: production
+      governance-config-path: .github/synergie-governance.yml
+
+  manual-policy:
+    name: Manual phpMyAdmin Policy
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    uses: Synergie-ITCI/.github/.github/workflows/phpmyadmin-environment-policy.yml@main
+    with:
+      mode: ${{ inputs.mode }}
+      governance-config-path: .github/synergie-governance.yml

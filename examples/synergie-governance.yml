@@ -31,6 +31,26 @@ deployment:
 phpmyadmin:
   local_allowed: true
   development_allowed: true
+  access:
+    application_scoped: true
+    shared_company_admin: false
+    owner_role: Application owner
+    developer_group: application-developers
+  environments:
+    - branch: development
+      environment: development
+      server: null
+      database: null
+      phpmyadmin_url: null
+      status: not_configured
+      notes: Map this only after the actual development server and database are verified.
+    - branch: staging
+      environment: staging
+      server: null
+      database: null
+      phpmyadmin_url: null
+      status: not_configured
+      notes: Map this only after the actual staging/UAT server and database are verified.
   staging:
     allowed: true
     require_authentication: true

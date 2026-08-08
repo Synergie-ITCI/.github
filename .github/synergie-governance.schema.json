@@ -200,6 +200,97 @@
           "type": "boolean",
           "default": true
         },
+        "access": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Developer access model. Do not store usernames, passwords, cookies, or tokens.",
+          "properties": {
+            "application_scoped": {
+              "type": "boolean",
+              "const": true,
+              "default": true
+            },
+            "shared_company_admin": {
+              "type": "boolean",
+              "const": false,
+              "default": false
+            },
+            "owner_role": {
+              "type": "string",
+              "description": "Application owner role or group responsible for approving access."
+            },
+            "developer_group": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Application-scoped developer group. Do not list credentials."
+            }
+          }
+        },
+        "environments": {
+          "type": "array",
+          "description": "Mapped runtime environments where phpMyAdmin is permitted or explicitly not configured. Branch names are not a substitute for actual runtime mapping.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "branch",
+              "environment",
+              "server",
+              "database",
+              "status"
+            ],
+            "properties": {
+              "branch": {
+                "type": "string",
+                "description": "Git branch associated with the runtime, such as development or staging."
+              },
+              "environment": {
+                "type": "string",
+                "enum": [
+                  "local",
+                  "feature",
+                  "development",
+                  "staging",
+                  "uat"
+                ]
+              },
+              "server": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Actual non-production server, hostname, or environment name. Use null only when no runtime exists."
+              },
+              "database": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Actual non-production database name. Must not be a production database."
+              },
+              "phpmyadmin_url": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Non-production phpMyAdmin URL or path. Do not include credentials."
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "configured",
+                  "not_configured",
+                  "not_eligible"
+                ]
+              },
+              "notes": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "staging": {
           "type": "object",
           "additionalProperties": false,

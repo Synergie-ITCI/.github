@@ -180,6 +180,7 @@ jobs:
         env:
           GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          GOVERNANCE_CONFIG_PATH: ${{ inputs.governance-config-path }}
         run: |
           mkdir -p production-gate-results
           set +e
@@ -188,6 +189,7 @@ jobs:
             --mode production \
             --base-sha "$GITHUB_BASE_SHA" \
             --head-sha "$GITHUB_HEAD_SHA" \
+            --governance-config "$GOVERNANCE_CONFIG_PATH" \
             --out production-gate-results/phpmyadmin-policy-report.md \
             --json-out production-gate-results/phpmyadmin-policy-report.json
           code=$?

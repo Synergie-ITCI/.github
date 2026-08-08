@@ -103,6 +103,14 @@ INSECURE_STAGING_PATTERNS = [
     re.compile(r"(?i)\bPMA_AUTH_TYPE\s*[:=]\s*config\b"),
 ]
 
+GOVERNANCE_SECRET_PATTERNS = [
+    re.compile(r"(?i)\b(password|passwd|pwd)\s*:"),
+    re.compile(r"(?i)\b(secret|token|credential)\s*:"),
+    re.compile(r"(?i)\b(access_key|private_key)\b"),
+]
+
+SECTION_HEADER_PATTERN = re.compile(r"^(\s*)([A-Za-z0-9_-]+)\s*:\s*(?:#.*)?$")
+
 
 @dataclass
 class Finding:
@@ -240,6 +248,166 @@ def has_auth_signal(text: str) -> bool:
     )
 
 
+def config_line_number(text: str, pattern: re.Pattern[str]) -> int:
+    for number, line in enumerate(text.splitlines(), start=1):
+        if pattern.search(line):
+            return number
+    return 1
+
+
+def extract_section(text: str, section_name: str) -> str:
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        match = SECTION_HEADER_PATTERN.match(line)
+        if not match or match.group(2) != section_name:
+            continue
+        indent = len(match.group(1))
+        section_lines: list[str] = []
+        for nested in lines[index + 1 :]:
+            nested_match = SECTION_HEADER_PATTERN.match(nested)
+            if nested_match and len(nested_match.group(1)) <= indent:
+                break
+            section_lines.append(nested)
+        return "\n".join(section_lines)
+    return ""
+
+
+def has_governance_mapping(phpmyadmin_section: str) -> bool:
+    mapping_section = (
+        extract_section(phpmyadmin_section, "runtime_inventory")
+        or extract_section(phpmyadmin_section, "environment_mappings")
+        or extract_section(phpmyadmin_section, "environments")
+    )
+    lowered = mapping_section.lower()
+    has_environment = "environment:" in lowered or "actual_environment:" in lowered
+    has_branch = "branch:" in lowered
+    has_server = re.search(r"(?im)^\s*server\s*:\s*(?!null\s*$)(?!['\"]?not[_ -]?configured['\"]?\s*$).+", mapping_section)
+    has_database = re.search(r"(?im)^\s*database\s*:\s*(?!null\s*$)(?!['\"]?not[_ -]?configured['\"]?\s*$).+", mapping_section)
+    has_configured_status = re.search(r"(?im)^\s*status\s*:\s*configured\s*(?:#.*)?$", mapping_section)
+    return bool(has_branch and has_environment and has_server and has_database and has_configured_status)
+
+
+def governance_config_scan(
+    repo: Path,
+    config_path: Path | None,
+    mode: str,
+    require_environment_mapping: bool,
+) -> tuple[list[Finding], list[Finding]]:
+    failures: list[Finding] = []
+    warnings: list[Finding] = []
+    if config_path is None:
+        return failures, warnings
+
+    relative_path = config_path
+    file_path = repo / relative_path
+    if not file_path.exists():
+        if require_environment_mapping:
+            failures.append(
+                Finding(
+                    "fail",
+                    "PHPMYADMIN ENVIRONMENT MAPPING MISSING",
+                    "A non-production phpMyAdmin runtime exists, but the repository has no governance config mapping branch, environment, server, and database.",
+                    str(relative_path),
+                )
+            )
+        return failures, warnings
+
+    text = read_text(repo, relative_path)
+    phpmyadmin_section = extract_section(text, "phpmyadmin")
+    if not phpmyadmin_section:
+        if require_environment_mapping:
+            failures.append(
+                Finding(
+                    "fail",
+                    "PHPMYADMIN ENVIRONMENT MAPPING MISSING",
+                    "A non-production phpMyAdmin runtime exists, but the governance config has no phpmyadmin mapping section.",
+                    str(relative_path),
+                )
+            )
+        return failures, warnings
+
+    for pattern in GOVERNANCE_SECRET_PATTERNS:
+        if pattern.search(phpmyadmin_section):
+            failures.append(
+                Finding(
+                    "fail",
+                    "PHPMYADMIN GOVERNANCE CONFIG CONTAINS SECRET FIELD",
+                    "The phpMyAdmin governance config must not contain credential or secret fields.",
+                    str(relative_path),
+                    config_line_number(text, pattern),
+                )
+            )
+            break
+
+    production_section = extract_section(phpmyadmin_section, "production")
+    if re.search(r"(?im)^\s*allowed\s*:\s*true\s*(?:#.*)?$", production_section):
+        failures.append(
+            Finding(
+                "fail",
+                "PRODUCTION PHPMYADMIN ENABLED IN GOVERNANCE CONFIG",
+                "Production phpMyAdmin is prohibited; production.allowed must be false.",
+                str(relative_path),
+                config_line_number(text, re.compile(r"(?im)^\s*allowed\s*:\s*true\s*(?:#.*)?$")),
+            )
+        )
+
+    access_section = extract_section(phpmyadmin_section, "access")
+    if re.search(r"(?im)^\s*shared_company_admin\s*:\s*true\s*(?:#.*)?$", access_section):
+        failures.append(
+            Finding(
+                "fail",
+                "SHARED PHPMYADMIN ADMIN ACCOUNT PROHIBITED",
+                "phpMyAdmin access must be application-scoped; a company-wide shared database administrator account is prohibited.",
+                str(relative_path),
+                config_line_number(text, re.compile(r"(?im)^\s*shared_company_admin\s*:\s*true\s*(?:#.*)?$")),
+            )
+        )
+    if re.search(r"(?im)^\s*application_scoped\s*:\s*false\s*(?:#.*)?$", access_section):
+        failures.append(
+            Finding(
+                "fail",
+                "PHPMYADMIN ACCESS NOT APPLICATION SCOPED",
+                "phpMyAdmin access must be scoped to the assigned application and database.",
+                str(relative_path),
+                config_line_number(text, re.compile(r"(?im)^\s*application_scoped\s*:\s*false\s*(?:#.*)?$")),
+            )
+        )
+
+    if require_environment_mapping and not has_governance_mapping(phpmyadmin_section):
+        failures.append(
+            Finding(
+                "fail",
+                "PHPMYADMIN ENVIRONMENT MAPPING MISSING",
+                "A non-production phpMyAdmin runtime exists, but branch, actual environment, server, and database are not all mapped in governance config.",
+                str(relative_path),
+                config_line_number(text, re.compile(r"(?im)^\s*phpmyadmin\s*:")),
+            )
+        )
+    if mode == "staging" and references_production_db(phpmyadmin_section):
+        failures.append(
+            Finding(
+                "fail",
+                "STAGING PHPMYADMIN POINTS TO PRODUCTION DATABASE",
+                "The phpMyAdmin governance mapping appears to target a production database host or database name.",
+                str(relative_path),
+                config_line_number(text, re.compile(r"(?im)^\s*(database|server)\s*:")),
+            )
+        )
+
+    if mode == "production" and not production_section:
+        warnings.append(
+            Finding(
+                "warn",
+                "PHPMYADMIN PRODUCTION POSTURE NOT DECLARED",
+                "Governance config has a phpmyadmin section but does not explicitly declare production.allowed: false.",
+                str(relative_path),
+                config_line_number(text, re.compile(r"(?im)^\s*phpmyadmin\s*:")),
+            )
+        )
+
+    return failures, warnings
+
+
 def production_scan(repo: Path, changed: set[Path] | None) -> tuple[list[Finding], list[Finding]]:
     failures: list[Finding] = []
     warnings: list[Finding] = []
@@ -288,7 +456,7 @@ def production_scan(repo: Path, changed: set[Path] | None) -> tuple[list[Finding
     return failures, warnings
 
 
-def staging_scan(repo: Path) -> tuple[list[Finding], list[Finding]]:
+def staging_scan(repo: Path) -> tuple[list[Finding], list[Finding], bool]:
     failures: list[Finding] = []
     warnings: list[Finding] = []
     found = False
@@ -353,7 +521,7 @@ def staging_scan(repo: Path) -> tuple[list[Finding], list[Finding]]:
             )
     if not found:
         warnings.append(Finding("info", "NO PHPMYADMIN", "No staging/UAT phpMyAdmin runtime configuration was found.", ""))
-    return failures, warnings
+    return failures, warnings, found
 
 
 def write_reports(out: Path | None, json_out: Path | None, mode: str, failures: list[Finding], warnings: list[Finding]) -> None:
@@ -405,6 +573,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mode", choices=["production", "staging"], required=True)
     parser.add_argument("--base-sha", default=os.getenv("GITHUB_BASE_SHA") or os.getenv("PR_QA_BASE_SHA"))
     parser.add_argument("--head-sha", default=os.getenv("GITHUB_HEAD_SHA") or os.getenv("PR_QA_HEAD_SHA") or "HEAD")
+    parser.add_argument(
+        "--governance-config",
+        type=Path,
+        default=Path(".github/synergie-governance.yml"),
+        help="Repository governance config to validate when present.",
+    )
     parser.add_argument("--out", type=Path)
     parser.add_argument("--json-out", type=Path)
     return parser.parse_args()
@@ -415,10 +589,20 @@ def main() -> int:
     repo = Path(args.repo).resolve()
     changed = changed_files(repo, args.base_sha, args.head_sha)
 
+    staging_phpmyadmin_found = False
     if args.mode == "production":
         failures, warnings = production_scan(repo, changed)
     else:
-        failures, warnings = staging_scan(repo)
+        failures, warnings, staging_phpmyadmin_found = staging_scan(repo)
+
+    config_failures, config_warnings = governance_config_scan(
+        repo,
+        args.governance_config,
+        args.mode,
+        require_environment_mapping=args.mode == "staging" and staging_phpmyadmin_found,
+    )
+    failures.extend(config_failures)
+    warnings.extend(config_warnings)
 
     write_reports(args.out, args.json_out, args.mode, failures, warnings)
     return 1 if failures else 0

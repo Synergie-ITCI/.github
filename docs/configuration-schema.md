@@ -123,6 +123,24 @@ Repository governance may document phpMyAdmin posture without storing secrets:
 phpmyadmin:
   local_allowed: true
   development_allowed: true
+  access:
+    application_scoped: true
+    shared_company_admin: false
+    owner_role: Application owner
+    developer_group: application-developers
+  environments:
+    - branch: development
+      environment: development
+      server: dev.example.internal
+      database: example_dev
+      phpmyadmin_url: https://dev.example.internal/phpmyadmin
+      status: configured
+    - branch: staging
+      environment: staging
+      server: uat.example.internal
+      database: example_uat
+      phpmyadmin_url: https://uat.example.internal/phpmyadmin
+      status: configured
   staging:
     allowed: true
     require_authentication: true
@@ -135,6 +153,12 @@ phpmyadmin:
 ```
 
 Production phpMyAdmin exposure is enforced by the reusable production gate, not by a feature-to-development or development-to-staging blocker. Staging/UAT phpMyAdmin is allowed only when it authenticates users, uses environment-specific secrets, and does not connect to production databases.
+
+`environments` maps Git branches to actual runtime environments. Do not fill this from branch names alone; map only verified servers and databases. Use `status: not_configured` when the branch exists but no development/staging phpMyAdmin runtime exists.
+
+`access.application_scoped` must remain `true`, and `access.shared_company_admin` must remain `false`. Developer phpMyAdmin access is per application and per environment, not a company-wide shared DBA account.
+
+The governance config must not contain credential keys or secret values. Store phpMyAdmin database users, passwords, host secrets, and authentication material in the existing environment secret store or server configuration.
 
 ## Adapter Overrides
 
