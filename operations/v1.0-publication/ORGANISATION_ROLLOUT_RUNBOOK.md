@@ -161,7 +161,7 @@ Pause the rollout if:
 Organisation rollout is complete only after all selected repositories have:
 
 - an owner-approved rollout PR
-- Executive Release Authority approval, or a documented administrator bypass when the Executive Release Authority authored or last-pushed the PR
+- Executive Release Authority approval for non-Saurabh-authored pull requests, or the recorded `SaurabhVermaIN` author exception after all automated gates pass
 - a passing or policy-accepted PR QA run
 - owner-controlled manual merge
 - post-merge workflow verification

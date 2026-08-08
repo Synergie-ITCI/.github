@@ -2,7 +2,7 @@
 
 | Risk | Status | Compensating Control | Owner |
 | --- | --- | --- | --- |
-| Live CODEOWNERS approval state cannot be verified locally | PARTIALLY CLOSED | Branch Protection must require CODEOWNERS review before merge. Add GitHub API verification in a future online integration. | GitHub administrators |
+| Live pull request review state cannot be verified locally | CLOSED | The required PR QA Review Policy gate verifies GitHub review evidence through the GitHub API in Actions, while local tests use explicit fixture evidence. | GitHub administrators |
 | Third-party GitHub Actions are tag-pinned, not SHA-pinned | OPEN | Use GitHub org rules to restrict allowed actions; pin SHAs during controlled pilot hardening. | DevSecOps |
 | Gitleaks must exist on every publication runner | OPEN | Local RC2 validation has Gitleaks installed and passing; central runner image must also include Gitleaks because the workflow fails if unavailable. | DevSecOps |
 | Dependency scanners may not be installed on all runners | OPEN | Central runner image/tool bootstrap must provide Composer audit, npm audit, pip-audit, govulncheck, Trivy, tfsec/Checkov, etc. | DevSecOps |

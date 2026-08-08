@@ -24,6 +24,7 @@ PR Size: 12 files, +342 / -76
 | Architecture | WARNING |
 | Risk Engine | WARNING |
 | Evidence | PASS |
+| Review Policy | PASS |
 
 Risk Score: 43 / 100
 

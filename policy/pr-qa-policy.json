@@ -15,6 +15,7 @@
     "database_safety",
     "documentation",
     "protected_resources",
+    "review_policy",
     "risk",
     "evidence"
   ],
@@ -28,6 +29,16 @@
     "audit_artifact": "emergency-override-audit.json"
   },
   "governance": {
+    "review_policy": {
+      "owner_review_exception": {
+        "github_login": "SaurabhVermaIN",
+        "independent_human_review_required": false
+      },
+      "required_independent_approvals": 1,
+      "require_independent_review_for_other_authors": true,
+      "identity_source": "github_login",
+      "automated_gates_remain_mandatory": true
+    },
     "executive_release_authority": {
       "current_holder": "SaurabhVermaIN",
       "required_reviewers": [
@@ -35,7 +46,9 @@
       ],
       "developer_self_approval_allowed": false,
       "non_authority_approval_satisfies_protection": false,
-      "require_last_push_approval": true,
+      "native_required_review_count": 0,
+      "review_policy_status_check_required": true,
+      "require_last_push_approval": false,
       "administrator_bypass": {
         "eligible_actors": [
           "SaurabhVermaIN"

@@ -15,13 +15,13 @@ Emergency Administrative Override exists only for governance decisions during ex
 
 ## Authorised Actor
 
-Only the GitHub user `SaurabhVermaIN` is eligible for an accepted governance override.
+Only the GitHub user `SaurabhVermaIN` is eligible for an accepted emergency governance override.
 
 All other actors produce a rejected audit record.
 
-The Executive Release Authority must not be treated as self-approved.
+The normal `SaurabhVermaIN` author exception is separate from emergency override. Pull requests authored by the verified GitHub identity `SaurabhVermaIN` do not require independent human review after all mandatory automated gates pass.
 
-If the actor and pull request author are both `SaurabhVermaIN`, GitHub Branch Protection remains authoritative. With `require_last_push_approval` enabled, GitHub must block self-approval. The correct governance decision is `ADMINISTRATOR_BYPASS_REQUIRED`.
+If the actor and pull request author are both `SaurabhVermaIN`, the correct governance decision is `SAURABH_AUTHOR_EXCEPTION_RECORDED`. This is not an administrator bypass and does not suppress any QA, security, production, environment, or mergeability control.
 
 If `SaurabhVermaIN` records an override on a pull request authored by another developer, the decision is `EXECUTIVE_RELEASE_AUTHORITY_REVIEW_RECORDED`.
 
@@ -39,6 +39,7 @@ Every override request writes an audit record containing:
 - reason
 - QA summary at the time of override
 - administrator bypass required flag
+- Saurabh author exception flag
 - self-approval allowed flag
 - record SHA-256
 
@@ -57,10 +58,9 @@ The framework does not bypass GitHub Branch Protection automatically.
 Configure GitHub Branch Protection or repository rulesets outside PR QA so that:
 
 - Enterprise PR QA is required on every pull request.
-- one approval from `SaurabhVermaIN`, or the Executive Release Authority role containing only the current holder, is required.
-- developers cannot approve their own pull requests.
-- approvals from reviewers other than the Executive Release Authority do not satisfy protected-branch approval.
-- `require_last_push_approval` remains enabled.
+- one approval from `SaurabhVermaIN`, or the Executive Release Authority role containing only the current holder, is required for pull requests authored by users other than `SaurabhVermaIN`.
+- pull requests authored by `SaurabhVermaIN` are exempt only from independent human review.
+- approvals from reviewers other than the Executive Release Authority do not satisfy protected-branch approval for non-Saurabh authors.
 - administrator bypass is permitted only for the Executive Release Authority.
 
 Keep PR QA enabled and required. The emergency decision must be made with the truthful passed, warning, or failed QA report visible.
@@ -73,7 +73,6 @@ An emergency override is acceptable only when:
 - the PR QA report has completed
 - the audit record is retained
 - the emergency reason is specific
-- GitHub Administrator Bypass is used intentionally when the Executive Release Authority authored or last-pushed the PR
 - the post-incident review verifies whether a framework defect, operational issue, or application issue caused the override
 
 Do not use emergency override for routine release pressure, incomplete evidence, speculative improvements, or convenience.

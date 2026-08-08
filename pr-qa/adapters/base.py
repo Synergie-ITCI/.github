@@ -32,6 +32,7 @@ MANDATORY_GATES = {
     "database_safety",
     "documentation",
     "protected_resources",
+    "review_policy",
     "risk",
     "evidence",
 }
