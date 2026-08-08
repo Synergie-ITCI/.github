@@ -84,6 +84,97 @@ Do not create or reuse:
 
 The application owner must approve the application-specific developer group or database role. Credentials must live in environment secrets or server configuration, never in Git.
 
+## Standard Non-Production Operating Pattern
+
+Use the Sankalp staging rollout as the reusable Synergie pattern for future development, staging, and UAT applications:
+
+- expose phpMyAdmin only on the approved application vhost, not globally
+- use `/synergie-pma/` as the standard route unless an application has a documented conflict
+- require HTTPS before exposure
+- require an outer Apache Basic Auth gate or stronger equivalent
+- store only Apache-compatible password hashes in the Basic Auth file
+- keep the Basic Auth file outside every document root, for example under `/etc/apache2`
+- use phpMyAdmin cookie authentication for database login
+- do not store database passwords in phpMyAdmin config, Apache config, Git, PR comments, or documentation
+- set `AllowNoPassword` to false
+- set `AllowArbitraryServer` to false unless a separate non-production exception is approved
+- set secure and HTTP-only login cookies where supported
+- restrict phpMyAdmin's server entry to the one approved non-production database
+- disable any package-provided global Apache `/phpmyadmin` alias
+- include the phpMyAdmin Apache alias only inside the approved non-production HTTPS vhost
+- validate unrelated vhosts do not inherit `/synergie-pma/` or `/phpmyadmin`
+
+The underlying database user remains the real isolation boundary. The database user must be scoped to the assigned application and environment database. A staging database user may administer that staging database, but it must not have global server privileges, `SUPER`, `CREATE USER`, `FILE`, unnecessary `PROCESS`, `GRANT OPTION`, production database access, or cross-application database access.
+
+## Reusable Onboarding Automation
+
+Use the credential-free generator before future non-production onboarding:
+
+```bash
+python3 tools/phpmyadmin_nonprod_onboarding.py \
+  --application-name Sankalp \
+  --environment staging \
+  --hostname sankalpdev.synergieinsights.in \
+  --database-name sankalpdev_db \
+  --database-user-identity sankalpdev_user \
+  --database-scope sankalpdev_db \
+  --developer-identity "Raveesh Yadav" \
+  --db-classification staging \
+  --https-available true \
+  --output-dir /tmp/synergie-pma-sankalp-staging
+```
+
+The generator refuses production environments, production database classifications, root/global database users, global or cross-application scopes, missing developer ownership, and missing HTTPS. It never generates or stores credentials.
+
+## Credential Delivery
+
+Temporary plaintext bootstrap material is allowed only long enough to deliver a generated Basic Auth credential through the approved secure channel. It must be root-only while it exists.
+
+Do not print, commit, paste, or log the credential. After secure delivery is confirmed, remove the bootstrap file and verify it is absent. If delivery cannot be confirmed, keep the root-only bootstrap file temporarily and report:
+
+```text
+CREDENTIAL DELIVERY CONFIRMATION REQUIRED
+```
+
+## Credential Rotation
+
+Rotate a developer's Basic Auth credential without changing application database credentials:
+
+1. Generate a strong replacement password on the target non-production host.
+2. Update the Apache Basic Auth file with an Apache-compatible hash such as bcrypt or APR1.
+3. Validate the new credential reaches the phpMyAdmin login page.
+4. Validate the old credential no longer authenticates.
+5. Deliver the new credential through the approved secure channel.
+6. Remove any temporary plaintext bootstrap material after delivery confirmation.
+
+Do not rotate merely for demonstration. Rotate when access changes, delivery is uncertain, compromise is suspected, or periodic policy requires it.
+
+## Developer Revocation
+
+To revoke a developer's phpMyAdmin access without uninstalling phpMyAdmin, changing application database credentials, affecting another developer, or restarting unrelated services:
+
+```bash
+sudo cp -a /etc/apache2/<application-pma>.htpasswd /etc/apache2/<application-pma>.htpasswd.$(date -u +%Y%m%dT%H%M%SZ).bak
+sudo htpasswd -D /etc/apache2/<application-pma>.htpasswd <basic-auth-username>
+sudo apache2ctl configtest
+sudo systemctl reload apache2
+```
+
+Validate the removed identity receives `401` and any remaining authorized identities still work.
+
+## Runtime Rollback
+
+Rollback removes the vhost exposure and leaves application databases untouched:
+
+```bash
+sudo cp -a /etc/apache2/sites-enabled/<vhost>.conf /etc/apache2/sites-enabled/<vhost>.conf.rollback.$(date -u +%Y%m%dT%H%M%SZ)
+sudo sed -i '\#IncludeOptional /etc/apache2/conf-available/<application-pma>.conf#d' /etc/apache2/sites-enabled/<vhost>.conf
+sudo apache2ctl configtest
+sudo systemctl reload apache2
+```
+
+Do not enable a global `/phpmyadmin` alias during rollback. Do not modify production, production databases, production Apache, production credentials, or unrelated vhosts.
+
 ## Production Gate
 
 The reusable production gate runs:
