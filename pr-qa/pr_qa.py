@@ -10,6 +10,8 @@ import json
 import os
 import re
 import subprocess
+import urllib.error
+import urllib.request
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
@@ -64,6 +66,7 @@ GATE_ORDER = [
     ("advisory_review", "Architecture"),
     ("risk", "Risk Engine"),
     ("evidence", "Evidence"),
+    ("review_policy", "Review Policy"),
 ]
 
 ADAPTER_EXTENSIONS = {
@@ -178,7 +181,7 @@ def main() -> int:
         return 1 if summary["overall_result"] == FAIL else 0
 
     results.extend(run_sandboxed_validation(ctx, technologies))
-    results.extend(run_governance(ctx, results))
+    results.extend(run_governance(ctx, results, args))
     summary = summarize(results, technologies, ctx, git_context)
     write_emergency_override_audit(args, summary, results, ctx, git_context)
     write_reports(args, summary, results, ctx)
@@ -203,6 +206,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-command-runs", action="store_true", help="Do not execute adapter commands.")
     parser.add_argument("--emergency-override-reason", default=os.environ.get(EMERGENCY_OVERRIDE_REASON_ENV, ""), help="Governance-only emergency override reason.")
     parser.add_argument("--emergency-override-out", default="", help="Emergency override audit record path.")
+    parser.add_argument("--review-policy-input", default="", help="Optional JSON file with pull request review and mergeability evidence.")
     return parser.parse_args()
 
 
@@ -580,12 +584,13 @@ def run_sandboxed_validation(ctx: PRContext, technologies: dict[str, dict[str, A
     return results
 
 
-def run_governance(ctx: PRContext, existing_results: list[CheckResult]) -> list[CheckResult]:
+def run_governance(ctx: PRContext, existing_results: list[CheckResult], args: argparse.Namespace) -> list[CheckResult]:
     results: list[CheckResult] = []
     results.extend(run_if_enabled(ctx, "documentation", lambda: gate_documentation(ctx)))
     results.extend(run_if_enabled(ctx, "advisory_review", lambda: gate_advisory_review(ctx)))
     results.extend(run_if_enabled(ctx, "risk", lambda: gate_risk(ctx, existing_results + results)))
     results.extend(run_if_enabled(ctx, "evidence", lambda: gate_evidence(ctx)))
+    results.extend(run_if_enabled(ctx, "review_policy", lambda: gate_review_policy(ctx, args.review_policy_input)))
     return results
 
 
@@ -863,6 +868,13 @@ def is_approved_regression_fixture(ctx: PRContext, rel: str) -> bool:
     return match_any(rel, patterns)
 
 
+def is_approved_deployment_sensitive_asset(ctx: PRContext, rel: str) -> bool:
+    if repository_profile(ctx) != "framework":
+        return False
+    patterns = repository_profile_settings(ctx).get("approved_deployment_sensitive_assets", []) or []
+    return match_any(rel, patterns)
+
+
 def decoded_text_variants(path: Path) -> list[str]:
     try:
         raw = path.read_bytes()
@@ -917,7 +929,7 @@ def gate_protected_resources(ctx: PRContext, git_context: dict[str, Any]) -> lis
     codeowners_changed = any(path in {"CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"} for path in ctx.changed_files)
     codeowners = load_base_codeowners(ctx.repo, git_context)
     if codeowners_changed and not codeowners and is_codeowners_bootstrap_pr(ctx):
-        return [warning("Protected Resources", None, "Base CODEOWNERS bootstrap detected; Branch Protection must enforce required reviewer approval.", sorted(ctx.changed_files))]
+        return [warning("Protected Resources", None, "Base CODEOWNERS bootstrap detected; required status checks and Review Policy gate must enforce governance.", sorted(ctx.changed_files))]
     if codeowners_changed:
         return [failed("Protected Resources", None, "CODEOWNERS changes are not allowed in PR QA guarded changes.", score=20)]
     if not changed:
@@ -927,7 +939,7 @@ def gate_protected_resources(ctx: PRContext, git_context: dict[str, Any]) -> lis
     uncovered = [path for path in changed if not codeowners_covers(path, codeowners)]
     if uncovered:
         return [failed("Protected Resources", None, "Protected resources changed without base-branch CODEOWNERS coverage.", uncovered[:30], score=14)]
-    return [warning("Protected Resources", None, "Protected resources changed; Branch Protection must enforce CODEOWNERS review.", changed[:30])]
+    return [warning("Protected Resources", None, "Protected resources changed; required status checks and Review Policy gate must enforce governance.", changed[:30])]
 
 
 def is_codeowners_bootstrap_pr(ctx: PRContext) -> bool:
@@ -983,6 +995,24 @@ def gate_deployment_safety(ctx: PRContext) -> list[CheckResult]:
     changed = [path for path in ctx.changed_files if match_any(path, deployment_patterns)]
     if not changed:
         return [passed("Deployment Risk", None, "No deployment-sensitive files changed.")]
+    framework_approved = [path for path in changed if is_approved_deployment_sensitive_asset(ctx, path)]
+    if framework_approved and len(framework_approved) == len(changed):
+        dangerous_tokens = []
+        for path in framework_approved:
+            text = read_text(ctx.repo / path)
+            lower = (path + "\n" + text).lower()
+            for token in ["ssh", "rsync", "sudo", "kubectl apply", "terraform apply"]:
+                if token in lower:
+                    dangerous_tokens.append(f"{path}: `{token}`")
+        if not dangerous_tokens:
+            return [
+                warning(
+                    "Deployment Risk",
+                    None,
+                    "Approved central governance workflow/template changes detected; required status checks and Review Policy gate remain mandatory.",
+                    framework_approved[:40],
+                )
+            ]
     details = []
     score = 0
     risky_tokens = []
@@ -1132,6 +1162,144 @@ def gate_evidence(ctx: PRContext) -> list[CheckResult]:
     return [passed("Evidence", None, "Mandatory PR template evidence is complete.")]
 
 
+def gate_review_policy(ctx: PRContext, input_path: str = "") -> list[CheckResult]:
+    if "pull_request" not in ctx.event:
+        return [skipped("Review Policy", None, "Review policy validation runs only for pull_request events.")]
+
+    policy = review_policy_config(ctx)
+    owner_login = str(policy.get("owner_review_exception", {}).get("github_login", "SaurabhVermaIN"))
+    required_approvals = int(policy.get("required_independent_approvals", 1))
+    pr_author = extract_pr_author(ctx.event)
+    evidence = load_review_policy_evidence(ctx, input_path)
+
+    mergeable = evidence.get("mergeable")
+    merge_conflict = evidence.get("merge_conflict")
+    if merge_conflict is True or mergeable is False:
+        return [failed("Review Policy", None, "Pull request has merge conflicts or is not mergeable.", [f"author={pr_author or 'unknown'}"], score=12)]
+
+    if pr_author == owner_login:
+        return [
+            passed(
+                "Review Policy",
+                None,
+                "Verified GitHub identity SaurabhVermaIN is exempt from independent human review; automated gates remain mandatory.",
+            )
+        ]
+
+    approvals = independent_approved_reviewers(evidence.get("reviews", []), pr_author)
+    if len(approvals) >= required_approvals:
+        return [
+            passed(
+                "Review Policy",
+                None,
+                "Independent human review requirement is satisfied for non-Saurabh author.",
+                [f"approvals={', '.join(approvals)}"],
+            )
+        ]
+
+    if evidence.get("source") == "unavailable":
+        return [
+            failed(
+                "Review Policy",
+                None,
+                "Independent review evidence is unavailable; protected-branch review policy cannot be verified.",
+                evidence.get("errors", []),
+                score=12,
+            )
+        ]
+
+    return [
+        failed(
+            "Review Policy",
+            None,
+            "Independent human approval is required for non-Saurabh authors.",
+            [f"author={pr_author or 'unknown'}", f"approved_independent_reviewers={len(approvals)}"],
+            score=12,
+        )
+    ]
+
+
+def review_policy_config(ctx: PRContext) -> dict[str, Any]:
+    governance = ctx.policy.get("governance", {}) or {}
+    return dict(governance.get("review_policy", {}) or {})
+
+
+def load_review_policy_evidence(ctx: PRContext, input_path: str) -> dict[str, Any]:
+    if input_path:
+        path = Path(input_path)
+        try:
+            evidence = json.loads(path.read_text(encoding="utf-8"))
+            return evidence if isinstance(evidence, dict) else {"source": "unavailable", "errors": [f"{path}: review policy input is not a JSON object."]}
+        except (OSError, json.JSONDecodeError) as exc:
+            return {"source": "unavailable", "errors": [f"{path}: {exc}"]}
+
+    if "review_policy" in ctx.event and isinstance(ctx.event["review_policy"], dict):
+        return dict(ctx.event["review_policy"])
+
+    live = fetch_github_review_policy_evidence(ctx)
+    if live:
+        return live
+
+    return {"source": "unavailable", "reviews": [], "errors": ["No review policy input file, event review_policy payload, or GitHub token-backed API evidence was available."]}
+
+
+def fetch_github_review_policy_evidence(ctx: PRContext) -> dict[str, Any] | None:
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    repository = os.environ.get("GITHUB_REPOSITORY")
+    pr_number = extract_pr_number(ctx.event)
+    if not token or not repository or not pr_number:
+        return None
+
+    base_url = f"https://api.github.com/repos/{repository}/pulls/{pr_number}"
+    errors: list[str] = []
+    pr_payload = github_api_get(base_url, token, errors)
+    reviews_payload = github_api_get(f"{base_url}/reviews", token, errors)
+    if errors:
+        return {"source": "unavailable", "reviews": [], "errors": errors}
+    reviews = reviews_payload if isinstance(reviews_payload, list) else []
+    mergeable = pr_payload.get("mergeable") if isinstance(pr_payload, dict) else None
+    mergeable_state = pr_payload.get("mergeable_state") if isinstance(pr_payload, dict) else ""
+    return {
+        "source": "github_api",
+        "mergeable": mergeable,
+        "merge_conflict": mergeable is False or mergeable_state == "dirty",
+        "reviews": reviews,
+    }
+
+
+def github_api_get(url: str, token: str, errors: list[str]) -> Any:
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "synergie-pr-qa",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        errors.append(f"{url}: {exc}")
+        return None
+
+
+def independent_approved_reviewers(reviews: Any, pr_author: str) -> list[str]:
+    latest_by_user: dict[str, str] = {}
+    if not isinstance(reviews, list):
+        return []
+    for review in reviews:
+        if not isinstance(review, dict):
+            continue
+        login = str((review.get("user", {}) or {}).get("login", "") or review.get("login", ""))
+        state = str(review.get("state", "")).upper()
+        if not login:
+            continue
+        latest_by_user[login] = state
+    return sorted(login for login, state in latest_by_user.items() if login != pr_author and state == "APPROVED")
+
+
 def field_has_value(body: str, field: str) -> bool:
     if not body.strip():
         return False
@@ -1247,17 +1415,20 @@ def write_emergency_override_audit(
     authorized_actors = set(policy_override.get("authorized_actors", []))
     actor = resolve_override_actor(ctx, ctx.event)
     pr_author = extract_pr_author(ctx.event)
+    owner_login = str(review_policy_config(ctx).get("owner_review_exception", {}).get("github_login", "SaurabhVermaIN"))
     actor_authorized = actor in authorized_actors
-    administrator_bypass_required = actor_authorized and actor == pr_author
+    saurabh_author_exception = actor_authorized and actor == pr_author and pr_author == owner_login
+    administrator_bypass_required = False
     record = {
         "schema_version": 1,
         "type": "emergency_administrative_override",
-        "decision": emergency_override_decision(actor_authorized, administrator_bypass_required),
+        "decision": emergency_override_decision(actor_authorized, administrator_bypass_required, saurabh_author_exception),
         "authorized": actor_authorized,
         "actor_authorized": actor_authorized,
         "administrator_bypass_required": administrator_bypass_required,
+        "saurabh_author_exception": saurabh_author_exception,
         "self_approval_allowed": False,
-        "self_merge_authorized": False,
+        "self_merge_authorized": saurabh_author_exception,
         "actor": actor,
         "pr_author": pr_author,
         "authorized_actors": sorted(authorized_actors),
@@ -1271,8 +1442,8 @@ def write_emergency_override_audit(
         "invariants": [
             "QA executed before this audit record was generated.",
             "QA findings, gate statuses, overall result, merge readiness, and process exit code are not changed by emergency override.",
-            "No developer or Executive Release Authority may approve their own pull request.",
-            "Executive-authored pull requests require GitHub Administrator Bypass after QA, with a mandatory reason and preserved QA evidence.",
+            "Pull requests authored by SaurabhVermaIN are exempt only from independent human review.",
+            "Other developers still require independent human approval.",
             "This record is governance evidence only and does not bypass GitHub Branch Protection automatically.",
         ],
     }
@@ -1308,9 +1479,11 @@ def resolve_override_actor(ctx: PRContext, event: dict[str, Any]) -> str:
     return os.environ.get("GITHUB_ACTOR") or os.environ.get("GITHUB_TRIGGERING_ACTOR") or sender
 
 
-def emergency_override_decision(actor_authorized: bool, administrator_bypass_required: bool) -> str:
+def emergency_override_decision(actor_authorized: bool, administrator_bypass_required: bool, saurabh_author_exception: bool = False) -> str:
     if not actor_authorized:
         return "REJECTED_UNAUTHORIZED_ACTOR"
+    if saurabh_author_exception:
+        return "SAURABH_AUTHOR_EXCEPTION_RECORDED"
     if administrator_bypass_required:
         return "ADMINISTRATOR_BYPASS_REQUIRED"
     if actor_authorized:
@@ -1387,9 +1560,9 @@ def render_markdown_report(summary: dict[str, Any], results: list[CheckResult]) 
             lines.append(f"- {result.status} {markdown_escape(result.gate)}{technology}: {markdown_escape(result.message)}")
             for detail in result.details[:6]:
                 lines.append(f"  - {markdown_escape(str(detail))}")
-        lines.append("")
+    lines.append("")
     lines.append("## Audit Note")
-    lines.append("This workflow validates and reports only. GitHub Branch Protection remains the authority for approvals, CODEOWNERS review, required checks, merge permissions, and merge decisions.")
+    lines.append("This workflow validates technical gates and review policy. GitHub Branch Protection and repository rulesets remain the authority for required status checks, merge permissions, merge conflicts, and merge decisions.")
     return "\n".join(lines) + "\n"
 
 

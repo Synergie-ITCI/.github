@@ -115,6 +115,58 @@ runtime:
 
 `fail_fast_on_secrets` stops later gates after secret detection fails, while still generating the final report.
 
+## phpMyAdmin Policy
+
+Repository governance may document phpMyAdmin posture without storing secrets:
+
+```yaml
+phpmyadmin:
+  local_allowed: true
+  development_allowed: true
+  access:
+    application_scoped: true
+    shared_company_admin: false
+    database_scoped: true
+    cross_application_access: false
+    unrestricted_database_admin: false
+    owner_role: Application owner
+    developer_group: application-developers
+  environments:
+    - branch: development
+      environment: development
+      server: dev.example.internal
+      database: example_dev
+      database_user_identity: example_dev_phpmyadmin
+      database_scope: example_dev
+      phpmyadmin_url: https://dev.example.internal/phpmyadmin
+      status: configured
+    - branch: staging
+      environment: staging
+      server: uat.example.internal
+      database: example_uat
+      database_user_identity: example_uat_phpmyadmin
+      database_scope: example_uat
+      phpmyadmin_url: https://uat.example.internal/phpmyadmin
+      status: configured
+  staging:
+    allowed: true
+    require_authentication: true
+    require_database_isolation: true
+    require_environment_secrets: true
+    prefer_network_restriction: true
+  production:
+    allowed: false
+    block_runtime_exposure: true
+```
+
+Production phpMyAdmin exposure is enforced by the reusable production gate, not by a feature-to-development or development-to-staging blocker. Development and staging/UAT phpMyAdmin are allowed only when they authenticate users, use environment-specific secrets, and connect through a database identity limited to that application's non-production database.
+
+`environments` maps Git branches to actual runtime environments. Do not fill this from branch names alone; map only verified servers, databases, database user identities, and database scopes. Use `status: not_configured` when the branch exists but no development/staging phpMyAdmin runtime exists.
+
+`access.application_scoped` and `access.database_scoped` must remain `true`. `access.shared_company_admin`, `access.cross_application_access`, and `access.unrestricted_database_admin` must remain `false`. Developer phpMyAdmin access is per application and per environment, not a company-wide shared DBA account and not unrestricted database administration.
+
+The governance config must not contain credential keys or secret values. Store phpMyAdmin database users, passwords, host secrets, and authentication material in the existing environment secret store or server configuration.
+
 ## Adapter Overrides
 
 ```yaml

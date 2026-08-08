@@ -1,0 +1,12 @@
+{
+  "name": "Synergie phpMyAdmin Policy",
+  "description": "Reusable phpMyAdmin environment policy validation. Blocks production exposure and validates non-production mapping when run manually.",
+  "iconName": "octicon shield-lock",
+  "categories": [
+    "Automation",
+    "Security",
+    "PHP",
+    "Laravel",
+    "CodeIgniter"
+  ]
+}

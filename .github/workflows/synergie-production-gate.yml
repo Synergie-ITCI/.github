@@ -1,0 +1,226 @@
+name: Synergie Production Gate
+
+on:
+  workflow_call:
+    inputs:
+      governance-config-path:
+        description: Repository governance configuration path.
+        required: false
+        type: string
+        default: .github/synergie-governance.yml
+      require-governance-config:
+        description: Fail if the repository governance config is missing.
+        required: false
+        type: boolean
+        default: false
+      staging-branch:
+        description: Approved staging/release-candidate source branch.
+        required: false
+        type: string
+        default: staging
+      production-branch:
+        description: Production branch.
+        required: false
+        type: string
+        default: main
+      allowed-production-sources:
+        description: Comma-separated branch patterns allowed to target production.
+        required: false
+        type: string
+        default: staging
+      enforce-promotion-path:
+        description: Enforce staging to main promotion for PRs.
+        required: false
+        type: boolean
+        default: true
+      require-rollback-evidence:
+        description: Require repository-provided rollback evidence for the release PR.
+        required: false
+        type: boolean
+        default: false
+      rollback-evidence-paths:
+        description: Comma-separated paths that satisfy rollback evidence when required.
+        required: false
+        type: string
+        default: docs/rollback.md,docs/release.md,runbooks/rollback.md,.github/rollback.md
+      run-pr-qa:
+        description: Run the central Synergie PR QA workflow after production preflight.
+        required: false
+        type: boolean
+        default: true
+      enforce-phpmyadmin-production-policy:
+        description: Fail staging-to-main releases that introduce production phpMyAdmin exposure.
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  production-preflight:
+    name: Production Release Preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout caller repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Validate production promotion path
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+          GOVERNANCE_CONFIG_PATH: ${{ inputs.governance-config-path }}
+          REQUIRE_GOVERNANCE_CONFIG: ${{ inputs.require-governance-config }}
+          PRODUCTION_BRANCH: ${{ inputs.production-branch }}
+          ALLOWED_PRODUCTION_SOURCES: ${{ inputs.allowed-production-sources }}
+          ENFORCE_PROMOTION_PATH: ${{ inputs.enforce-promotion-path }}
+          REQUIRE_ROLLBACK_EVIDENCE: ${{ inputs.require-rollback-evidence }}
+          ROLLBACK_EVIDENCE_PATHS: ${{ inputs.rollback-evidence-paths }}
+        run: |
+          python3 - <<'PY'
+          from fnmatch import fnmatchcase
+          from pathlib import Path
+          import os
+          import sys
+
+          event_name = os.environ.get("EVENT_NAME", "")
+          base_ref = os.environ.get("BASE_REF", "")
+          head_ref = os.environ.get("HEAD_REF", "")
+          config_path = Path(os.environ["GOVERNANCE_CONFIG_PATH"])
+          require_config = os.environ["REQUIRE_GOVERNANCE_CONFIG"].lower() == "true"
+          enforce_path = os.environ["ENFORCE_PROMOTION_PATH"].lower() == "true"
+          production_branch = os.environ["PRODUCTION_BRANCH"]
+          allowed_sources = [
+              item.strip()
+              for item in os.environ["ALLOWED_PRODUCTION_SOURCES"].split(",")
+              if item.strip()
+          ]
+          require_rollback = os.environ["REQUIRE_ROLLBACK_EVIDENCE"].lower() == "true"
+          rollback_paths = [
+              Path(item.strip())
+              for item in os.environ["ROLLBACK_EVIDENCE_PATHS"].split(",")
+              if item.strip()
+          ]
+
+          if require_config and not config_path.exists():
+              print(f"Missing required governance config: {config_path}", file=sys.stderr)
+              sys.exit(1)
+
+          if config_path.exists():
+              text = config_path.read_text(encoding="utf-8", errors="replace")
+              lowered = text.lower()
+              forbidden = [
+                  "password:",
+                  "secret:",
+                  "access_key",
+                  "private_key",
+                  "token:",
+                  "credential",
+              ]
+              matched = [item for item in forbidden if item in lowered]
+              if matched:
+                  print(
+                      f"Governance config must not contain credentials or secrets. Matched: {', '.join(matched)}",
+                      file=sys.stderr,
+                  )
+                  sys.exit(1)
+              print(f"Governance config present: {config_path}")
+          else:
+              print(f"Governance config not present: {config_path} (allowed by workflow input)")
+
+          if require_rollback and not any(path.exists() for path in rollback_paths):
+              print(
+                  "Rollback evidence is required but none of the configured paths exist: "
+                  + ", ".join(str(path) for path in rollback_paths),
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          if event_name != "pull_request" or not enforce_path:
+              print("Production promotion path enforcement skipped for this event/input.")
+              sys.exit(0)
+
+          if base_ref == production_branch:
+              if not any(fnmatchcase(head_ref, pattern) for pattern in allowed_sources):
+                  print(
+                      "Invalid production promotion source. "
+                      f"base={base_ref!r}, head={head_ref!r}, allowed={allowed_sources!r}",
+                      file=sys.stderr,
+                  )
+                  sys.exit(1)
+              print(f"Production promotion source accepted: {head_ref} -> {base_ref}")
+          else:
+              print(f"No production promotion rule applies to base branch: {base_ref}")
+          PY
+
+      - name: Prepare local Synergie policy tooling
+        if: ${{ github.repository == 'Synergie-ITCI/.github' && inputs.enforce-phpmyadmin-production-policy }}
+        run: |
+          mkdir -p .synergie-governance/tools
+          cp tools/phpmyadmin_policy.py .synergie-governance/tools/phpmyadmin_policy.py
+
+      - name: Checkout Synergie policy tooling
+        if: ${{ github.repository != 'Synergie-ITCI/.github' && inputs.enforce-phpmyadmin-production-policy }}
+        uses: actions/checkout@v4
+        with:
+          repository: Synergie-ITCI/.github
+          ref: main
+          path: .synergie-governance
+          persist-credentials: false
+
+      - name: phpMyAdmin production check
+        id: phpmyadmin
+        if: ${{ inputs.enforce-phpmyadmin-production-policy }}
+        env:
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          GOVERNANCE_CONFIG_PATH: ${{ inputs.governance-config-path }}
+        run: |
+          mkdir -p production-gate-results
+          set +e
+          python3 .synergie-governance/tools/phpmyadmin_policy.py \
+            --repo "$GITHUB_WORKSPACE" \
+            --mode production \
+            --base-sha "$GITHUB_BASE_SHA" \
+            --head-sha "$GITHUB_HEAD_SHA" \
+            --governance-config "$GOVERNANCE_CONFIG_PATH" \
+            --out production-gate-results/phpmyadmin-policy-report.md \
+            --json-out production-gate-results/phpmyadmin-policy-report.json
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Publish phpMyAdmin policy report
+        if: ${{ always() && inputs.enforce-phpmyadmin-production-policy }}
+        run: |
+          if [ -f production-gate-results/phpmyadmin-policy-report.md ]; then
+            cat production-gate-results/phpmyadmin-policy-report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "phpMyAdmin production policy report was not generated." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload production gate evidence
+        if: ${{ always() && inputs.enforce-phpmyadmin-production-policy }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: synergie-production-gate-results
+          path: production-gate-results/
+          retention-days: 30
+
+      - name: Enforce phpMyAdmin production policy
+        if: ${{ inputs.enforce-phpmyadmin-production-policy && steps.phpmyadmin.outputs.exit_code != '0' }}
+        run: |
+          echo "PRODUCTION PHPMYADMIN POLICY VIOLATION"
+          exit 1
+
+  pr-qa:
+    name: Synergie Release QA
+    needs: production-preflight
+    if: ${{ inputs.run-pr-qa }}
+    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@main

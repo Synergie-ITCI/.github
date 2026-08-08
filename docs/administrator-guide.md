@@ -4,7 +4,7 @@
 
 The PR QA framework is a required technical status check for pull requests. It validates repository hygiene, code quality, security, operational risk, documentation evidence, and PR evidence before a human review/merge decision.
 
-The workflow never merges code and never changes Branch Protection. Branch Protection remains the authority for approvals, CODEOWNERS review, required checks, merge permissions, and merge strategy.
+The workflow never merges code and never changes Branch Protection. The required PR QA status validates technical gates and review policy. Branch Protection and repository rulesets remain the authority for required status checks, merge permissions, merge conflicts, and merge strategy.
 
 ## Central Repository Layout
 
@@ -99,11 +99,11 @@ Configure the organisation governance model as follows:
 | Control | Required Setting |
 | --- | --- |
 | Required QA | Enterprise PR QA required on every pull request |
-| Required approval | one approval from the Executive Release Authority |
+| Required approval | enforced by the required Enterprise PR QA review-policy gate |
 | Current Executive Release Authority | `SaurabhVermaIN` |
-| Developer self-approval | prohibited |
+| Saurabh author exception | `SaurabhVermaIN` may merge without independent human review after all automated gates pass |
+| Developer self-approval | prohibited for every other developer |
 | Non-authority approval | may comment or review, but cannot satisfy protected-branch approval |
-| Require Last Push Approval | enabled |
 | Review thread resolution | enabled |
 | Stale review dismissal | enabled |
 
@@ -111,19 +111,17 @@ Recommended GitHub configuration:
 
 - Use a protected branch ruleset for `main` and every protected release branch.
 - Require pull requests before merging.
-- Require at least one approving review.
-- Require review from `SaurabhVermaIN` directly, or from a GitHub team/role that only contains the current Executive Release Authority.
-- Keep `require_last_push_approval` enabled so the PR author or last pusher cannot satisfy their own approval requirement.
+- Require the Enterprise PR QA status check; its Review Policy gate enforces the Saurabh-only author exception and the independent-review requirement for all other authors.
+- Do not use a native required-review-count rule when it cannot express the `SaurabhVermaIN` author exception safely.
 - Restrict ruleset bypass actors to the Executive Release Authority or the controlled Executive Release Authority team.
-- Permit administrator bypass only through GitHub's explicit bypass flow and only after PR QA has completed.
+- Permit administrator bypass only through GitHub's explicit emergency bypass flow and only after PR QA has completed.
 
-When `SaurabhVermaIN` opens or last-pushes a pull request, GitHub must continue to block self-approval. The expected governance path is:
+When `SaurabhVermaIN` opens a pull request, the expected governance path is:
 
 1. PR QA runs and publishes all findings.
-2. The Executive Release Authority reviews the PR evidence.
-3. If the change must proceed and GitHub blocks self-approval because of `require_last_push_approval`, the Executive Release Authority uses GitHub Administrator Bypass intentionally.
-4. The bypass reason is mandatory.
-5. The emergency override audit artifact is retained with the QA report.
+2. The Review Policy gate verifies the pull request author login is exactly `SaurabhVermaIN`.
+3. Required automated QA, security, production, environment, branch-promotion, and mergeability controls remain mandatory.
+4. If every mandatory gate passes, independent human review is not required.
 
 ## Emergency Administrative Override
 
@@ -135,7 +133,7 @@ The only authorised actor in the immutable central policy is:
 SaurabhVermaIN
 ```
 
-An Executive-authored pull request must not be treated as self-approved. If the actor and pull request author are both `SaurabhVermaIN`, the audit decision is `ADMINISTRATOR_BYPASS_REQUIRED`.
+The normal `SaurabhVermaIN` author exception is not an emergency administrative override and does not write an emergency override audit record.
 
 If `SaurabhVermaIN` records an override on a pull request authored by another developer, the audit decision is `EXECUTIVE_RELEASE_AUTHORITY_REVIEW_RECORDED`. This does not alter the QA result; it records the Executive Release Authority governance action.
 

@@ -1,0 +1,35 @@
+name: Synergie Branch Governance
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+      - edited
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: synergie-branch-governance-${{ github.repository }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  production-release-gate:
+    name: Production Release Gate
+    if: ${{ github.event.pull_request.draft == false && github.base_ref == 'main' }}
+    uses: Synergie-ITCI/.github/.github/workflows/synergie-production-gate.yml@main
+    with:
+      require-governance-config: false
+      staging-branch: staging
+      production-branch: main
+      allowed-production-sources: staging
+      enforce-promotion-path: true
+      require-rollback-evidence: false
+      enforce-phpmyadmin-production-policy: true
+      run-pr-qa: true

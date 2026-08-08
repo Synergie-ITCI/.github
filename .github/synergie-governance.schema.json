@@ -1,0 +1,382 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Synergie-ITCI/.github/synergie-governance.schema.json",
+  "title": "Synergie Repository Governance",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "application",
+    "stack",
+    "branches",
+    "quality_checks",
+    "deployment"
+  ],
+  "properties": {
+    "application": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Business/application name."
+    },
+    "owner": {
+      "type": "string",
+      "description": "Owning team or role. Do not store personal credentials."
+    },
+    "stack": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "auto",
+            "php",
+            "laravel",
+            "codeigniter",
+            "wordpress",
+            "node",
+            "react",
+            "react-native",
+            "android-gradle",
+            "ios",
+            "python-fastapi"
+          ]
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      ],
+      "description": "Repository technology profile. Prefer auto unless a repo needs overrides."
+    },
+    "branches": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "feature_pattern",
+        "development",
+        "staging",
+        "production"
+      ],
+      "properties": {
+        "feature_pattern": {
+          "type": "string",
+          "default": "feature/*"
+        },
+        "development": {
+          "type": "string",
+          "default": "development"
+        },
+        "staging": {
+          "type": "string",
+          "default": "staging"
+        },
+        "production": {
+          "type": "string",
+          "default": "main"
+        },
+        "legacy_production": {
+          "type": "string",
+          "description": "Legacy production branch such as master, only when already used by the repo."
+        }
+      }
+    },
+    "promotion": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "staging_sources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "development"
+          ]
+        },
+        "production_sources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "staging"
+          ]
+        },
+        "emergency_sources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Existing emergency/hotfix sources to preserve. Do not invent unless approved."
+        }
+      }
+    },
+    "quality_checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pr_qa",
+        "secret_scan",
+        "security_scan"
+      ],
+      "properties": {
+        "pr_qa": {
+          "type": "boolean",
+          "default": true
+        },
+        "secret_scan": {
+          "type": "boolean",
+          "default": true
+        },
+        "security_scan": {
+          "type": "boolean",
+          "default": true
+        },
+        "tests": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "required",
+            "informational",
+            "not_available"
+          ],
+          "default": "auto"
+        },
+        "migration_safety": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "required",
+            "not_applicable"
+          ],
+          "default": "auto"
+        }
+      }
+    },
+    "deployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "staging_environment",
+        "production_environment"
+      ],
+      "properties": {
+        "staging_environment": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Existing staging/UAT GitHub environment, or null when not configured."
+        },
+        "production_environment": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Existing production GitHub environment, or null when not configured."
+        },
+        "deployment_mechanism": {
+          "type": "string",
+          "description": "Existing deployment mechanism. Examples: github-actions-ssm, manual, none."
+        },
+        "rollback_required": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "phpmyadmin": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Environment policy for phpMyAdmin. This section is declarative and must not contain credentials.",
+      "properties": {
+        "local_allowed": {
+          "type": "boolean",
+          "default": true
+        },
+        "development_allowed": {
+          "type": "boolean",
+          "default": true
+        },
+        "access": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Developer access model. Do not store usernames, passwords, cookies, or tokens.",
+          "properties": {
+            "application_scoped": {
+              "type": "boolean",
+              "const": true,
+              "default": true
+            },
+            "shared_company_admin": {
+              "type": "boolean",
+              "const": false,
+              "default": false
+            },
+            "database_scoped": {
+              "type": "boolean",
+              "const": true,
+              "default": true,
+              "description": "phpMyAdmin database privileges must be limited to the assigned application database."
+            },
+            "cross_application_access": {
+              "type": "boolean",
+              "const": false,
+              "default": false,
+              "description": "Developers must not use phpMyAdmin to administer unrelated application databases."
+            },
+            "unrestricted_database_admin": {
+              "type": "boolean",
+              "const": false,
+              "default": false,
+              "description": "Root, global administrator, shared DBA, and production database users are prohibited for developer phpMyAdmin."
+            },
+            "owner_role": {
+              "type": "string",
+              "description": "Application owner role or group responsible for approving access."
+            },
+            "developer_group": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Application-scoped developer group. Do not list credentials."
+            }
+          }
+        },
+        "environments": {
+          "type": "array",
+          "description": "Mapped runtime environments where phpMyAdmin is permitted or explicitly not configured. Branch names are not a substitute for actual runtime mapping.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "branch",
+              "environment",
+              "server",
+              "database",
+              "database_user_identity",
+              "database_scope",
+              "status"
+            ],
+            "properties": {
+              "branch": {
+                "type": "string",
+                "description": "Git branch associated with the runtime, such as development or staging."
+              },
+              "environment": {
+                "type": "string",
+                "enum": [
+                  "local",
+                  "feature",
+                  "development",
+                  "staging",
+                  "uat"
+                ]
+              },
+              "server": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Actual non-production server, hostname, or environment name. Use null only when no runtime exists."
+              },
+              "database": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Actual non-production database name. Must not be a production database."
+              },
+              "database_user_identity": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Non-secret database username or role identity used by phpMyAdmin. Must be application and environment scoped, not root/global/admin/production."
+              },
+              "database_scope": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Single database this phpMyAdmin database identity is permitted to administer. Use null only when no runtime exists."
+              },
+              "phpmyadmin_url": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Non-production phpMyAdmin URL or path. Do not include credentials."
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "configured",
+                  "not_configured",
+                  "not_eligible"
+                ]
+              },
+              "notes": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "staging": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "allowed": {
+              "type": "boolean",
+              "default": true
+            },
+            "require_authentication": {
+              "type": "boolean",
+              "default": true
+            },
+            "require_database_isolation": {
+              "type": "boolean",
+              "default": true
+            },
+            "require_environment_secrets": {
+              "type": "boolean",
+              "default": true
+            },
+            "prefer_network_restriction": {
+              "type": "boolean",
+              "default": true
+            },
+            "url": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Staging/UAT phpMyAdmin URL or path. Do not include credentials."
+            }
+          }
+        },
+        "production": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "allowed": {
+              "type": "boolean",
+              "const": false,
+              "default": false
+            },
+            "block_runtime_exposure": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        }
+      }
+    },
+    "notes": {
+      "type": "string"
+    }
+  }
+}

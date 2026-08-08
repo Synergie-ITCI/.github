@@ -1,0 +1,14 @@
+{
+  "name": "Synergie Branch Governance",
+  "description": "Company production branch governance gate for staging/main flow, including phpMyAdmin production policy.",
+  "iconName": "octicon git-pull-request",
+  "categories": [
+    "Automation",
+    "Security",
+    "PHP",
+    "JavaScript",
+    "Python",
+    "Java",
+    "Swift"
+  ]
+}

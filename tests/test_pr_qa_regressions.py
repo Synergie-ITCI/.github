@@ -57,6 +57,7 @@ class PrQaRegressionTests(unittest.TestCase):
         actor: str = "",
         pr_author: str = "SaurabhVermaIN",
         override_reason: str = "",
+        review_policy: dict | None = None,
     ) -> tuple[int, str, dict, Path]:
         event = repo / "event.json"
         event.write_text(
@@ -82,6 +83,7 @@ class PrQaRegressionTests(unittest.TestCase):
         report = repo / "report.md"
         json_report = repo / "report.json"
         audit = repo / "emergency-override-audit.json"
+        review_policy_input = repo / "review-policy-input.json"
         args = [
             "python3",
             str(ENGINE),
@@ -96,6 +98,9 @@ class PrQaRegressionTests(unittest.TestCase):
         ]
         if static_only:
             args.append("--static-only")
+        if review_policy is not None:
+            review_policy_input.write_text(json.dumps(review_policy), encoding="utf-8")
+            args.extend(["--review-policy-input", str(review_policy_input)])
         env = dict(self.env)
         if actor:
             env["GITHUB_ACTOR"] = actor
@@ -105,6 +110,102 @@ class PrQaRegressionTests(unittest.TestCase):
         report_text = report.read_text(encoding="utf-8") if report.exists() else completed.stdout
         parsed_json = json.loads(json_report.read_text(encoding="utf-8")) if json_report.exists() else {}
         return completed.returncode, report_text, parsed_json, audit
+
+    def test_saurabh_authored_pr_allows_green_without_independent_review(self) -> None:
+        repo, base = self.init_repo("saurabh-no-review-green")
+        self.write(repo / "README.md", "# regression\n\nSaurabh-authored governance correction.\n")
+        self.commit(repo, "docs: update regression readme")
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            pr_author="SaurabhVermaIN",
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Review Policy"], "PASS")
+        self.assertTrue(any("SaurabhVermaIN is exempt from independent human review" in result["message"] for result in report_json["results"]))
+
+    def test_saurabh_authored_pr_remains_blocked_when_qa_fails(self) -> None:
+        repo, base = self.init_repo("saurabh-qa-fail")
+        self.write(repo / ".github" / "pr-qa.yml", "version: 1\ngates:\n  tests: false\n")
+        self.commit(repo, "chore: attempt mandatory qa bypass")
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            pr_author="SaurabhVermaIN",
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["overall_result"], "FAIL")
+        self.assertIn("Mandatory gate `tests` cannot be disabled", report)
+
+    def test_saurabh_authored_pr_remains_blocked_when_security_fails(self) -> None:
+        repo, base = self.init_repo("saurabh-security-fail")
+        self.write(repo / ".env", "PASSWORD=\"super-secret-value\"\n")
+        self.commit(repo, "feat: add env")
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            pr_author="SaurabhVermaIN",
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["overall_result"], "FAIL")
+        self.assertIn("environment file committed", report)
+
+    def test_saurabh_authored_pr_remains_blocked_with_merge_conflict(self) -> None:
+        repo, base = self.init_repo("saurabh-conflict")
+        self.write(repo / "README.md", "# regression\n\nConflicting change.\n")
+        self.commit(repo, "docs: update conflict fixture")
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            pr_author="SaurabhVermaIN",
+            review_policy={"mergeable": False, "merge_conflict": True, "reviews": []},
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Review Policy"], "FAIL")
+        self.assertIn("Pull request has merge conflicts", report)
+
+    def test_non_saurabh_authored_pr_blocks_without_independent_review(self) -> None:
+        repo, base = self.init_repo("developer-no-review")
+        self.write(repo / "README.md", "# regression\n\nDeveloper-authored change.\n")
+        self.commit(repo, "docs: update developer fixture")
+        for author in ["dev.ravi.ranjan", "dev.raveesh.yadav", "mohit.tiwari"]:
+            with self.subTest(author=author):
+                code, report, report_json, _ = self.run_engine_with_artifacts(
+                    repo,
+                    base,
+                    pr_author=author,
+                    review_policy={"mergeable": True, "reviews": []},
+                )
+                self.assertNotEqual(code, 0)
+                self.assertEqual(report_json["summary"]["gate_statuses"]["Review Policy"], "FAIL")
+                self.assertIn("Independent human approval is required", report)
+
+    def test_non_saurabh_authored_pr_allows_green_with_independent_review(self) -> None:
+        repo, base = self.init_repo("developer-reviewed-green")
+        self.write(repo / "README.md", "# regression\n\nReviewed developer change.\n")
+        self.commit(repo, "docs: update reviewed developer fixture")
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            pr_author="dev.raveesh.yadav",
+            review_policy={
+                "mergeable": True,
+                "reviews": [
+                    {"user": {"login": "SaurabhVermaIN"}, "state": "APPROVED"},
+                ],
+            },
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Review Policy"], "PASS")
+        self.assertTrue(any("Independent human review requirement is satisfied" in result["message"] for result in report_json["results"]))
 
     def test_pr_cannot_disable_mandatory_gates(self) -> None:
         repo, base = self.init_repo("config-disable")
@@ -297,6 +398,65 @@ class PrQaRegressionTests(unittest.TestCase):
             )
         )
 
+    def test_framework_profile_allows_reviewed_governance_workflow_changes(self) -> None:
+        repo, base = self.init_repo("framework-governance-workflow", profile="framework")
+        self.write(
+            repo / ".github" / "workflows" / "synergie-production-gate.yml",
+            """
+name: Synergie Production Gate
+on:
+  workflow_call:
+jobs:
+  production-policy:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo production policy check
+""",
+        )
+        self.commit(repo, "ci: add central production governance workflow")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertEqual(code, 0, report)
+        self.assertTrue(
+            any(
+                result["gate"] == "Deployment Risk"
+                and result["status"] == "WARNING"
+                and "Approved central governance workflow/template changes" in result["message"]
+                for result in report_json["results"]
+            )
+        )
+
+    def test_application_profile_does_not_inherit_framework_workflow_exemption(self) -> None:
+        repo, base = self.init_repo("application-production-workflow")
+        self.write(
+            repo / ".github" / "workflows" / "production-deploy.yml",
+            """
+name: Production Deploy
+on:
+  workflow_dispatch:
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - run: ssh deployer@production.example.invalid ./deploy-production.sh
+""",
+        )
+        self.commit(repo, "ci: add production deploy workflow")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertEqual(code, 0, report)
+        self.assertNotIn("Approved central governance workflow/template changes", report)
+        self.assertTrue(
+            any(
+                result["gate"] == "Deployment Risk"
+                and result["status"] == "WARNING"
+                and "Deployment-sensitive changes detected" in result["message"]
+                for result in report_json["results"]
+            )
+        )
+
     def test_workflow_has_no_framework_override_or_checkout_credentials(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "pr-qa.yml").read_text(encoding="utf-8")
         caller = (ROOT / "examples" / "caller-workflow.yml").read_text(encoding="utf-8")
@@ -335,7 +495,7 @@ class PrQaRegressionTests(unittest.TestCase):
         self.assertEqual(audit["actor"], "ordinary-user")
         self.assertEqual(audit["pr_author"], "ordinary-user")
 
-    def test_emergency_override_requires_admin_bypass_for_saurabh_authored_pr(self) -> None:
+    def test_emergency_override_records_saurabh_author_exception(self) -> None:
         repo, base = self.init_repo("override-authorised-user")
         self.write(repo / ".env", "PASSWORD=\"super-secret-value\"\n")
         self.commit(repo, "feat: add env")
@@ -356,10 +516,11 @@ class PrQaRegressionTests(unittest.TestCase):
         audit = json.loads(audit_path.read_text(encoding="utf-8"))
         self.assertTrue(audit["authorized"])
         self.assertTrue(audit["actor_authorized"])
-        self.assertTrue(audit["administrator_bypass_required"])
+        self.assertFalse(audit["administrator_bypass_required"])
+        self.assertTrue(audit["saurabh_author_exception"])
         self.assertFalse(audit["self_approval_allowed"])
-        self.assertFalse(audit["self_merge_authorized"])
-        self.assertEqual(audit["decision"], "ADMINISTRATOR_BYPASS_REQUIRED")
+        self.assertTrue(audit["self_merge_authorized"])
+        self.assertEqual(audit["decision"], "SAURABH_AUTHOR_EXCEPTION_RECORDED")
         self.assertEqual(audit["actor"], "SaurabhVermaIN")
         self.assertEqual(audit["pr_author"], "SaurabhVermaIN")
         self.assertEqual(audit["repository"], repo.name)

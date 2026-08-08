@@ -24,6 +24,7 @@ PR Size: 8 files, +214 / -31
 | Architecture | PASS |
 | Risk Engine | PASS |
 | Evidence | PASS |
+| Review Policy | PASS |
 
 Risk Score: 17 / 100
 
@@ -33,4 +34,4 @@ Merge Readiness: READY FOR HUMAN REVIEW
 
 ## Audit Note
 
-This workflow validates and reports only. GitHub Branch Protection remains the authority for approvals, CODEOWNERS review, required checks, merge permissions, and merge decisions.
+This workflow validates technical gates and review policy. GitHub Branch Protection and repository rulesets remain the authority for required status checks, merge permissions, merge conflicts, and merge decisions.

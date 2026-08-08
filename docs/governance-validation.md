@@ -12,11 +12,11 @@ The validation is operational. It does not require framework redesign, workflow 
 | --- | --- |
 | Enterprise PR QA | required on every pull request |
 | Executive Release Authority | `SaurabhVermaIN` |
-| Required approving reviews | 1 |
-| Required reviewer | `SaurabhVermaIN` or Executive Release Authority role |
-| Developer self-approval | rejected |
-| Require Last Push Approval | enabled |
-| Administrator bypass | Executive Release Authority only, reason required |
+| Required approving reviews | enforced by required Enterprise PR QA review-policy gate |
+| Required reviewer | `SaurabhVermaIN` or Executive Release Authority role for non-Saurabh-authored PRs |
+| Saurabh author exception | no independent human review required when PR author login is exactly `SaurabhVermaIN` |
+| Developer self-approval | rejected for every other developer |
+| Administrator bypass | emergency use only, reason required |
 | QA evidence | retained for every scenario |
 
 ## Scenario A: Developer PR
@@ -64,27 +64,21 @@ Required evidence:
 
 Flow:
 
-1. `SaurabhVermaIN` opens or last-pushes a pull request.
+1. `SaurabhVermaIN` opens a pull request.
 2. Enterprise PR QA executes.
 3. QA findings are reported.
-4. GitHub blocks self-approval because `require_last_push_approval` is enabled.
-5. `SaurabhVermaIN` uses GitHub Administrator Bypass intentionally.
-6. A mandatory bypass reason is recorded.
-7. The emergency override audit record is retained.
-8. GitHub permits merge through the explicit administrator bypass path.
+4. The Review Policy gate verifies the author login is exactly `SaurabhVermaIN`.
+5. Independent human review is not required.
+6. GitHub permits merge when all required automated checks and mergeability controls are satisfied.
 
-Expected result: PASS WITH RECORDED ADMINISTRATOR BYPASS.
+Expected result: PASS.
 
 Required evidence:
 
 - PR URL
 - PR author `SaurabhVermaIN`
-- last pusher evidence
 - QA run URL
 - QA report artifact
-- GitHub blocked self-approval state before bypass
-- administrator bypass reason
-- emergency override audit artifact
 - merge event
 
 ## Scenario D: Executive Release Authority PR With Failing QA
@@ -95,9 +89,9 @@ Flow:
 2. Enterprise PR QA executes.
 3. QA reports failures.
 4. Findings remain visible in the Markdown and JSON reports.
-5. If administrator bypass is used, the bypass reason and QA status are recorded.
+5. Merge remains blocked by the required QA status check.
 
-Expected result: QA FAILURE PRESERVED; ANY BYPASS AUDITED.
+Expected result: QA FAILURE PRESERVED.
 
 Required evidence:
 
@@ -126,5 +120,5 @@ Governance validation passes only when:
 - QA findings remain unchanged by approval or bypass decisions
 - only the Executive Release Authority satisfies protected-branch approval
 - developer self-approval cannot merge protected branches
-- Executive-authored PRs require explicit administrator bypass when GitHub blocks self-approval
-- every bypass has a specific reason and immutable audit evidence
+- `SaurabhVermaIN` authored PRs do not require independent human review after all mandatory automated gates pass
+- every emergency bypass has a specific reason and immutable audit evidence
