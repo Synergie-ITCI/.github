@@ -1,0 +1,56 @@
+name: Synergie Recovery Readiness
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+      - edited
+    branches:
+      - staging
+      - main
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Recovery validation mode.
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: synergie-recovery-readiness-${{ github.repository }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  staging-recovery-readiness:
+    name: Staging Recovery Readiness
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft == false && github.base_ref == 'staging' }}
+    uses: Synergie-ITCI/.github/.github/workflows/recovery-readiness.yml@main
+    with:
+      mode: staging
+      recovery-manifest-path: .github/synergie-recovery.yml
+
+  production-recoverability:
+    name: Production Recoverability
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft == false && github.base_ref == 'main' }}
+    uses: Synergie-ITCI/.github/.github/workflows/recovery-readiness.yml@main
+    with:
+      mode: production
+      recovery-manifest-path: .github/synergie-recovery.yml
+
+  manual-recovery-readiness:
+    name: Manual Recovery Readiness
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    uses: Synergie-ITCI/.github/.github/workflows/recovery-readiness.yml@main
+    with:
+      mode: ${{ inputs.mode }}
+      recovery-manifest-path: .github/synergie-recovery.yml
