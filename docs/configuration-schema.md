@@ -167,6 +167,73 @@ Production phpMyAdmin exposure is enforced by the reusable production gate, not 
 
 The governance config must not contain credential keys or secret values. Store phpMyAdmin database users, passwords, host secrets, and authentication material in the existing environment secret store or server configuration.
 
+## Recovery Manifest
+
+Every deployable application repository must publish `.github/synergie-recovery.yml`.
+The manifest is validated by `.github/workflows/recovery-readiness.yml` and
+`tools/recovery_policy.py`.
+
+Minimum fields include:
+
+```yaml
+application_name: Example
+repository: Synergie-ITCI/example
+runtime: node
+runtime_version: "20"
+framework: express
+framework_version: "4"
+build_commands:
+  - npm ci
+  - npm run build
+dependency_manifests:
+  - package.json
+dependency_lockfiles:
+  - package-lock.json
+required_source_paths:
+  - src/
+required_asset_paths:
+  - public/app-assets/
+git_lfs_paths: []
+external_artifact_locations: []
+environment_template: .env.example
+secret_references:
+  - /synergie/example/production/app
+database_engine: postgres
+database_backup_strategy: AWS Backup daily encrypted backup.
+database_restore_reference: runbooks/database-restore.md
+persistent_upload_locations: []
+persistent_storage_backup_strategy: No persistent uploads.
+web_server_template: deploy/nginx.conf
+scheduled_jobs: []
+service_definitions: []
+deployment_method: github-actions-release-artifact
+production_target_reference: aws-account/ap-south-1/example-production
+health_checks:
+  - https://example.invalid/health
+rollback_method: Restore previous SHA-256 verified artifact.
+rto_target: 4h
+rpo_target: 24h
+recovery_owner_role: Example Platform Owner
+```
+
+Production certification additionally requires:
+
+```yaml
+server_file_audit:
+  last_audit_reference: runbooks/server-file-audit.md
+  recovery_critical_server_only_count: 0
+deployment_traceability:
+  commit_marker: .deployed_commit
+  artifact_manifest: release-manifest.json
+  artifact_checksum_algorithm: sha256
+  release_artifact_retention: keep last 10 releases
+```
+
+The manifest must not contain secret values. Required source and asset paths must
+not be excluded by `.gitignore`, `.git/info/exclude`, packaging ignore files, or
+artifact ignore files unless they are mapped to Git LFS or an approved external
+artifact entry with URI, SHA-256 checksum, and immutable/versioned storage.
+
 ## Adapter Overrides
 
 ```yaml

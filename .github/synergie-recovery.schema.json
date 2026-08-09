@@ -1,0 +1,275 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Synergie-ITCI/.github/synergie-recovery.schema.json",
+  "title": "Synergie Application Recovery Manifest",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "application_name",
+    "repository",
+    "runtime",
+    "runtime_version",
+    "framework",
+    "framework_version",
+    "build_commands",
+    "dependency_manifests",
+    "dependency_lockfiles",
+    "required_source_paths",
+    "required_asset_paths",
+    "git_lfs_paths",
+    "external_artifact_locations",
+    "environment_template",
+    "secret_references",
+    "database_engine",
+    "database_backup_strategy",
+    "database_restore_reference",
+    "persistent_upload_locations",
+    "persistent_storage_backup_strategy",
+    "web_server_template",
+    "scheduled_jobs",
+    "service_definitions",
+    "deployment_method",
+    "production_target_reference",
+    "health_checks",
+    "rollback_method",
+    "rto_target",
+    "rpo_target",
+    "recovery_owner_role"
+  ],
+  "properties": {
+    "application_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repository": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    },
+    "runtime": {
+      "type": "string",
+      "minLength": 1
+    },
+    "runtime_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "framework": {
+      "type": "string",
+      "minLength": 1
+    },
+    "framework_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "build_commands": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1
+    },
+    "dependency_manifests": {
+      "$ref": "#/$defs/pathList"
+    },
+    "dependency_lockfiles": {
+      "$ref": "#/$defs/pathList"
+    },
+    "required_source_paths": {
+      "$ref": "#/$defs/pathList"
+    },
+    "required_asset_paths": {
+      "$ref": "#/$defs/pathList"
+    },
+    "git_lfs_paths": {
+      "$ref": "#/$defs/pathList"
+    },
+    "external_artifact_locations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/externalArtifact"
+      }
+    },
+    "environment_template": {
+      "type": "string",
+      "minLength": 1
+    },
+    "secret_references": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1
+    },
+    "database_engine": {
+      "type": "string",
+      "minLength": 1
+    },
+    "database_backup_strategy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "database_restore_reference": {
+      "type": "string",
+      "minLength": 1
+    },
+    "persistent_upload_locations": {
+      "$ref": "#/$defs/pathList"
+    },
+    "persistent_storage_backup_strategy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "web_server_template": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scheduled_jobs": {
+      "$ref": "#/$defs/pathList"
+    },
+    "service_definitions": {
+      "$ref": "#/$defs/pathList"
+    },
+    "deployment_method": {
+      "type": "string",
+      "minLength": 1
+    },
+    "production_target_reference": {
+      "type": "string",
+      "minLength": 1
+    },
+    "health_checks": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1
+    },
+    "rollback_method": {
+      "type": "string",
+      "minLength": 1
+    },
+    "rto_target": {
+      "type": "string",
+      "minLength": 1
+    },
+    "rpo_target": {
+      "type": "string",
+      "minLength": 1
+    },
+    "recovery_owner_role": {
+      "type": "string",
+      "minLength": 1
+    },
+    "server_file_audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "last_audit_reference",
+        "recovery_critical_server_only_count"
+      ],
+      "properties": {
+        "last_audit_reference": {
+          "type": "string",
+          "minLength": 1
+        },
+        "recovery_critical_server_only_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unknown_file_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "deployment_traceability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "commit_marker",
+        "artifact_manifest",
+        "artifact_checksum_algorithm",
+        "release_artifact_retention"
+      ],
+      "properties": {
+        "commit_marker": {
+          "type": "string",
+          "minLength": 1
+        },
+        "artifact_manifest": {
+          "type": "string",
+          "minLength": 1
+        },
+        "artifact_checksum_algorithm": {
+          "type": "string",
+          "const": "sha256"
+        },
+        "release_artifact_retention": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "$defs": {
+    "pathList": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "externalArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "uri",
+        "checksum_sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "uri": {
+          "type": "string",
+          "minLength": 1
+        },
+        "checksum_sha256": {
+          "type": "string",
+          "pattern": "^[A-Fa-f0-9]{64}$"
+        },
+        "version": {
+          "type": "string"
+        },
+        "immutable": {
+          "type": "boolean"
+        },
+        "retention": {
+          "type": "string"
+        }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "version"
+          ]
+        },
+        {
+          "required": [
+            "immutable"
+          ],
+          "properties": {
+            "immutable": {
+              "const": true
+            }
+          }
+        }
+      ]
+    }
+  }
+}
