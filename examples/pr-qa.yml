@@ -50,7 +50,7 @@ branch_naming:
 
 commit_messages:
   allowed_patterns:
-    - '^(feat|fix|docs|style|refactor|test|chore|build|ci|perf|security|release|revert)(\([^)]+\))?: .+'
+    - '^(feat|fix|docs|style|refactor|test|chore|build|ci|perf|security|release|promote|revert)(\([^)]+\))?: .+'
     - '^Merge .+'
 
 evidence:
