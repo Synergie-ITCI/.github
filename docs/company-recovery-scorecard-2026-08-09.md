@@ -180,6 +180,26 @@ Detailed report: `docs/company-full-recovery-reconciliation-2026-08-09.md` / `do
 - `NOT FULLY RECOVERABLE - BACKUP LAYER CERTIFIED`: all 20 non-Sankalp P0 production apps.
 - `NOT CERTIFIED - production-hosted non-production root`: `projectdemo-staging`, `sankalpdev.synergieinsights.in`, `wearesynergie.synergieinsights.in/synergiestaging`.
 
+## Full Application Recovery Remediation
+
+Status after remediation pass: `PARTIALLY RECOVERY CERTIFIED`.
+
+| Metric | Result |
+| --- | ---: |
+| Full application recovery certified | 1 |
+| Recovery-canonical clean-room passed | 1 |
+| Ready for clean-room pending | 0 |
+| Not recoverable | 19 |
+| Manifests created | 1 |
+| Manifests valid | 1 |
+| Artifacts created | 1 |
+| Clean-room attempted | 1 |
+| Clean-room passed | 1 |
+| Env names resolved this run | 155 |
+| Secret names still blocked/unknown | 200 |
+
+Detailed remediation report: `docs/company-full-recovery-remediation-2026-08-09.md` / `docs/company-full-recovery-remediation-2026-08-09.json`.
+
 ## Highest Priority Next Action
 
-Create and validate recovery manifests plus complete env templates for the three source-complete apps first: Bayer, Mobile Kids, and Synergie Hub.
+Approve value-safe, one-application-at-a-time SSM SecureString migration for Bayer so its manifest can be created and clean-room restore can run.

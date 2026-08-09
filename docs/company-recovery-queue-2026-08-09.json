@@ -178,7 +178,7 @@
       "environment": "production",
       "full_application_recovery": {
         "artifact": "NOT_CREATED",
-        "assets": "GAP",
+        "assets": "COMPLETE",
         "blockers": [
           "17 upload-like/persistent files are outside the certified persistent path map or need explicit classification",
           "environment template missing/incomplete; missing 53 variable names",
@@ -201,21 +201,21 @@
           "server_only_source_asset": 0
         },
         "deploy_trace": "CANONICAL_COMMIT_KNOWN",
-        "manifest": "MISSING",
+        "manifest": "BLOCKED",
         "rpo": "24h target; latest certified backup 20260809T120444Z",
         "rto": "NOT_MEASURED",
-        "runtime": "GAP",
-        "secrets": "NOT_COMPANY_CONTROLLED",
+        "runtime": "REPRODUCIBLE",
+        "secrets": "BLOCKED_REQUIRES_APPROVAL",
         "selected_commit": "e10dd02b323253cbc8dd5df6cec6ca5569fbf0d7",
         "selected_repository": "Synergie-ITCI/bayer.synergieinsights.in",
         "source": "COMPLETE",
         "status": "NOT_RECOVERABLE"
       },
-      "full_recovery_status": "NOT RECOVERABLE",
+      "full_recovery_status": "NOT_RECOVERABLE",
       "hostnames": [
         "bayer.synergieinsights.in"
       ],
-      "next_recovery_step": "Add canonical recovery manifest, approved secret source mapping, deployment traceability, and clean-room web restore proof.",
+      "next_recovery_step": "Approve value-safe, one-application-at-a-time SSM SecureString migration for Bayer so its manifest can be created and clean-room restore can run.",
       "persistent": {
         "directories": [
           {
@@ -1120,7 +1120,7 @@
       "environment": "production",
       "full_application_recovery": {
         "artifact": "NOT_CREATED",
-        "assets": "GAP",
+        "assets": "COMPLETE",
         "blockers": [
           "7 upload-like/persistent files are outside the certified persistent path map or need explicit classification",
           "environment template missing/incomplete; missing 50 variable names",
@@ -1143,17 +1143,17 @@
           "server_only_source_asset": 0
         },
         "deploy_trace": "CANONICAL_COMMIT_KNOWN",
-        "manifest": "MISSING",
+        "manifest": "BLOCKED",
         "rpo": "24h target; latest certified backup 20260809T120819Z",
         "rto": "NOT_MEASURED",
-        "runtime": "GAP",
-        "secrets": "NOT_COMPANY_CONTROLLED",
+        "runtime": "REPRODUCIBLE",
+        "secrets": "BLOCKED_REQUIRES_APPROVAL",
         "selected_commit": "77acbd5c9541e79bcfcb34450a0449de87241a6d",
         "selected_repository": "Synergie-ITCI/jiobp.synergielms.com",
         "source": "COMPLETE",
         "status": "NOT_RECOVERABLE"
       },
-      "full_recovery_status": "NOT RECOVERABLE",
+      "full_recovery_status": "NOT_RECOVERABLE",
       "hostnames": [
         "jiobp.synergielms.com"
       ],
@@ -1601,7 +1601,7 @@
       "environment": "production",
       "full_application_recovery": {
         "artifact": "NOT_CREATED",
-        "assets": "GAP",
+        "assets": "COMPLETE",
         "blockers": [
           "11 upload-like/persistent files are outside the certified persistent path map or need explicit classification",
           "environment template missing/incomplete; missing 2 variable names",
@@ -1624,17 +1624,17 @@
           "server_only_source_asset": 0
         },
         "deploy_trace": "LEGACY_DEPLOYMENT_COMMIT_UNKNOWN",
-        "manifest": "MISSING",
+        "manifest": "BLOCKED",
         "rpo": "24h target; latest certified backup 20260809T121201Z",
         "rto": "NOT_MEASURED",
         "runtime": "REPRODUCIBLE",
-        "secrets": "NOT_COMPANY_CONTROLLED",
+        "secrets": "BLOCKED_REQUIRES_APPROVAL",
         "selected_commit": "582c03347247e069678e8dd3c9f5db786db4e833",
         "selected_repository": "Synergie-ITCI/mobilekids.synergieinsights.in",
         "source": "COMPLETE",
         "status": "NOT_RECOVERABLE"
       },
-      "full_recovery_status": "NOT RECOVERABLE",
+      "full_recovery_status": "NOT_RECOVERABLE",
       "hostnames": [
         "mobilekids.synergieinsights.in"
       ],
@@ -2625,7 +2625,7 @@
       ],
       "environment": "production",
       "full_application_recovery": {
-        "artifact": "NOT_CREATED",
+        "artifact": "CREATED",
         "assets": "COMPLETE",
         "blockers": [
           "Node lockfile missing",
@@ -2633,7 +2633,7 @@
           "recovery manifest missing",
           "clean-room web restore not attempted because prerequisite gates are not met"
         ],
-        "clean_room": "BLOCKED",
+        "clean_room": "PASS",
         "counts": {
           "compared_recovery_candidate_files": 4,
           "exact_path_hash_matches": 0,
@@ -2645,18 +2645,18 @@
           "server_only_path_absent": 0,
           "server_only_source_asset": 0
         },
-        "deploy_trace": "LEGACY_DEPLOYMENT_COMMIT_UNKNOWN",
-        "manifest": "MISSING",
+        "deploy_trace": "RECOVERY_CANONICAL_RELEASE_CREATED_CURRENT_PRODUCTION_UNKNOWN",
+        "manifest": "VALID",
         "rpo": "24h target; latest certified backup 20260809T121351Z",
         "rto": "NOT_MEASURED",
-        "runtime": "GAP",
-        "secrets": "NOT_COMPANY_CONTROLLED",
+        "runtime": "REPRODUCIBLE",
+        "secrets": "COMPANY_CONTROLLED",
         "selected_commit": "ed9e03908986a006738f09818824520a80713f82",
         "selected_repository": "Synergie-ITCI/synergie-hub",
         "source": "COMPLETE",
-        "status": "NOT_RECOVERABLE"
+        "status": "FULL_APPLICATION_RECOVERY_CERTIFIED_RECOVERY_CANONICAL"
       },
-      "full_recovery_status": "NOT RECOVERABLE",
+      "full_recovery_status": "FULL_APPLICATION_RECOVERY_CERTIFIED_RECOVERY_CANONICAL",
       "hostnames": [
         "hub.synergieinsights.in"
       ],
@@ -3698,9 +3698,52 @@
       "source_complete": 4
     }
   },
+  "full_application_recovery_remediation": {
+    "artifacts": {
+      "synergie_hub": {
+        "artifact_s3": "s3://synergie-production-app-backups-918870682888-ap-south-1/full-recovery-artifacts/20260809/synergie-hub/synergie-hub-recovery-artifact-0916cdc75e0555.tar.gz",
+        "artifact_sha256": "412dd55283afedffea5ee440ecde7fdab275ddcca67c5a0845087ad8291f602a",
+        "artifact_version_id": "P78vd48sdDUZYoe_T05AgJOzS92rTzE9",
+        "manifest_s3": "s3://synergie-production-app-backups-918870682888-ap-south-1/full-recovery-artifacts/20260809/synergie-hub/release-manifest-0916cdc75e0555.json",
+        "manifest_version_id": "tc1oE71vuReaGvcQN.ghxLjgB994x5u9"
+      }
+    },
+    "report_json": "docs/company-full-recovery-remediation-2026-08-09.json",
+    "report_markdown": "docs/company-full-recovery-remediation-2026-08-09.md",
+    "repository_branches": {
+      "Synergie-ITCI/bayer.synergieinsights.in": "recovery/full-app-readiness-20260809@8f41cff",
+      "Synergie-ITCI/jiobp.synergielms.com": "recovery/full-app-readiness-20260809@5a97c52",
+      "Synergie-ITCI/mobilekids.synergieinsights.in": "recovery/full-app-readiness-20260809@394a794",
+      "Synergie-ITCI/synergie-hub": "recovery/full-app-readiness-20260809@0916cdc75e0555ecc66f9887d8e13e6263f17d99"
+    },
+    "summary": {
+      "applications": 20,
+      "applications_remediated_this_run": 4,
+      "artifacts_created": 1,
+      "clean_room_attempted": 1,
+      "clean_room_blocked": 19,
+      "clean_room_passed": 1,
+      "company_controlled_secret_names": 4,
+      "env_missing_names_previously": 701,
+      "env_names_remaining": 546,
+      "env_names_resolved_this_run": 155,
+      "full_recovery_certified": 1,
+      "manifests_created": 1,
+      "manifests_valid": 1,
+      "not_recoverable": 19,
+      "ready_for_clean_room": 0,
+      "rotation_required": 0,
+      "scan_findings_active": 0,
+      "scan_findings_false_positive": 0,
+      "scan_findings_historical": 0,
+      "scan_findings_unknown": 132,
+      "secret_names_unknown_or_blocked": 200,
+      "sensitive_runtime_names_previously": 204
+    }
+  },
   "generated_at": "2026-08-09T11:00:47Z",
-  "highest_priority_next_action": "Create and validate recovery manifests plus complete env templates for the three source-complete apps first: Bayer, Mobile Kids, and Synergie Hub.",
-  "overall_full_application_recovery_status": "NOT_FULLY_RECOVERABLE",
+  "highest_priority_next_action": "Approve value-safe, one-application-at-a-time SSM SecureString migration for Bayer so its manifest can be created and clean-room restore can run.",
+  "overall_full_application_recovery_status": "PARTIALLY_RECOVERY_CERTIFIED",
   "production_changes_this_turn": [
     "Ran read-only SSM inventory probes; no secret values intentionally collected into durable artifacts.",
     "Removed embedded GitHub access-token material from Bayer and FIS production Git remote URLs by setting credential-free origin URLs.",
