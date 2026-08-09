@@ -1,0 +1,2184 @@
+{
+  "apps": [
+    {
+      "app": "bayer.synergieinsights.in",
+      "aws": {
+        "account_id": "918870682888",
+        "ebs_volume_id": "vol-03d5e3fb77ec77d35",
+        "ec2_instance_id": "i-060e4ec1fd5345c30",
+        "ec2_private_ip": "172.31.34.212",
+        "ec2_public_ip": "13.204.116.185",
+        "instance_type": "t3.xlarge",
+        "region": "ap-south-1"
+      },
+      "blockers": [
+        "No independent current logical DB backup and restore-test evidence.",
+        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
+        "No deployed commit marker.",
+        "Environment template is absent from the production root or canonical repo evidence.",
+        "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
+        "Embedded GitHub token URL was found in production Git remote and removed on 2026-08-09; rotate/revoke the old token if still valid.",
+        "No recovery manifest and no clean-room restore certification."
+      ],
+      "certification_status": "NOT RECOVERABLE",
+      "controls": {
+        "clean_room_restore": "not tested",
+        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "env_templates": [],
+        "lockfiles": [
+          "composer.lock"
+        ],
+        "manifests": [
+          "composer.json",
+          "package.json"
+        ],
+        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
+        "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
+      },
+      "database_names": [
+        "bayer_db"
+      ],
+      "document_roots": [
+        "/var/www/bayer.synergieinsights.in/public_html/public"
+      ],
+      "environment": "production",
+      "hostnames": [
+        "bayer.synergieinsights.in"
+      ],
+      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "persistent": {
+        "directories": [
+          {
+            "bytes": 77876358,
+            "files": 1087,
+            "rel": "storage"
+          },
+          {
+            "bytes": 636333,
+            "files": 2,
+            "rel": "storage/app/public"
+          }
+        ],
+        "total_bytes": 78512691,
+        "total_files": 1089
+      },
+      "priority": "P0",
+      "repository_candidates": [
+        "Synergie-ITCI/bayer.synergieinsights.in"
+      ],
+      "repository_status": "exact/prod-git",
+      "root": "/var/www/bayer.synergieinsights.in/public_html",
+      "runtime": {
+        "composer": "Composer 2.10.2",
+        "database_engine": "MariaDB 10.6.23",
+        "framework": "laravel",
+        "php": "PHP 8.1.2",
+        "web_server": "Apache 2.4.52"
+      },
+      "source_traceability": {
+        "deployed_commit": "",
+        "git_head": "e10dd02b323253cbc8dd5df6cec6ca5569fbf0d7",
+        "git_remote": "https://github.com/Synergie-ITCI/bayer.synergieinsights.in.git",
+        "has_git_checkout": true,
+        "trace_status": "fail: Git checkout exists but deployed marker is missing"
+      }
+    },
+    {
+      "app": "bridgestone.synergieinsights.in",
+      "aws": {
+        "account_id": "918870682888",
+        "ebs_volume_id": "vol-03d5e3fb77ec77d35",
+        "ec2_instance_id": "i-060e4ec1fd5345c30",
+        "ec2_private_ip": "172.31.34.212",
+        "ec2_public_ip": "13.204.116.185",
+        "instance_type": "t3.xlarge",
+        "region": "ap-south-1"
+      },
+      "blockers": [
+        "No independent current logical DB backup and restore-test evidence.",
+        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
+        "Production root is not a Git checkout; source provenance is server-only or repo mapping is indirect.",
+        "No deployed commit marker.",
+        "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
+        "No recovery manifest and no clean-room restore certification."
+      ],
+      "certification_status": "NOT RECOVERABLE",
+      "controls": {
+        "clean_room_restore": "not tested",
+        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "env_templates": [
+          ".env.example"
+        ],
+        "lockfiles": [
+          "composer.lock",
+          "package-lock.json"
+        ],
+        "manifests": [
+          "composer.json",
+          "package.json"
+        ],
+        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
+        "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
+      },
+      "database_names": [
+        "bridgestone_db"
+      ],
+      "document_roots": [
+        "/var/www/bridgestone.synergieinsights.in/public_html/public"
+      ],
+      "environment": "production",
+      "hostnames": [
+        "bridgestone.synergieinsights.in"
+      ],
+      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "persistent": {
+        "directories": [
+          {
+            "bytes": 21456578,
+            "files": 550,
+            "rel": "storage"
+          },
+          {
+            "bytes": 13019289,
+            "files": 97,
+            "rel": "storage/app/public"
+          },
+          {
+            "bytes": 16184717045,
+            "files": 7091,
+            "rel": "public/uploads"
+          },
+          {
+            "bytes": 410778236,
+            "files": 256,
+            "rel": "public/useruploads"
+          },
+          {
+            "bytes": 247,
+            "files": 9,
+            "rel": "bridgestone/storage"
+          }
+        ],
+        "total_bytes": 16629971395,
+        "total_files": 8003
+      },
+      "priority": "P0",
+      "repository_candidates": [
+        "Synergie-ITCI/bridgestone.synergieinsights.in"
+      ],
+      "repository_status": "matched",
+      "root": "/var/www/bridgestone.synergieinsights.in/public_html",
+      "runtime": {
+        "composer": "Composer 2.10.2",
+        "database_engine": "MariaDB 10.6.23",
+        "framework": "laravel",
+        "php": "PHP 8.1.2",
+        "web_server": "Apache 2.4.52"
+      },
+      "source_traceability": {
+        "deployed_commit": "",
+        "git_head": "",
+        "git_remote": "",
+        "has_git_checkout": false,
+        "trace_status": "fail: no Git checkout and deployed marker is missing"
+      }
+    },
+    {
+      "app": "datamatics.synergielms.com",
+      "aws": {
+        "account_id": "918870682888",
+        "ebs_volume_id": "vol-03d5e3fb77ec77d35",
+        "ec2_instance_id": "i-060e4ec1fd5345c30",
+        "ec2_private_ip": "172.31.34.212",
+        "ec2_public_ip": "13.204.116.185",
+        "instance_type": "t3.xlarge",
+        "region": "ap-south-1"
+      },
+      "blockers": [
+        "No independent current logical DB backup and restore-test evidence.",
+        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
+        "No deployed commit marker.",
+        "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
+        "No recovery manifest and no clean-room restore certification."
+      ],
+      "certification_status": "NOT RECOVERABLE",
+      "controls": {
+        "clean_room_restore": "not tested",
+        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "env_templates": [
+          ".env.example"
+        ],
+        "lockfiles": [
+          "composer.lock"
+        ],
+        "manifests": [
+          "composer.json",
+          "package.json"
+        ],
+        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
+        "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
+      },
+      "database_names": [
+        "datamatics_lms"
+      ],
+      "document_roots": [
+        "/var/www/datamatics.synergielms.com/public_html"
+      ],
+      "environment": "production",
+      "hostnames": [
+        "datamatics.synergielms.com"
+      ],
+      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "persistent": {
+        "directories": [
+          {
+            "bytes": 883678,
+            "files": 128,
+            "rel": "storage"
+          },
+          {
+            "bytes": 47497,
+            "files": 2,
+            "rel": "storage/app/public"
+          }
+        ],
+        "total_bytes": 931175,
+        "total_files": 130
+      },
+      "priority": "P0",
+      "repository_candidates": [
+        "Synergie-ITCI/datamatics.synergielms.com"
+      ],
+      "repository_status": "exact/prod-git",
+      "root": "/var/www/datamatics.synergielms.com/public_html",
+      "runtime": {
+        "composer": "Composer 2.10.2",
+        "database_engine": "MariaDB 10.6.23",
+        "framework": "laravel",
+        "php": "PHP 8.1.2",
+        "web_server": "Apache 2.4.52"
+      },
+      "source_traceability": {
+        "deployed_commit": "",
+        "git_head": "f9efaefcf021136ac69204860d9569dd0ffd4ec5",
+        "git_remote": "https://github.com/Synergie-ITCI/datamatics.synergielms.com.git",
+        "has_git_checkout": true,
+        "trace_status": "fail: Git checkout exists but deployed marker is missing"
+      }
+    },
+    {
+      "app": "dhansamvaad.synergieinsights.in",
+      "aws": {
+        "account_id": "918870682888",
+        "ebs_volume_id": "vol-03d5e3fb77ec77d35",
+        "ec2_instance_id": "i-060e4ec1fd5345c30",
+        "ec2_private_ip": "172.31.34.212",
+        "ec2_public_ip": "13.204.116.185",
+        "instance_type": "t3.xlarge",
+        "region": "ap-south-1"
+      },
+      "blockers": [
+        "No independent current logical DB backup and restore-test evidence.",
+        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
+        "No deployed commit marker.",
+        "Environment template is absent from the production root or canonical repo evidence.",
+        "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
+        "No recovery manifest and no clean-room restore certification."
+      ],
+      "certification_status": "NOT RECOVERABLE",
+      "controls": {
+        "clean_room_restore": "not tested",
+        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "env_templates": [],
+        "lockfiles": [
+          "composer.lock"
+        ],
+        "manifests": [
+          "composer.json",
+          "package.json"
+        ],
+        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
+        "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
+      },
+      "database_names": [
+        "dhansamvaad_db"
+      ],
+      "document_roots": [
+        "/var/www/dhansamvaad.synergieinsights.in/public_html/public"
+      ],
+      "environment": "production",
+      "hostnames": [
+        "dhansamvaad.synergieinsights.in"
+      ],
+      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "persistent": {
+        "directories": [
+          {
+            "bytes": 789374628,
+            "files": 2029,
+            "rel": "storage"
+          },
+          {
+            "bytes": 196,
+            "files": 2,
+            "rel": "storage/app/public"
+          }
+        ],
+        "total_bytes": 789374824,
+        "total_files": 2031
+      },
+      "priority": "P0",
+      "repository_candidates": [
+        "Synergie-ITCI/dhansamvaad-new.synergieinsights.in"
+      ],
+      "repository_status": "exact/prod-git",
+      "root": "/var/www/dhansamvaad.synergieinsights.in/public_html",
+      "runtime": {
+        "composer": "Composer 2.10.2",
+        "database_engine": "MariaDB 10.6.23",
+        "framework": "laravel",
+        "php": "PHP 8.1.2",
+        "web_server": "Apache 2.4.52"
+      },
+      "source_traceability": {
+        "deployed_commit": "",
+        "git_head": "3e2404bb53874fa5e46f249eba55914193eeef1c",
+        "git_remote": "https://github.com/Synergie-ITCI/dhansamvaad-new.synergieinsights.in.git",
+        "has_git_checkout": true,
+        "trace_status": "fail: Git checkout exists but deployed marker is missing"
+      }
+    },
+    {
+      "app": "fis.synergielms.com",
+      "aws": {
+        "account_id": "918870682888",
+        "ebs_volume_id": "vol-03d5e3fb77ec77d35",
+        "ec2_instance_id": "i-060e4ec1fd5345c30",
+        "ec2_private_ip": "172.31.34.212",
+        "ec2_public_ip": "13.204.116.185",
+        "instance_type": "t3.xlarge",
+        "region": "ap-south-1"
+      },
+      "blockers": [
+        "No independent current logical DB backup and restore-test evidence.",
+        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
+        "No deployed commit marker.",
+        "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
+        "Embedded GitHub token URL was found in production Git remote and removed on 2026-08-09; rotate/revoke the old token if still valid.",
+        "No recovery manifest and no clean-room restore certification."
+      ],
+      "certification_status": "NOT RECOVERABLE",
+      "controls": {
+        "clean_room_restore": "not tested",
+        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "env_templates": [
+          ".env.example"
+        ],
+        "lockfiles": [
+          "composer.lock",
+          "package-lock.json"
+        ],
+        "manifests": [
+          "composer.json",
+          "package.json"
+        ],
+        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
+        "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
+      },
+      "database_names": [
+        "fis_db"
+      ],
+      "document_roots": [
+        "/var/www/fis.synergielms.com/public_html"
+      ],
+      "environment": "production",
+      "hostnames": [
+        "fis.synergielms.com"
+      ],
+      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "persistent": {
+        "directories": [
+          {
+            "bytes": 48594450,
+            "files": 465,
+            "rel": "storage"
+          },
+          {
+            "bytes": 47967360,
+            "files": 125,
+            "rel": "storage/app/public"
+          }
+        ],
+        "total_bytes": 96561810,
+        "total_files": 590
+      },
+      "priority": "P0",
+      "repository_candidates": [
+        "Synergie-ITCI/fis.synergielms.com"
+      ],
+      "repository_status": "exact/prod-git",
+      "root": "/var/www/fis.synergielms.com/public_html",
+      "runtime": {
+        "composer": "Composer 2.10.2",
+        "database_engine": "MariaDB 10.6.23",
+        "framework": "laravel",
+        "php": "PHP 8.1.2",
+        "web_server": "Apache 2.4.52"
+      },
+      "source_traceability": {
+        "deployed_commit": "",
+        "git_head": "157646e45b87ab4fbfd248a4b209d4f79efbd48e",
+        "git_remote": "https://github.com/Synergie-ITCI/fis.synergielms.com.git",
+        "has_git_checkout": true,
+        "trace_status": "fail: Git checkout exists but deployed marker is missing"
+      }
+    },
+    {
+      "app": "icicir2s.synergieinsights.in",
+      "aws": {
+        "account_id": "918870682888",
+        "ebs_volume_id": "vol-03d5e3fb77ec77d35",
+        "ec2_instance_id": "i-060e4ec1fd5345c30",
+        "ec2_private_ip": "172.31.34.212",
+        "ec2_public_ip": "13.204.116.185",
+        "instance_type": "t3.xlarge",
+        "region": "ap-south-1"
+      },
+      "blockers": [
+        "No independent current logical DB backup and restore-test evidence.",
+        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
+        "Production root is not a Git checkout; source provenance is server-only or repo mapping is indirect.",
+        "No deployed commit marker.",
+        "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
+        "No recovery manifest and no clean-room restore certification."
+      ],
+      "certification_status": "NOT RECOVERABLE",
+      "controls": {
+        "clean_room_restore": "not tested",
+        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "env_templates": [
+          ".env.example"
+        ],
+        "lockfiles": [
+          "composer.lock",
+          "package-lock.json"
+        ],
+        "manifests": [
+          "composer.json",
+          "package.json"
+        ],
+        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
+        "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
+      },
+      "database_names": [
+        "icicir2s_db"
+      ],
+      "document_roots": [
+        "/var/www/icicir2s.synergieinsights.in/public_html/public"
+      ],
+      "environment": "production",
+      "hostnames": [
+        "icicir2s.synergieinsights.in"
+      ],
+      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "persistent": {
+        "directories": [
+          {
+            "bytes": 39347461,
+            "files": 181,
+            "rel": "storage"
+          },
+          {
+            "bytes": 14,
+            "files": 1,
+            "rel": "storage/app/public"
+          }
+        ],
+        "total_bytes": 39347475,
+        "total_files": 182
+      },
+      "priority": "P0",
+      "repository_candidates": [
+        "Synergie-ITCI/ICICI"
+      ],
+      "repository_status": "matched",
+      "root": "/var/www/icicir2s.synergieinsights.in/public_html",
+      "runtime": {
+        "composer": "Composer 2.10.2",
+        "database_engine": "MariaDB 10.6.23",
+        "framework": "laravel",
+        "php": "PHP 8.1.2",
+        "web_server": "Apache 2.4.52"
+      },
+      "source_traceability": {
+        "deployed_commit": "",
+        "git_head": "",
+        "git_remote": "",
+        "has_git_checkout": false,
+        "trace_status": "fail: no Git checkout and deployed marker is missing"
+      }
+    },
+    {
+      "app": "jiobp.synergielms.com",
+      "aws": {
+        "account_id": "918870682888",
+        "ebs_volume_id": "vol-03d5e3fb77ec77d35",
+        "ec2_instance_id": "i-060e4ec1fd5345c30",
+        "ec2_private_ip": "172.31.34.212",
+        "ec2_public_ip": "13.204.116.185",
+        "instance_type": "t3.xlarge",
+        "region": "ap-south-1"
+      },
+      "blockers": [
+        "No independent current logical DB backup and restore-test evidence.",
+        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
+        "No deployed commit marker.",
+        "Environment template is absent from the production root or canonical repo evidence.",
+        "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
+        "No recovery manifest and no clean-room restore certification."
+      ],
+      "certification_status": "NOT RECOVERABLE",
+      "controls": {
+        "clean_room_restore": "not tested",
+        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "env_templates": [],
+        "lockfiles": [
+          "composer.lock"
+        ],
+        "manifests": [
+          "composer.json",
+          "package.json"
+        ],
+        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
+        "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
+      },
+      "database_names": [
+        "jiobp_db"
+      ],
+      "document_roots": [
+        "/var/www/jiobp.synergielms.com/public_html/public"
+      ],
+      "environment": "production",
+      "hostnames": [
+        "jiobp.synergielms.com"
+      ],
+      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "persistent": {
+        "directories": [
+          {
+            "bytes": 54799,
+            "files": 17,
+            "rel": "storage"
+          }
+        ],
+        "total_bytes": 54799,
+        "total_files": 17
+      },
+      "priority": "P0",
+      "repository_candidates": [
+        "Synergie-ITCI/jiobp.synergielms.com"
+      ],
+      "repository_status": "exact/prod-git",
+      "root": "/var/www/jiobp.synergielms.com/public_html",
+      "runtime": {
+        "composer": "Composer 2.10.2",
+        "database_engine": "MariaDB 10.6.23",
+        "framework": "laravel",
+        "php": "PHP 8.1.2",
+        "web_server": "Apache 2.4.52"
+      },
+      "source_traceability": {
+        "deployed_commit": "",
+        "git_head": "77acbd5c9541e79bcfcb34450a0449de87241a6d",
+        "git_remote": "https://github.com/Synergie-ITCI/jiobp.synergielms.com.git",
+        "has_git_checkout": true,
+        "trace_status": "fail: Git checkout exists but deployed marker is missing"
+      }
+    },
+    {
+      "app": "jiobpcares.synergieinsights.in",
+      "aws": {
+        "account_id": "918870682888",
+        "ebs_volume_id": "vol-03d5e3fb77ec77d35",
+        "ec2_instance_id": "i-060e4ec1fd5345c30",
+        "ec2_private_ip": "172.31.34.212",
+        "ec2_public_ip": "13.204.116.185",
+        "instance_type": "t3.xlarge",
+        "region": "ap-south-1"
+      },
+      "blockers": [
+        "No independent current logical DB backup and restore-test evidence.",
+        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
+        "Production root is not a Git checkout; source provenance is server-only or repo mapping is indirect.",
+        "No deployed commit marker.",
+        "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
+        "No recovery manifest and no clean-room restore certification."
+      ],
+      "certification_status": "NOT RECOVERABLE",
+      "controls": {
+        "clean_room_restore": "not tested",
+        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "env_templates": [
+          ".env.example"
+        ],
+        "lockfiles": [
+          "composer.lock",
+          "package-lock.json"
+        ],
+        "manifests": [
+          "composer.json",
+          "package.json"
+        ],
+        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
+        "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
+      },
+      "database_names": [
+        "jiobpcares_db"
+      ],
+      "document_roots": [
+        "/var/www/jiobpcares.synergieinsights.in/public_html"
+      ],
+      "environment": "production",
+      "hostnames": [
+        "jiobpcares.synergieinsights.in"
+      ],
+      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "persistent": {
+        "directories": [
+          {
+            "bytes": 5821982,
+            "files": 244,
+            "rel": "storage"
+          },
+          {
+            "bytes": 14,
+            "files": 1,
+            "rel": "storage/app/public"
+          },
+          {
+            "bytes": 8365599955,
+            "files": 3744,
+            "rel": "public/uploads"
+          },
+          {
+            "bytes": 382155314,
+            "files": 192,
+            "rel": "public/useruploads"
+          },
+          {
+            "bytes": 247,
+            "files": 9,
+            "rel": "bridgestone/storage"
+          }
+        ],
+        "total_bytes": 8753577512,
+        "total_files": 4190
+      },
+      "priority": "P0",
+      "repository_candidates": [
+        "Synergie-ITCI/BP"
+      ],
+      "repository_status": "matched",
+      "root": "/var/www/jiobpcares.synergieinsights.in/public_html",
+      "runtime": {
+        "composer": "Composer 2.10.2",
+        "database_engine": "MariaDB 10.6.23",
+        "framework": "laravel",
+        "php": "PHP 8.1.2",
+        "web_server": "Apache 2.4.52"
+      },
+      "source_traceability": {
+        "deployed_commit": "",
+        "git_head": "",
+        "git_remote": "",
+        "has_git_checkout": false,
+        "trace_status": "fail: no Git checkout and deployed marker is missing"
+      }
+    },
+    {
+      "app": "jiobptransporter.synergieinsights.in",
+      "aws": {
+        "account_id": "918870682888",
+        "ebs_volume_id": "vol-03d5e3fb77ec77d35",
+        "ec2_instance_id": "i-060e4ec1fd5345c30",
+        "ec2_private_ip": "172.31.34.212",
+        "ec2_public_ip": "13.204.116.185",
+        "instance_type": "t3.xlarge",
+        "region": "ap-south-1"
+      },
+      "blockers": [
+        "No independent current logical DB backup and restore-test evidence.",
+        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
+        "Production root is not a Git checkout; source provenance is server-only or repo mapping is indirect.",
+        "No deployed commit marker.",
+        "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
+        "No recovery manifest and no clean-room restore certification."
+      ],
+      "certification_status": "NOT RECOVERABLE",
+      "controls": {
+        "clean_room_restore": "not tested",
+        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "env_templates": [
+          ".env.example"
+        ],
+        "lockfiles": [
+          "composer.lock",
+          "package-lock.json"
+        ],
+        "manifests": [
+          "composer.json",
+          "package.json"
+        ],
+        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
+        "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
+      },
+      "database_names": [
+        "jiobptransporter_db"
+      ],
+      "document_roots": [
+        "/var/www/jiobptransporter.synergieinsights.in/public_html/public"
+      ],
+      "environment": "production",
+      "hostnames": [
+        "jiobptransporter.synergieinsights.in"
+      ],
+      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "persistent": {
+        "directories": [
+          {
+            "bytes": 520888272,
+            "files": 194,
+            "rel": "storage"
+          },
+          {
+            "bytes": 14,
+            "files": 1,
+            "rel": "storage/app/public"
+          }
+        ],
+        "total_bytes": 520888286,
+        "total_files": 195
+      },
+      "priority": "P0",
+      "repository_candidates": [
+        "Synergie-ITCI/BP"
+      ],
+      "repository_status": "matched",
+      "root": "/var/www/jiobptransporter.synergieinsights.in/public_html",
+      "runtime": {
+        "composer": "Composer 2.10.2",
+        "database_engine": "MariaDB 10.6.23",
+        "framework": "laravel",
+        "php": "PHP 8.1.2",
+        "web_server": "Apache 2.4.52"
+      },
+      "source_traceability": {
+        "deployed_commit": "",
+        "git_head": "",
+        "git_remote": "",
+        "has_git_checkout": false,
+        "trace_status": "fail: no Git checkout and deployed marker is missing"
+      }
+    },
+    {
+      "app": "mobilekids.synergieinsights.in",
+      "aws": {
+        "account_id": "918870682888",
+        "ebs_volume_id": "vol-03d5e3fb77ec77d35",
+        "ec2_instance_id": "i-060e4ec1fd5345c30",
+        "ec2_private_ip": "172.31.34.212",
+        "ec2_public_ip": "13.204.116.185",
+        "instance_type": "t3.xlarge",
+        "region": "ap-south-1"
+      },
+      "blockers": [
+        "No independent current logical DB backup and restore-test evidence.",
+        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
+        "Production root is not a Git checkout; source provenance is server-only or repo mapping is indirect.",
+        "No deployed commit marker.",
+        "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
+        "No recovery manifest and no clean-room restore certification."
+      ],
+      "certification_status": "NOT RECOVERABLE",
+      "controls": {
+        "clean_room_restore": "not tested",
+        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "env_templates": [
+          ".env.example"
+        ],
+        "lockfiles": [
+          "composer.lock",
+          "package-lock.json"
+        ],
+        "manifests": [
+          "composer.json",
+          "package.json"
+        ],
+        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
+        "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
+      },
+      "database_names": [
+        "mobilekids_db"
+      ],
+      "document_roots": [
+        "/var/www/mobilekids.synergieinsights.in/public_html/public"
+      ],
+      "environment": "production",
+      "hostnames": [
+        "mobilekids.synergieinsights.in"
+      ],
+      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "persistent": {
+        "directories": [
+          {
+            "bytes": 47751120,
+            "files": 266,
+            "rel": "storage"
+          },
+          {
+            "bytes": 14,
+            "files": 1,
+            "rel": "storage/app/public"
+          },
+          {
+            "bytes": 34399,
+            "files": 1,
+            "rel": "storage/app/uploads"
+          }
+        ],
+        "total_bytes": 47785533,
+        "total_files": 268
+      },
+      "priority": "P0",
+      "repository_candidates": [
+        "Synergie-ITCI/mobilekids.synergieinsights.in"
+      ],
+      "repository_status": "matched",
+      "root": "/var/www/mobilekids.synergieinsights.in/public_html",
+      "runtime": {
+        "composer": "Composer 2.10.2",
+        "database_engine": "MariaDB 10.6.23",
+        "framework": "laravel",
+        "php": "PHP 8.1.2",
+        "web_server": "Apache 2.4.52"
+      },
+      "source_traceability": {
+        "deployed_commit": "",
+        "git_head": "",
+        "git_remote": "",
+        "has_git_checkout": false,
+        "trace_status": "fail: no Git checkout and deployed marker is missing"
+      }
+    },
+    {
+      "app": "projectdemo-staging",
+      "aws": {
+        "account_id": "918870682888",
+        "ebs_volume_id": "vol-03d5e3fb77ec77d35",
+        "ec2_instance_id": "i-060e4ec1fd5345c30",
+        "ec2_private_ip": "172.31.34.212",
+        "ec2_public_ip": "13.204.116.185",
+        "instance_type": "t3.xlarge",
+        "region": "ap-south-1"
+      },
+      "blockers": [
+        "No independent current logical DB backup and restore-test evidence.",
+        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
+        "Production root is not a Git checkout; source provenance is server-only or repo mapping is indirect.",
+        "No deployed commit marker.",
+        "Environment template is absent from the production root or canonical repo evidence.",
+        "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
+        "No recovery manifest and no clean-room restore certification."
+      ],
+      "certification_status": "NOT CERTIFIED - production-hosted non-production root",
+      "controls": {
+        "clean_room_restore": "not tested",
+        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "env_templates": [],
+        "lockfiles": [
+          "composer.lock"
+        ],
+        "manifests": [
+          "composer.json",
+          "package.json"
+        ],
+        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
+        "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
+      },
+      "database_names": [
+        "projectdemo_staging"
+      ],
+      "document_roots": [
+        "/var/www/projectdemo-staging/public_html/public"
+      ],
+      "environment": "staging",
+      "hostnames": [
+        "staging-projectdemo.synergielms.com"
+      ],
+      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "persistent": {
+        "directories": [
+          {
+            "bytes": 24280,
+            "files": 36,
+            "rel": "storage"
+          },
+          {
+            "bytes": 0,
+            "files": 0,
+            "rel": "storage/app/public"
+          }
+        ],
+        "total_bytes": 24280,
+        "total_files": 36
+      },
+      "priority": "P0-NONPROD",
+      "repository_candidates": [],
+      "repository_status": "unknown",
+      "root": "/var/www/projectdemo-staging/public_html",
+      "runtime": {
+        "composer": "Composer 2.10.2",
+        "database_engine": "MariaDB 10.6.23",
+        "framework": "laravel",
+        "php": "PHP 8.1.2",
+        "web_server": "Apache 2.4.52"
+      },
+      "source_traceability": {
+        "deployed_commit": "",
+        "git_head": "",
+        "git_remote": "",
+        "has_git_checkout": false,
+        "trace_status": "fail: no Git checkout and deployed marker is missing"
+      }
+    },
+    {
+      "app": "projectdemo.synergielms.com",
+      "aws": {
+        "account_id": "918870682888",
+        "ebs_volume_id": "vol-03d5e3fb77ec77d35",
+        "ec2_instance_id": "i-060e4ec1fd5345c30",
+        "ec2_private_ip": "172.31.34.212",
+        "ec2_public_ip": "13.204.116.185",
+        "instance_type": "t3.xlarge",
+        "region": "ap-south-1"
+      },
+      "blockers": [
+        "No independent current logical DB backup and restore-test evidence.",
+        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
+        "No deployed commit marker.",
+        "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
+        "No recovery manifest and no clean-room restore certification."
+      ],
+      "certification_status": "NOT RECOVERABLE",
+      "controls": {
+        "clean_room_restore": "not tested",
+        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "env_templates": [
+          ".env.example"
+        ],
+        "lockfiles": [
+          "composer.lock"
+        ],
+        "manifests": [
+          "composer.json",
+          "package.json"
+        ],
+        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
+        "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
+      },
+      "database_names": [
+        "projectdemo_db"
+      ],
+      "document_roots": [
+        "/var/www/projectdemo.synergielms.com/public_html/public"
+      ],
+      "environment": "production",
+      "hostnames": [
+        "projectdemo.synergielms.com"
+      ],
+      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "persistent": {
+        "directories": [
+          {
+            "bytes": 75792021,
+            "files": 109,
+            "rel": "storage"
+          },
+          {
+            "bytes": 47497,
+            "files": 2,
+            "rel": "storage/app/public"
+          }
+        ],
+        "total_bytes": 75839518,
+        "total_files": 111
+      },
+      "priority": "P0",
+      "repository_candidates": [
+        "Synergie-ITCI/projectdemo.synergielms.com"
+      ],
+      "repository_status": "exact/prod-git",
+      "root": "/var/www/projectdemo.synergielms.com/public_html",
+      "runtime": {
+        "composer": "Composer 2.10.2",
+        "database_engine": "MariaDB 10.6.23",
+        "framework": "laravel",
+        "php": "PHP 8.1.2",
+        "web_server": "Apache 2.4.52"
+      },
+      "source_traceability": {
+        "deployed_commit": "",
+        "git_head": "58b265ea978b81ac63fe7cb35b783821a308f7af",
+        "git_remote": "https://github.com/Synergie-ITCI/projectdemo.synergielms.com.git",
+        "has_git_checkout": true,
+        "trace_status": "fail: Git checkout exists but deployed marker is missing"
+      }
+    },
+    {
+      "app": "sankalp.synergieinsights.in",
+      "aws": {
+        "account_id": "918870682888",
+        "ebs_volume_id": "vol-03d5e3fb77ec77d35",
+        "ec2_instance_id": "i-060e4ec1fd5345c30",
+        "ec2_private_ip": "172.31.34.212",
+        "ec2_public_ip": "13.204.116.185",
+        "instance_type": "t3.xlarge",
+        "region": "ap-south-1"
+      },
+      "blockers": [
+        "Mappls OAuth client credential is active in history and needs provider-side replacement/rotation.",
+        "Historical Google Maps key status remains unknown until Google project access is available.",
+        "PR #19 is draft and not promoted to development/main/production.",
+        "Production marker b7884336f3aac9cd01b8d55c639f6c9055b082c4 is not canonical release evidence.",
+        "Full clean-room web restore remains pending."
+      ],
+      "certification_status": "RECOVERY CERTIFIED WITH CONDITIONS",
+      "controls": {
+        "clean_room_restore": "pending",
+        "database_backup": "pass: S3 logical backups restore-tested for sankalp_db and sankalptraining_db",
+        "env_templates": [
+          ".env.example"
+        ],
+        "lockfiles": [
+          "package-lock.json"
+        ],
+        "manifests": [
+          "package.json"
+        ],
+        "persistent_backup": "pass: S3 persistent backup with representative restore test",
+        "recovery_manifest": "conditional: .github/synergie-recovery.yml exists in draft PR #19, not canonical production main",
+        "secrets": "conditional: SSM SecureString refs in PR #19; production still awaits promotion and provider rotation"
+      },
+      "database_names": [
+        "sankalp_db",
+        "sankalptraining_db"
+      ],
+      "document_roots": [
+        "/var/www/sankalp.synergieinsights.in/public_html"
+      ],
+      "environment": "production",
+      "hostnames": [
+        "sankalp.synergieinsights.in"
+      ],
+      "next_recovery_step": "Close provider-side credential rotation, promote PR #19, deploy canonical artifact, then run clean-room web restore.",
+      "persistent": {
+        "directories": [
+          {
+            "bytes": 5129720923,
+            "files": 43996,
+            "rel": "assets/SurveyData"
+          },
+          {
+            "bytes": 1086709,
+            "files": 6,
+            "rel": "assets/ASSETS"
+          },
+          {
+            "bytes": 2422487,
+            "files": 30,
+            "rel": "assets/recharge"
+          }
+        ],
+        "total_bytes": 5133230119,
+        "total_files": 44032
+      },
+      "priority": "CONDITIONAL",
+      "repository_candidates": [
+        "Synergie-ITCI/sankalp"
+      ],
+      "repository_status": "matched",
+      "root": "/var/www/sankalp.synergieinsights.in/public_html",
+      "runtime": {
+        "composer": "Composer 2.10.2",
+        "database_engine": "MariaDB 10.6.23",
+        "framework": "codeigniter",
+        "php": "PHP 8.1.2",
+        "web_server": "Apache 2.4.52"
+      },
+      "source_traceability": {
+        "deployed_commit": "b7884336f3aac9cd01b8d55c639f6c9055b082c4",
+        "git_head": "",
+        "git_remote": "",
+        "has_git_checkout": false,
+        "trace_status": "conditional: marker exists but points to non-canonical legacy SHA; PR artifact has separate SHA/version evidence"
+      }
+    },
+    {
+      "app": "sankalpdev.synergieinsights.in",
+      "aws": {
+        "account_id": "918870682888",
+        "ebs_volume_id": "vol-03d5e3fb77ec77d35",
+        "ec2_instance_id": "i-060e4ec1fd5345c30",
+        "ec2_private_ip": "172.31.34.212",
+        "ec2_public_ip": "13.204.116.185",
+        "instance_type": "t3.xlarge",
+        "region": "ap-south-1"
+      },
+      "blockers": [
+        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
+        "Production root is not a Git checkout; source provenance is server-only or repo mapping is indirect.",
+        "No deployed commit marker.",
+        "Environment template is absent from the production root or canonical repo evidence.",
+        "Dependency lockfile is absent from the production root or canonical repo evidence.",
+        "No recovery manifest and no clean-room restore certification."
+      ],
+      "certification_status": "NOT CERTIFIED - production-hosted non-production root",
+      "controls": {
+        "clean_room_restore": "not tested",
+        "database_backup": "unknown/fail: database not parsed or no DB declared; recovery evidence still absent",
+        "env_templates": [],
+        "lockfiles": [],
+        "manifests": [],
+        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
+        "secrets": "unknown: no secret schema discovered by probe"
+      },
+      "database_names": [],
+      "document_roots": [
+        "/var/www/sankalpdev.synergieinsights.in/public_html"
+      ],
+      "environment": "dev",
+      "hostnames": [
+        "sankalpdev.synergieinsights.in"
+      ],
+      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "persistent": {
+        "directories": [
+          {
+            "bytes": 0,
+            "files": 0,
+            "rel": "assets/uploads"
+          },
+          {
+            "bytes": 48844,
+            "files": 3,
+            "rel": "assets/SurveyData"
+          },
+          {
+            "bytes": 1086709,
+            "files": 6,
+            "rel": "assets/ASSETS"
+          },
+          {
+            "bytes": 2422487,
+            "files": 30,
+            "rel": "assets/recharge"
+          }
+        ],
+        "total_bytes": 3558040,
+        "total_files": 39
+      },
+      "priority": "P0-NONPROD",
+      "repository_candidates": [
+        "Synergie-ITCI/sankalp"
+      ],
+      "repository_status": "matched",
+      "root": "/var/www/sankalpdev.synergieinsights.in/public_html",
+      "runtime": {
+        "composer": "Composer 2.10.2",
+        "database_engine": "MariaDB 10.6.23",
+        "framework": "codeigniter",
+        "php": "PHP 8.1.2",
+        "web_server": "Apache 2.4.52"
+      },
+      "source_traceability": {
+        "deployed_commit": "",
+        "git_head": "",
+        "git_remote": "",
+        "has_git_checkout": false,
+        "trace_status": "fail: no Git checkout and deployed marker is missing"
+      }
+    },
+    {
+      "app": "sankalptraining.synergielms.com",
+      "aws": {
+        "account_id": "918870682888",
+        "ebs_volume_id": "vol-03d5e3fb77ec77d35",
+        "ec2_instance_id": "i-060e4ec1fd5345c30",
+        "ec2_private_ip": "172.31.34.212",
+        "ec2_public_ip": "13.204.116.185",
+        "instance_type": "t3.xlarge",
+        "region": "ap-south-1"
+      },
+      "blockers": [
+        "No independent current logical DB backup and restore-test evidence.",
+        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
+        "Production root is not a Git checkout; source provenance is server-only or repo mapping is indirect.",
+        "No deployed commit marker.",
+        "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
+        "No recovery manifest and no clean-room restore certification."
+      ],
+      "certification_status": "NOT RECOVERABLE",
+      "controls": {
+        "clean_room_restore": "not tested",
+        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "env_templates": [
+          ".env.example"
+        ],
+        "lockfiles": [
+          "composer.lock",
+          "package-lock.json"
+        ],
+        "manifests": [
+          "composer.json",
+          "package.json"
+        ],
+        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
+        "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
+      },
+      "database_names": [
+        "sankalptraining_db"
+      ],
+      "document_roots": [
+        "/var/www/sankalptraining.synergielms.com/public_html/public"
+      ],
+      "environment": "production",
+      "hostnames": [
+        "sankalptraining.synergielms.com"
+      ],
+      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "persistent": {
+        "directories": [
+          {
+            "bytes": 46166928,
+            "files": 255,
+            "rel": "storage"
+          },
+          {
+            "bytes": 14,
+            "files": 1,
+            "rel": "storage/app/public"
+          }
+        ],
+        "total_bytes": 46166942,
+        "total_files": 256
+      },
+      "priority": "P0",
+      "repository_candidates": [
+        "Synergie-ITCI/sankalp",
+        "Synergie-ITCI/synergielms.com"
+      ],
+      "repository_status": "ambiguous",
+      "root": "/var/www/sankalptraining.synergielms.com/public_html",
+      "runtime": {
+        "composer": "Composer 2.10.2",
+        "database_engine": "MariaDB 10.6.23",
+        "framework": "laravel",
+        "php": "PHP 8.1.2",
+        "web_server": "Apache 2.4.52"
+      },
+      "source_traceability": {
+        "deployed_commit": "",
+        "git_head": "",
+        "git_remote": "",
+        "has_git_checkout": false,
+        "trace_status": "fail: no Git checkout and deployed marker is missing"
+      }
+    },
+    {
+      "app": "shareasmile.wearesynergie.com",
+      "aws": {
+        "account_id": "918870682888",
+        "ebs_volume_id": "vol-03d5e3fb77ec77d35",
+        "ec2_instance_id": "i-060e4ec1fd5345c30",
+        "ec2_private_ip": "172.31.34.212",
+        "ec2_public_ip": "13.204.116.185",
+        "instance_type": "t3.xlarge",
+        "region": "ap-south-1"
+      },
+      "blockers": [
+        "Database/config source could not be parsed by the generic probe; classify manually before certification.",
+        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
+        "Production root is not a Git checkout; source provenance is server-only or repo mapping is indirect.",
+        "No deployed commit marker.",
+        "Environment template is absent from the production root or canonical repo evidence.",
+        "Dependency lockfile is absent from the production root or canonical repo evidence.",
+        "No recovery manifest and no clean-room restore certification."
+      ],
+      "certification_status": "NOT RECOVERABLE",
+      "controls": {
+        "clean_room_restore": "not tested",
+        "database_backup": "unknown/fail: database not parsed or no DB declared; recovery evidence still absent",
+        "env_templates": [],
+        "lockfiles": [],
+        "manifests": [],
+        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
+        "secrets": "unknown: no secret schema discovered by probe"
+      },
+      "database_names": [],
+      "document_roots": [
+        "/var/www/shareasmile.wearesynergie.com/public_html"
+      ],
+      "environment": "production",
+      "hostnames": [
+        "shareasmile.wearesynergie.com"
+      ],
+      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "persistent": {
+        "directories": [
+          {
+            "bytes": 9792728,
+            "files": 125,
+            "rel": "admin/storage"
+          },
+          {
+            "bytes": 0,
+            "files": 0,
+            "rel": "admin/public/uploads"
+          }
+        ],
+        "total_bytes": 9792728,
+        "total_files": 125
+      },
+      "priority": "P0",
+      "repository_candidates": [
+        "Synergie-ITCI/wearesynergie"
+      ],
+      "repository_status": "matched",
+      "root": "/var/www/shareasmile.wearesynergie.com/public_html",
+      "runtime": {
+        "composer": "Composer 2.10.2",
+        "database_engine": "MariaDB 10.6.23",
+        "framework": "php",
+        "php": "PHP 8.1.2",
+        "web_server": "Apache 2.4.52"
+      },
+      "source_traceability": {
+        "deployed_commit": "",
+        "git_head": "",
+        "git_remote": "",
+        "has_git_checkout": false,
+        "trace_status": "fail: no Git checkout and deployed marker is missing"
+      }
+    },
+    {
+      "app": "syncsr.in",
+      "aws": {
+        "account_id": "918870682888",
+        "ebs_volume_id": "vol-03d5e3fb77ec77d35",
+        "ec2_instance_id": "i-060e4ec1fd5345c30",
+        "ec2_private_ip": "172.31.34.212",
+        "ec2_public_ip": "13.204.116.185",
+        "instance_type": "t3.xlarge",
+        "region": "ap-south-1"
+      },
+      "blockers": [
+        "No independent current logical DB backup and restore-test evidence.",
+        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
+        "Production root is not a Git checkout; source provenance is server-only or repo mapping is indirect.",
+        "No deployed commit marker.",
+        "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
+        "No recovery manifest and no clean-room restore certification."
+      ],
+      "certification_status": "NOT RECOVERABLE",
+      "controls": {
+        "clean_room_restore": "not tested",
+        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "env_templates": [
+          ".env.example"
+        ],
+        "lockfiles": [
+          "composer.lock"
+        ],
+        "manifests": [
+          "composer.json",
+          "package.json"
+        ],
+        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
+        "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
+      },
+      "database_names": [
+        "shorturl_db"
+      ],
+      "document_roots": [
+        "/var/www/syncsr.in/public_html/public"
+      ],
+      "environment": "production",
+      "hostnames": [
+        "syncsr.in",
+        "www.syncsr.in"
+      ],
+      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "persistent": {
+        "directories": [
+          {
+            "bytes": 4372563,
+            "files": 31319,
+            "rel": "storage"
+          },
+          {
+            "bytes": 14,
+            "files": 1,
+            "rel": "storage/app/public"
+          }
+        ],
+        "total_bytes": 4372577,
+        "total_files": 31320
+      },
+      "priority": "P0",
+      "repository_candidates": [],
+      "repository_status": "unknown",
+      "root": "/var/www/syncsr.in/public_html",
+      "runtime": {
+        "composer": "Composer 2.10.2",
+        "database_engine": "MariaDB 10.6.23",
+        "framework": "laravel",
+        "php": "PHP 8.1.2",
+        "web_server": "Apache 2.4.52"
+      },
+      "source_traceability": {
+        "deployed_commit": "",
+        "git_head": "",
+        "git_remote": "",
+        "has_git_checkout": false,
+        "trace_status": "fail: no Git checkout and deployed marker is missing"
+      }
+    },
+    {
+      "app": "synergie-hub",
+      "aws": {
+        "account_id": "918870682888",
+        "ebs_volume_id": "vol-03d5e3fb77ec77d35",
+        "ec2_instance_id": "i-060e4ec1fd5345c30",
+        "ec2_private_ip": "172.31.34.212",
+        "ec2_public_ip": "13.204.116.185",
+        "instance_type": "t3.xlarge",
+        "region": "ap-south-1"
+      },
+      "blockers": [
+        "No independent current logical DB backup and restore-test evidence.",
+        "Production root is not a Git checkout; source provenance is server-only or repo mapping is indirect.",
+        "No deployed commit marker.",
+        "Environment template is absent from the production root or canonical repo evidence.",
+        "Dependency lockfile is absent from the production root or canonical repo evidence.",
+        "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
+        "No recovery manifest and no clean-room restore certification."
+      ],
+      "certification_status": "NOT RECOVERABLE",
+      "controls": {
+        "clean_room_restore": "not tested",
+        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "env_templates": [],
+        "lockfiles": [],
+        "manifests": [],
+        "persistent_backup": "not observed: no persistent data found by probe; still needs manifest classification",
+        "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
+        "secrets": "partial: Secrets Manager names exist for app key, DB password, and Microsoft client secret"
+      },
+      "database_names": [
+        "synergie_hub"
+      ],
+      "document_roots": [
+        "/var/www/synergie-hub/public"
+      ],
+      "environment": "production",
+      "hostnames": [
+        "hub.synergieinsights.in"
+      ],
+      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "persistent": {
+        "directories": [],
+        "total_bytes": 0,
+        "total_files": 0
+      },
+      "priority": "P0",
+      "repository_candidates": [
+        "Synergie-ITCI/synergie-hub"
+      ],
+      "repository_status": "matched",
+      "root": "/var/www/synergie-hub/public",
+      "runtime": {
+        "composer": "Composer 2.10.2",
+        "database_engine": "MariaDB 10.6.23",
+        "framework": "php",
+        "php": "PHP 8.1.2",
+        "web_server": "Apache 2.4.52"
+      },
+      "source_traceability": {
+        "deployed_commit": "",
+        "git_head": "",
+        "git_remote": "",
+        "has_git_checkout": false,
+        "trace_status": "fail: no Git checkout and deployed marker is missing"
+      }
+    },
+    {
+      "app": "synergielms.com",
+      "aws": {
+        "account_id": "918870682888",
+        "ebs_volume_id": "vol-03d5e3fb77ec77d35",
+        "ec2_instance_id": "i-060e4ec1fd5345c30",
+        "ec2_private_ip": "172.31.34.212",
+        "ec2_public_ip": "13.204.116.185",
+        "instance_type": "t3.xlarge",
+        "region": "ap-south-1"
+      },
+      "blockers": [
+        "Database/config source could not be parsed by the generic probe; classify manually before certification.",
+        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
+        "Production root is not a Git checkout; source provenance is server-only or repo mapping is indirect.",
+        "No deployed commit marker.",
+        "Environment template is absent from the production root or canonical repo evidence.",
+        "Dependency lockfile is absent from the production root or canonical repo evidence.",
+        "No recovery manifest and no clean-room restore certification."
+      ],
+      "certification_status": "NOT RECOVERABLE",
+      "controls": {
+        "clean_room_restore": "not tested",
+        "database_backup": "unknown/fail: database not parsed or no DB declared; recovery evidence still absent",
+        "env_templates": [],
+        "lockfiles": [],
+        "manifests": [],
+        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
+        "secrets": "unknown: no secret schema discovered by probe"
+      },
+      "database_names": [],
+      "document_roots": [
+        "/var/www/synergielms.com/public_html"
+      ],
+      "environment": "production",
+      "hostnames": [
+        "synergielms.com",
+        "www.synergielms.com"
+      ],
+      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "persistent": {
+        "directories": [
+          {
+            "bytes": 31139910,
+            "files": 1393,
+            "rel": "LMS/storage"
+          }
+        ],
+        "total_bytes": 31139910,
+        "total_files": 1393
+      },
+      "priority": "P0",
+      "repository_candidates": [
+        "Synergie-ITCI/synergielms.com"
+      ],
+      "repository_status": "matched",
+      "root": "/var/www/synergielms.com/public_html",
+      "runtime": {
+        "composer": "Composer 2.10.2",
+        "database_engine": "MariaDB 10.6.23",
+        "framework": "php",
+        "php": "PHP 8.1.2",
+        "web_server": "Apache 2.4.52"
+      },
+      "source_traceability": {
+        "deployed_commit": "",
+        "git_head": "",
+        "git_remote": "",
+        "has_git_checkout": false,
+        "trace_status": "fail: no Git checkout and deployed marker is missing"
+      }
+    },
+    {
+      "app": "telemedicine.synergieinsights.in",
+      "aws": {
+        "account_id": "918870682888",
+        "ebs_volume_id": "vol-03d5e3fb77ec77d35",
+        "ec2_instance_id": "i-060e4ec1fd5345c30",
+        "ec2_private_ip": "172.31.34.212",
+        "ec2_public_ip": "13.204.116.185",
+        "instance_type": "t3.xlarge",
+        "region": "ap-south-1"
+      },
+      "blockers": [
+        "No independent current logical DB backup and restore-test evidence.",
+        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
+        "Production root is not a Git checkout; source provenance is server-only or repo mapping is indirect.",
+        "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
+        "No recovery manifest and no clean-room restore certification."
+      ],
+      "certification_status": "NOT RECOVERABLE",
+      "controls": {
+        "clean_room_restore": "not tested",
+        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "env_templates": [
+          ".env.example"
+        ],
+        "lockfiles": [
+          "composer.lock",
+          "package-lock.json"
+        ],
+        "manifests": [
+          "composer.json",
+          "package.json"
+        ],
+        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
+        "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
+      },
+      "database_names": [
+        "telemedicine_db"
+      ],
+      "document_roots": [
+        "/var/www/telemedicine.synergieinsights.in/public_html/public"
+      ],
+      "environment": "production",
+      "hostnames": [
+        "telemedicine.synergieinsights.in"
+      ],
+      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "persistent": {
+        "directories": [
+          {
+            "bytes": 1260467361,
+            "files": 1643,
+            "rel": "storage"
+          },
+          {
+            "bytes": 1260245782,
+            "files": 1477,
+            "rel": "storage/app/public"
+          }
+        ],
+        "total_bytes": 2520713143,
+        "total_files": 3120
+      },
+      "priority": "P0",
+      "repository_candidates": [
+        "Synergie-ITCI/telemedicine-backend",
+        "Synergie-ITCI/telemedicine-bridgestone",
+        "Synergie-ITCI/TelemedicineNew"
+      ],
+      "repository_status": "ambiguous",
+      "root": "/var/www/telemedicine.synergieinsights.in/public_html",
+      "runtime": {
+        "composer": "Composer 2.10.2",
+        "database_engine": "MariaDB 10.6.23",
+        "framework": "laravel",
+        "php": "PHP 8.1.2",
+        "web_server": "Apache 2.4.52"
+      },
+      "source_traceability": {
+        "deployed_commit": "d967c1ed44a6e526b7e58aa0ec5e30b2097da0ae",
+        "git_head": "",
+        "git_remote": "",
+        "has_git_checkout": false,
+        "trace_status": "partial: marker exists, but canonical artifact/repo provenance not certified"
+      }
+    },
+    {
+      "app": "timesheet.synergielms.com",
+      "aws": {
+        "account_id": "918870682888",
+        "ebs_volume_id": "vol-03d5e3fb77ec77d35",
+        "ec2_instance_id": "i-060e4ec1fd5345c30",
+        "ec2_private_ip": "172.31.34.212",
+        "ec2_public_ip": "13.204.116.185",
+        "instance_type": "t3.xlarge",
+        "region": "ap-south-1"
+      },
+      "blockers": [
+        "No independent current logical DB backup and restore-test evidence.",
+        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
+        "Production root is not a Git checkout; source provenance is server-only or repo mapping is indirect.",
+        "No deployed commit marker.",
+        "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
+        "No recovery manifest and no clean-room restore certification."
+      ],
+      "certification_status": "NOT RECOVERABLE",
+      "controls": {
+        "clean_room_restore": "not tested",
+        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "env_templates": [
+          ".env.example"
+        ],
+        "lockfiles": [
+          "composer.lock"
+        ],
+        "manifests": [
+          "composer.json",
+          "package.json"
+        ],
+        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
+        "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
+      },
+      "database_names": [
+        "timesheet_db"
+      ],
+      "document_roots": [
+        "/var/www/timesheet.synergielms.com/public_html/public"
+      ],
+      "environment": "production",
+      "hostnames": [
+        "timesheet.synergielms.com"
+      ],
+      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "persistent": {
+        "directories": [
+          {
+            "bytes": 3914534,
+            "files": 46,
+            "rel": "storage"
+          },
+          {
+            "bytes": 14,
+            "files": 1,
+            "rel": "storage/app/public"
+          }
+        ],
+        "total_bytes": 3914548,
+        "total_files": 47
+      },
+      "priority": "P0",
+      "repository_candidates": [
+        "Synergie-ITCI/synergielms.com"
+      ],
+      "repository_status": "matched",
+      "root": "/var/www/timesheet.synergielms.com/public_html",
+      "runtime": {
+        "composer": "Composer 2.10.2",
+        "database_engine": "MariaDB 10.6.23",
+        "framework": "laravel",
+        "php": "PHP 8.1.2",
+        "web_server": "Apache 2.4.52"
+      },
+      "source_traceability": {
+        "deployed_commit": "",
+        "git_head": "",
+        "git_remote": "",
+        "has_git_checkout": false,
+        "trace_status": "fail: no Git checkout and deployed marker is missing"
+      }
+    },
+    {
+      "app": "wearesynergie.com",
+      "aws": {
+        "account_id": "918870682888",
+        "ebs_volume_id": "vol-03d5e3fb77ec77d35",
+        "ec2_instance_id": "i-060e4ec1fd5345c30",
+        "ec2_private_ip": "172.31.34.212",
+        "ec2_public_ip": "13.204.116.185",
+        "instance_type": "t3.xlarge",
+        "region": "ap-south-1"
+      },
+      "blockers": [
+        "No independent current logical DB backup and restore-test evidence.",
+        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
+        "Production root is not a Git checkout; source provenance is server-only or repo mapping is indirect.",
+        "No deployed commit marker.",
+        "Environment template is absent from the production root or canonical repo evidence.",
+        "Dependency lockfile is absent from the production root or canonical repo evidence.",
+        "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
+        "No recovery manifest and no clean-room restore certification."
+      ],
+      "certification_status": "NOT RECOVERABLE",
+      "controls": {
+        "clean_room_restore": "not tested",
+        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "env_templates": [],
+        "lockfiles": [],
+        "manifests": [
+          "wp-config.php"
+        ],
+        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
+        "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
+      },
+      "database_names": [
+        "wearesynergie_website"
+      ],
+      "document_roots": [
+        "/var/www/wearesynergie.com/public_html"
+      ],
+      "environment": "production",
+      "hostnames": [
+        "wearesynergie.com",
+        "www.wearesynergie.com"
+      ],
+      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "persistent": {
+        "directories": [
+          {
+            "bytes": 265697526,
+            "files": 1961,
+            "rel": "wp-content/uploads"
+          },
+          {
+            "bytes": 5263,
+            "files": 18,
+            "rel": "wp-includes/images/media"
+          }
+        ],
+        "total_bytes": 265702789,
+        "total_files": 1979
+      },
+      "priority": "P0",
+      "repository_candidates": [
+        "Synergie-ITCI/wearesynergie"
+      ],
+      "repository_status": "matched",
+      "root": "/var/www/wearesynergie.com/public_html",
+      "runtime": {
+        "composer": "Composer 2.10.2",
+        "database_engine": "MariaDB 10.6.23",
+        "framework": "wordpress",
+        "php": "PHP 8.1.2",
+        "web_server": "Apache 2.4.52"
+      },
+      "source_traceability": {
+        "deployed_commit": "",
+        "git_head": "",
+        "git_remote": "",
+        "has_git_checkout": false,
+        "trace_status": "fail: no Git checkout and deployed marker is missing"
+      }
+    },
+    {
+      "app": "wearesynergie.synergieinsights.in",
+      "aws": {
+        "account_id": "918870682888",
+        "ebs_volume_id": "vol-03d5e3fb77ec77d35",
+        "ec2_instance_id": "i-060e4ec1fd5345c30",
+        "ec2_private_ip": "172.31.34.212",
+        "ec2_public_ip": "13.204.116.185",
+        "instance_type": "t3.xlarge",
+        "region": "ap-south-1"
+      },
+      "blockers": [
+        "No independent current logical DB backup and restore-test evidence.",
+        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
+        "Production root is not a Git checkout; source provenance is server-only or repo mapping is indirect.",
+        "No deployed commit marker.",
+        "Environment template is absent from the production root or canonical repo evidence.",
+        "Dependency lockfile is absent from the production root or canonical repo evidence.",
+        "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
+        "No recovery manifest and no clean-room restore certification."
+      ],
+      "certification_status": "NOT RECOVERABLE",
+      "controls": {
+        "clean_room_restore": "not tested",
+        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "env_templates": [],
+        "lockfiles": [],
+        "manifests": [
+          "wp-config.php"
+        ],
+        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
+        "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
+      },
+      "database_names": [
+        "wearesynergie_db"
+      ],
+      "document_roots": [
+        "/var/www/wearesynergie.synergieinsights.in/public_html"
+      ],
+      "environment": "production",
+      "hostnames": [
+        "wearesynergie.synergieinsights.in"
+      ],
+      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "persistent": {
+        "directories": [
+          {
+            "bytes": 207416680,
+            "files": 1329,
+            "rel": "wp-content/uploads"
+          },
+          {
+            "bytes": 5263,
+            "files": 18,
+            "rel": "wp-includes/images/media"
+          }
+        ],
+        "total_bytes": 207421943,
+        "total_files": 1347
+      },
+      "priority": "P0",
+      "repository_candidates": [
+        "Synergie-ITCI/wearesynergie"
+      ],
+      "repository_status": "matched",
+      "root": "/var/www/wearesynergie.synergieinsights.in/public_html",
+      "runtime": {
+        "composer": "Composer 2.10.2",
+        "database_engine": "MariaDB 10.6.23",
+        "framework": "wordpress",
+        "php": "PHP 8.1.2",
+        "web_server": "Apache 2.4.52"
+      },
+      "source_traceability": {
+        "deployed_commit": "",
+        "git_head": "",
+        "git_remote": "",
+        "has_git_checkout": false,
+        "trace_status": "fail: no Git checkout and deployed marker is missing"
+      }
+    },
+    {
+      "app": "wearesynergie.synergieinsights.in",
+      "aws": {
+        "account_id": "918870682888",
+        "ebs_volume_id": "vol-03d5e3fb77ec77d35",
+        "ec2_instance_id": "i-060e4ec1fd5345c30",
+        "ec2_private_ip": "172.31.34.212",
+        "ec2_public_ip": "13.204.116.185",
+        "instance_type": "t3.xlarge",
+        "region": "ap-south-1"
+      },
+      "blockers": [
+        "No independent current logical DB backup and restore-test evidence.",
+        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
+        "Production root is not a Git checkout; source provenance is server-only or repo mapping is indirect.",
+        "No deployed commit marker.",
+        "Environment template is absent from the production root or canonical repo evidence.",
+        "Dependency lockfile is absent from the production root or canonical repo evidence.",
+        "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
+        "No recovery manifest and no clean-room restore certification."
+      ],
+      "certification_status": "NOT CERTIFIED - production-hosted non-production root",
+      "controls": {
+        "clean_room_restore": "not tested",
+        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "env_templates": [],
+        "lockfiles": [],
+        "manifests": [
+          "wp-config.php"
+        ],
+        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
+        "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
+      },
+      "database_names": [
+        "wearesynergie_db"
+      ],
+      "document_roots": [
+        "/var/www/wearesynergie.synergieinsights.in/public_html/synergiestaging"
+      ],
+      "environment": "staging",
+      "hostnames": [
+        "staging.wearesynergie.com"
+      ],
+      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "persistent": {
+        "directories": [
+          {
+            "bytes": 234875090,
+            "files": 1935,
+            "rel": "wp-content/uploads"
+          },
+          {
+            "bytes": 5263,
+            "files": 18,
+            "rel": "wp-includes/images/media"
+          }
+        ],
+        "total_bytes": 234880353,
+        "total_files": 1953
+      },
+      "priority": "P0-NONPROD",
+      "repository_candidates": [
+        "Synergie-ITCI/wearesynergie"
+      ],
+      "repository_status": "matched",
+      "root": "/var/www/wearesynergie.synergieinsights.in/public_html/synergiestaging",
+      "runtime": {
+        "composer": "Composer 2.10.2",
+        "database_engine": "MariaDB 10.6.23",
+        "framework": "wordpress",
+        "php": "PHP 8.1.2",
+        "web_server": "Apache 2.4.52"
+      },
+      "source_traceability": {
+        "deployed_commit": "",
+        "git_head": "",
+        "git_remote": "",
+        "has_git_checkout": false,
+        "trace_status": "fail: no Git checkout and deployed marker is missing"
+      }
+    }
+  ],
+  "aws_backup": {
+    "interpretation": "One completed encrypted EBS recovery point exists for the production volume, but this is infrastructure DR and does not satisfy per-application logical DB or persistent-upload recovery proof for non-Sankalp apps.",
+    "plans": [
+      {
+        "BackupPlanArn": "arn:aws:backup:ap-south-1:918870682888:backup-plan:aa435c5b-dfef-49ea-a0a8-ec3296416260",
+        "BackupPlanId": "aa435c5b-dfef-49ea-a0a8-ec3296416260",
+        "BackupPlanName": "sankalp-production-ebs-daily-35d",
+        "CreationDate": "2026-08-09T14:27:44.393000+05:30",
+        "CreatorRequestId": "761eadf9-4063-4591-a921-28bb5f1dfad1",
+        "VersionId": "ZTk2NjUxM2YtMWZkNy00YjIwLWE1OWUtMmM5ZGRkZThmYWIx"
+      }
+    ],
+    "recovery_points": [
+      {
+        "BackupSizeInBytes": 343597383680,
+        "BackupVaultArn": "arn:aws:backup:ap-south-1:918870682888:backup-vault:synergie-sankalp-recovery-vault",
+        "BackupVaultName": "synergie-sankalp-recovery-vault",
+        "CalculatedLifecycle": {
+          "DeleteAt": "2026-09-13T14:28:08.851000+05:30"
+        },
+        "CompletionDate": "2026-08-09T14:54:11.608000+05:30",
+        "CreationDate": "2026-08-09T14:28:08.851000+05:30",
+        "EncryptionKeyArn": "arn:aws:kms:ap-south-1:918870682888:key/af4a1793-1a7f-4899-9b4b-025416908050",
+        "IamRoleArn": "arn:aws:iam::918870682888:role/SynergieSankalpAWSBackupServiceRole",
+        "InitiationDate": "2026-08-09T14:28:09.179000+05:30",
+        "IsEncrypted": true,
+        "IsParent": false,
+        "Lifecycle": {
+          "DeleteAfterDays": 35
+        },
+        "RecoveryPointArn": "arn:aws:ec2:ap-south-1::snapshot/snap-062077c7b0076dfed",
+        "ResourceArn": "arn:aws:ec2:ap-south-1:918870682888:volume/vol-03d5e3fb77ec77d35",
+        "ResourceName": "golden-production-v1-1-build-20260731-root",
+        "ResourceType": "EBS",
+        "Status": "COMPLETED",
+        "VaultType": "BACKUP_VAULT"
+      }
+    ],
+    "vaults": [
+      {
+        "BackupVaultArn": "arn:aws:backup:ap-south-1:918870682888:backup-vault:synergie-sankalp-recovery-vault",
+        "BackupVaultName": "synergie-sankalp-recovery-vault",
+        "CreationDate": "2026-08-09T14:27:10.309000+05:30",
+        "CreatorRequestId": "f1de75cd-d70d-4774-a056-fee3a6d64e41",
+        "EncryptionKeyArn": "arn:aws:kms:ap-south-1:918870682888:key/32474ee2-4465-4c95-b637-2e939da5c53c",
+        "Locked": false,
+        "NumberOfRecoveryPoints": 1,
+        "VaultType": "BACKUP_VAULT"
+      }
+    ]
+  },
+  "aws_cost_august_mtd": {
+    "period": "2026-08-01 through 2026-08-09, Cost Explorer End=2026-08-10 exclusive",
+    "top_services": [
+      {
+        "service": "Amazon Lightsail",
+        "unblended_cost_usd": 122.52,
+        "unit": "USD"
+      },
+      {
+        "service": "Amazon Elastic Compute Cloud - Compute",
+        "unblended_cost_usd": 67.46,
+        "unit": "USD"
+      },
+      {
+        "service": "Tax",
+        "unblended_cost_usd": 45.53,
+        "unit": "USD"
+      },
+      {
+        "service": "EC2 - Other",
+        "unblended_cost_usd": 43.97,
+        "unit": "USD"
+      },
+      {
+        "service": "Amazon Simple Storage Service",
+        "unblended_cost_usd": 13.57,
+        "unit": "USD"
+      },
+      {
+        "service": "Amazon Virtual Private Cloud",
+        "unblended_cost_usd": 3.76,
+        "unit": "USD"
+      },
+      {
+        "service": "AWS Secrets Manager",
+        "unblended_cost_usd": 0.92,
+        "unit": "USD"
+      },
+      {
+        "service": "AWS Cost Explorer",
+        "unblended_cost_usd": 0.36,
+        "unit": "USD"
+      }
+    ],
+    "unblended_total_usd": 298.37
+  },
+  "core_control": "Ignored from Git must never mean not backed up anywhere.",
+  "evidence_sources": {
+    "github_inventory_generated_at": "2026-08-09T07:48:48.211818+00:00",
+    "sankalp_pr": "https://github.com/Synergie-ITCI/sankalp/pull/19",
+    "sankalp_pr_head": "36682a1125bb7a9f3367e32952608a07158c88fd",
+    "sankalp_release_artifact_sha256": "7452e1e872bfa62ffa28641b89b573aafb27067c91071b34aada8f2636aa416d",
+    "sankalp_release_artifact_version_id": "o0ncFi8Pfzxx82xUrN_mKNIST_bc3fl4",
+    "ssm_compact_command_id": "3ea44e66-feda-43a8-814c-45bc93fd5d2f",
+    "ssm_git_remote_cleanup_command_id": "97d618b8-81c6-4ce4-acee-2fe3dc45c537",
+    "ssm_token_classification_command_id": "6ed7ddd9-5984-4886-8121-31b47416ee38"
+  },
+  "generated_at": "2026-08-09T11:00:47Z",
+  "highest_priority_next_action": "Implement restore-tested independent logical DB backups and persistent-file S3 backups for the 20 non-Sankalp P0 production apps, starting with Bridgestone because it has the largest observed persistent footprint.",
+  "production_changes_this_turn": [
+    "Ran read-only SSM inventory probes; no secret values intentionally collected into durable artifacts.",
+    "Removed embedded GitHub access-token material from Bayer and FIS production Git remote URLs by setting credential-free origin URLs.",
+    "No application code deploy, restart, database write, secret rotation, or file deletion was performed."
+  ],
+  "program_date": "2026-08-09",
+  "secrets_manager_secret_names": [
+    "fleetos/kaggle/access-token",
+    "fleetos/datasets/signed-url/dmd-gaze",
+    "fleetos/datasets/signed-url/dmd-drowsiness",
+    "fleetos/datasets/signed-url/dmd-distraction-rgb-ir",
+    "fleetos/datasets/signed-url/mendeley_raspberry_pi_5_drowsiness",
+    "fleetos/datasets/signed-url/mendeley_raspberry_pi_5_drowsiness_v2",
+    "/production/synergie-hub/microsoft/client-secret",
+    "/production/synergie-hub/app-key",
+    "/production/synergie-hub/database/password",
+    "synergie/hub/entra"
+  ],
+  "status": "NOT RECOVERABLE AS A COMPANY",
+  "summary": {
+    "active_production_roots": 21,
+    "active_roots_on_production_ec2": 24,
+    "canonical_recovery_manifests_in_prior_inventory": 0,
+    "conditional_production_apps": 1,
+    "deployable_candidates": 59,
+    "fully_certified_production_apps": 0,
+    "github_prod_matched_repos": 14,
+    "github_repos_inspected": 71,
+    "not_recoverable_production_apps": 20,
+    "p0_production_apps_excluding_sankalp": 20,
+    "production_apps_with_deployed_marker": 2,
+    "production_apps_with_env_template": 13,
+    "production_apps_with_git_checkout": 6,
+    "production_apps_with_lockfiles": 16,
+    "production_apps_with_parsed_databases": 19,
+    "production_apps_with_persistent_data": 20,
+    "production_hosted_nonprod_roots": 3,
+    "production_non_sankalp_apps_with_parsed_databases_missing_independent_backup": 18,
+    "production_non_sankalp_persistent_bytes_without_backup_proof": 30122069598,
+    "production_persistent_bytes_observed": 35255299717
+  }
+}
