@@ -398,6 +398,175 @@ services:
         self.assertIn("PRE-EXISTING PRODUCTION PHPMYADMIN VIOLATION", output)
         self.assertEqual(parsed["status"], "PASS")
 
+    def test_documentation_only_pgadmin_reference_passes(self) -> None:
+        repo, base = self.init_repo("pgadmin-docs-only")
+        self.write(repo / "README.md", "Operators may use pgAdmin in UAT when the role is scoped.\n")
+        self.commit(repo, "docs: mention pgadmin")
+
+        code, output, parsed = self.run_policy(repo, "production", base)
+
+        self.assertEqual(code, 0, output)
+        self.assertEqual(parsed["status"], "PASS")
+
+    def test_production_pgadmin_service_fails(self) -> None:
+        repo, base = self.init_repo("production-pgadmin")
+        self.write(
+            repo / "docker-compose.production.yml",
+            """
+services:
+  pgadmin:
+    image: dpage/pgadmin4
+    ports:
+      - "5050:80"
+""",
+        )
+        self.commit(repo, "feat: add production pgadmin")
+
+        code, output, parsed = self.run_policy(repo, "production", base)
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("PRODUCTION PGADMIN POLICY VIOLATION", output)
+        self.assertEqual(parsed["status"], "FAIL")
+
+    def test_production_mixed_admin_services_flags_both(self) -> None:
+        repo, base = self.init_repo("production-mixed-admin")
+        self.write(
+            repo / "docker-compose.production.yml",
+            """
+services:
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+  pgadmin:
+    image: dpage/pgadmin4
+""",
+        )
+        self.commit(repo, "feat: add production admin tools")
+
+        code, output, parsed = self.run_policy(repo, "production", base)
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("PRODUCTION PHPMYADMIN POLICY VIOLATION", output)
+        self.assertIn("PRODUCTION PGADMIN POLICY VIOLATION", output)
+        self.assertEqual(parsed["status"], "FAIL")
+
+    def test_staging_pgadmin_with_environment_mapping_passes(self) -> None:
+        repo, _ = self.init_repo("staging-pgadmin-mapped")
+        self.write_pgadmin_governance_config(repo, environment="staging")
+        self.write_pgadmin_compose(repo, "docker-compose.staging.yml")
+        self.commit(repo, "feat: add staging pgadmin")
+
+        code, output, parsed = self.run_policy(repo, "staging")
+
+        self.assertEqual(code, 0, output)
+        self.assertEqual(parsed["status"], "PASS")
+
+    def test_uat_pgadmin_with_environment_mapping_passes(self) -> None:
+        repo, _ = self.init_repo("uat-pgadmin-mapped")
+        self.write_pgadmin_governance_config(repo, environment="uat")
+        self.write_pgadmin_compose(repo, "docker-compose.uat.yml", profile="uat")
+        self.commit(repo, "feat: add uat pgadmin")
+
+        code, output, parsed = self.run_policy(repo, "staging")
+
+        self.assertEqual(code, 0, output)
+        self.assertEqual(parsed["status"], "PASS")
+
+    def test_staging_pgadmin_to_production_database_fails(self) -> None:
+        repo, _ = self.init_repo("staging-pgadmin-prod-db")
+        self.write_pgadmin_governance_config(repo, server="postgres-production.internal", database="scholarship_prod")
+        self.write_pgadmin_compose(repo, "docker-compose.staging.yml")
+        self.commit(repo, "feat: add unsafe pgadmin")
+
+        code, output, parsed = self.run_policy(repo, "staging")
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("STAGING PGADMIN POINTS TO PRODUCTION DATABASE", output)
+        self.assertEqual(parsed["status"], "FAIL")
+
+    def test_staging_pgadmin_rejects_postgres_role(self) -> None:
+        repo, _ = self.init_repo("staging-pgadmin-postgres-role")
+        self.write_pgadmin_governance_config(repo, role="postgres")
+        self.write_pgadmin_compose(repo, "docker-compose.staging.yml")
+        self.commit(repo, "feat: add pgadmin with postgres role")
+
+        code, output, parsed = self.run_policy(repo, "staging")
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("PGADMIN POSTGRES ROLE NOT LEAST PRIVILEGE", output)
+        self.assertEqual(parsed["status"], "FAIL")
+
+    def test_staging_pgadmin_rejects_superuser_role(self) -> None:
+        repo, _ = self.init_repo("staging-pgadmin-superuser")
+        self.write_pgadmin_governance_config(repo, extra_role_flags="      superuser: true\n")
+        self.write_pgadmin_compose(repo, "docker-compose.staging.yml")
+        self.commit(repo, "feat: add pgadmin superuser role")
+
+        code, output, parsed = self.run_policy(repo, "staging")
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("PGADMIN POSTGRES ROLE NOT LEAST PRIVILEGE", output)
+        self.assertEqual(parsed["status"], "FAIL")
+
+    def test_staging_pgadmin_rejects_createrole(self) -> None:
+        repo, _ = self.init_repo("staging-pgadmin-createrole")
+        self.write_pgadmin_governance_config(repo, extra_role_flags="      createrole: true\n")
+        self.write_pgadmin_compose(repo, "docker-compose.staging.yml")
+        self.commit(repo, "feat: add pgadmin createrole")
+
+        code, output, parsed = self.run_policy(repo, "staging")
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("PGADMIN POSTGRES ROLE NOT LEAST PRIVILEGE", output)
+        self.assertEqual(parsed["status"], "FAIL")
+
+    def test_staging_pgadmin_rejects_bypassrls(self) -> None:
+        repo, _ = self.init_repo("staging-pgadmin-bypassrls")
+        self.write_pgadmin_governance_config(repo, extra_role_flags="      bypassrls: true\n")
+        self.write_pgadmin_compose(repo, "docker-compose.staging.yml")
+        self.commit(repo, "feat: add pgadmin bypassrls")
+
+        code, output, parsed = self.run_policy(repo, "staging")
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("PGADMIN POSTGRES ROLE NOT LEAST PRIVILEGE", output)
+        self.assertEqual(parsed["status"], "FAIL")
+
+    def test_staging_pgadmin_rejects_cross_app_scope(self) -> None:
+        repo, _ = self.init_repo("staging-pgadmin-cross-app")
+        self.write_pgadmin_governance_config(repo, database_scope="all_databases")
+        self.write_pgadmin_compose(repo, "docker-compose.staging.yml")
+        self.commit(repo, "feat: add pgadmin cross app scope")
+
+        code, output, parsed = self.run_policy(repo, "staging")
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("PGADMIN DATABASE ACCESS NOT SCOPED", output)
+        self.assertEqual(parsed["status"], "FAIL")
+
+    def test_staging_pgadmin_requires_developer_owner(self) -> None:
+        repo, _ = self.init_repo("staging-pgadmin-missing-owner")
+        self.write_pgadmin_governance_config(repo, developer_owner=None)
+        self.write_pgadmin_compose(repo, "docker-compose.staging.yml")
+        self.commit(repo, "feat: add pgadmin without owner")
+
+        code, output, parsed = self.run_policy(repo, "staging")
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("PGADMIN DEVELOPER OWNER NOT VERIFIED", output)
+        self.assertEqual(parsed["status"], "FAIL")
+
+    def test_staging_pgadmin_requires_database_scope(self) -> None:
+        repo, _ = self.init_repo("staging-pgadmin-missing-db-scope")
+        self.write_pgadmin_governance_config(repo, database_scope=None)
+        self.write_pgadmin_compose(repo, "docker-compose.staging.yml")
+        self.commit(repo, "feat: add pgadmin without db scope")
+
+        code, output, parsed = self.run_policy(repo, "staging")
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("PGADMIN ENVIRONMENT MAPPING MISSING", output)
+        self.assertEqual(parsed["status"], "FAIL")
+
     def git(self, repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(["git", *args], cwd=repo, text=True, capture_output=True, check=False)
 
@@ -428,6 +597,69 @@ phpmyadmin:
       database: example_staging
       database_user_identity: example_staging_phpmyadmin
       database_scope: example_staging
+      status: configured
+  staging:
+    allowed: true
+    require_authentication: true
+    require_database_isolation: true
+    require_environment_secrets: true
+  production:
+    allowed: false
+    block_runtime_exposure: true
+""",
+        )
+
+    def write_pgadmin_compose(self, repo: Path, path: str, profile: str = "staging") -> None:
+        self.write(
+            repo / path,
+            f"""
+services:
+  pgadmin:
+    image: dpage/pgadmin4
+    profiles: ["{profile}"]
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${{PGADMIN_DEFAULT_EMAIL}}
+      PGADMIN_DEFAULT_PASSWORD: ${{PGADMIN_DEFAULT_PASSWORD}}
+    labels:
+      caddy: https://uat.example.invalid
+      caddy.handle_path: /synergie-pgadmin/*
+""",
+        )
+
+    def write_pgadmin_governance_config(
+        self,
+        repo: Path,
+        *,
+        environment: str = "staging",
+        server: str = "uat-postgres.internal",
+        database: str = "scholarship_uat",
+        role: str = "scholarship_pgadmin",
+        database_scope: str | None = "scholarship_uat",
+        developer_owner: str | None = "dev.ravi.ranjan",
+        extra_role_flags: str = "",
+    ) -> None:
+        developer_line = (
+            f"      developer_owner: {developer_owner}\n" if developer_owner is not None else "      developer_owner: null\n"
+        )
+        scope_line = f"      database_scope: {database_scope}\n" if database_scope is not None else "      database_scope: null\n"
+        self.write(
+            repo / ".github" / "synergie-governance.yml",
+            f"""
+application: Example
+pgadmin:
+  access:
+    application_scoped: true
+    shared_company_admin: false
+    database_scoped: true
+    cross_application_access: false
+    unrestricted_database_admin: false
+  environments:
+    - branch: {environment}
+      environment: {environment}
+      server: {server}
+      database: {database}
+      database_user_identity: {role}
+{scope_line}{developer_line}{extra_role_flags}      pgadmin_url: https://uat.example.invalid/synergie-pgadmin/
       status: configured
   staging:
     allowed: true

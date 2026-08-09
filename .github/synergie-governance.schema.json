@@ -375,6 +375,219 @@
         }
       }
     },
+    "pgadmin": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Environment policy for pgAdmin. This section is declarative and must not contain credentials.",
+      "properties": {
+        "local_allowed": {
+          "type": "boolean",
+          "default": true
+        },
+        "development_allowed": {
+          "type": "boolean",
+          "default": true
+        },
+        "access": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Developer access model. Do not store usernames, passwords, cookies, tokens, or PostgreSQL connection strings.",
+          "properties": {
+            "application_scoped": {
+              "type": "boolean",
+              "const": true,
+              "default": true
+            },
+            "shared_company_admin": {
+              "type": "boolean",
+              "const": false,
+              "default": false
+            },
+            "database_scoped": {
+              "type": "boolean",
+              "const": true,
+              "default": true,
+              "description": "pgAdmin PostgreSQL role privileges must be limited to the assigned application database."
+            },
+            "cross_application_access": {
+              "type": "boolean",
+              "const": false,
+              "default": false,
+              "description": "Developers must not use pgAdmin to administer unrelated application databases."
+            },
+            "unrestricted_database_admin": {
+              "type": "boolean",
+              "const": false,
+              "default": false,
+              "description": "postgres, superuser, CREATEROLE, BYPASSRLS, global, shared, and production PostgreSQL roles are prohibited for developer pgAdmin."
+            },
+            "owner_role": {
+              "type": "string",
+              "description": "Application owner role or group responsible for approving access."
+            },
+            "developer_group": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Application-scoped developer group. Do not list credentials."
+            }
+          }
+        },
+        "environments": {
+          "type": "array",
+          "description": "Mapped runtime environments where pgAdmin is permitted or explicitly not configured. Branch names are not a substitute for actual runtime mapping.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "branch",
+              "environment",
+              "server",
+              "database",
+              "database_user_identity",
+              "database_scope",
+              "developer_owner",
+              "status"
+            ],
+            "properties": {
+              "branch": {
+                "type": "string",
+                "description": "Git branch associated with the runtime, such as development or staging."
+              },
+              "environment": {
+                "type": "string",
+                "enum": [
+                  "local",
+                  "feature",
+                  "development",
+                  "staging",
+                  "uat"
+                ]
+              },
+              "server": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Actual non-production server, hostname, or environment name. Use null only when no runtime exists."
+              },
+              "database": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Actual non-production PostgreSQL database name. Must not be a production database."
+              },
+              "database_user_identity": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Non-secret PostgreSQL role identity used by pgAdmin. Must be application and environment scoped, not postgres/superuser/global/admin/production."
+              },
+              "database_scope": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Single database this pgAdmin PostgreSQL role is permitted to administer. Use null only when no runtime exists."
+              },
+              "developer_owner": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Verified application developer owner or owner group for this pgAdmin runtime. Use null only when no runtime exists."
+              },
+              "pgadmin_url": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Non-production pgAdmin URL or path. Do not include credentials."
+              },
+              "superuser": {
+                "type": "boolean",
+                "const": false,
+                "default": false
+              },
+              "createrole": {
+                "type": "boolean",
+                "const": false,
+                "default": false
+              },
+              "bypassrls": {
+                "type": "boolean",
+                "const": false,
+                "default": false
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "configured",
+                  "not_configured",
+                  "not_eligible",
+                  "owner_not_verified",
+                  "database_isolation_blocker"
+                ]
+              },
+              "notes": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "staging": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "allowed": {
+              "type": "boolean",
+              "default": true
+            },
+            "require_authentication": {
+              "type": "boolean",
+              "default": true
+            },
+            "require_database_isolation": {
+              "type": "boolean",
+              "default": true
+            },
+            "require_environment_secrets": {
+              "type": "boolean",
+              "default": true
+            },
+            "prefer_network_restriction": {
+              "type": "boolean",
+              "default": true
+            },
+            "url": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Staging/UAT pgAdmin URL or path. Do not include credentials."
+            }
+          }
+        },
+        "production": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "allowed": {
+              "type": "boolean",
+              "const": false,
+              "default": false
+            },
+            "block_runtime_exposure": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        }
+      }
+    },
     "notes": {
       "type": "string"
     }

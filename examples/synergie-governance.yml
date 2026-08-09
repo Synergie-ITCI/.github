@@ -68,6 +68,54 @@ phpmyadmin:
     allowed: false
     block_runtime_exposure: true
 
+pgadmin:
+  local_allowed: true
+  development_allowed: true
+  access:
+    application_scoped: true
+    shared_company_admin: false
+    database_scoped: true
+    cross_application_access: false
+    unrestricted_database_admin: false
+    owner_role: Application owner
+    developer_group: application-developers
+  environments:
+    - branch: development
+      environment: development
+      server: null
+      database: null
+      database_user_identity: null
+      database_scope: null
+      developer_owner: null
+      pgadmin_url: null
+      superuser: false
+      createrole: false
+      bypassrls: false
+      status: not_configured
+      notes: Map this only after the actual development server, PostgreSQL database, and developer owner are verified.
+    - branch: staging
+      environment: staging
+      server: null
+      database: null
+      database_user_identity: null
+      database_scope: null
+      developer_owner: null
+      pgadmin_url: null
+      superuser: false
+      createrole: false
+      bypassrls: false
+      status: not_configured
+      notes: Map this only after the actual staging/UAT server, PostgreSQL database, and developer owner are verified.
+  staging:
+    allowed: true
+    require_authentication: true
+    require_database_isolation: true
+    require_environment_secrets: true
+    prefer_network_restriction: true
+  production:
+    allowed: false
+    block_runtime_exposure: true
+
 notes: >
   This file documents repository governance only. Do not store credentials,
   deployment secrets, database values, access tokens, or personal data here.
