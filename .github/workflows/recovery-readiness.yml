@@ -1,0 +1,117 @@
+name: Synergie Recovery Readiness
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: Recovery validation mode.
+        required: false
+        type: string
+        default: staging
+      recovery-manifest-path:
+        description: Repository recovery manifest path.
+        required: false
+        type: string
+        default: .github/synergie-recovery.yml
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Recovery validation mode.
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+      recovery-manifest-path:
+        description: Repository recovery manifest path.
+        required: false
+        type: string
+        default: .github/synergie-recovery.yml
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  recovery-readiness:
+    name: Recovery Readiness
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Validate workflow inputs
+        env:
+          RECOVERY_MODE: ${{ inputs.mode }}
+        run: |
+          case "$RECOVERY_MODE" in
+            staging|production)
+              echo "Recovery mode accepted: $RECOVERY_MODE"
+              ;;
+            *)
+              echo "Unsupported recovery mode: $RECOVERY_MODE" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Checkout caller repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prepare local Synergie recovery tooling
+        if: ${{ github.repository == 'Synergie-ITCI/.github' }}
+        run: |
+          mkdir -p .synergie-governance/tools
+          cp tools/recovery_policy.py .synergie-governance/tools/recovery_policy.py
+
+      - name: Checkout Synergie recovery tooling
+        if: ${{ github.repository != 'Synergie-ITCI/.github' }}
+        uses: actions/checkout@v4
+        with:
+          repository: Synergie-ITCI/.github
+          ref: main
+          path: .synergie-governance
+          persist-credentials: false
+
+      - name: Run recovery readiness policy
+        id: recovery
+        env:
+          RECOVERY_MODE: ${{ inputs.mode }}
+          RECOVERY_MANIFEST_PATH: ${{ inputs.recovery-manifest-path }}
+        run: |
+          mkdir -p recovery-readiness-results
+          set +e
+          python3 .synergie-governance/tools/recovery_policy.py \
+            --repo "$GITHUB_WORKSPACE" \
+            --mode "$RECOVERY_MODE" \
+            --manifest "$RECOVERY_MANIFEST_PATH" \
+            --out recovery-readiness-results/recovery-readiness-report.md \
+            --json-out recovery-readiness-results/recovery-readiness-report.json
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Publish recovery readiness report
+        if: ${{ always() }}
+        run: |
+          if [ -f recovery-readiness-results/recovery-readiness-report.md ]; then
+            cat recovery-readiness-results/recovery-readiness-report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Recovery readiness report was not generated." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload recovery readiness evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: synergie-recovery-readiness-results
+          path: recovery-readiness-results/
+          retention-days: 30
+
+      - name: Enforce recovery readiness
+        if: ${{ steps.recovery.outputs.exit_code != '0' }}
+        run: |
+          echo "Synergie recovery readiness failed."
+          exit 1

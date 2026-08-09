@@ -38,6 +38,16 @@ on:
         required: false
         type: boolean
         default: true
+      enforce-recovery-readiness:
+        description: Run the Synergie recovery readiness check for staging promotions.
+        required: false
+        type: boolean
+        default: true
+      recovery-manifest-path:
+        description: Repository recovery manifest path.
+        required: false
+        type: string
+        default: .github/synergie-recovery.yml
 
 permissions:
   contents: read
@@ -129,8 +139,19 @@ jobs:
               print(f"No staging promotion rule applies to base branch: {base_ref}")
           PY
 
+  recovery-readiness:
+    name: Recovery Readiness
+    needs: governance-preflight
+    if: ${{ inputs.enforce-recovery-readiness }}
+    uses: Synergie-ITCI/.github/.github/workflows/recovery-readiness.yml@main
+    with:
+      mode: staging
+      recovery-manifest-path: ${{ inputs.recovery-manifest-path }}
+
   pr-qa:
     name: Synergie PR QA
-    needs: governance-preflight
-    if: ${{ inputs.run-pr-qa }}
+    needs:
+      - governance-preflight
+      - recovery-readiness
+    if: ${{ always() && inputs.run-pr-qa && needs.governance-preflight.result == 'success' && (needs.recovery-readiness.result == 'success' || needs.recovery-readiness.result == 'skipped') }}
     uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@main

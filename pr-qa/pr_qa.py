@@ -735,11 +735,38 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
         merge_base = git_lines(ctx.repo, ["merge-base", git_context["base_sha"], "HEAD"])
         merge_base_sha = merge_base[0] if merge_base else git_context["base_sha"]
         merge_commits = git_lines(ctx.repo, ["rev-list", "--merges", f"{merge_base_sha}..HEAD"])
-        if merge_commits and not ctx.config.get("repository", {}).get("allow_merge_commits", False):
-            results.append(failed("Repository Hygiene", None, "Accidental merge commits detected.", merge_commits[:20], score=8))
+        unexpected_merge_commits = merge_commits
+        if merge_commits and canonical_branch_promotion(ctx):
+            unexpected_merge_commits = [
+                sha for sha in merge_commits if not merge_commit_matches_second_parent_tree(ctx.repo, sha)
+            ]
+        if unexpected_merge_commits and not ctx.config.get("repository", {}).get("allow_merge_commits", False):
+            results.append(failed("Repository Hygiene", None, "Accidental merge commits detected.", unexpected_merge_commits[:20], score=8))
+        elif merge_commits and canonical_branch_promotion(ctx):
+            results.append(passed("Repository Hygiene", None, "Only governed branch-promotion merge commits detected."))
         else:
             results.append(passed("Repository Hygiene", None, "No accidental merge commits detected."))
     return results
+
+
+def canonical_branch_promotion(ctx: PRContext) -> bool:
+    pair = ((ctx.head_ref or "").lower(), (ctx.base_ref or "").lower())
+    return pair in {
+        ("develop", "staging"),
+        ("development", "staging"),
+        ("staging", "main"),
+        ("staging", "master"),
+    }
+
+
+def merge_commit_matches_second_parent_tree(repo: Path, sha: str) -> bool:
+    parents = git_lines(repo, ["show", "-s", "--format=%P", sha])
+    if not parents:
+        return False
+    if len(parents[0].split()) != 2:
+        return False
+    completed = subprocess.run(["git", "diff", "--quiet", sha, f"{sha}^2"], cwd=repo, text=True, capture_output=True, check=False)
+    return completed.returncode == 0
 
 
 def gate_git_validation(ctx: PRContext, git_context: dict[str, Any]) -> list[CheckResult]:

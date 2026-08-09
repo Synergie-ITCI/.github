@@ -18,8 +18,8 @@ The standard is additive and non-destructive. Existing repository security contr
 | --- | --- | --- |
 | `feature/*` | Developer implementation and work in progress | No company-wide required PR gate, reviewer, status check, merge queue, or deployment approval. Existing repo-specific protections remain. |
 | `development` | Shared integration branch | No new company-wide blocking QA gate. CI may run as informational. Existing required checks/reviews remain. |
-| `staging` | Staging/UAT landing branch | No company-wide mandatory QA gate before code reaches staging. Staging phpMyAdmin is allowed only with security controls and database isolation. |
-| `main` | Company QA and production release gate | PR required. Production/release validation, reviewer approval, PR QA, and production safety checks are required. Normal source is `staging`. |
+| `staging` | Staging/UAT landing branch | PR required from `development` for deployable applications. Recovery readiness, manifest validation, and existing repository checks run here. Staging phpMyAdmin is allowed only with security controls and database isolation. |
+| `main` | Company QA and production release gate | PR required from `staging`. Production/release validation, recoverability certification, reviewer approval, PR QA, and production safety checks are required. |
 
 ## Promotion Rules
 
@@ -53,8 +53,9 @@ The company reusable workflows are:
 
 | Workflow | Purpose |
 | --- | --- |
-| `.github/workflows/synergie-quality-gate.yml` | Optional staging-boundary governance for repositories that explicitly retain stronger pre-staging controls. It is not part of the company mandatory baseline. |
-| `.github/workflows/synergie-production-gate.yml` | Main/production boundary governance, central PR QA, and phpMyAdmin production policy enforcement. |
+| `.github/workflows/synergie-quality-gate.yml` | Staging-boundary governance for deployable applications, including recovery readiness and central PR QA. |
+| `.github/workflows/synergie-production-gate.yml` | Main/production boundary governance, production recoverability check, central PR QA, and phpMyAdmin production policy enforcement. |
+| `.github/workflows/recovery-readiness.yml` | Reusable application recoverability scanner for staging and production release readiness. |
 | `.github/workflows/phpmyadmin-environment-policy.yml` | Reusable phpMyAdmin policy scanner for production PRs and manual/opt-in non-production validation. |
 
 Repository adapters should call these workflows from a repository-local workflow, usually copied from:
@@ -80,6 +81,21 @@ Use `examples/synergie-governance.yml` as the starting point. The schema is:
 ```
 
 The config is documentation and lightweight workflow input. It must never contain credentials, access keys, passwords, tokens, database secrets, cookies, or environment secret values.
+
+Deployable repositories must add:
+
+```text
+.github/synergie-recovery.yml
+```
+
+The recovery manifest classifies source, assets, dependencies, external
+artifacts, secret references, database backups, persistent runtime data,
+deployment traceability, health checks, rollback, and recovery ownership. Its
+schema is:
+
+```text
+.github/synergie-recovery.schema.json
+```
 
 ## Repository Adoption Checklist
 
@@ -133,7 +149,8 @@ Use GitHub rulesets where they add clean governance without overlapping or weake
 
 For `staging`:
 
-- Do not add a new company-wide mandatory QA gate before code reaches staging.
+- Require successful Synergie quality gate for deployable applications.
+- Require successful recovery readiness check.
 - Preserve any existing repository-specific protections unless separately approved for removal.
 - Staging/UAT phpMyAdmin is allowed only when authentication, database isolation, and secret handling controls are documented and validated by the owning team.
 - Staging/UAT phpMyAdmin must not point to production database hosts, names, or credentials.
@@ -144,6 +161,7 @@ For `main`:
 - Require successful Synergie production gate.
 - Require successful staging/release QA evidence.
 - Require `phpmyadmin-production-check`; production must not introduce or expose phpMyAdmin.
+- Require production recoverability check; production must not have recovery-critical server-only files, missing backups, missing lockfiles, unresolved secret references, unclassified ignored assets, or unknown deployed commit.
 - Require at least one reviewer.
 - Require conversation resolution.
 - Preserve CODEOWNERS where already configured or required.
@@ -158,7 +176,7 @@ For `development` and `feature/*`:
 
 ## Staging And Production Deployment
 
-Staging deployment may be triggered after code reaches `staging`, but only if the repository already has a staging or UAT target. The company baseline does not add a mandatory QA gate before `staging`. If no staging target exists, report:
+Staging deployment may be triggered after code reaches `staging`, but only if the repository already has a staging or UAT target and the recovery readiness check passed. If no staging target exists, report:
 
 ```text
 STAGING ENVIRONMENT NOT CONFIGURED
@@ -167,6 +185,54 @@ STAGING ENVIRONMENT NOT CONFIGURED
 Do not point staging deployment at production.
 
 Production deployment must originate only from an approved production source already defined by the repository. Preserve existing GitHub environments, manual approvals, deployment secrets, AWS deployment mechanisms, and rollback controls.
+
+## Application Recoverability Policy
+
+Application recoverability is a production safety control. A repository is not
+recoverable merely because a live server currently works or a backup job exists.
+The company must be able to restore from company-controlled systems if the
+production server, staging server, developer laptops, original developer, local
+folders, and manual ZIP files are all unavailable.
+
+Every deployable repository must classify recovery-critical components in
+`.github/synergie-recovery.yml`.
+
+The governing principle is:
+
+```text
+Ignored from Git must never mean not backed up anywhere.
+```
+
+The recovery readiness gate fails if required source or asset paths are excluded
+by `.gitignore`, `.git/info/exclude`, packaging ignore files, or artifact ignore
+files without a Git LFS mapping or an approved external artifact entry with URI,
+SHA-256 checksum, and immutable/versioned storage.
+
+Staging readiness failures include:
+
+- `RECOVERY MANIFEST MISSING`
+- `RECOVERY REQUIRED PATH MISSING`
+- `RECOVERY-CRITICAL FILE EXCLUDED FROM SOURCE OF TRUTH`
+- `DANGEROUS RECOVERY IGNORE RULE`
+- `RECOVERY DEPENDENCY LOCKFILE MISSING`
+- `RECOVERY MANIFEST CONTAINS SECRET VALUE`
+- `PERSON-DEPENDENT RECOVERY ASSET`
+- `RECOVERY LFS ATTRIBUTES MISSING`
+- `RECOVERY ARTIFACT CHECKSUM MISSING`
+
+Production certification additionally fails on:
+
+- `RECOVERY-CRITICAL SERVER-ONLY FILE`
+- `RECOVERY SERVER FILE AUDIT MISSING`
+- `DEPLOYED COMMIT UNKNOWN`
+- `DEPLOYMENT NOT REPRODUCIBLE`
+
+The target state for every active production application is:
+
+```text
+DEVELOPER LAPTOP REQUIRED FOR RECOVERY = ZERO
+RECOVERY-CRITICAL SERVER-ONLY FILES = ZERO
+```
 
 ## phpMyAdmin Environment Policy
 

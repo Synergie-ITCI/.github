@@ -54,6 +54,8 @@ class PrQaRegressionTests(unittest.TestCase):
         base: str,
         *,
         static_only: bool = False,
+        base_ref: str = "main",
+        head_ref: str = "feature/regression",
         actor: str = "",
         pr_author: str = "SaurabhVermaIN",
         override_reason: str = "",
@@ -66,8 +68,8 @@ class PrQaRegressionTests(unittest.TestCase):
                     "pull_request": {
                         "number": 123,
                         "user": {"login": pr_author},
-                        "base": {"sha": base, "ref": "main"},
-                        "head": {"sha": "HEAD", "ref": "feature/regression"},
+                        "base": {"sha": base, "ref": base_ref},
+                        "head": {"sha": "HEAD", "ref": head_ref},
                         "body": (
                             "## Business Purpose\nRegression test.\n"
                             "## Testing Performed\nLocal automated regression.\n"
@@ -170,6 +172,69 @@ class PrQaRegressionTests(unittest.TestCase):
         self.assertNotEqual(code, 0)
         self.assertEqual(report_json["summary"]["gate_statuses"]["Review Policy"], "FAIL")
         self.assertIn("Pull request has merge conflicts", report)
+
+    def test_feature_pr_still_blocks_accidental_merge_commit(self) -> None:
+        repo, base = self.init_repo("feature-merge-commit")
+        self.write(repo / "feature.txt", "feature change\n")
+        self.commit(repo, "feat: add feature change")
+        self.git(repo, "checkout", "-q", "-b", "feature/side-branch", base)
+        self.write(repo / "side.txt", "side change\n")
+        self.commit(repo, "feat: add side change")
+        self.git(repo, "checkout", "-q", "feature/regression")
+        self.git(repo, "merge", "--no-ff", "-m", "Merge side branch", "feature/side-branch")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
+        self.assertIn("Accidental merge commits detected", report)
+
+    def test_development_to_staging_allows_governed_noop_merge_commit(self) -> None:
+        repo, base = self.init_repo("development-staging-promotion", profile="framework")
+        self.write(repo / "README.md", "# regression\n\nGoverned promotion content.\n")
+        self.commit(repo, "feat(governance): add promotion content")
+        self.git(repo, "checkout", "-q", "-b", "development", base)
+        self.git(repo, "merge", "--no-ff", "-m", "feat(governance): merge reviewed feature to development", "feature/regression")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            static_only=True,
+            base_ref="staging",
+            head_ref="development",
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "PASS")
+        self.assertTrue(
+            any(
+                result["gate"] == "Repository Hygiene"
+                and result["message"] == "Only governed branch-promotion merge commits detected."
+                for result in report_json["results"]
+            )
+        )
+
+    def test_development_to_staging_blocks_contentful_merge_commit(self) -> None:
+        repo, base = self.init_repo("development-staging-contentful-merge", profile="framework")
+        self.write(repo / "feature.txt", "feature change\n")
+        self.commit(repo, "feat(governance): add feature change")
+        self.git(repo, "checkout", "-q", "-b", "feature/side-branch", base)
+        self.write(repo / "side.txt", "side change\n")
+        self.commit(repo, "feat(governance): add side change")
+        self.git(repo, "checkout", "-q", "-b", "development", "feature/regression")
+        self.git(repo, "merge", "--no-ff", "-m", "feat(governance): merge side branch", "feature/side-branch")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            static_only=True,
+            base_ref="staging",
+            head_ref="development",
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
+        self.assertIn("Accidental merge commits detected", report)
 
     def test_non_saurabh_authored_pr_blocks_without_independent_review(self) -> None:
         repo, base = self.init_repo("developer-no-review")

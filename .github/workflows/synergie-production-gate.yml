@@ -53,6 +53,16 @@ on:
         required: false
         type: boolean
         default: true
+      enforce-recovery-readiness:
+        description: Fail production releases that do not meet the Synergie recoverability standard.
+        required: false
+        type: boolean
+        default: true
+      recovery-manifest-path:
+        description: Repository recovery manifest path.
+        required: false
+        type: string
+        default: .github/synergie-recovery.yml
 
 permissions:
   contents: read
@@ -219,8 +229,19 @@ jobs:
           echo "PRODUCTION PHPMYADMIN POLICY VIOLATION"
           exit 1
 
+  recovery-readiness:
+    name: Production Recoverability Check
+    needs: production-preflight
+    if: ${{ inputs.enforce-recovery-readiness }}
+    uses: Synergie-ITCI/.github/.github/workflows/recovery-readiness.yml@main
+    with:
+      mode: production
+      recovery-manifest-path: ${{ inputs.recovery-manifest-path }}
+
   pr-qa:
     name: Synergie Release QA
-    needs: production-preflight
-    if: ${{ inputs.run-pr-qa }}
+    needs:
+      - production-preflight
+      - recovery-readiness
+    if: ${{ always() && inputs.run-pr-qa && needs.production-preflight.result == 'success' && (needs.recovery-readiness.result == 'success' || needs.recovery-readiness.result == 'skipped') }}
     uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@main
