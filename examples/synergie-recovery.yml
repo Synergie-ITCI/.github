@@ -1,0 +1,88 @@
+application_name: Example Production Application
+repository: Synergie-ITCI/example-app
+runtime: php
+runtime_version: "8.2"
+framework: laravel
+framework_version: "10.x"
+
+build_commands:
+  - composer install --no-dev --prefer-dist --no-interaction --no-progress
+  - npm ci
+  - npm run build
+
+dependency_manifests:
+  - composer.json
+  - package.json
+
+dependency_lockfiles:
+  - composer.lock
+  - package-lock.json
+
+required_source_paths:
+  - app/
+  - routes/
+  - resources/views/
+  - database/migrations/
+  - config/
+
+required_asset_paths:
+  - public/app-assets/
+  - resources/js/
+  - resources/css/
+
+git_lfs_paths: []
+
+external_artifact_locations:
+  - path: resources/model/example-model.bin
+    uri: s3://synergie-release-artifacts/example-app/models/example-model.bin
+    checksum_sha256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    version: "2026-08-09T00:00:00Z"
+    retention: release-artifact-retention-policy
+
+environment_template: .env.example
+
+secret_references:
+  - /synergie/example-app/production/app-key
+  - /synergie/example-app/production/database
+  - arn:aws:secretsmanager:ap-south-1:123456789012:secret:example-app/production/oauth
+
+database_engine: mysql
+database_backup_strategy: AWS Backup daily encrypted backup, 35-day retention, restore tested quarterly.
+database_restore_reference: runbooks/example-app/database-restore.md
+
+persistent_upload_locations:
+  - storage/app/public/
+  - public/uploads/
+
+persistent_storage_backup_strategy: Application uploads live in versioned S3 with lifecycle retention; legacy EC2 uploads are included in encrypted EBS backups until migrated.
+
+web_server_template: deploy/nginx/example-app.conf
+
+scheduled_jobs:
+  - deploy/cron/example-app.cron
+
+service_definitions:
+  - deploy/systemd/example-app-worker.service
+
+deployment_method: github-actions-ssm-release-artifact
+production_target_reference: aws-account-123456789012/ap-south-1/example-app-production
+
+health_checks:
+  - https://example.synergieinsights.in/health
+  - php artisan migrate:status
+
+rollback_method: Restore previous SHA-256 verified release artifact and run rollback health checks.
+rto_target: 4h
+rpo_target: 24h
+recovery_owner_role: Synergie Example App Platform Owner
+
+server_file_audit:
+  last_audit_reference: runbooks/example-app/server-file-audit-2026-08-09.md
+  recovery_critical_server_only_count: 0
+  unknown_file_count: 0
+
+deployment_traceability:
+  commit_marker: .deployed_commit
+  artifact_manifest: release-manifest.json
+  artifact_checksum_algorithm: sha256
+  release_artifact_retention: Keep last 10 production releases and at least 90 days.

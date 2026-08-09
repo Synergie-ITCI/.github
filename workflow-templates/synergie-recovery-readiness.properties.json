@@ -1,0 +1,14 @@
+{
+  "name": "Synergie Recovery Readiness",
+  "description": "Reusable application recoverability validation for staging and production release readiness.",
+  "iconName": "octicon-shield-check",
+  "categories": [
+    "Deployment",
+    "Security",
+    "Continuous integration"
+  ],
+  "filePatterns": [
+    ".github/synergie-recovery.yml",
+    ".github/synergie-governance.yml"
+  ]
+}
