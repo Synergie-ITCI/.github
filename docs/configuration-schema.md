@@ -71,7 +71,7 @@ branch_naming:
 
 commit_messages:
   allowed_patterns:
-    - '^(feat|fix|docs|style|refactor|test|chore|build|ci|perf|security|release|revert)(\([^)]+\))?: .+'
+    - '^(feat|fix|docs|style|refactor|test|chore|build|ci|perf|security|release|promote|revert)(\([^)]+\))?: .+'
 ```
 
 Patterns are regular expressions. The `release:` type is reserved for governed release-publication commits and does not relax commit-message validation.

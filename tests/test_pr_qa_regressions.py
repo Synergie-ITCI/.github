@@ -194,7 +194,7 @@ class PrQaRegressionTests(unittest.TestCase):
         self.write(repo / "README.md", "# regression\n\nGoverned promotion content.\n")
         self.commit(repo, "feat(governance): add promotion content")
         self.git(repo, "checkout", "-q", "-b", "development", base)
-        self.git(repo, "merge", "--no-ff", "-m", "feat(governance): merge reviewed feature to development", "feature/regression")
+        self.git(repo, "merge", "--no-ff", "-m", "promote(governance): merge reviewed feature to development", "feature/regression")
 
         code, report, report_json, _ = self.run_engine_with_artifacts(
             repo,
