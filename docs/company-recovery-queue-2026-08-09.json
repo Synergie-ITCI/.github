@@ -1,4 +1,104 @@
 {
+  "application_backup_bucket_controls": {
+    "bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+    "default_encryption": "SSE-S3 / AES256",
+    "lifecycle": {
+      "abort_incomplete_multipart_upload_days": 7,
+      "daily_current_expiration_days": 45,
+      "daily_noncurrent_expiration_days": 35,
+      "weekly_current_expiration_days": 90,
+      "weekly_noncurrent_expiration_days": 90
+    },
+    "object_ownership": "BucketOwnerEnforced",
+    "production_role": "arn:aws:iam::918870682888:role/SynergieEC2SSMManagedInstanceCore",
+    "public_access_block": {
+      "BlockPublicAcls": true,
+      "BlockPublicPolicy": true,
+      "IgnorePublicAcls": true,
+      "RestrictPublicBuckets": true
+    },
+    "region": "ap-south-1",
+    "tls_only_policy": "DenyInsecureTransport",
+    "versioning": "Enabled"
+  },
+  "application_backup_framework": {
+    "artifact_bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+    "artifact_key": "framework/releases/20260809/synergie-backup-framework-20260809.tar.gz",
+    "artifact_sha256": "086c1f77faecfbcc211ee5461404070e6e21e3c55422b9f41885af48f672de84",
+    "artifact_version_id": "4Fmolm.bm8Vn64YfsSof_O7Ke.OiozK5",
+    "bridgestone_verify_smoke_ssm_command_id": "415c77f4-1c7d-49ef-bf58-9ba1002ff8c3",
+    "config_files": [
+      "config/backup-applications.json",
+      "config/backup-applications.yml"
+    ],
+    "cron": "10 21 * * * root /usr/local/sbin/synergie-backup-application.sh --config /etc/synergie/backup-applications.json --all --restore-test >> /var/log/synergie-production-app-backup.log 2>&1",
+    "cron_timezone": "UTC",
+    "final_deploy_ssm_command_id": "288795e7-5b11-4eb7-849f-4aa1dc9fecc4",
+    "production_config_path": "/etc/synergie/backup-applications.json",
+    "production_current_symlink": "/opt/synergie-backup-framework/current",
+    "production_release_path": "/opt/synergie-backup-framework/releases/20260809",
+    "repository_branch": "feature/company-recovery-scorecard-20260809",
+    "scorecard_pr": "https://github.com/Synergie-ITCI/.github/pull/26",
+    "scripts": [
+      "tools/backup/backup-application.sh",
+      "tools/backup/verify-backup.sh",
+      "tools/backup/restore-application.sh",
+      "tools/backup/synergie_backup.py"
+    ],
+    "wrappers": [
+      "/usr/local/sbin/synergie-backup-application.sh",
+      "/usr/local/sbin/synergie-verify-backup.sh",
+      "/usr/local/sbin/synergie-restore-application.sh"
+    ]
+  },
+  "application_backup_monitoring": {
+    "failure_alerts": "framework publishes SNS failure alerts; success state is represented by S3 status objects",
+    "sns_policy_statement": "AllowSynergieProductionBackupRolePublish",
+    "sns_topic_arn": "arn:aws:sns:ap-south-1:918870682888:synergie-monitor-platform-alerts",
+    "status_objects": "applications/<app>/production/status/latest.json and timestamped status JSON"
+  },
+  "application_backup_rollout": {
+    "cost": {
+      "august_mtd_s3_unblended_usd": 13.5728718541,
+      "august_mtd_unblended_total_usd": 298.373858225,
+      "aws_cost_explorer_period": "2026-08-01 through 2026-08-09; End=2026-08-10 exclusive",
+      "estimated_current_backup_storage_usd_per_month": 0.63,
+      "estimated_storage_only_percent_of_august_mtd_total": 0.213,
+      "measured_application_current_objects": 15827,
+      "measured_application_versioned_gib": 25.37,
+      "measured_application_versioned_objects": 15830,
+      "measured_bucket_versioned_gib": 25.37,
+      "pricing_source": "AWS Pricing API for AmazonS3 Asia Pacific (Mumbai), APS3-TimedStorage-ByteHrs, first 50 TB tier",
+      "request_cost_note": "PUT/LIST/GET request costs are separate and expected to be small for this footprint; exact bill will appear in Cost Explorer after metering settles.",
+      "s3_standard_mumbai_first_50tb_usd_per_gb_month": 0.025
+    },
+    "report_json": "docs/company-backup-rollout-2026-08-09.json",
+    "report_markdown": "docs/company-backup-rollout-2026-08-09.md",
+    "rollout_commands": {
+      "bridgestone_standalone_ssm_command_id": "fc2e443a-150f-45b7-a8b1-e576d09c4ca5",
+      "remaining_19_apps_finished_at": "2026-08-09T12:18:17.748Z",
+      "remaining_19_apps_response_code": 0,
+      "remaining_19_apps_ssm_command_id": "94439e53-5b4c-49cc-bc86-0a6aaa112a43",
+      "remaining_19_apps_status": "Success"
+    },
+    "summary": {
+      "applications_in_scope": 20,
+      "backup_recovery_certified": 20,
+      "company_backup_recovery_status": "COMPANY BACKUP RECOVERY CERTIFIED",
+      "database_restore_tests_passed": 20,
+      "db_dump_bytes": 171161483,
+      "db_dump_gib": 0.159,
+      "failed": 0,
+      "persistent_bytes": 27060016080,
+      "persistent_files": 15694,
+      "persistent_gib": 25.202,
+      "persistent_not_applicable": 2,
+      "persistent_restore_tests_passed": 18,
+      "production_changes": "Backup framework, S3 bucket/policy/lifecycle, cron schedule, and S3 backup objects changed; no app code deploy, restart, schema change, or production restore was performed.",
+      "restore_safety": "All restore tests used isolated temporary MariaDB and temporary persistent sample directories; no production restore target was used.",
+      "scope": "20 non-Sankalp P0 production applications"
+    }
+  },
   "apps": [
     {
       "app": "bayer.synergieinsights.in",
@@ -11,19 +111,52 @@
         "instance_type": "t3.xlarge",
         "region": "ap-south-1"
       },
+      "backup_recovery": {
+        "backup_timestamp_utc": "20260809T120444Z",
+        "bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+        "database": {
+          "consistency_mode": "single-transaction",
+          "dump_key": "applications/bayer/production/20260809T120444Z/database/bayer_db.sql.gz",
+          "dump_sha256": "129c435c6431887e2c14d350c1e0809a5f00b175273337abe8306d2cd2baf7c0",
+          "dump_size_bytes": 51140675,
+          "engine": "mariadb",
+          "name": "bayer_db",
+          "restore_test_duration_seconds": 75.788,
+          "restore_test_status": "PASS",
+          "restore_test_table_count": 92,
+          "s3_encryption": "AES256",
+          "s3_version_id": "YZ4Ejco0gPJip0wjqSnAPn9Df1MB7YH0",
+          "table_count_before": 92
+        },
+        "manifest_s3_key": "applications/bayer/production/20260809T120444Z/manifest.json",
+        "persistent": {
+          "manifest_key": "applications/bayer/production/20260809T120444Z/persistent/persistent-manifest.jsonl",
+          "manifest_s3_version_id": "M2VjvJ73PvtxrqCP5iAAUS3ZOlH9_jfx",
+          "manifest_sha256": "44034b2ef060af30b21a09191c6b77ce051d003ffeccadc011b04e662030633c",
+          "path_ids": [
+            "storage_app_public"
+          ],
+          "restore_test_sample_count": 2,
+          "restore_test_status": "PASS",
+          "status": "BACKED_UP",
+          "total_bytes": 636333,
+          "total_files": 2
+        },
+        "restore_safety": "All restore tests used isolated temporary MariaDB and temporary persistent sample directories; no production restore target was used.",
+        "status": "BACKUP_RECOVERY_CERTIFIED"
+      },
+      "backup_recovery_status": "BACKUP_RECOVERY_CERTIFIED",
       "blockers": [
-        "No independent current logical DB backup and restore-test evidence.",
-        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
         "No deployed commit marker.",
         "Environment template is absent from the production root or canonical repo evidence.",
         "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
         "Embedded GitHub token URL was found in production Git remote and removed on 2026-08-09; rotate/revoke the old token if still valid.",
         "No recovery manifest and no clean-room restore certification."
       ],
-      "certification_status": "NOT RECOVERABLE",
+      "certification_status": "NOT FULLY RECOVERABLE - BACKUP LAYER CERTIFIED",
       "controls": {
         "clean_room_restore": "not tested",
-        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "database_backup": "pass: encrypted logical DB backup uploaded to central S3 and restored into isolated temporary MariaDB",
         "env_templates": [],
         "lockfiles": [
           "composer.lock"
@@ -32,7 +165,7 @@
           "composer.json",
           "package.json"
         ],
-        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "persistent_backup": "pass: encrypted versioned S3 persistent backup and representative checksum restore passed",
         "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
         "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
       },
@@ -43,10 +176,11 @@
         "/var/www/bayer.synergieinsights.in/public_html/public"
       ],
       "environment": "production",
+      "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "bayer.synergieinsights.in"
       ],
-      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "next_recovery_step": "Add canonical recovery manifest, approved secret source mapping, deployment traceability, and clean-room web restore proof.",
       "persistent": {
         "directories": [
           {
@@ -95,18 +229,53 @@
         "instance_type": "t3.xlarge",
         "region": "ap-south-1"
       },
+      "backup_recovery": {
+        "backup_timestamp_utc": "20260809T115852Z",
+        "bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+        "database": {
+          "consistency_mode": "single-transaction",
+          "dump_key": "applications/bridgestone/production/20260809T115852Z/database/bridgestone_db.sql.gz",
+          "dump_sha256": "2f2f208d607bc547d134885a0a07473ffc4422aefdce1a7840d610823acf16e6",
+          "dump_size_bytes": 820112,
+          "engine": "mariadb",
+          "name": "bridgestone_db",
+          "restore_test_duration_seconds": 3.355,
+          "restore_test_status": "PASS",
+          "restore_test_table_count": 21,
+          "s3_encryption": "AES256",
+          "s3_version_id": "hMMtX3mV2FS1xSm7X35RcWrQUi6yx6Mk",
+          "table_count_before": 21
+        },
+        "manifest_s3_key": "applications/bridgestone/production/20260809T115852Z/manifest.json",
+        "persistent": {
+          "manifest_key": "applications/bridgestone/production/20260809T115852Z/persistent/persistent-manifest.jsonl",
+          "manifest_s3_version_id": "NhhP3jfEryYuWLniP.uV8VGwKJHCpFJK",
+          "manifest_sha256": "b4e5712d09db95a844fa2f34b861df5ce0be8926613701b198d236a3a7445273",
+          "path_ids": [
+            "storage_app_public",
+            "public_uploads",
+            "public_useruploads"
+          ],
+          "restore_test_sample_count": 5,
+          "restore_test_status": "PASS",
+          "status": "BACKED_UP",
+          "total_bytes": 16608514570,
+          "total_files": 7444
+        },
+        "restore_safety": "All restore tests used isolated temporary MariaDB and temporary persistent sample directories; no production restore target was used.",
+        "status": "BACKUP_RECOVERY_CERTIFIED"
+      },
+      "backup_recovery_status": "BACKUP_RECOVERY_CERTIFIED",
       "blockers": [
-        "No independent current logical DB backup and restore-test evidence.",
-        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
         "Production root is not a Git checkout; source provenance is server-only or repo mapping is indirect.",
         "No deployed commit marker.",
         "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
         "No recovery manifest and no clean-room restore certification."
       ],
-      "certification_status": "NOT RECOVERABLE",
+      "certification_status": "NOT FULLY RECOVERABLE - BACKUP LAYER CERTIFIED",
       "controls": {
         "clean_room_restore": "not tested",
-        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "database_backup": "pass: encrypted logical DB backup uploaded to central S3 and restored into isolated temporary MariaDB",
         "env_templates": [
           ".env.example"
         ],
@@ -118,7 +287,7 @@
           "composer.json",
           "package.json"
         ],
-        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "persistent_backup": "pass: encrypted versioned S3 persistent backup and representative checksum restore passed",
         "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
         "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
       },
@@ -129,10 +298,11 @@
         "/var/www/bridgestone.synergieinsights.in/public_html/public"
       ],
       "environment": "production",
+      "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "bridgestone.synergieinsights.in"
       ],
-      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "next_recovery_step": "Add canonical recovery manifest, approved secret source mapping, deployment traceability, and clean-room web restore proof.",
       "persistent": {
         "directories": [
           {
@@ -196,17 +366,50 @@
         "instance_type": "t3.xlarge",
         "region": "ap-south-1"
       },
+      "backup_recovery": {
+        "backup_timestamp_utc": "20260809T120632Z",
+        "bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+        "database": {
+          "consistency_mode": "single-transaction",
+          "dump_key": "applications/datamatics-lms/production/20260809T120632Z/database/datamatics_lms.sql.gz",
+          "dump_sha256": "ec8e45c498c0a78d17f6fc612fb3687961515a9a7a68423cb162782b3602de95",
+          "dump_size_bytes": 3876697,
+          "engine": "mariadb",
+          "name": "datamatics_lms",
+          "restore_test_duration_seconds": 5.663,
+          "restore_test_status": "PASS",
+          "restore_test_table_count": 80,
+          "s3_encryption": "AES256",
+          "s3_version_id": "vB2EW.VjpQfSnzqpjBiGzHwAp_3mGv8O",
+          "table_count_before": 80
+        },
+        "manifest_s3_key": "applications/datamatics-lms/production/20260809T120632Z/manifest.json",
+        "persistent": {
+          "manifest_key": "applications/datamatics-lms/production/20260809T120632Z/persistent/persistent-manifest.jsonl",
+          "manifest_s3_version_id": "PW6TZGYnAbhMUXx78pHqX3QNf.95RF12",
+          "manifest_sha256": "bbcdeab856f5c4c62930012ccc97993a6b9d5592f82c562bea6b7974890af32c",
+          "path_ids": [
+            "storage_app_public"
+          ],
+          "restore_test_sample_count": 2,
+          "restore_test_status": "PASS",
+          "status": "BACKED_UP",
+          "total_bytes": 47497,
+          "total_files": 2
+        },
+        "restore_safety": "All restore tests used isolated temporary MariaDB and temporary persistent sample directories; no production restore target was used.",
+        "status": "BACKUP_RECOVERY_CERTIFIED"
+      },
+      "backup_recovery_status": "BACKUP_RECOVERY_CERTIFIED",
       "blockers": [
-        "No independent current logical DB backup and restore-test evidence.",
-        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
         "No deployed commit marker.",
         "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
         "No recovery manifest and no clean-room restore certification."
       ],
-      "certification_status": "NOT RECOVERABLE",
+      "certification_status": "NOT FULLY RECOVERABLE - BACKUP LAYER CERTIFIED",
       "controls": {
         "clean_room_restore": "not tested",
-        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "database_backup": "pass: encrypted logical DB backup uploaded to central S3 and restored into isolated temporary MariaDB",
         "env_templates": [
           ".env.example"
         ],
@@ -217,7 +420,7 @@
           "composer.json",
           "package.json"
         ],
-        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "persistent_backup": "pass: encrypted versioned S3 persistent backup and representative checksum restore passed",
         "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
         "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
       },
@@ -228,10 +431,11 @@
         "/var/www/datamatics.synergielms.com/public_html"
       ],
       "environment": "production",
+      "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "datamatics.synergielms.com"
       ],
-      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "next_recovery_step": "Add canonical recovery manifest, approved secret source mapping, deployment traceability, and clean-room web restore proof.",
       "persistent": {
         "directories": [
           {
@@ -280,18 +484,52 @@
         "instance_type": "t3.xlarge",
         "region": "ap-south-1"
       },
+      "backup_recovery": {
+        "backup_timestamp_utc": "20260809T120654Z",
+        "bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+        "database": {
+          "consistency_mode": "single-transaction",
+          "dump_key": "applications/dhansamvaad/production/20260809T120654Z/database/dhansamvaad_db.sql.gz",
+          "dump_sha256": "3a9c662823eb9c39e1e4c07b826d1f97e1f18dfd6f83e931cba4748da5030608",
+          "dump_size_bytes": 15902350,
+          "engine": "mariadb",
+          "name": "dhansamvaad_db",
+          "restore_test_duration_seconds": 17.842,
+          "restore_test_status": "PASS",
+          "restore_test_table_count": 60,
+          "s3_encryption": "AES256",
+          "s3_version_id": "GN7fR6n7EpUFvtUA4ddpOBkE7ROamb7G",
+          "table_count_before": 60
+        },
+        "manifest_s3_key": "applications/dhansamvaad/production/20260809T120654Z/manifest.json",
+        "persistent": {
+          "manifest_key": "applications/dhansamvaad/production/20260809T120654Z/persistent/persistent-manifest.jsonl",
+          "manifest_s3_version_id": "21uxNpjp3WFLZnjSMrRjPBL8xtpWNJAZ",
+          "manifest_sha256": "72492081811b71c7cb6780b8f1369e542ab13ed40b787e7c8f6bcca77cc904f1",
+          "path_ids": [
+            "storage_app_audio",
+            "storage_app_public"
+          ],
+          "restore_test_sample_count": 3,
+          "restore_test_status": "PASS",
+          "status": "BACKED_UP",
+          "total_bytes": 5750091,
+          "total_files": 13
+        },
+        "restore_safety": "All restore tests used isolated temporary MariaDB and temporary persistent sample directories; no production restore target was used.",
+        "status": "BACKUP_RECOVERY_CERTIFIED"
+      },
+      "backup_recovery_status": "BACKUP_RECOVERY_CERTIFIED",
       "blockers": [
-        "No independent current logical DB backup and restore-test evidence.",
-        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
         "No deployed commit marker.",
         "Environment template is absent from the production root or canonical repo evidence.",
         "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
         "No recovery manifest and no clean-room restore certification."
       ],
-      "certification_status": "NOT RECOVERABLE",
+      "certification_status": "NOT FULLY RECOVERABLE - BACKUP LAYER CERTIFIED",
       "controls": {
         "clean_room_restore": "not tested",
-        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "database_backup": "pass: encrypted logical DB backup uploaded to central S3 and restored into isolated temporary MariaDB",
         "env_templates": [],
         "lockfiles": [
           "composer.lock"
@@ -300,7 +538,7 @@
           "composer.json",
           "package.json"
         ],
-        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "persistent_backup": "pass: encrypted versioned S3 persistent backup and representative checksum restore passed",
         "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
         "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
       },
@@ -311,10 +549,11 @@
         "/var/www/dhansamvaad.synergieinsights.in/public_html/public"
       ],
       "environment": "production",
+      "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "dhansamvaad.synergieinsights.in"
       ],
-      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "next_recovery_step": "Add canonical recovery manifest, approved secret source mapping, deployment traceability, and clean-room web restore proof.",
       "persistent": {
         "directories": [
           {
@@ -363,18 +602,51 @@
         "instance_type": "t3.xlarge",
         "region": "ap-south-1"
       },
+      "backup_recovery": {
+        "backup_timestamp_utc": "20260809T120733Z",
+        "bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+        "database": {
+          "consistency_mode": "single-transaction",
+          "dump_key": "applications/fis-lms/production/20260809T120733Z/database/fis_db.sql.gz",
+          "dump_sha256": "5bb53846bcc80021de9e116391028cc8143e9b7330271473bfa1e6b3ed762623",
+          "dump_size_bytes": 8087938,
+          "engine": "mariadb",
+          "name": "fis_db",
+          "restore_test_duration_seconds": 10.427,
+          "restore_test_status": "PASS",
+          "restore_test_table_count": 84,
+          "s3_encryption": "AES256",
+          "s3_version_id": "XQXz1D.QCnuYu_wpoawjvU7mQqsHl7iy",
+          "table_count_before": 84
+        },
+        "manifest_s3_key": "applications/fis-lms/production/20260809T120733Z/manifest.json",
+        "persistent": {
+          "manifest_key": "applications/fis-lms/production/20260809T120733Z/persistent/persistent-manifest.jsonl",
+          "manifest_s3_version_id": "HUyAxsOWI_rjFZF5bk6J3PKivUVkJhwI",
+          "manifest_sha256": "541c457227fdfc6ff6195f41145b0b391d467678cf92069899fcad64401e51a8",
+          "path_ids": [
+            "storage_app_public"
+          ],
+          "restore_test_sample_count": 3,
+          "restore_test_status": "PASS",
+          "status": "BACKED_UP",
+          "total_bytes": 47967360,
+          "total_files": 125
+        },
+        "restore_safety": "All restore tests used isolated temporary MariaDB and temporary persistent sample directories; no production restore target was used.",
+        "status": "BACKUP_RECOVERY_CERTIFIED"
+      },
+      "backup_recovery_status": "BACKUP_RECOVERY_CERTIFIED",
       "blockers": [
-        "No independent current logical DB backup and restore-test evidence.",
-        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
         "No deployed commit marker.",
         "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
         "Embedded GitHub token URL was found in production Git remote and removed on 2026-08-09; rotate/revoke the old token if still valid.",
         "No recovery manifest and no clean-room restore certification."
       ],
-      "certification_status": "NOT RECOVERABLE",
+      "certification_status": "NOT FULLY RECOVERABLE - BACKUP LAYER CERTIFIED",
       "controls": {
         "clean_room_restore": "not tested",
-        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "database_backup": "pass: encrypted logical DB backup uploaded to central S3 and restored into isolated temporary MariaDB",
         "env_templates": [
           ".env.example"
         ],
@@ -386,7 +658,7 @@
           "composer.json",
           "package.json"
         ],
-        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "persistent_backup": "pass: encrypted versioned S3 persistent backup and representative checksum restore passed",
         "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
         "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
       },
@@ -397,10 +669,11 @@
         "/var/www/fis.synergielms.com/public_html"
       ],
       "environment": "production",
+      "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "fis.synergielms.com"
       ],
-      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "next_recovery_step": "Add canonical recovery manifest, approved secret source mapping, deployment traceability, and clean-room web restore proof.",
       "persistent": {
         "directories": [
           {
@@ -449,18 +722,51 @@
         "instance_type": "t3.xlarge",
         "region": "ap-south-1"
       },
+      "backup_recovery": {
+        "backup_timestamp_utc": "20260809T120803Z",
+        "bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+        "database": {
+          "consistency_mode": "single-transaction",
+          "dump_key": "applications/icicir2s/production/20260809T120803Z/database/icicir2s_db.sql.gz",
+          "dump_sha256": "139277f3d829302dc5994ba683944a715aaaba3f3a5d3007eae7277453c2d03c",
+          "dump_size_bytes": 15442,
+          "engine": "mariadb",
+          "name": "icicir2s_db",
+          "restore_test_duration_seconds": 1.267,
+          "restore_test_status": "PASS",
+          "restore_test_table_count": 23,
+          "s3_encryption": "AES256",
+          "s3_version_id": "eDn2D1epbtJjyg1pg3hvOsiXTerfgYtl",
+          "table_count_before": 23
+        },
+        "manifest_s3_key": "applications/icicir2s/production/20260809T120803Z/manifest.json",
+        "persistent": {
+          "manifest_key": "applications/icicir2s/production/20260809T120803Z/persistent/persistent-manifest.jsonl",
+          "manifest_s3_version_id": "wuthtNBGn2GJA0ZiaQROfMTLnemKZVQn",
+          "manifest_sha256": "ed3b14c8b21d2727efbad170680becb96a603ef8a48db5a18796a9edde41a75a",
+          "path_ids": [
+            "storage_app_public"
+          ],
+          "restore_test_sample_count": 1,
+          "restore_test_status": "PASS",
+          "status": "BACKED_UP",
+          "total_bytes": 14,
+          "total_files": 1
+        },
+        "restore_safety": "All restore tests used isolated temporary MariaDB and temporary persistent sample directories; no production restore target was used.",
+        "status": "BACKUP_RECOVERY_CERTIFIED"
+      },
+      "backup_recovery_status": "BACKUP_RECOVERY_CERTIFIED",
       "blockers": [
-        "No independent current logical DB backup and restore-test evidence.",
-        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
         "Production root is not a Git checkout; source provenance is server-only or repo mapping is indirect.",
         "No deployed commit marker.",
         "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
         "No recovery manifest and no clean-room restore certification."
       ],
-      "certification_status": "NOT RECOVERABLE",
+      "certification_status": "NOT FULLY RECOVERABLE - BACKUP LAYER CERTIFIED",
       "controls": {
         "clean_room_restore": "not tested",
-        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "database_backup": "pass: encrypted logical DB backup uploaded to central S3 and restored into isolated temporary MariaDB",
         "env_templates": [
           ".env.example"
         ],
@@ -472,7 +778,7 @@
           "composer.json",
           "package.json"
         ],
-        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "persistent_backup": "pass: encrypted versioned S3 persistent backup and representative checksum restore passed",
         "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
         "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
       },
@@ -483,10 +789,11 @@
         "/var/www/icicir2s.synergieinsights.in/public_html/public"
       ],
       "environment": "production",
+      "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "icicir2s.synergieinsights.in"
       ],
-      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "next_recovery_step": "Add canonical recovery manifest, approved secret source mapping, deployment traceability, and clean-room web restore proof.",
       "persistent": {
         "directories": [
           {
@@ -535,18 +842,49 @@
         "instance_type": "t3.xlarge",
         "region": "ap-south-1"
       },
+      "backup_recovery": {
+        "backup_timestamp_utc": "20260809T120819Z",
+        "bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+        "database": {
+          "consistency_mode": "single-transaction",
+          "dump_key": "applications/jiobp-lms/production/20260809T120819Z/database/jiobp_db.sql.gz",
+          "dump_sha256": "352448d37a709f871d5e3d138cb2177bbb37aa37e53448998b62db28411217cb",
+          "dump_size_bytes": 7427380,
+          "engine": "mariadb",
+          "name": "jiobp_db",
+          "restore_test_duration_seconds": 10.336,
+          "restore_test_status": "PASS",
+          "restore_test_table_count": 40,
+          "s3_encryption": "AES256",
+          "s3_version_id": "0wJcIBs48wdwRK0PoAbT9L4vc4Q_qWjT",
+          "table_count_before": 40
+        },
+        "manifest_s3_key": "applications/jiobp-lms/production/20260809T120819Z/manifest.json",
+        "persistent": {
+          "manifest_key": null,
+          "manifest_s3_version_id": null,
+          "manifest_sha256": null,
+          "path_ids": [],
+          "restore_test_sample_count": null,
+          "restore_test_status": "NOT_APPLICABLE",
+          "status": "NOT_APPLICABLE",
+          "total_bytes": 0,
+          "total_files": 0
+        },
+        "restore_safety": "All restore tests used isolated temporary MariaDB and temporary persistent sample directories; no production restore target was used.",
+        "status": "BACKUP_RECOVERY_CERTIFIED"
+      },
+      "backup_recovery_status": "BACKUP_RECOVERY_CERTIFIED",
       "blockers": [
-        "No independent current logical DB backup and restore-test evidence.",
-        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
         "No deployed commit marker.",
         "Environment template is absent from the production root or canonical repo evidence.",
         "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
         "No recovery manifest and no clean-room restore certification."
       ],
-      "certification_status": "NOT RECOVERABLE",
+      "certification_status": "NOT FULLY RECOVERABLE - BACKUP LAYER CERTIFIED",
       "controls": {
         "clean_room_restore": "not tested",
-        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "database_backup": "pass: encrypted logical DB backup uploaded to central S3 and restored into isolated temporary MariaDB",
         "env_templates": [],
         "lockfiles": [
           "composer.lock"
@@ -555,7 +893,7 @@
           "composer.json",
           "package.json"
         ],
-        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "persistent_backup": "not applicable: no persistent path configured after targeted production probe",
         "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
         "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
       },
@@ -566,10 +904,11 @@
         "/var/www/jiobp.synergielms.com/public_html/public"
       ],
       "environment": "production",
+      "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "jiobp.synergielms.com"
       ],
-      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "next_recovery_step": "Add canonical recovery manifest, approved secret source mapping, deployment traceability, and clean-room web restore proof.",
       "persistent": {
         "directories": [
           {
@@ -613,18 +952,53 @@
         "instance_type": "t3.xlarge",
         "region": "ap-south-1"
       },
+      "backup_recovery": {
+        "backup_timestamp_utc": "20260809T120843Z",
+        "bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+        "database": {
+          "consistency_mode": "single-transaction",
+          "dump_key": "applications/jiobpcares/production/20260809T120843Z/database/jiobpcares_db.sql.gz",
+          "dump_sha256": "85205722d67b48985c6a61e3885105b800da8b940b2d4b7f7e0ce102df07cf6f",
+          "dump_size_bytes": 436248,
+          "engine": "mariadb",
+          "name": "jiobpcares_db",
+          "restore_test_duration_seconds": 1.634,
+          "restore_test_status": "PASS",
+          "restore_test_table_count": 16,
+          "s3_encryption": "AES256",
+          "s3_version_id": "abaiEfLAWqnTEbQlnZthE66FV15.9gns",
+          "table_count_before": 16
+        },
+        "manifest_s3_key": "applications/jiobpcares/production/20260809T120843Z/manifest.json",
+        "persistent": {
+          "manifest_key": "applications/jiobpcares/production/20260809T120843Z/persistent/persistent-manifest.jsonl",
+          "manifest_s3_version_id": "t_pkiFz7OqoSwcx.5EU7_KvLiuXKPjvQ",
+          "manifest_sha256": "51a758eeb86916b4724c138f83d4e7bc27761860649713d6b6c2217e1de55eb9",
+          "path_ids": [
+            "storage_app_public",
+            "public_uploads",
+            "public_useruploads"
+          ],
+          "restore_test_sample_count": 3,
+          "restore_test_status": "PASS",
+          "status": "BACKED_UP",
+          "total_bytes": 8747755283,
+          "total_files": 3937
+        },
+        "restore_safety": "All restore tests used isolated temporary MariaDB and temporary persistent sample directories; no production restore target was used.",
+        "status": "BACKUP_RECOVERY_CERTIFIED"
+      },
+      "backup_recovery_status": "BACKUP_RECOVERY_CERTIFIED",
       "blockers": [
-        "No independent current logical DB backup and restore-test evidence.",
-        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
         "Production root is not a Git checkout; source provenance is server-only or repo mapping is indirect.",
         "No deployed commit marker.",
         "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
         "No recovery manifest and no clean-room restore certification."
       ],
-      "certification_status": "NOT RECOVERABLE",
+      "certification_status": "NOT FULLY RECOVERABLE - BACKUP LAYER CERTIFIED",
       "controls": {
         "clean_room_restore": "not tested",
-        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "database_backup": "pass: encrypted logical DB backup uploaded to central S3 and restored into isolated temporary MariaDB",
         "env_templates": [
           ".env.example"
         ],
@@ -636,7 +1010,7 @@
           "composer.json",
           "package.json"
         ],
-        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "persistent_backup": "pass: encrypted versioned S3 persistent backup and representative checksum restore passed",
         "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
         "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
       },
@@ -647,10 +1021,11 @@
         "/var/www/jiobpcares.synergieinsights.in/public_html"
       ],
       "environment": "production",
+      "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "jiobpcares.synergieinsights.in"
       ],
-      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "next_recovery_step": "Add canonical recovery manifest, approved secret source mapping, deployment traceability, and clean-room web restore proof.",
       "persistent": {
         "directories": [
           {
@@ -714,18 +1089,51 @@
         "instance_type": "t3.xlarge",
         "region": "ap-south-1"
       },
+      "backup_recovery": {
+        "backup_timestamp_utc": "20260809T121144Z",
+        "bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+        "database": {
+          "consistency_mode": "single-transaction",
+          "dump_key": "applications/jiobptransporter/production/20260809T121144Z/database/jiobptransporter_db.sql.gz",
+          "dump_sha256": "8eb179d08313a754c6e2b8d0aead3fa0104a995747def3b7bf06b8fa1fbaf3fd",
+          "dump_size_bytes": 281853,
+          "engine": "mariadb",
+          "name": "jiobptransporter_db",
+          "restore_test_duration_seconds": 2.192,
+          "restore_test_status": "PASS",
+          "restore_test_table_count": 34,
+          "s3_encryption": "AES256",
+          "s3_version_id": "pi0b6WGaKf_RZq2xZbOWAjv1EpUOvbUj",
+          "table_count_before": 34
+        },
+        "manifest_s3_key": "applications/jiobptransporter/production/20260809T121144Z/manifest.json",
+        "persistent": {
+          "manifest_key": "applications/jiobptransporter/production/20260809T121144Z/persistent/persistent-manifest.jsonl",
+          "manifest_s3_version_id": "LT2Vs2So0dQnC3XBrIOt_YrxKyzDf.Ud",
+          "manifest_sha256": "ed3b14c8b21d2727efbad170680becb96a603ef8a48db5a18796a9edde41a75a",
+          "path_ids": [
+            "storage_app_public"
+          ],
+          "restore_test_sample_count": 1,
+          "restore_test_status": "PASS",
+          "status": "BACKED_UP",
+          "total_bytes": 14,
+          "total_files": 1
+        },
+        "restore_safety": "All restore tests used isolated temporary MariaDB and temporary persistent sample directories; no production restore target was used.",
+        "status": "BACKUP_RECOVERY_CERTIFIED"
+      },
+      "backup_recovery_status": "BACKUP_RECOVERY_CERTIFIED",
       "blockers": [
-        "No independent current logical DB backup and restore-test evidence.",
-        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
         "Production root is not a Git checkout; source provenance is server-only or repo mapping is indirect.",
         "No deployed commit marker.",
         "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
         "No recovery manifest and no clean-room restore certification."
       ],
-      "certification_status": "NOT RECOVERABLE",
+      "certification_status": "NOT FULLY RECOVERABLE - BACKUP LAYER CERTIFIED",
       "controls": {
         "clean_room_restore": "not tested",
-        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "database_backup": "pass: encrypted logical DB backup uploaded to central S3 and restored into isolated temporary MariaDB",
         "env_templates": [
           ".env.example"
         ],
@@ -737,7 +1145,7 @@
           "composer.json",
           "package.json"
         ],
-        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "persistent_backup": "pass: encrypted versioned S3 persistent backup and representative checksum restore passed",
         "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
         "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
       },
@@ -748,10 +1156,11 @@
         "/var/www/jiobptransporter.synergieinsights.in/public_html/public"
       ],
       "environment": "production",
+      "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "jiobptransporter.synergieinsights.in"
       ],
-      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "next_recovery_step": "Add canonical recovery manifest, approved secret source mapping, deployment traceability, and clean-room web restore proof.",
       "persistent": {
         "directories": [
           {
@@ -800,18 +1209,52 @@
         "instance_type": "t3.xlarge",
         "region": "ap-south-1"
       },
+      "backup_recovery": {
+        "backup_timestamp_utc": "20260809T121201Z",
+        "bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+        "database": {
+          "consistency_mode": "single-transaction",
+          "dump_key": "applications/mobilekids/production/20260809T121201Z/database/mobilekids_db.sql.gz",
+          "dump_sha256": "c66c5b9cbc0f15ec046add94abec6baf79e6b94c7b73c137993d9964e01ae2ee",
+          "dump_size_bytes": 7656534,
+          "engine": "mariadb",
+          "name": "mobilekids_db",
+          "restore_test_duration_seconds": 17.547,
+          "restore_test_status": "PASS",
+          "restore_test_table_count": 28,
+          "s3_encryption": "AES256",
+          "s3_version_id": "MmYWp_aeMNrKVNQ53HwTKJuq4zLjS5_2",
+          "table_count_before": 28
+        },
+        "manifest_s3_key": "applications/mobilekids/production/20260809T121201Z/manifest.json",
+        "persistent": {
+          "manifest_key": "applications/mobilekids/production/20260809T121201Z/persistent/persistent-manifest.jsonl",
+          "manifest_s3_version_id": "R7xQMn3NpKaMesKFMYhRcq.ATkCS12Po",
+          "manifest_sha256": "6e4de9632a9f8804bd11870988610cc96b0f1a7a38ed77f49102a6b2b6d2e5ee",
+          "path_ids": [
+            "storage_app_public",
+            "storage_app_uploads"
+          ],
+          "restore_test_sample_count": 2,
+          "restore_test_status": "PASS",
+          "status": "BACKED_UP",
+          "total_bytes": 34413,
+          "total_files": 2
+        },
+        "restore_safety": "All restore tests used isolated temporary MariaDB and temporary persistent sample directories; no production restore target was used.",
+        "status": "BACKUP_RECOVERY_CERTIFIED"
+      },
+      "backup_recovery_status": "BACKUP_RECOVERY_CERTIFIED",
       "blockers": [
-        "No independent current logical DB backup and restore-test evidence.",
-        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
         "Production root is not a Git checkout; source provenance is server-only or repo mapping is indirect.",
         "No deployed commit marker.",
         "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
         "No recovery manifest and no clean-room restore certification."
       ],
-      "certification_status": "NOT RECOVERABLE",
+      "certification_status": "NOT FULLY RECOVERABLE - BACKUP LAYER CERTIFIED",
       "controls": {
         "clean_room_restore": "not tested",
-        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "database_backup": "pass: encrypted logical DB backup uploaded to central S3 and restored into isolated temporary MariaDB",
         "env_templates": [
           ".env.example"
         ],
@@ -823,7 +1266,7 @@
           "composer.json",
           "package.json"
         ],
-        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "persistent_backup": "pass: encrypted versioned S3 persistent backup and representative checksum restore passed",
         "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
         "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
       },
@@ -834,10 +1277,11 @@
         "/var/www/mobilekids.synergieinsights.in/public_html/public"
       ],
       "environment": "production",
+      "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "mobilekids.synergieinsights.in"
       ],
-      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "next_recovery_step": "Add canonical recovery manifest, approved secret source mapping, deployment traceability, and clean-room web restore proof.",
       "persistent": {
         "directories": [
           {
@@ -973,17 +1417,51 @@
         "instance_type": "t3.xlarge",
         "region": "ap-south-1"
       },
+      "backup_recovery": {
+        "backup_timestamp_utc": "20260809T121237Z",
+        "bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+        "database": {
+          "consistency_mode": "single-transaction",
+          "dump_key": "applications/projectdemo-lms/production/20260809T121237Z/database/projectdemo_db.sql.gz",
+          "dump_sha256": "072b034cb862046b3faf28e6e652a0324620c89318e32f886e99b780d1a4969c",
+          "dump_size_bytes": 149049,
+          "engine": "mariadb",
+          "name": "projectdemo_db",
+          "restore_test_duration_seconds": 2.892,
+          "restore_test_status": "PASS",
+          "restore_test_table_count": 77,
+          "s3_encryption": "AES256",
+          "s3_version_id": "izxf0vihbhtmyvvmadytatG.e3_cdoHV",
+          "table_count_before": 77
+        },
+        "manifest_s3_key": "applications/projectdemo-lms/production/20260809T121237Z/manifest.json",
+        "persistent": {
+          "manifest_key": "applications/projectdemo-lms/production/20260809T121237Z/persistent/persistent-manifest.jsonl",
+          "manifest_s3_version_id": "m.adqe8uapiL8eRzA1B5RgnuaoIAN_ol",
+          "manifest_sha256": "1f87fa8a614d266ff7881305b733091bdc5cf8e024c88a6b7de8b6eae517943e",
+          "path_ids": [
+            "storage_app_protected",
+            "storage_app_public"
+          ],
+          "restore_test_sample_count": 3,
+          "restore_test_status": "PASS",
+          "status": "BACKED_UP",
+          "total_bytes": 72695058,
+          "total_files": 33
+        },
+        "restore_safety": "All restore tests used isolated temporary MariaDB and temporary persistent sample directories; no production restore target was used.",
+        "status": "BACKUP_RECOVERY_CERTIFIED"
+      },
+      "backup_recovery_status": "BACKUP_RECOVERY_CERTIFIED",
       "blockers": [
-        "No independent current logical DB backup and restore-test evidence.",
-        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
         "No deployed commit marker.",
         "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
         "No recovery manifest and no clean-room restore certification."
       ],
-      "certification_status": "NOT RECOVERABLE",
+      "certification_status": "NOT FULLY RECOVERABLE - BACKUP LAYER CERTIFIED",
       "controls": {
         "clean_room_restore": "not tested",
-        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "database_backup": "pass: encrypted logical DB backup uploaded to central S3 and restored into isolated temporary MariaDB",
         "env_templates": [
           ".env.example"
         ],
@@ -994,7 +1472,7 @@
           "composer.json",
           "package.json"
         ],
-        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "persistent_backup": "pass: encrypted versioned S3 persistent backup and representative checksum restore passed",
         "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
         "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
       },
@@ -1005,10 +1483,11 @@
         "/var/www/projectdemo.synergielms.com/public_html/public"
       ],
       "environment": "production",
+      "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "projectdemo.synergielms.com"
       ],
-      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "next_recovery_step": "Add canonical recovery manifest, approved secret source mapping, deployment traceability, and clean-room web restore proof.",
       "persistent": {
         "directories": [
           {
@@ -1232,18 +1711,51 @@
         "instance_type": "t3.xlarge",
         "region": "ap-south-1"
       },
+      "backup_recovery": {
+        "backup_timestamp_utc": "20260809T121259Z",
+        "bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+        "database": {
+          "consistency_mode": "single-transaction",
+          "dump_key": "applications/sankalptraining-lms/production/20260809T121259Z/database/sankalptraining_db.sql.gz",
+          "dump_sha256": "43818eb20f0bebd26a508b158cd55ed0dfdfc5ee2ca06312b45238d1a97657da",
+          "dump_size_bytes": 537650,
+          "engine": "mariadb",
+          "name": "sankalptraining_db",
+          "restore_test_duration_seconds": 2.162,
+          "restore_test_status": "PASS",
+          "restore_test_table_count": 21,
+          "s3_encryption": "AES256",
+          "s3_version_id": "TaxhBHr28r5KDN_vJ3vU6JxH._DEz9uG",
+          "table_count_before": 21
+        },
+        "manifest_s3_key": "applications/sankalptraining-lms/production/20260809T121259Z/manifest.json",
+        "persistent": {
+          "manifest_key": "applications/sankalptraining-lms/production/20260809T121259Z/persistent/persistent-manifest.jsonl",
+          "manifest_s3_version_id": "mxXW18nnNBLSOT9ViF9USUIRSfFCFRRe",
+          "manifest_sha256": "ed3b14c8b21d2727efbad170680becb96a603ef8a48db5a18796a9edde41a75a",
+          "path_ids": [
+            "storage_app_public"
+          ],
+          "restore_test_sample_count": 1,
+          "restore_test_status": "PASS",
+          "status": "BACKED_UP",
+          "total_bytes": 14,
+          "total_files": 1
+        },
+        "restore_safety": "All restore tests used isolated temporary MariaDB and temporary persistent sample directories; no production restore target was used.",
+        "status": "BACKUP_RECOVERY_CERTIFIED"
+      },
+      "backup_recovery_status": "BACKUP_RECOVERY_CERTIFIED",
       "blockers": [
-        "No independent current logical DB backup and restore-test evidence.",
-        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
         "Production root is not a Git checkout; source provenance is server-only or repo mapping is indirect.",
         "No deployed commit marker.",
         "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
         "No recovery manifest and no clean-room restore certification."
       ],
-      "certification_status": "NOT RECOVERABLE",
+      "certification_status": "NOT FULLY RECOVERABLE - BACKUP LAYER CERTIFIED",
       "controls": {
         "clean_room_restore": "not tested",
-        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "database_backup": "pass: encrypted logical DB backup uploaded to central S3 and restored into isolated temporary MariaDB",
         "env_templates": [
           ".env.example"
         ],
@@ -1255,7 +1767,7 @@
           "composer.json",
           "package.json"
         ],
-        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "persistent_backup": "pass: encrypted versioned S3 persistent backup and representative checksum restore passed",
         "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
         "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
       },
@@ -1266,10 +1778,11 @@
         "/var/www/sankalptraining.synergielms.com/public_html/public"
       ],
       "environment": "production",
+      "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "sankalptraining.synergielms.com"
       ],
-      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "next_recovery_step": "Add canonical recovery manifest, approved secret source mapping, deployment traceability, and clean-room web restore proof.",
       "persistent": {
         "directories": [
           {
@@ -1319,35 +1832,72 @@
         "instance_type": "t3.xlarge",
         "region": "ap-south-1"
       },
+      "backup_recovery": {
+        "backup_timestamp_utc": "20260809T121315Z",
+        "bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+        "database": {
+          "consistency_mode": "single-transaction",
+          "dump_key": "applications/shareasmile/production/20260809T121315Z/database/shareasmile_db.sql.gz",
+          "dump_sha256": "2f0caaae1b2ad5b204bbd8db490047303d4739fa1bb0bfb4d77ae520736683d5",
+          "dump_size_bytes": 13946,
+          "engine": "mariadb",
+          "name": "shareasmile_db",
+          "restore_test_duration_seconds": 0.821,
+          "restore_test_status": "PASS",
+          "restore_test_table_count": 2,
+          "s3_encryption": "AES256",
+          "s3_version_id": "PCdedC3uMqKnv5OLqyvnNAvLO1x4JrDs",
+          "table_count_before": 2
+        },
+        "manifest_s3_key": "applications/shareasmile/production/20260809T121315Z/manifest.json",
+        "persistent": {
+          "manifest_key": "applications/shareasmile/production/20260809T121315Z/persistent/persistent-manifest.jsonl",
+          "manifest_s3_version_id": "tVDslhC4Pqd1QRQIS7rUH2AuS9MpvC42",
+          "manifest_sha256": "f25b185498bcdb11fa986fc72e35de92882f865a3f6da69a889e111d06fd3fed",
+          "path_ids": [
+            "admin_storage_app_public",
+            "admin_public_uploads"
+          ],
+          "restore_test_sample_count": 3,
+          "restore_test_status": "PASS",
+          "status": "BACKED_UP",
+          "total_bytes": 8499599,
+          "total_files": 13
+        },
+        "restore_safety": "All restore tests used isolated temporary MariaDB and temporary persistent sample directories; no production restore target was used.",
+        "status": "BACKUP_RECOVERY_CERTIFIED"
+      },
+      "backup_recovery_status": "BACKUP_RECOVERY_CERTIFIED",
       "blockers": [
-        "Database/config source could not be parsed by the generic probe; classify manually before certification.",
-        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
         "Production root is not a Git checkout; source provenance is server-only or repo mapping is indirect.",
         "No deployed commit marker.",
         "Environment template is absent from the production root or canonical repo evidence.",
         "Dependency lockfile is absent from the production root or canonical repo evidence.",
         "No recovery manifest and no clean-room restore certification."
       ],
-      "certification_status": "NOT RECOVERABLE",
+      "certification_status": "NOT FULLY RECOVERABLE - BACKUP LAYER CERTIFIED",
       "controls": {
         "clean_room_restore": "not tested",
-        "database_backup": "unknown/fail: database not parsed or no DB declared; recovery evidence still absent",
+        "database_backup": "pass: encrypted logical DB backup uploaded to central S3 and restored into isolated temporary MariaDB",
         "env_templates": [],
         "lockfiles": [],
         "manifests": [],
-        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "persistent_backup": "pass: encrypted versioned S3 persistent backup and representative checksum restore passed",
         "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
         "secrets": "unknown: no secret schema discovered by probe"
       },
-      "database_names": [],
+      "database_names": [
+        "shareasmile_db"
+      ],
       "document_roots": [
         "/var/www/shareasmile.wearesynergie.com/public_html"
       ],
       "environment": "production",
+      "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "shareasmile.wearesynergie.com"
       ],
-      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "next_recovery_step": "Add canonical recovery manifest, approved secret source mapping, deployment traceability, and clean-room web restore proof.",
       "persistent": {
         "directories": [
           {
@@ -1396,18 +1946,51 @@
         "instance_type": "t3.xlarge",
         "region": "ap-south-1"
       },
+      "backup_recovery": {
+        "backup_timestamp_utc": "20260809T121333Z",
+        "bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+        "database": {
+          "consistency_mode": "single-transaction",
+          "dump_key": "applications/syncsr/production/20260809T121333Z/database/shorturl_db.sql.gz",
+          "dump_sha256": "3287bbcda15b5d329580a45254d0579a2e51585081132d29df5e95f3112318f2",
+          "dump_size_bytes": 2673320,
+          "engine": "mariadb",
+          "name": "shorturl_db",
+          "restore_test_duration_seconds": 2.923,
+          "restore_test_status": "PASS",
+          "restore_test_table_count": 7,
+          "s3_encryption": "AES256",
+          "s3_version_id": "7KT6GUh7qm1wtLKxzq.hQkfeMNPj2b0A",
+          "table_count_before": 7
+        },
+        "manifest_s3_key": "applications/syncsr/production/20260809T121333Z/manifest.json",
+        "persistent": {
+          "manifest_key": "applications/syncsr/production/20260809T121333Z/persistent/persistent-manifest.jsonl",
+          "manifest_s3_version_id": "Do4MVe_62AN2Da19UzP7DhXIrL0oFQCs",
+          "manifest_sha256": "ed3b14c8b21d2727efbad170680becb96a603ef8a48db5a18796a9edde41a75a",
+          "path_ids": [
+            "storage_app_public"
+          ],
+          "restore_test_sample_count": 1,
+          "restore_test_status": "PASS",
+          "status": "BACKED_UP",
+          "total_bytes": 14,
+          "total_files": 1
+        },
+        "restore_safety": "All restore tests used isolated temporary MariaDB and temporary persistent sample directories; no production restore target was used.",
+        "status": "BACKUP_RECOVERY_CERTIFIED"
+      },
+      "backup_recovery_status": "BACKUP_RECOVERY_CERTIFIED",
       "blockers": [
-        "No independent current logical DB backup and restore-test evidence.",
-        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
         "Production root is not a Git checkout; source provenance is server-only or repo mapping is indirect.",
         "No deployed commit marker.",
         "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
         "No recovery manifest and no clean-room restore certification."
       ],
-      "certification_status": "NOT RECOVERABLE",
+      "certification_status": "NOT FULLY RECOVERABLE - BACKUP LAYER CERTIFIED",
       "controls": {
         "clean_room_restore": "not tested",
-        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "database_backup": "pass: encrypted logical DB backup uploaded to central S3 and restored into isolated temporary MariaDB",
         "env_templates": [
           ".env.example"
         ],
@@ -1418,7 +2001,7 @@
           "composer.json",
           "package.json"
         ],
-        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "persistent_backup": "pass: encrypted versioned S3 persistent backup and representative checksum restore passed",
         "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
         "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
       },
@@ -1429,11 +2012,12 @@
         "/var/www/syncsr.in/public_html/public"
       ],
       "environment": "production",
+      "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "syncsr.in",
         "www.syncsr.in"
       ],
-      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "next_recovery_step": "Add canonical recovery manifest, approved secret source mapping, deployment traceability, and clean-room web restore proof.",
       "persistent": {
         "directories": [
           {
@@ -1480,8 +2064,40 @@
         "instance_type": "t3.xlarge",
         "region": "ap-south-1"
       },
+      "backup_recovery": {
+        "backup_timestamp_utc": "20260809T121351Z",
+        "bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+        "database": {
+          "consistency_mode": "single-transaction",
+          "dump_key": "applications/synergie-hub/production/20260809T121351Z/database/synergie_hub.sql.gz",
+          "dump_sha256": "75b79c6db09b6dff835ebc235697676154656009b7a6c5842530cf1955d1b7c7",
+          "dump_size_bytes": 5664,
+          "engine": "mariadb",
+          "name": "synergie_hub",
+          "restore_test_duration_seconds": 1.149,
+          "restore_test_status": "PASS",
+          "restore_test_table_count": 18,
+          "s3_encryption": "AES256",
+          "s3_version_id": "8bRCL_X0pceL8udbdvZtdpMUX3wvUhob",
+          "table_count_before": 18
+        },
+        "manifest_s3_key": "applications/synergie-hub/production/20260809T121351Z/manifest.json",
+        "persistent": {
+          "manifest_key": null,
+          "manifest_s3_version_id": null,
+          "manifest_sha256": null,
+          "path_ids": [],
+          "restore_test_sample_count": null,
+          "restore_test_status": "NOT_APPLICABLE",
+          "status": "NOT_APPLICABLE",
+          "total_bytes": 0,
+          "total_files": 0
+        },
+        "restore_safety": "All restore tests used isolated temporary MariaDB and temporary persistent sample directories; no production restore target was used.",
+        "status": "BACKUP_RECOVERY_CERTIFIED"
+      },
+      "backup_recovery_status": "BACKUP_RECOVERY_CERTIFIED",
       "blockers": [
-        "No independent current logical DB backup and restore-test evidence.",
         "Production root is not a Git checkout; source provenance is server-only or repo mapping is indirect.",
         "No deployed commit marker.",
         "Environment template is absent from the production root or canonical repo evidence.",
@@ -1489,14 +2105,14 @@
         "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
         "No recovery manifest and no clean-room restore certification."
       ],
-      "certification_status": "NOT RECOVERABLE",
+      "certification_status": "NOT FULLY RECOVERABLE - BACKUP LAYER CERTIFIED",
       "controls": {
         "clean_room_restore": "not tested",
-        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "database_backup": "pass: encrypted logical DB backup uploaded to central S3 and restored into isolated temporary MariaDB",
         "env_templates": [],
         "lockfiles": [],
         "manifests": [],
-        "persistent_backup": "not observed: no persistent data found by probe; still needs manifest classification",
+        "persistent_backup": "not applicable: no persistent path configured after targeted production probe",
         "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
         "secrets": "partial: Secrets Manager names exist for app key, DB password, and Microsoft client secret"
       },
@@ -1507,10 +2123,11 @@
         "/var/www/synergie-hub/public"
       ],
       "environment": "production",
+      "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "hub.synergieinsights.in"
       ],
-      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "next_recovery_step": "Add canonical recovery manifest, approved secret source mapping, deployment traceability, and clean-room web restore proof.",
       "persistent": {
         "directories": [],
         "total_bytes": 0,
@@ -1548,36 +2165,72 @@
         "instance_type": "t3.xlarge",
         "region": "ap-south-1"
       },
+      "backup_recovery": {
+        "backup_timestamp_utc": "20260809T121403Z",
+        "bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+        "database": {
+          "consistency_mode": "single-transaction",
+          "dump_key": "applications/synergielms-root/production/20260809T121403Z/database/lms_db.sql.gz",
+          "dump_sha256": "cb30f4bf37d2ed2d75359b1a2b648bd4fe745a1aa281c7fc20f0751ada18834d",
+          "dump_size_bytes": 59370452,
+          "engine": "mariadb",
+          "name": "lms_db",
+          "restore_test_duration_seconds": 96.306,
+          "restore_test_status": "PASS",
+          "restore_test_table_count": 83,
+          "s3_encryption": "AES256",
+          "s3_version_id": "IQVeE_xiGIYvRYorGk_vbpi0ChKmDC03",
+          "table_count_before": 83
+        },
+        "manifest_s3_key": "applications/synergielms-root/production/20260809T121403Z/manifest.json",
+        "persistent": {
+          "manifest_key": "applications/synergielms-root/production/20260809T121403Z/persistent/persistent-manifest.jsonl",
+          "manifest_s3_version_id": "eEkKqlqv9J5tggGbqwTDNDRCBlzB6pCd",
+          "manifest_sha256": "fe0b42be81c606bec83f97b141548f44024a68c79b314eee40a32723a07a9ff6",
+          "path_ids": [
+            "lms_storage_app_public"
+          ],
+          "restore_test_sample_count": 2,
+          "restore_test_status": "PASS",
+          "status": "BACKED_UP",
+          "total_bytes": 47497,
+          "total_files": 2
+        },
+        "restore_safety": "All restore tests used isolated temporary MariaDB and temporary persistent sample directories; no production restore target was used.",
+        "status": "BACKUP_RECOVERY_CERTIFIED"
+      },
+      "backup_recovery_status": "BACKUP_RECOVERY_CERTIFIED",
       "blockers": [
-        "Database/config source could not be parsed by the generic probe; classify manually before certification.",
-        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
         "Production root is not a Git checkout; source provenance is server-only or repo mapping is indirect.",
         "No deployed commit marker.",
         "Environment template is absent from the production root or canonical repo evidence.",
         "Dependency lockfile is absent from the production root or canonical repo evidence.",
         "No recovery manifest and no clean-room restore certification."
       ],
-      "certification_status": "NOT RECOVERABLE",
+      "certification_status": "NOT FULLY RECOVERABLE - BACKUP LAYER CERTIFIED",
       "controls": {
         "clean_room_restore": "not tested",
-        "database_backup": "unknown/fail: database not parsed or no DB declared; recovery evidence still absent",
+        "database_backup": "pass: encrypted logical DB backup uploaded to central S3 and restored into isolated temporary MariaDB",
         "env_templates": [],
         "lockfiles": [],
         "manifests": [],
-        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "persistent_backup": "pass: encrypted versioned S3 persistent backup and representative checksum restore passed",
         "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
         "secrets": "unknown: no secret schema discovered by probe"
       },
-      "database_names": [],
+      "database_names": [
+        "lms_db"
+      ],
       "document_roots": [
         "/var/www/synergielms.com/public_html"
       ],
       "environment": "production",
+      "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "synergielms.com",
         "www.synergielms.com"
       ],
-      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "next_recovery_step": "Add canonical recovery manifest, approved secret source mapping, deployment traceability, and clean-room web restore proof.",
       "persistent": {
         "directories": [
           {
@@ -1621,17 +2274,50 @@
         "instance_type": "t3.xlarge",
         "region": "ap-south-1"
       },
+      "backup_recovery": {
+        "backup_timestamp_utc": "20260809T121607Z",
+        "bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+        "database": {
+          "consistency_mode": "single-transaction",
+          "dump_key": "applications/telemedicine/production/20260809T121607Z/database/telemedicine_db.sql.gz",
+          "dump_sha256": "a8df4b9c9241f9fbbdd57688b030c850aad174858bcabb6ee748888a220044ac",
+          "dump_size_bytes": 2972768,
+          "engine": "mariadb",
+          "name": "telemedicine_db",
+          "restore_test_duration_seconds": 4.337,
+          "restore_test_status": "PASS",
+          "restore_test_table_count": 44,
+          "s3_encryption": "AES256",
+          "s3_version_id": "D_kqpPGE2Z960R8fiqtlWIkIaCYJ9MvD",
+          "table_count_before": 44
+        },
+        "manifest_s3_key": "applications/telemedicine/production/20260809T121607Z/manifest.json",
+        "persistent": {
+          "manifest_key": "applications/telemedicine/production/20260809T121607Z/persistent/persistent-manifest.jsonl",
+          "manifest_s3_version_id": "f7ZMQ8tbyvpNP4L5sHDJVT2wCCk2ZbIc",
+          "manifest_sha256": "ca51beb8346b1140bf5f28d6be05c9e98ee24031d55c568f2e25f50fa0eb5d13",
+          "path_ids": [
+            "storage_app_public"
+          ],
+          "restore_test_sample_count": 3,
+          "restore_test_status": "PASS",
+          "status": "BACKED_UP",
+          "total_bytes": 1260245782,
+          "total_files": 1477
+        },
+        "restore_safety": "All restore tests used isolated temporary MariaDB and temporary persistent sample directories; no production restore target was used.",
+        "status": "BACKUP_RECOVERY_CERTIFIED"
+      },
+      "backup_recovery_status": "BACKUP_RECOVERY_CERTIFIED",
       "blockers": [
-        "No independent current logical DB backup and restore-test evidence.",
-        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
         "Production root is not a Git checkout; source provenance is server-only or repo mapping is indirect.",
         "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
         "No recovery manifest and no clean-room restore certification."
       ],
-      "certification_status": "NOT RECOVERABLE",
+      "certification_status": "NOT FULLY RECOVERABLE - BACKUP LAYER CERTIFIED",
       "controls": {
         "clean_room_restore": "not tested",
-        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "database_backup": "pass: encrypted logical DB backup uploaded to central S3 and restored into isolated temporary MariaDB",
         "env_templates": [
           ".env.example"
         ],
@@ -1643,7 +2329,7 @@
           "composer.json",
           "package.json"
         ],
-        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "persistent_backup": "pass: encrypted versioned S3 persistent backup and representative checksum restore passed",
         "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
         "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
       },
@@ -1654,10 +2340,11 @@
         "/var/www/telemedicine.synergieinsights.in/public_html/public"
       ],
       "environment": "production",
+      "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "telemedicine.synergieinsights.in"
       ],
-      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "next_recovery_step": "Add canonical recovery manifest, approved secret source mapping, deployment traceability, and clean-room web restore proof.",
       "persistent": {
         "directories": [
           {
@@ -1708,18 +2395,51 @@
         "instance_type": "t3.xlarge",
         "region": "ap-south-1"
       },
+      "backup_recovery": {
+        "backup_timestamp_utc": "20260809T121657Z",
+        "bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+        "database": {
+          "consistency_mode": "single-transaction",
+          "dump_key": "applications/timesheet-lms/production/20260809T121657Z/database/timesheet_db.sql.gz",
+          "dump_sha256": "9391ad090150ab4651aae70d96d9266785278e81f4b7c3c6497905d7caadbbdd",
+          "dump_size_bytes": 242162,
+          "engine": "mariadb",
+          "name": "timesheet_db",
+          "restore_test_duration_seconds": 1.386,
+          "restore_test_status": "PASS",
+          "restore_test_table_count": 13,
+          "s3_encryption": "AES256",
+          "s3_version_id": "5adpxOAn9SgUc8jd3KXMdEsXL4F.Dtcm",
+          "table_count_before": 13
+        },
+        "manifest_s3_key": "applications/timesheet-lms/production/20260809T121657Z/manifest.json",
+        "persistent": {
+          "manifest_key": "applications/timesheet-lms/production/20260809T121657Z/persistent/persistent-manifest.jsonl",
+          "manifest_s3_version_id": "3HMTtMZdvQhGHJPnj6ZB0A7OTScmF77C",
+          "manifest_sha256": "ed3b14c8b21d2727efbad170680becb96a603ef8a48db5a18796a9edde41a75a",
+          "path_ids": [
+            "storage_app_public"
+          ],
+          "restore_test_sample_count": 1,
+          "restore_test_status": "PASS",
+          "status": "BACKED_UP",
+          "total_bytes": 14,
+          "total_files": 1
+        },
+        "restore_safety": "All restore tests used isolated temporary MariaDB and temporary persistent sample directories; no production restore target was used.",
+        "status": "BACKUP_RECOVERY_CERTIFIED"
+      },
+      "backup_recovery_status": "BACKUP_RECOVERY_CERTIFIED",
       "blockers": [
-        "No independent current logical DB backup and restore-test evidence.",
-        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
         "Production root is not a Git checkout; source provenance is server-only or repo mapping is indirect.",
         "No deployed commit marker.",
         "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
         "No recovery manifest and no clean-room restore certification."
       ],
-      "certification_status": "NOT RECOVERABLE",
+      "certification_status": "NOT FULLY RECOVERABLE - BACKUP LAYER CERTIFIED",
       "controls": {
         "clean_room_restore": "not tested",
-        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "database_backup": "pass: encrypted logical DB backup uploaded to central S3 and restored into isolated temporary MariaDB",
         "env_templates": [
           ".env.example"
         ],
@@ -1730,7 +2450,7 @@
           "composer.json",
           "package.json"
         ],
-        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "persistent_backup": "pass: encrypted versioned S3 persistent backup and representative checksum restore passed",
         "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
         "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
       },
@@ -1741,10 +2461,11 @@
         "/var/www/timesheet.synergielms.com/public_html/public"
       ],
       "environment": "production",
+      "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "timesheet.synergielms.com"
       ],
-      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "next_recovery_step": "Add canonical recovery manifest, approved secret source mapping, deployment traceability, and clean-room web restore proof.",
       "persistent": {
         "directories": [
           {
@@ -1793,9 +2514,42 @@
         "instance_type": "t3.xlarge",
         "region": "ap-south-1"
       },
+      "backup_recovery": {
+        "backup_timestamp_utc": "20260809T121713Z",
+        "bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+        "database": {
+          "consistency_mode": "single-transaction",
+          "dump_key": "applications/wearesynergie/production/20260809T121713Z/database/wearesynergie_website.sql.gz",
+          "dump_sha256": "43dd2c2512963cab424f1625686e0b67df265ce4cfe7f4d881fdae3a366232a7",
+          "dump_size_bytes": 4036361,
+          "engine": "mariadb",
+          "name": "wearesynergie_website",
+          "restore_test_duration_seconds": 3.308,
+          "restore_test_status": "PASS",
+          "restore_test_table_count": 47,
+          "s3_encryption": "AES256",
+          "s3_version_id": "YmsC.GjsDmPtfAOmJDWDIAvzNkXP_U8e",
+          "table_count_before": 47
+        },
+        "manifest_s3_key": "applications/wearesynergie/production/20260809T121713Z/manifest.json",
+        "persistent": {
+          "manifest_key": "applications/wearesynergie/production/20260809T121713Z/persistent/persistent-manifest.jsonl",
+          "manifest_s3_version_id": "GIsrrmZxPtLTET2rCUUetYp5YZcpwcBH",
+          "manifest_sha256": "74be0693807d786d7b7a2e941f4468f3be5981fe261fbc54b6418c49b518dad6",
+          "path_ids": [
+            "wp_content_uploads"
+          ],
+          "restore_test_sample_count": 3,
+          "restore_test_status": "PASS",
+          "status": "BACKED_UP",
+          "total_bytes": 115471526,
+          "total_files": 1344
+        },
+        "restore_safety": "All restore tests used isolated temporary MariaDB and temporary persistent sample directories; no production restore target was used.",
+        "status": "BACKUP_RECOVERY_CERTIFIED"
+      },
+      "backup_recovery_status": "BACKUP_RECOVERY_CERTIFIED",
       "blockers": [
-        "No independent current logical DB backup and restore-test evidence.",
-        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
         "Production root is not a Git checkout; source provenance is server-only or repo mapping is indirect.",
         "No deployed commit marker.",
         "Environment template is absent from the production root or canonical repo evidence.",
@@ -1803,16 +2557,16 @@
         "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
         "No recovery manifest and no clean-room restore certification."
       ],
-      "certification_status": "NOT RECOVERABLE",
+      "certification_status": "NOT FULLY RECOVERABLE - BACKUP LAYER CERTIFIED",
       "controls": {
         "clean_room_restore": "not tested",
-        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "database_backup": "pass: encrypted logical DB backup uploaded to central S3 and restored into isolated temporary MariaDB",
         "env_templates": [],
         "lockfiles": [],
         "manifests": [
           "wp-config.php"
         ],
-        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "persistent_backup": "pass: encrypted versioned S3 persistent backup and representative checksum restore passed",
         "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
         "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
       },
@@ -1823,11 +2577,12 @@
         "/var/www/wearesynergie.com/public_html"
       ],
       "environment": "production",
+      "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "wearesynergie.com",
         "www.wearesynergie.com"
       ],
-      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "next_recovery_step": "Add canonical recovery manifest, approved secret source mapping, deployment traceability, and clean-room web restore proof.",
       "persistent": {
         "directories": [
           {
@@ -1876,9 +2631,42 @@
         "instance_type": "t3.xlarge",
         "region": "ap-south-1"
       },
+      "backup_recovery": {
+        "backup_timestamp_utc": "20260809T121744Z",
+        "bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+        "database": {
+          "consistency_mode": "single-transaction",
+          "dump_key": "applications/wearesynergie-insights/production/20260809T121744Z/database/wearesynergie_db.sql.gz",
+          "dump_sha256": "cf847614d926a801cb4e0ec24c27c663365334f270095f4d0f39549bf8ea16f9",
+          "dump_size_bytes": 5514882,
+          "engine": "mariadb",
+          "name": "wearesynergie_db",
+          "restore_test_duration_seconds": 4.595,
+          "restore_test_status": "PASS",
+          "restore_test_table_count": 74,
+          "s3_encryption": "AES256",
+          "s3_version_id": "gdntz9TX.7yx83ERTnfZhf86ilorRxl9",
+          "table_count_before": 74
+        },
+        "manifest_s3_key": "applications/wearesynergie-insights/production/20260809T121744Z/manifest.json",
+        "persistent": {
+          "manifest_key": "applications/wearesynergie-insights/production/20260809T121744Z/persistent/persistent-manifest.jsonl",
+          "manifest_s3_version_id": "pXysQfBV4JJdLTqTY_E7IMQNjYg2hY59",
+          "manifest_sha256": "263f05f421dd15f2741f5c99271e01a519016a44d7a5c8a43c677c00ef8db8d4",
+          "path_ids": [
+            "wp_content_uploads"
+          ],
+          "restore_test_sample_count": 3,
+          "restore_test_status": "PASS",
+          "status": "BACKED_UP",
+          "total_bytes": 192351001,
+          "total_files": 1295
+        },
+        "restore_safety": "All restore tests used isolated temporary MariaDB and temporary persistent sample directories; no production restore target was used.",
+        "status": "BACKUP_RECOVERY_CERTIFIED"
+      },
+      "backup_recovery_status": "BACKUP_RECOVERY_CERTIFIED",
       "blockers": [
-        "No independent current logical DB backup and restore-test evidence.",
-        "Persistent runtime data is present and lacks independent S3/object-storage backup proof.",
         "Production root is not a Git checkout; source provenance is server-only or repo mapping is indirect.",
         "No deployed commit marker.",
         "Environment template is absent from the production root or canonical repo evidence.",
@@ -1886,16 +2674,16 @@
         "Runtime secret/config values are server-local; no app-specific approved secret references observed.",
         "No recovery manifest and no clean-room restore certification."
       ],
-      "certification_status": "NOT RECOVERABLE",
+      "certification_status": "NOT FULLY RECOVERABLE - BACKUP LAYER CERTIFIED",
       "controls": {
         "clean_room_restore": "not tested",
-        "database_backup": "fail: no independent current logical DB backup/restore-test evidence",
+        "database_backup": "pass: encrypted logical DB backup uploaded to central S3 and restored into isolated temporary MariaDB",
         "env_templates": [],
         "lockfiles": [],
         "manifests": [
           "wp-config.php"
         ],
-        "persistent_backup": "fail: persistent runtime data exists with no independent backup proof",
+        "persistent_backup": "pass: encrypted versioned S3 persistent backup and representative checksum restore passed",
         "recovery_manifest": "fail: no canonical .github/synergie-recovery.yml observed in prior GitHub inventory",
         "secrets": "fail: server-local env/wp-config secrets; no app-specific Secrets Manager/SSM coverage observed"
       },
@@ -1906,10 +2694,11 @@
         "/var/www/wearesynergie.synergieinsights.in/public_html"
       ],
       "environment": "production",
+      "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "wearesynergie.synergieinsights.in"
       ],
-      "next_recovery_step": "Implement restore-tested DB and persistent backups, then add recovery manifest.",
+      "next_recovery_step": "Add canonical recovery manifest, approved secret source mapping, deployment traceability, and clean-room web restore proof.",
       "persistent": {
         "directories": [
           {
@@ -2082,6 +2871,20 @@
     ]
   },
   "aws_cost_august_mtd": {
+    "backup_bucket_cost_estimate": {
+      "august_mtd_s3_unblended_usd": 13.5728718541,
+      "august_mtd_unblended_total_usd": 298.373858225,
+      "aws_cost_explorer_period": "2026-08-01 through 2026-08-09; End=2026-08-10 exclusive",
+      "estimated_current_backup_storage_usd_per_month": 0.63,
+      "estimated_storage_only_percent_of_august_mtd_total": 0.213,
+      "measured_application_current_objects": 15827,
+      "measured_application_versioned_gib": 25.37,
+      "measured_application_versioned_objects": 15830,
+      "measured_bucket_versioned_gib": 25.37,
+      "pricing_source": "AWS Pricing API for AmazonS3 Asia Pacific (Mumbai), APS3-TimedStorage-ByteHrs, first 50 TB tier",
+      "request_cost_note": "PUT/LIST/GET request costs are separate and expected to be small for this footprint; exact bill will appear in Cost Explorer after metering settles.",
+      "s3_standard_mumbai_first_50tb_usd_per_gb_month": 0.025
+    },
     "period": "2026-08-01 through 2026-08-09, Cost Explorer End=2026-08-10 exclusive",
     "top_services": [
       {
@@ -2123,12 +2926,22 @@
         "service": "AWS Cost Explorer",
         "unblended_cost_usd": 0.36,
         "unit": "USD"
+      },
+      {
+        "service": "AWS Key Management Service",
+        "unblended_cost_usd": 0.25,
+        "unit": "USD"
       }
     ],
     "unblended_total_usd": 298.37
   },
+  "company_backup_recovery_status": "COMPANY BACKUP RECOVERY CERTIFIED",
   "core_control": "Ignored from Git must never mean not backed up anywhere.",
   "evidence_sources": {
+    "backup_framework_final_deploy_ssm_command_id": "288795e7-5b11-4eb7-849f-4aa1dc9fecc4",
+    "backup_rollout_bridgestone_ssm_command_id": "fc2e443a-150f-45b7-a8b1-e576d09c4ca5",
+    "backup_rollout_remaining_19_ssm_command_id": "94439e53-5b4c-49cc-bc86-0a6aaa112a43",
+    "company_backup_rollout_report": "docs/company-backup-rollout-2026-08-09.json",
     "github_inventory_generated_at": "2026-08-09T07:48:48.211818+00:00",
     "sankalp_pr": "https://github.com/Synergie-ITCI/sankalp/pull/19",
     "sankalp_pr_head": "36682a1125bb7a9f3367e32952608a07158c88fd",
@@ -2139,11 +2952,14 @@
     "ssm_token_classification_command_id": "6ed7ddd9-5984-4886-8121-31b47416ee38"
   },
   "generated_at": "2026-08-09T11:00:47Z",
-  "highest_priority_next_action": "Implement restore-tested independent logical DB backups and persistent-file S3 backups for the 20 non-Sankalp P0 production apps, starting with Bridgestone because it has the largest observed persistent footprint.",
+  "highest_priority_next_action": "Add canonical recovery manifests and clean-room restore proof for the 20 backup-certified non-Sankalp P0 apps, starting with Bridgestone.",
   "production_changes_this_turn": [
     "Ran read-only SSM inventory probes; no secret values intentionally collected into durable artifacts.",
     "Removed embedded GitHub access-token material from Bayer and FIS production Git remote URLs by setting credential-free origin URLs.",
-    "No application code deploy, restart, database write, secret rotation, or file deletion was performed."
+    "No application code deploy, restart, database write, secret rotation, or file deletion was performed.",
+    "Created central private encrypted versioned S3 application backup bucket with TLS-only policy, lifecycle retention, and production EC2 role access.",
+    "Deployed Synergie Production Application Backup Framework to /opt/synergie-backup-framework and installed daily cron schedule.",
+    "Executed restore-tested logical DB and persistent backup rollout for all 20 non-Sankalp P0 production apps."
   ],
   "program_date": "2026-08-09",
   "secrets_manager_secret_names": [
@@ -2158,7 +2974,7 @@
     "/production/synergie-hub/database/password",
     "synergie/hub/entra"
   ],
-  "status": "NOT RECOVERABLE AS A COMPANY",
+  "status": "NOT FULLY RECOVERABLE AS A COMPANY - COMPANY BACKUP RECOVERY CERTIFIED FOR NON-SANKALP P0",
   "summary": {
     "active_production_roots": 21,
     "active_roots_on_production_ec2": 24,
@@ -2168,17 +2984,24 @@
     "fully_certified_production_apps": 0,
     "github_prod_matched_repos": 14,
     "github_repos_inspected": 71,
+    "not_fully_recoverable_production_apps": 20,
     "not_recoverable_production_apps": 20,
     "p0_production_apps_excluding_sankalp": 20,
     "production_apps_with_deployed_marker": 2,
     "production_apps_with_env_template": 13,
     "production_apps_with_git_checkout": 6,
     "production_apps_with_lockfiles": 16,
-    "production_apps_with_parsed_databases": 19,
+    "production_apps_with_parsed_databases": 21,
     "production_apps_with_persistent_data": 20,
     "production_hosted_nonprod_roots": 3,
-    "production_non_sankalp_apps_with_parsed_databases_missing_independent_backup": 18,
-    "production_non_sankalp_persistent_bytes_without_backup_proof": 30122069598,
+    "production_non_sankalp_apps_with_parsed_databases_missing_independent_backup": 0,
+    "production_non_sankalp_backup_db_dump_bytes": 171161483,
+    "production_non_sankalp_backup_persistent_bytes_backed_up": 27060016080,
+    "production_non_sankalp_p0_backup_recovery_certified": 20,
+    "production_non_sankalp_p0_db_restore_test_passed": 20,
+    "production_non_sankalp_p0_persistent_not_applicable": 2,
+    "production_non_sankalp_p0_persistent_restore_test_passed": 18,
+    "production_non_sankalp_persistent_bytes_without_backup_proof": 0,
     "production_persistent_bytes_observed": 35255299717
   }
 }
