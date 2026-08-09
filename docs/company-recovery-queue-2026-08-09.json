@@ -176,6 +176,41 @@
         "/var/www/bayer.synergieinsights.in/public_html/public"
       ],
       "environment": "production",
+      "full_application_recovery": {
+        "artifact": "NOT_CREATED",
+        "assets": "GAP",
+        "blockers": [
+          "17 upload-like/persistent files are outside the certified persistent path map or need explicit classification",
+          "environment template missing/incomplete; missing 53 variable names",
+          "13 sensitive runtime variable names require approved company-controlled secret references",
+          "repository redacted secret scan has 1 findings requiring triage/rotation or false-positive suppression",
+          "Node lockfile missing",
+          "recovery manifest missing",
+          "clean-room web restore not attempted because prerequisite gates are not met"
+        ],
+        "clean_room": "BLOCKED",
+        "counts": {
+          "compared_recovery_candidate_files": 616,
+          "exact_path_hash_matches": 616,
+          "generated_or_backup_or_noise": 11,
+          "persistent_like_not_in_certified_backup": 17,
+          "repo_path_hash_mismatch": 0,
+          "same_hash_different_path": 0,
+          "secret_or_environment_config": 3,
+          "server_only_path_absent": 0,
+          "server_only_source_asset": 0
+        },
+        "deploy_trace": "CANONICAL_COMMIT_KNOWN",
+        "manifest": "MISSING",
+        "rpo": "24h target; latest certified backup 20260809T120444Z",
+        "rto": "NOT_MEASURED",
+        "runtime": "GAP",
+        "secrets": "NOT_COMPANY_CONTROLLED",
+        "selected_commit": "e10dd02b323253cbc8dd5df6cec6ca5569fbf0d7",
+        "selected_repository": "Synergie-ITCI/bayer.synergieinsights.in",
+        "source": "COMPLETE",
+        "status": "NOT_RECOVERABLE"
+      },
       "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "bayer.synergieinsights.in"
@@ -298,6 +333,42 @@
         "/var/www/bridgestone.synergieinsights.in/public_html/public"
       ],
       "environment": "production",
+      "full_application_recovery": {
+        "artifact": "NOT_CREATED",
+        "assets": "GAP",
+        "blockers": [
+          "2090 source/asset files differ from or are absent in selected repository commit",
+          "environment template missing/incomplete; missing 50 variable names",
+          "9 sensitive runtime variable names require approved company-controlled secret references",
+          "repository redacted secret scan has 1 findings requiring triage/rotation or false-positive suppression",
+          "dependency manifest missing/unknown",
+          "LEGACY_DEPLOYMENT_COMMIT_UNKNOWN",
+          "recovery manifest missing",
+          "clean-room web restore not attempted because prerequisite gates are not met"
+        ],
+        "clean_room": "BLOCKED",
+        "counts": {
+          "compared_recovery_candidate_files": 2213,
+          "exact_path_hash_matches": 98,
+          "generated_or_backup_or_noise": 4,
+          "persistent_like_not_in_certified_backup": 0,
+          "repo_path_hash_mismatch": 7,
+          "same_hash_different_path": 25,
+          "secret_or_environment_config": 3,
+          "server_only_path_absent": 2083,
+          "server_only_source_asset": 2090
+        },
+        "deploy_trace": "LEGACY_DEPLOYMENT_COMMIT_UNKNOWN",
+        "manifest": "MISSING",
+        "rpo": "24h target; latest certified backup 20260809T115852Z",
+        "rto": "NOT_MEASURED",
+        "runtime": "GAP",
+        "secrets": "NOT_COMPANY_CONTROLLED",
+        "selected_commit": "63f6bcff12040d453199d67d7b9f121633581ca5",
+        "selected_repository": "Synergie-ITCI/bridgestone.synergieinsights.in",
+        "source": "GAP",
+        "status": "NOT_RECOVERABLE"
+      },
       "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "bridgestone.synergieinsights.in"
@@ -431,6 +502,41 @@
         "/var/www/datamatics.synergielms.com/public_html"
       ],
       "environment": "production",
+      "full_application_recovery": {
+        "artifact": "NOT_CREATED",
+        "assets": "GAP",
+        "blockers": [
+          "2 source/asset files differ from or are absent in selected repository commit",
+          "1594 upload-like/persistent files are outside the certified persistent path map or need explicit classification",
+          "18 sensitive runtime variable names require approved company-controlled secret references",
+          "repository redacted secret scan has 15 findings requiring triage/rotation or false-positive suppression",
+          "composer.lock missing; Node lockfile missing",
+          "recovery manifest missing",
+          "clean-room web restore not attempted because prerequisite gates are not met"
+        ],
+        "clean_room": "BLOCKED",
+        "counts": {
+          "compared_recovery_candidate_files": 2527,
+          "exact_path_hash_matches": 2525,
+          "generated_or_backup_or_noise": 19,
+          "persistent_like_not_in_certified_backup": 1594,
+          "repo_path_hash_mismatch": 0,
+          "same_hash_different_path": 0,
+          "secret_or_environment_config": 13,
+          "server_only_path_absent": 2,
+          "server_only_source_asset": 2
+        },
+        "deploy_trace": "CANONICAL_COMMIT_KNOWN",
+        "manifest": "MISSING",
+        "rpo": "24h target; latest certified backup 20260809T120632Z",
+        "rto": "NOT_MEASURED",
+        "runtime": "GAP",
+        "secrets": "NOT_COMPANY_CONTROLLED",
+        "selected_commit": "f9efaefcf021136ac69204860d9569dd0ffd4ec5",
+        "selected_repository": "Synergie-ITCI/datamatics.synergielms.com",
+        "source": "GAP",
+        "status": "NOT_RECOVERABLE"
+      },
       "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "datamatics.synergielms.com"
@@ -549,6 +655,42 @@
         "/var/www/dhansamvaad.synergieinsights.in/public_html/public"
       ],
       "environment": "production",
+      "full_application_recovery": {
+        "artifact": "NOT_CREATED",
+        "assets": "GAP",
+        "blockers": [
+          "1115 source/asset files differ from or are absent in selected repository commit",
+          "1594 upload-like/persistent files are outside the certified persistent path map or need explicit classification",
+          "environment template missing/incomplete; missing 48 variable names",
+          "12 sensitive runtime variable names require approved company-controlled secret references",
+          "repository redacted secret scan has 2 findings requiring triage/rotation or false-positive suppression",
+          "Node lockfile missing",
+          "recovery manifest missing",
+          "clean-room web restore not attempted because prerequisite gates are not met"
+        ],
+        "clean_room": "BLOCKED",
+        "counts": {
+          "compared_recovery_candidate_files": 1390,
+          "exact_path_hash_matches": 274,
+          "generated_or_backup_or_noise": 2,
+          "persistent_like_not_in_certified_backup": 1594,
+          "repo_path_hash_mismatch": 0,
+          "same_hash_different_path": 1,
+          "secret_or_environment_config": 3,
+          "server_only_path_absent": 1115,
+          "server_only_source_asset": 1115
+        },
+        "deploy_trace": "CANONICAL_COMMIT_KNOWN",
+        "manifest": "MISSING",
+        "rpo": "24h target; latest certified backup 20260809T120654Z",
+        "rto": "NOT_MEASURED",
+        "runtime": "GAP",
+        "secrets": "NOT_COMPANY_CONTROLLED",
+        "selected_commit": "3e2404bb53874fa5e46f249eba55914193eeef1c",
+        "selected_repository": "Synergie-ITCI/dhansamvaad-new.synergieinsights.in",
+        "source": "GAP",
+        "status": "NOT_RECOVERABLE"
+      },
       "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "dhansamvaad.synergieinsights.in"
@@ -669,6 +811,42 @@
         "/var/www/fis.synergielms.com/public_html"
       ],
       "environment": "production",
+      "full_application_recovery": {
+        "artifact": "NOT_CREATED",
+        "assets": "GAP",
+        "blockers": [
+          "370 source/asset files differ from or are absent in selected repository commit",
+          "1192 upload-like/persistent files are outside the certified persistent path map or need explicit classification",
+          "environment template missing/incomplete; missing 54 variable names",
+          "14 sensitive runtime variable names require approved company-controlled secret references",
+          "repository redacted secret scan has 10 findings requiring triage/rotation or false-positive suppression",
+          "composer.lock missing",
+          "recovery manifest missing",
+          "clean-room web restore not attempted because prerequisite gates are not met"
+        ],
+        "clean_room": "BLOCKED",
+        "counts": {
+          "compared_recovery_candidate_files": 1648,
+          "exact_path_hash_matches": 1274,
+          "generated_or_backup_or_noise": 3,
+          "persistent_like_not_in_certified_backup": 1192,
+          "repo_path_hash_mismatch": 33,
+          "same_hash_different_path": 4,
+          "secret_or_environment_config": 13,
+          "server_only_path_absent": 337,
+          "server_only_source_asset": 370
+        },
+        "deploy_trace": "CANONICAL_COMMIT_KNOWN",
+        "manifest": "MISSING",
+        "rpo": "24h target; latest certified backup 20260809T120733Z",
+        "rto": "NOT_MEASURED",
+        "runtime": "GAP",
+        "secrets": "NOT_COMPANY_CONTROLLED",
+        "selected_commit": "157646e45b87ab4fbfd248a4b209d4f79efbd48e",
+        "selected_repository": "Synergie-ITCI/fis.synergielms.com",
+        "source": "GAP",
+        "status": "NOT_RECOVERABLE"
+      },
       "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "fis.synergielms.com"
@@ -789,6 +967,42 @@
         "/var/www/icicir2s.synergieinsights.in/public_html/public"
       ],
       "environment": "production",
+      "full_application_recovery": {
+        "artifact": "NOT_CREATED",
+        "assets": "GAP",
+        "blockers": [
+          "404 source/asset files differ from or are absent in selected repository commit",
+          "268 upload-like/persistent files are outside the certified persistent path map or need explicit classification",
+          "environment template missing/incomplete; missing 43 variable names",
+          "9 sensitive runtime variable names require approved company-controlled secret references",
+          "dependency manifest missing/unknown",
+          "LEGACY_DEPLOYMENT_COMMIT_UNKNOWN",
+          "recovery manifest missing",
+          "clean-room web restore not attempted because prerequisite gates are not met"
+        ],
+        "clean_room": "BLOCKED",
+        "counts": {
+          "compared_recovery_candidate_files": 404,
+          "exact_path_hash_matches": 0,
+          "generated_or_backup_or_noise": 0,
+          "persistent_like_not_in_certified_backup": 268,
+          "repo_path_hash_mismatch": 1,
+          "same_hash_different_path": 0,
+          "secret_or_environment_config": 6,
+          "server_only_path_absent": 403,
+          "server_only_source_asset": 404
+        },
+        "deploy_trace": "LEGACY_DEPLOYMENT_COMMIT_UNKNOWN",
+        "manifest": "MISSING",
+        "rpo": "24h target; latest certified backup 20260809T120803Z",
+        "rto": "NOT_MEASURED",
+        "runtime": "GAP",
+        "secrets": "NOT_COMPANY_CONTROLLED",
+        "selected_commit": "f5d16f0bb7497dd7b3b9856e2882999ea8ef26a2",
+        "selected_repository": "Synergie-ITCI/ICICI",
+        "source": "GAP",
+        "status": "NOT_RECOVERABLE"
+      },
       "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "icicir2s.synergieinsights.in"
@@ -904,6 +1118,41 @@
         "/var/www/jiobp.synergielms.com/public_html/public"
       ],
       "environment": "production",
+      "full_application_recovery": {
+        "artifact": "NOT_CREATED",
+        "assets": "GAP",
+        "blockers": [
+          "7 upload-like/persistent files are outside the certified persistent path map or need explicit classification",
+          "environment template missing/incomplete; missing 50 variable names",
+          "11 sensitive runtime variable names require approved company-controlled secret references",
+          "repository redacted secret scan has 3 findings requiring triage/rotation or false-positive suppression",
+          "Node lockfile missing",
+          "recovery manifest missing",
+          "clean-room web restore not attempted because prerequisite gates are not met"
+        ],
+        "clean_room": "BLOCKED",
+        "counts": {
+          "compared_recovery_candidate_files": 299,
+          "exact_path_hash_matches": 299,
+          "generated_or_backup_or_noise": 14,
+          "persistent_like_not_in_certified_backup": 7,
+          "repo_path_hash_mismatch": 0,
+          "same_hash_different_path": 0,
+          "secret_or_environment_config": 3,
+          "server_only_path_absent": 0,
+          "server_only_source_asset": 0
+        },
+        "deploy_trace": "CANONICAL_COMMIT_KNOWN",
+        "manifest": "MISSING",
+        "rpo": "24h target; latest certified backup 20260809T120819Z",
+        "rto": "NOT_MEASURED",
+        "runtime": "GAP",
+        "secrets": "NOT_COMPANY_CONTROLLED",
+        "selected_commit": "77acbd5c9541e79bcfcb34450a0449de87241a6d",
+        "selected_repository": "Synergie-ITCI/jiobp.synergielms.com",
+        "source": "COMPLETE",
+        "status": "NOT_RECOVERABLE"
+      },
       "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "jiobp.synergielms.com"
@@ -1021,6 +1270,42 @@
         "/var/www/jiobpcares.synergieinsights.in/public_html"
       ],
       "environment": "production",
+      "full_application_recovery": {
+        "artifact": "NOT_CREATED",
+        "assets": "GAP",
+        "blockers": [
+          "2177 source/asset files differ from or are absent in selected repository commit",
+          "environment template missing/incomplete; missing 50 variable names",
+          "9 sensitive runtime variable names require approved company-controlled secret references",
+          "repository redacted secret scan has 2 findings requiring triage/rotation or false-positive suppression",
+          "dependency manifest missing/unknown",
+          "LEGACY_DEPLOYMENT_COMMIT_UNKNOWN",
+          "recovery manifest missing",
+          "clean-room web restore not attempted because prerequisite gates are not met"
+        ],
+        "clean_room": "BLOCKED",
+        "counts": {
+          "compared_recovery_candidate_files": 2182,
+          "exact_path_hash_matches": 0,
+          "generated_or_backup_or_noise": 4,
+          "persistent_like_not_in_certified_backup": 0,
+          "repo_path_hash_mismatch": 1,
+          "same_hash_different_path": 5,
+          "secret_or_environment_config": 3,
+          "server_only_path_absent": 2176,
+          "server_only_source_asset": 2177
+        },
+        "deploy_trace": "LEGACY_DEPLOYMENT_COMMIT_UNKNOWN",
+        "manifest": "MISSING",
+        "rpo": "24h target; latest certified backup 20260809T120843Z",
+        "rto": "NOT_MEASURED",
+        "runtime": "GAP",
+        "secrets": "NOT_COMPANY_CONTROLLED",
+        "selected_commit": "49d92a3beac3465b718cfc827589324a50c057e0",
+        "selected_repository": "Synergie-ITCI/BP",
+        "source": "GAP",
+        "status": "NOT_RECOVERABLE"
+      },
       "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "jiobpcares.synergieinsights.in"
@@ -1156,6 +1441,43 @@
         "/var/www/jiobptransporter.synergieinsights.in/public_html/public"
       ],
       "environment": "production",
+      "full_application_recovery": {
+        "artifact": "NOT_CREATED",
+        "assets": "GAP",
+        "blockers": [
+          "4468 source/asset files differ from or are absent in selected repository commit",
+          "1106 upload-like/persistent files are outside the certified persistent path map or need explicit classification",
+          "environment template missing/incomplete; missing 44 variable names",
+          "9 sensitive runtime variable names require approved company-controlled secret references",
+          "repository redacted secret scan has 2 findings requiring triage/rotation or false-positive suppression",
+          "dependency manifest missing/unknown",
+          "LEGACY_DEPLOYMENT_COMMIT_UNKNOWN",
+          "recovery manifest missing",
+          "clean-room web restore not attempted because prerequisite gates are not met"
+        ],
+        "clean_room": "BLOCKED",
+        "counts": {
+          "compared_recovery_candidate_files": 4470,
+          "exact_path_hash_matches": 0,
+          "generated_or_backup_or_noise": 0,
+          "persistent_like_not_in_certified_backup": 1106,
+          "repo_path_hash_mismatch": 1,
+          "same_hash_different_path": 2,
+          "secret_or_environment_config": 3,
+          "server_only_path_absent": 4467,
+          "server_only_source_asset": 4468
+        },
+        "deploy_trace": "LEGACY_DEPLOYMENT_COMMIT_UNKNOWN",
+        "manifest": "MISSING",
+        "rpo": "24h target; latest certified backup 20260809T121144Z",
+        "rto": "NOT_MEASURED",
+        "runtime": "GAP",
+        "secrets": "NOT_COMPANY_CONTROLLED",
+        "selected_commit": "49d92a3beac3465b718cfc827589324a50c057e0",
+        "selected_repository": "Synergie-ITCI/BP",
+        "source": "GAP",
+        "status": "NOT_RECOVERABLE"
+      },
       "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "jiobptransporter.synergieinsights.in"
@@ -1277,6 +1599,41 @@
         "/var/www/mobilekids.synergieinsights.in/public_html/public"
       ],
       "environment": "production",
+      "full_application_recovery": {
+        "artifact": "NOT_CREATED",
+        "assets": "GAP",
+        "blockers": [
+          "11 upload-like/persistent files are outside the certified persistent path map or need explicit classification",
+          "environment template missing/incomplete; missing 2 variable names",
+          "9 sensitive runtime variable names require approved company-controlled secret references",
+          "repository redacted secret scan has 2 findings requiring triage/rotation or false-positive suppression",
+          "LEGACY_DEPLOYMENT_COMMIT_UNKNOWN",
+          "recovery manifest missing",
+          "clean-room web restore not attempted because prerequisite gates are not met"
+        ],
+        "clean_room": "BLOCKED",
+        "counts": {
+          "compared_recovery_candidate_files": 268,
+          "exact_path_hash_matches": 268,
+          "generated_or_backup_or_noise": 2,
+          "persistent_like_not_in_certified_backup": 11,
+          "repo_path_hash_mismatch": 0,
+          "same_hash_different_path": 0,
+          "secret_or_environment_config": 3,
+          "server_only_path_absent": 0,
+          "server_only_source_asset": 0
+        },
+        "deploy_trace": "LEGACY_DEPLOYMENT_COMMIT_UNKNOWN",
+        "manifest": "MISSING",
+        "rpo": "24h target; latest certified backup 20260809T121201Z",
+        "rto": "NOT_MEASURED",
+        "runtime": "REPRODUCIBLE",
+        "secrets": "NOT_COMPANY_CONTROLLED",
+        "selected_commit": "582c03347247e069678e8dd3c9f5db786db4e833",
+        "selected_repository": "Synergie-ITCI/mobilekids.synergieinsights.in",
+        "source": "COMPLETE",
+        "status": "NOT_RECOVERABLE"
+      },
       "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "mobilekids.synergieinsights.in"
@@ -1483,6 +1840,42 @@
         "/var/www/projectdemo.synergielms.com/public_html/public"
       ],
       "environment": "production",
+      "full_application_recovery": {
+        "artifact": "NOT_CREATED",
+        "assets": "GAP",
+        "blockers": [
+          "2 source/asset files differ from or are absent in selected repository commit",
+          "1512 upload-like/persistent files are outside the certified persistent path map or need explicit classification",
+          "environment template missing/incomplete; missing 3 variable names",
+          "9 sensitive runtime variable names require approved company-controlled secret references",
+          "repository redacted secret scan has 16 findings requiring triage/rotation or false-positive suppression",
+          "composer.lock missing; Node lockfile missing",
+          "recovery manifest missing",
+          "clean-room web restore not attempted because prerequisite gates are not met"
+        ],
+        "clean_room": "BLOCKED",
+        "counts": {
+          "compared_recovery_candidate_files": 2070,
+          "exact_path_hash_matches": 2068,
+          "generated_or_backup_or_noise": 8,
+          "persistent_like_not_in_certified_backup": 1512,
+          "repo_path_hash_mismatch": 0,
+          "same_hash_different_path": 0,
+          "secret_or_environment_config": 13,
+          "server_only_path_absent": 2,
+          "server_only_source_asset": 2
+        },
+        "deploy_trace": "CANONICAL_COMMIT_KNOWN",
+        "manifest": "MISSING",
+        "rpo": "24h target; latest certified backup 20260809T121237Z",
+        "rto": "NOT_MEASURED",
+        "runtime": "GAP",
+        "secrets": "NOT_COMPANY_CONTROLLED",
+        "selected_commit": "58b265ea978b81ac63fe7cb35b783821a308f7af",
+        "selected_repository": "Synergie-ITCI/projectdemo.synergielms.com",
+        "source": "GAP",
+        "status": "NOT_RECOVERABLE"
+      },
       "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "projectdemo.synergielms.com"
@@ -1778,6 +2171,42 @@
         "/var/www/sankalptraining.synergielms.com/public_html/public"
       ],
       "environment": "production",
+      "full_application_recovery": {
+        "artifact": "NOT_CREATED",
+        "assets": "GAP",
+        "blockers": [
+          "221 source/asset files differ from or are absent in selected repository commit",
+          "340 upload-like/persistent files are outside the certified persistent path map or need explicit classification",
+          "environment template missing/incomplete; missing 43 variable names",
+          "9 sensitive runtime variable names require approved company-controlled secret references",
+          "repository redacted secret scan has 11 findings requiring triage/rotation or false-positive suppression",
+          "LEGACY_DEPLOYMENT_COMMIT_UNKNOWN",
+          "recovery manifest missing",
+          "clean-room web restore not attempted because prerequisite gates are not met"
+        ],
+        "clean_room": "BLOCKED",
+        "counts": {
+          "compared_recovery_candidate_files": 237,
+          "exact_path_hash_matches": 14,
+          "generated_or_backup_or_noise": 0,
+          "persistent_like_not_in_certified_backup": 340,
+          "repo_path_hash_mismatch": 54,
+          "same_hash_different_path": 2,
+          "secret_or_environment_config": 3,
+          "server_only_path_absent": 167,
+          "server_only_source_asset": 221
+        },
+        "deploy_trace": "LEGACY_DEPLOYMENT_COMMIT_UNKNOWN",
+        "manifest": "MISSING",
+        "rpo": "24h target; latest certified backup 20260809T121259Z",
+        "rto": "NOT_MEASURED",
+        "runtime": "REPRODUCIBLE",
+        "secrets": "NOT_COMPANY_CONTROLLED",
+        "selected_commit": "784c5a7d458ebb0b3f82f2556fb2646b82ff4198",
+        "selected_repository": "Synergie-ITCI/synergielms.com",
+        "source": "GAP",
+        "status": "NOT_RECOVERABLE"
+      },
       "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "sankalptraining.synergielms.com"
@@ -1893,6 +2322,42 @@
         "/var/www/shareasmile.wearesynergie.com/public_html"
       ],
       "environment": "production",
+      "full_application_recovery": {
+        "artifact": "NOT_CREATED",
+        "assets": "GAP",
+        "blockers": [
+          "2879 source/asset files differ from or are absent in selected repository commit",
+          "environment template missing/incomplete; missing 66 variable names",
+          "14 sensitive runtime variable names require approved company-controlled secret references",
+          "repository redacted secret scan has 15 findings requiring triage/rotation or false-positive suppression",
+          "dependency manifest missing/unknown",
+          "LEGACY_DEPLOYMENT_COMMIT_UNKNOWN",
+          "recovery manifest missing",
+          "clean-room web restore not attempted because prerequisite gates are not met"
+        ],
+        "clean_room": "BLOCKED",
+        "counts": {
+          "compared_recovery_candidate_files": 2885,
+          "exact_path_hash_matches": 0,
+          "generated_or_backup_or_noise": 5,
+          "persistent_like_not_in_certified_backup": 0,
+          "repo_path_hash_mismatch": 1,
+          "same_hash_different_path": 6,
+          "secret_or_environment_config": 3,
+          "server_only_path_absent": 2878,
+          "server_only_source_asset": 2879
+        },
+        "deploy_trace": "LEGACY_DEPLOYMENT_COMMIT_UNKNOWN",
+        "manifest": "MISSING",
+        "rpo": "24h target; latest certified backup 20260809T121315Z",
+        "rto": "NOT_MEASURED",
+        "runtime": "GAP",
+        "secrets": "NOT_COMPANY_CONTROLLED",
+        "selected_commit": "7c910bbf22c49b5e1ab6c3751020ce58806f8c54",
+        "selected_repository": "Synergie-ITCI/wearesynergie",
+        "source": "GAP",
+        "status": "NOT_RECOVERABLE"
+      },
       "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "shareasmile.wearesynergie.com"
@@ -2012,6 +2477,42 @@
         "/var/www/syncsr.in/public_html/public"
       ],
       "environment": "production",
+      "full_application_recovery": {
+        "artifact": "NOT_CREATED",
+        "assets": "GAP",
+        "blockers": [
+          "canonical repository unknown",
+          "79 source/asset files differ from or are absent in selected repository commit",
+          "environment template missing/incomplete; missing 50 variable names",
+          "9 sensitive runtime variable names require approved company-controlled secret references",
+          "dependency manifest missing/unknown",
+          "LEGACY_DEPLOYMENT_COMMIT_UNKNOWN",
+          "recovery manifest missing",
+          "clean-room web restore not attempted because prerequisite gates are not met"
+        ],
+        "clean_room": "BLOCKED",
+        "counts": {
+          "compared_recovery_candidate_files": 79,
+          "exact_path_hash_matches": 0,
+          "generated_or_backup_or_noise": 0,
+          "persistent_like_not_in_certified_backup": 0,
+          "repo_path_hash_mismatch": 0,
+          "same_hash_different_path": 0,
+          "secret_or_environment_config": 0,
+          "server_only_path_absent": 79,
+          "server_only_source_asset": 79
+        },
+        "deploy_trace": "LEGACY_DEPLOYMENT_COMMIT_UNKNOWN",
+        "manifest": "MISSING",
+        "rpo": "24h target; latest certified backup 20260809T121333Z",
+        "rto": "NOT_MEASURED",
+        "runtime": "GAP",
+        "secrets": "NOT_COMPANY_CONTROLLED",
+        "selected_commit": "UNKNOWN",
+        "selected_repository": "UNKNOWN",
+        "source": "GAP",
+        "status": "NOT_RECOVERABLE"
+      },
       "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "syncsr.in",
@@ -2123,6 +2624,38 @@
         "/var/www/synergie-hub/public"
       ],
       "environment": "production",
+      "full_application_recovery": {
+        "artifact": "NOT_CREATED",
+        "assets": "COMPLETE",
+        "blockers": [
+          "Node lockfile missing",
+          "LEGACY_DEPLOYMENT_COMMIT_UNKNOWN",
+          "recovery manifest missing",
+          "clean-room web restore not attempted because prerequisite gates are not met"
+        ],
+        "clean_room": "BLOCKED",
+        "counts": {
+          "compared_recovery_candidate_files": 4,
+          "exact_path_hash_matches": 0,
+          "generated_or_backup_or_noise": 0,
+          "persistent_like_not_in_certified_backup": 0,
+          "repo_path_hash_mismatch": 0,
+          "same_hash_different_path": 4,
+          "secret_or_environment_config": 0,
+          "server_only_path_absent": 0,
+          "server_only_source_asset": 0
+        },
+        "deploy_trace": "LEGACY_DEPLOYMENT_COMMIT_UNKNOWN",
+        "manifest": "MISSING",
+        "rpo": "24h target; latest certified backup 20260809T121351Z",
+        "rto": "NOT_MEASURED",
+        "runtime": "GAP",
+        "secrets": "NOT_COMPANY_CONTROLLED",
+        "selected_commit": "ed9e03908986a006738f09818824520a80713f82",
+        "selected_repository": "Synergie-ITCI/synergie-hub",
+        "source": "COMPLETE",
+        "status": "NOT_RECOVERABLE"
+      },
       "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "hub.synergieinsights.in"
@@ -2225,6 +2758,42 @@
         "/var/www/synergielms.com/public_html"
       ],
       "environment": "production",
+      "full_application_recovery": {
+        "artifact": "NOT_CREATED",
+        "assets": "GAP",
+        "blockers": [
+          "179 source/asset files differ from or are absent in selected repository commit",
+          "760 upload-like/persistent files are outside the certified persistent path map or need explicit classification",
+          "environment template missing/incomplete; missing 53 variable names",
+          "14 sensitive runtime variable names require approved company-controlled secret references",
+          "repository redacted secret scan has 11 findings requiring triage/rotation or false-positive suppression",
+          "LEGACY_DEPLOYMENT_COMMIT_UNKNOWN",
+          "recovery manifest missing",
+          "clean-room web restore not attempted because prerequisite gates are not met"
+        ],
+        "clean_room": "BLOCKED",
+        "counts": {
+          "compared_recovery_candidate_files": 1450,
+          "exact_path_hash_matches": 0,
+          "generated_or_backup_or_noise": 0,
+          "persistent_like_not_in_certified_backup": 760,
+          "repo_path_hash_mismatch": 0,
+          "same_hash_different_path": 1271,
+          "secret_or_environment_config": 13,
+          "server_only_path_absent": 179,
+          "server_only_source_asset": 179
+        },
+        "deploy_trace": "LEGACY_DEPLOYMENT_COMMIT_UNKNOWN",
+        "manifest": "MISSING",
+        "rpo": "24h target; latest certified backup 20260809T121403Z",
+        "rto": "NOT_MEASURED",
+        "runtime": "REPRODUCIBLE",
+        "secrets": "NOT_COMPANY_CONTROLLED",
+        "selected_commit": "784c5a7d458ebb0b3f82f2556fb2646b82ff4198",
+        "selected_repository": "Synergie-ITCI/synergielms.com",
+        "source": "GAP",
+        "status": "NOT_RECOVERABLE"
+      },
       "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "synergielms.com",
@@ -2340,6 +2909,39 @@
         "/var/www/telemedicine.synergieinsights.in/public_html/public"
       ],
       "environment": "production",
+      "full_application_recovery": {
+        "artifact": "NOT_CREATED",
+        "assets": "GAP",
+        "blockers": [
+          "2 source/asset files differ from or are absent in selected repository commit",
+          "environment template missing/incomplete; missing 8 variable names",
+          "15 sensitive runtime variable names require approved company-controlled secret references",
+          "recovery manifest missing",
+          "clean-room web restore not attempted because prerequisite gates are not met"
+        ],
+        "clean_room": "BLOCKED",
+        "counts": {
+          "compared_recovery_candidate_files": 989,
+          "exact_path_hash_matches": 987,
+          "generated_or_backup_or_noise": 1095,
+          "persistent_like_not_in_certified_backup": 0,
+          "repo_path_hash_mismatch": 0,
+          "same_hash_different_path": 0,
+          "secret_or_environment_config": 3,
+          "server_only_path_absent": 2,
+          "server_only_source_asset": 2
+        },
+        "deploy_trace": "CANONICAL_COMMIT_KNOWN",
+        "manifest": "MISSING",
+        "rpo": "24h target; latest certified backup 20260809T121607Z",
+        "rto": "NOT_MEASURED",
+        "runtime": "REPRODUCIBLE",
+        "secrets": "NOT_COMPANY_CONTROLLED",
+        "selected_commit": "d967c1ed44a6e526b7e58aa0ec5e30b2097da0ae",
+        "selected_repository": "Synergie-ITCI/telemedicine-bridgestone",
+        "source": "GAP",
+        "status": "NOT_RECOVERABLE"
+      },
       "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "telemedicine.synergieinsights.in"
@@ -2461,6 +3063,42 @@
         "/var/www/timesheet.synergielms.com/public_html/public"
       ],
       "environment": "production",
+      "full_application_recovery": {
+        "artifact": "NOT_CREATED",
+        "assets": "GAP",
+        "blockers": [
+          "128 source/asset files differ from or are absent in selected repository commit",
+          "428 upload-like/persistent files are outside the certified persistent path map or need explicit classification",
+          "environment template missing/incomplete; missing 43 variable names",
+          "9 sensitive runtime variable names require approved company-controlled secret references",
+          "repository redacted secret scan has 11 findings requiring triage/rotation or false-positive suppression",
+          "LEGACY_DEPLOYMENT_COMMIT_UNKNOWN",
+          "recovery manifest missing",
+          "clean-room web restore not attempted because prerequisite gates are not met"
+        ],
+        "clean_room": "BLOCKED",
+        "counts": {
+          "compared_recovery_candidate_files": 1570,
+          "exact_path_hash_matches": 725,
+          "generated_or_backup_or_noise": 3,
+          "persistent_like_not_in_certified_backup": 428,
+          "repo_path_hash_mismatch": 57,
+          "same_hash_different_path": 717,
+          "secret_or_environment_config": 3,
+          "server_only_path_absent": 71,
+          "server_only_source_asset": 128
+        },
+        "deploy_trace": "LEGACY_DEPLOYMENT_COMMIT_UNKNOWN",
+        "manifest": "MISSING",
+        "rpo": "24h target; latest certified backup 20260809T121657Z",
+        "rto": "NOT_MEASURED",
+        "runtime": "REPRODUCIBLE",
+        "secrets": "NOT_COMPANY_CONTROLLED",
+        "selected_commit": "784c5a7d458ebb0b3f82f2556fb2646b82ff4198",
+        "selected_repository": "Synergie-ITCI/synergielms.com",
+        "source": "GAP",
+        "status": "NOT_RECOVERABLE"
+      },
       "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "timesheet.synergielms.com"
@@ -2577,6 +3215,43 @@
         "/var/www/wearesynergie.com/public_html"
       ],
       "environment": "production",
+      "full_application_recovery": {
+        "artifact": "NOT_CREATED",
+        "assets": "GAP",
+        "blockers": [
+          "6252 source/asset files differ from or are absent in selected repository commit",
+          "4629 upload-like/persistent files are outside the certified persistent path map or need explicit classification",
+          "environment template missing/incomplete; missing 21 variable names",
+          "6 sensitive runtime variable names require approved company-controlled secret references",
+          "repository redacted secret scan has 15 findings requiring triage/rotation or false-positive suppression",
+          "dependency manifest missing/unknown",
+          "LEGACY_DEPLOYMENT_COMMIT_UNKNOWN",
+          "recovery manifest missing",
+          "clean-room web restore not attempted because prerequisite gates are not met"
+        ],
+        "clean_room": "BLOCKED",
+        "counts": {
+          "compared_recovery_candidate_files": 12430,
+          "exact_path_hash_matches": 6130,
+          "generated_or_backup_or_noise": 1632,
+          "persistent_like_not_in_certified_backup": 4629,
+          "repo_path_hash_mismatch": 1061,
+          "same_hash_different_path": 48,
+          "secret_or_environment_config": 21,
+          "server_only_path_absent": 5191,
+          "server_only_source_asset": 6252
+        },
+        "deploy_trace": "LEGACY_DEPLOYMENT_COMMIT_UNKNOWN",
+        "manifest": "MISSING",
+        "rpo": "24h target; latest certified backup 20260809T121713Z",
+        "rto": "NOT_MEASURED",
+        "runtime": "GAP",
+        "secrets": "NOT_COMPANY_CONTROLLED",
+        "selected_commit": "7c910bbf22c49b5e1ab6c3751020ce58806f8c54",
+        "selected_repository": "Synergie-ITCI/wearesynergie",
+        "source": "GAP",
+        "status": "NOT_RECOVERABLE"
+      },
       "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "wearesynergie.com",
@@ -2694,6 +3369,43 @@
         "/var/www/wearesynergie.synergieinsights.in/public_html"
       ],
       "environment": "production",
+      "full_application_recovery": {
+        "artifact": "NOT_CREATED",
+        "assets": "GAP",
+        "blockers": [
+          "15532 source/asset files differ from or are absent in selected repository commit",
+          "5651 upload-like/persistent files are outside the certified persistent path map or need explicit classification",
+          "environment template missing/incomplete; missing 20 variable names",
+          "6 sensitive runtime variable names require approved company-controlled secret references",
+          "repository redacted secret scan has 15 findings requiring triage/rotation or false-positive suppression",
+          "dependency manifest missing/unknown",
+          "LEGACY_DEPLOYMENT_COMMIT_UNKNOWN",
+          "recovery manifest missing",
+          "clean-room web restore not attempted because prerequisite gates are not met"
+        ],
+        "clean_room": "BLOCKED",
+        "counts": {
+          "compared_recovery_candidate_files": 16634,
+          "exact_path_hash_matches": 376,
+          "generated_or_backup_or_noise": 2,
+          "persistent_like_not_in_certified_backup": 5651,
+          "repo_path_hash_mismatch": 1014,
+          "same_hash_different_path": 726,
+          "secret_or_environment_config": 6,
+          "server_only_path_absent": 14518,
+          "server_only_source_asset": 15532
+        },
+        "deploy_trace": "LEGACY_DEPLOYMENT_COMMIT_UNKNOWN",
+        "manifest": "MISSING",
+        "rpo": "24h target; latest certified backup 20260809T121744Z",
+        "rto": "NOT_MEASURED",
+        "runtime": "GAP",
+        "secrets": "NOT_COMPANY_CONTROLLED",
+        "selected_commit": "7c910bbf22c49b5e1ab6c3751020ce58806f8c54",
+        "selected_repository": "Synergie-ITCI/wearesynergie",
+        "source": "GAP",
+        "status": "NOT_RECOVERABLE"
+      },
       "full_recovery_status": "NOT RECOVERABLE",
       "hostnames": [
         "wearesynergie.synergieinsights.in"
@@ -2951,8 +3663,44 @@
     "ssm_git_remote_cleanup_command_id": "97d618b8-81c6-4ce4-acee-2fe3dc45c537",
     "ssm_token_classification_command_id": "6ed7ddd9-5984-4886-8121-31b47416ee38"
   },
+  "full_application_recovery_reconciliation": {
+    "report_json": "docs/company-full-recovery-reconciliation-2026-08-09.json",
+    "report_markdown": "docs/company-full-recovery-reconciliation-2026-08-09.md",
+    "summary": {
+      "applications": 20,
+      "assets_complete": 1,
+      "backup_framework": "unchanged",
+      "certified_with_conditions": 0,
+      "clean_room_attempted": 0,
+      "clean_room_blocked": 20,
+      "clean_room_failed": 0,
+      "clean_room_passed": 0,
+      "deploy_trace_known": 7,
+      "developer_only_assets_remaining": 0,
+      "environment_template_missing_variable_names": 701,
+      "external_provider_blocked": 0,
+      "full_certified": 0,
+      "manifests_valid": 0,
+      "not_recoverable": 20,
+      "persistent_like_files_requiring_classification": 19109,
+      "production_inventory_s3_key": "full-recovery-audit/20260809/production-inventory-full.json",
+      "production_inventory_s3_version_id": "YwrkM9vtOPe7CM75M_7R0ZOa4b0wWuud",
+      "ready_for_clean_room": 0,
+      "redacted_secret_scan_s3_key": "full-recovery-audit/20260809/github-gitleaks-redacted.json",
+      "redacted_secret_scan_s3_version_id": "nRFCAJgC6_gNJyTAFZqXXV.S5_6BR3Dc",
+      "repo_inventory_s3_key": "full-recovery-audit/20260809/github-repo-inventory.json",
+      "repo_inventory_s3_version_id": "dj8uqciRFJYkTF_9VxeL6_6kZDdSZmbR",
+      "runtime_reproducible": 5,
+      "secret_like_runtime_variable_names": 204,
+      "secret_value_migration": "NOT_PERFORMED_REQUIRES_EXPLICIT_APPROVAL",
+      "selected_repo_secret_scan_findings": 132,
+      "server_only_recovery_critical_files_found": 35900,
+      "source_complete": 4
+    }
+  },
   "generated_at": "2026-08-09T11:00:47Z",
-  "highest_priority_next_action": "Add canonical recovery manifests and clean-room restore proof for the 20 backup-certified non-Sankalp P0 apps, starting with Bridgestone.",
+  "highest_priority_next_action": "Create and validate recovery manifests plus complete env templates for the three source-complete apps first: Bayer, Mobile Kids, and Synergie Hub.",
+  "overall_full_application_recovery_status": "NOT_FULLY_RECOVERABLE",
   "production_changes_this_turn": [
     "Ran read-only SSM inventory probes; no secret values intentionally collected into durable artifacts.",
     "Removed embedded GitHub access-token material from Bayer and FIS production Git remote URLs by setting credential-free origin URLs.",

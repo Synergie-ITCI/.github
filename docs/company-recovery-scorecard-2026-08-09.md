@@ -130,6 +130,31 @@ Sankalp remains tracked separately as `RECOVERY CERTIFIED WITH CONDITIONS` becau
 | AWS Cost Explorer | 0.36 |
 | AWS Key Management Service | 0.25 |
 
+
+## Full Application Recovery Reconciliation
+
+Status after full-recovery pass: `NOT FULLY RECOVERABLE`.
+
+| Metric | Result |
+| --- | ---: |
+| Applications processed | 20 |
+| Full application recovery certified | 0 |
+| Recovery certified with conditions | 0 |
+| Ready for clean-room restore | 0 |
+| Not recoverable | 20 |
+| External-provider blocked | 0 |
+| Source complete | 4 |
+| Assets complete | 1 |
+| Runtime reproducible | 5 |
+| Canonical deploy trace known | 7 |
+| Valid recovery manifests | 0 |
+| Clean-room restore attempted | 0 |
+| Server-only source/asset gap files | 35900 |
+| Persistent-like files requiring classification | 19109 |
+| Selected-repo redacted secret-scan findings | 132 |
+
+Detailed report: `docs/company-full-recovery-reconciliation-2026-08-09.md` / `docs/company-full-recovery-reconciliation-2026-08-09.json`.
+
 ## Control Gaps
 
 - Backup source-of-truth gap: closed for the 20 non-Sankalp P0 production apps by restore-tested encrypted S3 backups.
@@ -157,4 +182,4 @@ Sankalp remains tracked separately as `RECOVERY CERTIFIED WITH CONDITIONS` becau
 
 ## Highest Priority Next Action
 
-Add canonical recovery manifests and clean-room restore proof for the 20 backup-certified non-Sankalp P0 apps, starting with Bridgestone.
+Create and validate recovery manifests plus complete env templates for the three source-complete apps first: Bayer, Mobile Kids, and Synergie Hub.
