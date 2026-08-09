@@ -2,6 +2,11 @@
 
 phpMyAdmin is permitted for local, development, and staging/UAT work when it is secured. Production must not expose phpMyAdmin.
 
+The same company pattern applies to PostgreSQL administration with pgAdmin:
+development, staging, and UAT pgAdmin are allowed only when authenticated,
+mapped to a verified non-production PostgreSQL database, and scoped to the
+assigned application owner. Production pgAdmin is prohibited.
+
 ## Company Policy
 
 | Environment | Policy |
@@ -10,6 +15,51 @@ phpMyAdmin is permitted for local, development, and staging/UAT work when it is 
 | Development | Allowed. |
 | Staging / UAT | Allowed with controls. |
 | Main / production | Prohibited. |
+
+## PostgreSQL / pgAdmin Policy
+
+pgAdmin follows the phpMyAdmin control model with PostgreSQL-specific role
+constraints:
+
+- expose pgAdmin only on verified non-production runtimes
+- use `/synergie-pgadmin/` or an equivalent protected non-production route
+- require HTTPS, an outer access gate, and pgAdmin authentication
+- map repository -> branch -> actual environment -> server -> PostgreSQL database -> PostgreSQL role -> verified developer owner
+- use a dedicated application/environment-scoped PostgreSQL role where practical
+- do not use `postgres`, superuser, CREATEROLE, BYPASSRLS, replication, production application roles, shared company roles, or cross-application roles
+- do not grant public PostgreSQL `5432` access to enable pgAdmin
+- preserve existing Row Level Security behavior; do not grant BYPASSRLS for convenience
+- do not store PostgreSQL, pgAdmin, or Basic Auth credentials in Git
+
+If staging/UAT pgAdmin points to production database metadata, classify the release as:
+
+```text
+STAGING PGADMIN POINTS TO PRODUCTION DATABASE
+```
+
+If staging/UAT pgAdmin runtime configuration exists but `.github/synergie-governance.yml` does not map the developer owner, branch, actual environment, server, PostgreSQL database, role identity, and database scope, classify it as:
+
+```text
+PGADMIN ENVIRONMENT MAPPING MISSING
+```
+
+If the developer owner is not verified, classify it as:
+
+```text
+PGADMIN DEVELOPER OWNER NOT VERIFIED
+```
+
+If a pgAdmin role uses `postgres`, superuser, CREATEROLE, BYPASSRLS, global/shared, or production privileges, classify it as:
+
+```text
+PGADMIN POSTGRES ROLE NOT LEAST PRIVILEGE
+```
+
+If a pgAdmin role can administer unrelated application databases, classify it as:
+
+```text
+PGADMIN DATABASE ACCESS NOT SCOPED
+```
 
 ## Staging / UAT Controls
 

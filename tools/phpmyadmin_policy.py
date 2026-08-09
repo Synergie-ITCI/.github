@@ -70,6 +70,16 @@ PHPMYADMIN_PATTERNS = [
     re.compile(r"(?i)['\"]/(?:phpmyadmin|phpMyAdmin|pma)['\"]"),
 ]
 
+PGADMIN_PATTERNS = [
+    re.compile(r"(?i)\bdpage/pgadmin4\b"),
+    re.compile(r"(?i)\bimage\s*:\s*['\"]?(?:dpage/)?pgadmin4\b"),
+    re.compile(r"(?i)^\s*(pgadmin|pgadmin4)\s*:\s*$"),
+    re.compile(r"(?i)\b(container_name|service)\s*:\s*['\"]?(pgadmin|pgadmin4)\b"),
+    re.compile(r"(?i)\b(apt|apt-get|yum|dnf|apk|brew)\s+.*\binstall\b.*\bpgadmin4?\b"),
+    re.compile(r"(?i)\b(alias|location|proxypass|path|route|rewrite)\s+['\"]?/(?:pgadmin|pgAdmin|synergie-pgadmin)\b"),
+    re.compile(r"(?i)['\"]/(?:pgadmin|pgAdmin|synergie-pgadmin)['\"]"),
+]
+
 PRODUCTION_HINTS = [
     re.compile(r"(?i)\bprod(?:uction)?\b"),
     re.compile(r"(?i)\blive\b"),
@@ -85,18 +95,31 @@ NON_PRODUCTION_HINTS = [
 ]
 
 PRODUCTION_DB_HINTS = [
-    re.compile(r"(?i)\b(prod|production|live)[-_]?(db|database|mysql|mariadb)\b"),
-    re.compile(r"(?i)\b(db|database|mysql|mariadb)[-_]?(prod|production|live)\b"),
+    re.compile(r"(?i)\b(prod|production|live)[-_]?(db|database|mysql|mariadb|postgres|postgresql|pg)\b"),
+    re.compile(r"(?i)\b(db|database|mysql|mariadb|postgres|postgresql|pg)[-_]?(prod|production|live)\b"),
     re.compile(r"(?i)\bPMA_HOST\s*[:=]\s*['\"]?[^'\"\n]*(prod|production|live)"),
+    re.compile(r"(?i)\b(PGHOST|PGDATABASE|POSTGRES_DB|POSTGRES_DATABASE)\s*[:=]\s*['\"]?[^'\"\n]*(prod|production|live)"),
     re.compile(r"(?i)\bDB_(HOST|DATABASE|NAME)\s*[:=]\s*['\"]?[^'\"\n]*(prod|production|live)"),
 ]
 
-DB_USER_KEYS = r"(PMA_USER|MYSQL_USER|DB_USER|database_user|database_user_identity|db_user)"
+DB_USER_KEYS = r"(PMA_USER|MYSQL_USER|POSTGRES_USER|PGUSER|DB_USER|database_user|database_user_identity|database_role_identity|postgres_role_identity|pg_role|db_user)"
 DB_SCOPE_KEYS = r"(database_scope|database_privilege_scope|privilege_scope)"
 
 PRIVILEGED_DB_USER_PATTERNS = [
-    re.compile(rf"(?i)\b{DB_USER_KEYS}\s*[:=]\s*['\"]?(root|mysql\.root|admin|administrator|dba|superuser)\b"),
+    re.compile(rf"(?i)\b{DB_USER_KEYS}\s*[:=]\s*['\"]?(root|mysql\.root|postgres|admin|administrator|dba|superuser)\b"),
     re.compile(rf"(?i)\b{DB_USER_KEYS}\s*[:=]\s*['\"]?[^'\"\n]*(global|company|shared|all[_-]?databases|prod|production|live)[^'\"\n]*"),
+]
+
+POSTGRES_PRIVILEGE_PATTERNS = [
+    re.compile(r"(?im)^\s*(superuser|postgres_superuser|rolsuper)\s*:\s*(true|yes|on|1)\s*(?:#.*)?$"),
+    re.compile(r"(?im)^\s*(createrole|create_role|rolcreaterole)\s*:\s*(true|yes|on|1)\s*(?:#.*)?$"),
+    re.compile(r"(?im)^\s*(bypassrls|bypass_rls|rolbypassrls)\s*:\s*(true|yes|on|1)\s*(?:#.*)?$"),
+    re.compile(r"(?i)\bALTER\s+ROLE\b[^;\n]*\bSUPERUSER\b"),
+    re.compile(r"(?i)\bALTER\s+ROLE\b[^;\n]*\bCREATEROLE\b"),
+    re.compile(r"(?i)\bALTER\s+ROLE\b[^;\n]*\bBYPASSRLS\b"),
+    re.compile(r"(?i)\bCREATE\s+ROLE\b[^;\n]*\bSUPERUSER\b"),
+    re.compile(r"(?i)\bCREATE\s+ROLE\b[^;\n]*\bCREATEROLE\b"),
+    re.compile(r"(?i)\bCREATE\s+ROLE\b[^;\n]*\bBYPASSRLS\b"),
 ]
 
 UNSCOPED_DB_PRIVILEGE_PATTERNS = [
@@ -107,7 +130,7 @@ UNSCOPED_DB_PRIVILEGE_PATTERNS = [
 ]
 
 HARDCODED_SECRET_PATTERNS = [
-    re.compile(r"(?i)\b(PMA_PASSWORD|MYSQL_ROOT_PASSWORD|MYSQL_PASSWORD|DB_PASSWORD)\s*[:=]\s*['\"]?([^\s'\"#{}$][^\s'\"#]*)"),
+    re.compile(r"(?i)\b(PMA_PASSWORD|PGADMIN_DEFAULT_PASSWORD|POSTGRES_PASSWORD|PGPASSWORD|MYSQL_ROOT_PASSWORD|MYSQL_PASSWORD|DB_PASSWORD)\s*[:=]\s*['\"]?([^\s'\"#{}$][^\s'\"#]*)"),
     re.compile(r"(?i)\b(password|passwd|pwd)\s*[:=]\s*['\"]?([^\s'\"#{}$][^\s'\"#]{5,})"),
 ]
 
@@ -197,16 +220,21 @@ def read_text(repo: Path, path: Path) -> str:
         return ""
 
 
-def find_indicator_lines(text: str) -> list[int]:
+def find_indicator_lines(text: str, patterns: list[re.Pattern[str]] | None = None) -> list[int]:
+    patterns = patterns or PHPMYADMIN_PATTERNS
     lines: list[int] = []
     for number, line in enumerate(text.splitlines(), start=1):
-        if any(pattern.search(line) for pattern in PHPMYADMIN_PATTERNS):
+        if any(pattern.search(line) for pattern in patterns):
             lines.append(number)
     return lines
 
 
 def contains_phpmyadmin(text: str) -> bool:
     return any(pattern.search(text) for pattern in PHPMYADMIN_PATTERNS)
+
+
+def contains_pgadmin(text: str) -> bool:
+    return any(pattern.search(text) for pattern in PGADMIN_PATTERNS)
 
 
 def is_non_production_context(path: Path, text: str) -> bool:
@@ -231,6 +259,10 @@ def references_privileged_db_user(text: str) -> bool:
 
 def references_unscoped_db_privileges(text: str) -> bool:
     return any(pattern.search(text) for pattern in UNSCOPED_DB_PRIVILEGE_PATTERNS)
+
+
+def references_postgres_privileged_role(text: str) -> bool:
+    return any(pattern.search(text) for pattern in POSTGRES_PRIVILEGE_PATTERNS)
 
 
 def has_hardcoded_secret(text: str) -> bool:
@@ -271,11 +303,43 @@ def has_auth_signal(text: str) -> bool:
     )
 
 
+def has_pgadmin_auth_signal(text: str) -> bool:
+    lowered = text.lower()
+    return any(
+        token in lowered
+        for token in (
+            "pgadmin_default_email",
+            "pgadmin_default_password",
+            "pgadmin_config_authentication_sources",
+            "basic_auth",
+            "htpasswd",
+            "oauth",
+            "sso",
+            "secretkeyref",
+        )
+    )
+
+
 def config_line_number(text: str, pattern: re.Pattern[str]) -> int:
     for number, line in enumerate(text.splitlines(), start=1):
         if pattern.search(line):
             return number
     return 1
+
+
+def normalize_config_value(value: str) -> str:
+    stripped = value.strip().split("#", 1)[0].strip().strip("'\"")
+    return re.sub(r"[\s-]+", "_", stripped.lower())
+
+
+def has_config_value(section: str, keys: tuple[str, ...], invalid_values: set[str] | None = None) -> bool:
+    invalid = invalid_values or {"", "null", "~", "not_configured"}
+    key_pattern = "|".join(re.escape(key) for key in keys)
+    pattern = re.compile(rf"(?im)^\s*(?:-\s*)?(?:{key_pattern})\s*:\s*(.*?)\s*(?:#.*)?$")
+    for match in pattern.finditer(section):
+        if normalize_config_value(match.group(1)) not in invalid:
+            return True
+    return False
 
 
 def extract_section(text: str, section_name: str) -> str:
@@ -304,16 +368,10 @@ def has_governance_mapping(phpmyadmin_section: str) -> bool:
     lowered = mapping_section.lower()
     has_environment = "environment:" in lowered or "actual_environment:" in lowered
     has_branch = "branch:" in lowered
-    has_server = re.search(r"(?im)^\s*server\s*:\s*(?!null\s*$)(?!['\"]?not[_ -]?configured['\"]?\s*$).+", mapping_section)
-    has_database = re.search(r"(?im)^\s*database\s*:\s*(?!null\s*$)(?!['\"]?not[_ -]?configured['\"]?\s*$).+", mapping_section)
-    has_database_user = re.search(
-        r"(?im)^\s*(database_user|database_user_identity|db_user)\s*:\s*(?!null\s*$)(?!['\"]?not[_ -]?configured['\"]?\s*$).+",
-        mapping_section,
-    )
-    has_database_scope = re.search(
-        r"(?im)^\s*(database_scope|database_privilege_scope)\s*:\s*(?!null\s*$)(?!['\"]?not[_ -]?configured['\"]?\s*$).+",
-        mapping_section,
-    )
+    has_server = has_config_value(mapping_section, ("server",))
+    has_database = has_config_value(mapping_section, ("database",))
+    has_database_user = has_config_value(mapping_section, ("database_user", "database_user_identity", "db_user"))
+    has_database_scope = has_config_value(mapping_section, ("database_scope", "database_privilege_scope"))
     has_configured_status = re.search(r"(?im)^\s*status\s*:\s*configured\s*(?:#.*)?$", mapping_section)
     return bool(
         has_branch
@@ -326,11 +384,51 @@ def has_governance_mapping(phpmyadmin_section: str) -> bool:
     )
 
 
+def has_pgadmin_governance_mapping(pgadmin_section: str) -> bool:
+    mapping_section = (
+        extract_section(pgadmin_section, "runtime_inventory")
+        or extract_section(pgadmin_section, "environment_mappings")
+        or extract_section(pgadmin_section, "environments")
+    )
+    lowered = mapping_section.lower()
+    has_environment = "environment:" in lowered or "actual_environment:" in lowered
+    has_branch = "branch:" in lowered
+    has_server = has_config_value(mapping_section, ("server",))
+    has_database = has_config_value(mapping_section, ("database",))
+    has_database_user = has_config_value(
+        mapping_section,
+        ("database_user", "database_user_identity", "database_role_identity", "postgres_role_identity", "pg_role", "db_user"),
+    )
+    has_database_scope = has_config_value(mapping_section, ("database_scope", "database_privilege_scope"))
+    owner_invalid_values = {"", "null", "~", "not_verified", "developer_owner_not_verified", "owner_not_verified"}
+    has_developer_owner = has_config_value(
+        mapping_section,
+        ("developer_owner", "developer_identity", "developer_group", "owner_role"),
+        owner_invalid_values,
+    ) or has_config_value(
+        extract_section(pgadmin_section, "access"),
+        ("developer_owner", "developer_identity", "developer_group", "owner_role"),
+        owner_invalid_values,
+    )
+    has_configured_status = re.search(r"(?im)^\s*status\s*:\s*configured\s*(?:#.*)?$", mapping_section)
+    return bool(
+        has_branch
+        and has_environment
+        and has_server
+        and has_database
+        and has_database_user
+        and has_database_scope
+        and has_developer_owner
+        and has_configured_status
+    )
+
+
 def governance_config_scan(
     repo: Path,
     config_path: Path | None,
     mode: str,
     require_environment_mapping: bool,
+    require_pgadmin_mapping: bool,
 ) -> tuple[list[Finding], list[Finding]]:
     failures: list[Finding] = []
     warnings: list[Finding] = []
@@ -349,11 +447,21 @@ def governance_config_scan(
                     str(relative_path),
                 )
             )
+        if require_pgadmin_mapping:
+            failures.append(
+                Finding(
+                    "fail",
+                    "PGADMIN ENVIRONMENT MAPPING MISSING",
+                    "A non-production pgAdmin runtime exists, but the repository has no governance config mapping developer, branch, environment, server, and database.",
+                    str(relative_path),
+                )
+            )
         return failures, warnings
 
     text = read_text(repo, relative_path)
     phpmyadmin_section = extract_section(text, "phpmyadmin")
-    if not phpmyadmin_section:
+    pgadmin_section = extract_section(text, "pgadmin")
+    if not phpmyadmin_section and not pgadmin_section:
         if require_environment_mapping:
             failures.append(
                 Finding(
@@ -363,55 +471,67 @@ def governance_config_scan(
                     str(relative_path),
                 )
             )
-        return failures, warnings
-
-    for pattern in GOVERNANCE_SECRET_PATTERNS:
-        if pattern.search(phpmyadmin_section):
+        if require_pgadmin_mapping:
             failures.append(
                 Finding(
                     "fail",
-                    "PHPMYADMIN GOVERNANCE CONFIG CONTAINS SECRET FIELD",
-                    "The phpMyAdmin governance config must not contain credential or secret fields.",
+                    "PGADMIN ENVIRONMENT MAPPING MISSING",
+                    "A non-production pgAdmin runtime exists, but the governance config has no pgadmin mapping section.",
                     str(relative_path),
-                    config_line_number(text, pattern),
                 )
             )
-            break
+        return failures, warnings
+
+    if phpmyadmin_section:
+        for pattern in GOVERNANCE_SECRET_PATTERNS:
+            if pattern.search(phpmyadmin_section):
+                failures.append(
+                    Finding(
+                        "fail",
+                        "PHPMYADMIN GOVERNANCE CONFIG CONTAINS SECRET FIELD",
+                        "The phpMyAdmin governance config must not contain credential or secret fields.",
+                        str(relative_path),
+                        config_line_number(text, pattern),
+                    )
+                )
+                break
 
     production_section = extract_section(phpmyadmin_section, "production")
-    if re.search(r"(?im)^\s*allowed\s*:\s*true\s*(?:#.*)?$", production_section):
-        failures.append(
-            Finding(
-                "fail",
-                "PRODUCTION PHPMYADMIN ENABLED IN GOVERNANCE CONFIG",
-                "Production phpMyAdmin is prohibited; production.allowed must be false.",
-                str(relative_path),
-                config_line_number(text, re.compile(r"(?im)^\s*allowed\s*:\s*true\s*(?:#.*)?$")),
+    if phpmyadmin_section:
+        if re.search(r"(?im)^\s*allowed\s*:\s*true\s*(?:#.*)?$", production_section):
+            failures.append(
+                Finding(
+                    "fail",
+                    "PRODUCTION PHPMYADMIN ENABLED IN GOVERNANCE CONFIG",
+                    "Production phpMyAdmin is prohibited; production.allowed must be false.",
+                    str(relative_path),
+                    config_line_number(text, re.compile(r"(?im)^\s*allowed\s*:\s*true\s*(?:#.*)?$")),
+                )
             )
-        )
 
     access_section = extract_section(phpmyadmin_section, "access")
-    if re.search(r"(?im)^\s*shared_company_admin\s*:\s*true\s*(?:#.*)?$", access_section):
-        failures.append(
-            Finding(
-                "fail",
-                "SHARED PHPMYADMIN ADMIN ACCOUNT PROHIBITED",
-                "phpMyAdmin access must be application-scoped; a company-wide shared database administrator account is prohibited.",
-                str(relative_path),
-                config_line_number(text, re.compile(r"(?im)^\s*shared_company_admin\s*:\s*true\s*(?:#.*)?$")),
+    if phpmyadmin_section:
+        if re.search(r"(?im)^\s*shared_company_admin\s*:\s*true\s*(?:#.*)?$", access_section):
+            failures.append(
+                Finding(
+                    "fail",
+                    "SHARED PHPMYADMIN ADMIN ACCOUNT PROHIBITED",
+                    "phpMyAdmin access must be application-scoped; a company-wide shared database administrator account is prohibited.",
+                    str(relative_path),
+                    config_line_number(text, re.compile(r"(?im)^\s*shared_company_admin\s*:\s*true\s*(?:#.*)?$")),
+                )
             )
-        )
-    if re.search(r"(?im)^\s*application_scoped\s*:\s*false\s*(?:#.*)?$", access_section):
-        failures.append(
-            Finding(
-                "fail",
-                "PHPMYADMIN ACCESS NOT APPLICATION SCOPED",
-                "phpMyAdmin access must be scoped to the assigned application and database.",
-                str(relative_path),
-                config_line_number(text, re.compile(r"(?im)^\s*application_scoped\s*:\s*false\s*(?:#.*)?$")),
+        if re.search(r"(?im)^\s*application_scoped\s*:\s*false\s*(?:#.*)?$", access_section):
+            failures.append(
+                Finding(
+                    "fail",
+                    "PHPMYADMIN ACCESS NOT APPLICATION SCOPED",
+                    "phpMyAdmin access must be scoped to the assigned application and database.",
+                    str(relative_path),
+                    config_line_number(text, re.compile(r"(?im)^\s*application_scoped\s*:\s*false\s*(?:#.*)?$")),
+                )
             )
-        )
-    if require_environment_mapping and not has_governance_mapping(phpmyadmin_section):
+    if phpmyadmin_section and require_environment_mapping and not has_governance_mapping(phpmyadmin_section):
         failures.append(
             Finding(
                 "fail",
@@ -421,7 +541,7 @@ def governance_config_scan(
                 config_line_number(text, re.compile(r"(?im)^\s*phpmyadmin\s*:")),
             )
         )
-    if mode == "staging" and references_production_db(phpmyadmin_section):
+    if phpmyadmin_section and mode == "staging" and references_production_db(phpmyadmin_section):
         failures.append(
             Finding(
                 "fail",
@@ -431,7 +551,7 @@ def governance_config_scan(
                 config_line_number(text, re.compile(r"(?im)^\s*(database|server)\s*:")),
             )
         )
-    if references_privileged_db_user(phpmyadmin_section):
+    if phpmyadmin_section and references_privileged_db_user(phpmyadmin_section):
         failures.append(
             Finding(
                 "fail",
@@ -441,7 +561,7 @@ def governance_config_scan(
                 config_line_number(text, re.compile(rf"(?im)^\s*{DB_USER_KEYS}\s*:")),
             )
         )
-    if references_unscoped_db_privileges(phpmyadmin_section):
+    if phpmyadmin_section and references_unscoped_db_privileges(phpmyadmin_section):
         failures.append(
             Finding(
                 "fail",
@@ -457,7 +577,7 @@ def governance_config_scan(
             )
         )
 
-    if mode == "production" and not production_section:
+    if phpmyadmin_section and mode == "production" and not production_section:
         warnings.append(
             Finding(
                 "warn",
@@ -467,6 +587,128 @@ def governance_config_scan(
                 config_line_number(text, re.compile(r"(?im)^\s*phpmyadmin\s*:")),
             )
         )
+
+    if pgadmin_section:
+        for pattern in GOVERNANCE_SECRET_PATTERNS:
+            if pattern.search(pgadmin_section):
+                failures.append(
+                    Finding(
+                        "fail",
+                        "PGADMIN GOVERNANCE CONFIG CONTAINS SECRET FIELD",
+                        "The pgAdmin governance config must not contain credential or secret fields.",
+                        str(relative_path),
+                        config_line_number(text, pattern),
+                    )
+                )
+                break
+
+        pgadmin_production = extract_section(pgadmin_section, "production")
+        if re.search(r"(?im)^\s*allowed\s*:\s*true\s*(?:#.*)?$", pgadmin_production):
+            failures.append(
+                Finding(
+                    "fail",
+                    "PRODUCTION PGADMIN ENABLED IN GOVERNANCE CONFIG",
+                    "Production pgAdmin is prohibited; production.allowed must be false.",
+                    str(relative_path),
+                    config_line_number(text, re.compile(r"(?im)^\s*allowed\s*:\s*true\s*(?:#.*)?$")),
+                )
+            )
+
+        pgadmin_access = extract_section(pgadmin_section, "access")
+        if re.search(r"(?im)^\s*shared_company_admin\s*:\s*true\s*(?:#.*)?$", pgadmin_access):
+            failures.append(
+                Finding(
+                    "fail",
+                    "SHARED PGADMIN ADMIN ACCOUNT PROHIBITED",
+                    "pgAdmin access must be application-scoped; a company-wide shared PostgreSQL administrator account is prohibited.",
+                    str(relative_path),
+                    config_line_number(text, re.compile(r"(?im)^\s*shared_company_admin\s*:\s*true\s*(?:#.*)?$")),
+                )
+            )
+        if re.search(r"(?im)^\s*application_scoped\s*:\s*false\s*(?:#.*)?$", pgadmin_access):
+            failures.append(
+                Finding(
+                    "fail",
+                    "PGADMIN ACCESS NOT APPLICATION SCOPED",
+                    "pgAdmin access must be scoped to the assigned application and database.",
+                    str(relative_path),
+                    config_line_number(text, re.compile(r"(?im)^\s*application_scoped\s*:\s*false\s*(?:#.*)?$")),
+                )
+            )
+        if require_pgadmin_mapping and not has_pgadmin_governance_mapping(pgadmin_section):
+            failures.append(
+                Finding(
+                    "fail",
+                    "PGADMIN ENVIRONMENT MAPPING MISSING",
+                    "A non-production pgAdmin runtime exists, but developer owner, branch, actual environment, server, database, PostgreSQL role identity, and database scope are not all mapped in governance config.",
+                    str(relative_path),
+                    config_line_number(text, re.compile(r"(?im)^\s*pgadmin\s*:")),
+                )
+            )
+        has_pgadmin_owner_key = re.search(
+            r"(?im)^\s*(developer_owner|developer_identity|developer_group|owner_role)\s*:",
+            pgadmin_section,
+        )
+        has_verified_pgadmin_owner = has_config_value(
+            pgadmin_section,
+            ("developer_owner", "developer_identity", "developer_group", "owner_role"),
+            {"", "null", "~", "not_verified", "developer_owner_not_verified", "owner_not_verified"},
+        )
+        if require_pgadmin_mapping and (not has_pgadmin_owner_key or not has_verified_pgadmin_owner):
+            failures.append(
+                Finding(
+                    "fail",
+                    "PGADMIN DEVELOPER OWNER NOT VERIFIED",
+                    "pgAdmin access requires a positively verified application developer owner or developer group.",
+                    str(relative_path),
+                    config_line_number(text, re.compile(r"(?im)^\s*pgadmin\s*:")),
+                )
+            )
+        if mode == "staging" and references_production_db(pgadmin_section):
+            failures.append(
+                Finding(
+                    "fail",
+                    "STAGING PGADMIN POINTS TO PRODUCTION DATABASE",
+                    "The pgAdmin governance mapping appears to target a production PostgreSQL host or database name.",
+                    str(relative_path),
+                    config_line_number(text, re.compile(r"(?im)^\s*(database|server)\s*:")),
+                )
+            )
+        if references_privileged_db_user(pgadmin_section) or references_postgres_privileged_role(pgadmin_section):
+            failures.append(
+                Finding(
+                    "fail",
+                    "PGADMIN POSTGRES ROLE NOT LEAST PRIVILEGE",
+                    "pgAdmin must not use postgres, superuser, CREATEROLE, BYPASSRLS, global, shared, or production role identities.",
+                    str(relative_path),
+                    config_line_number(text, re.compile(rf"(?im)^\s*({DB_USER_KEYS}|superuser|createrole|bypassrls)\s*:")),
+                )
+            )
+        if references_unscoped_db_privileges(pgadmin_section):
+            failures.append(
+                Finding(
+                    "fail",
+                    "PGADMIN DATABASE ACCESS NOT SCOPED",
+                    "pgAdmin PostgreSQL privileges must be limited to the assigned application database.",
+                    str(relative_path),
+                    config_line_number(
+                        text,
+                        re.compile(
+                            r"(?im)^\s*(database_scoped|cross_application_access|unrestricted_database_admin|database_scope|database_privilege_scope)\s*:"
+                        ),
+                    ),
+                )
+            )
+        if mode == "production" and not pgadmin_production:
+            warnings.append(
+                Finding(
+                    "warn",
+                    "PGADMIN PRODUCTION POSTURE NOT DECLARED",
+                    "Governance config has a pgadmin section but does not explicitly declare production.allowed: false.",
+                    str(relative_path),
+                    config_line_number(text, re.compile(r"(?im)^\s*pgadmin\s*:")),
+                )
+            )
 
     return failures, warnings
 
@@ -481,120 +723,213 @@ def production_scan(repo: Path, changed: set[Path] | None) -> tuple[list[Finding
         if not is_runtime_file(path):
             continue
         text = read_text(repo, path)
-        if not contains_phpmyadmin(text):
+        contains_pma = contains_phpmyadmin(text)
+        contains_pga = contains_pgadmin(text)
+        if not contains_pma and not contains_pga:
             continue
         if is_non_production_context(path, text):
             continue
-        line = find_indicator_lines(text)[0] if find_indicator_lines(text) else 1
-        if path in changed_scope:
-            failures.append(
-                Finding(
-                    "fail",
+        production_indicators: list[tuple[str, str, str, str, str, int]] = []
+        if contains_pma:
+            pma_lines = find_indicator_lines(text, PHPMYADMIN_PATTERNS)
+            production_indicators.append(
+                (
                     "PRODUCTION PHPMYADMIN POLICY VIOLATION",
-                    "Runtime/deployment configuration introduces phpMyAdmin exposure for production.",
-                    str(path),
-                    line,
-                )
-            )
-        elif changed_known:
-            warnings.append(
-                Finding(
-                    "warn",
                     "PRE-EXISTING PRODUCTION PHPMYADMIN VIOLATION",
+                    "Runtime/deployment configuration introduces phpMyAdmin exposure for production.",
                     "Existing runtime/deployment configuration references phpMyAdmin outside the current PR diff.",
-                    str(path),
-                    line,
-                )
-            )
-        else:
-            failures.append(
-                Finding(
-                    "fail",
-                    "PRODUCTION PHPMYADMIN POLICY VIOLATION",
                     "Runtime/deployment configuration exposes phpMyAdmin and no PR diff was available to classify it as legacy.",
-                    str(path),
-                    line,
+                    pma_lines[0] if pma_lines else 1,
                 )
             )
+        if contains_pga:
+            pga_lines = find_indicator_lines(text, PGADMIN_PATTERNS)
+            production_indicators.append(
+                (
+                    "PRODUCTION PGADMIN POLICY VIOLATION",
+                    "PRE-EXISTING PRODUCTION PGADMIN VIOLATION",
+                    "Runtime/deployment configuration introduces pgAdmin exposure for production.",
+                    "Existing runtime/deployment configuration references pgAdmin outside the current PR diff.",
+                    "Runtime/deployment configuration exposes pgAdmin and no PR diff was available to classify it as legacy.",
+                    pga_lines[0] if pga_lines else 1,
+                )
+            )
+        for code, legacy_code, message, legacy_message, no_diff_message, line in production_indicators:
+            if path in changed_scope:
+                failures.append(
+                    Finding(
+                        "fail",
+                        code,
+                        message,
+                        str(path),
+                        line,
+                    )
+                )
+            elif changed_known:
+                warnings.append(
+                    Finding(
+                        "warn",
+                        legacy_code,
+                        legacy_message,
+                        str(path),
+                        line,
+                    )
+                )
+            else:
+                failures.append(
+                    Finding(
+                        "fail",
+                        code,
+                        no_diff_message,
+                        str(path),
+                        line,
+                    )
+                )
     return failures, warnings
 
 
-def staging_scan(repo: Path) -> tuple[list[Finding], list[Finding], bool]:
+def staging_scan(repo: Path) -> tuple[list[Finding], list[Finding], bool, bool]:
     failures: list[Finding] = []
     warnings: list[Finding] = []
     found = False
+    pgadmin_found = False
 
     for path in iter_files(repo):
         if not is_runtime_file(path):
             continue
         text = read_text(repo, path)
-        if not contains_phpmyadmin(text) or not is_staging_context(path, text):
-            continue
-        found = True
-        line = find_indicator_lines(text)[0] if find_indicator_lines(text) else 1
-        if references_production_db(text):
-            failures.append(
-                Finding(
-                    "fail",
-                    "STAGING PHPMYADMIN POINTS TO PRODUCTION DATABASE",
-                    "Staging/UAT phpMyAdmin configuration appears to target a production database host or database name.",
-                    str(path),
-                    line,
+        if contains_phpmyadmin(text) and is_staging_context(path, text):
+            found = True
+            line = find_indicator_lines(text, PHPMYADMIN_PATTERNS)[0] if find_indicator_lines(text, PHPMYADMIN_PATTERNS) else 1
+            if references_production_db(text):
+                failures.append(
+                    Finding(
+                        "fail",
+                        "STAGING PHPMYADMIN POINTS TO PRODUCTION DATABASE",
+                        "Staging/UAT phpMyAdmin configuration appears to target a production database host or database name.",
+                        str(path),
+                        line,
+                    )
                 )
-            )
-        if references_privileged_db_user(text):
-            failures.append(
-                Finding(
-                    "fail",
-                    "STAGING PHPMYADMIN DATABASE USER NOT LEAST PRIVILEGE",
-                    "Staging/UAT phpMyAdmin must use an application and environment-scoped database user, not root/global/shared/production credentials.",
-                    str(path),
-                    line,
+            if references_privileged_db_user(text):
+                failures.append(
+                    Finding(
+                        "fail",
+                        "STAGING PHPMYADMIN DATABASE USER NOT LEAST PRIVILEGE",
+                        "Staging/UAT phpMyAdmin must use an application and environment-scoped database user, not root/global/shared/production credentials.",
+                        str(path),
+                        line,
+                    )
                 )
-            )
-        if has_hardcoded_secret(text):
-            failures.append(
-                Finding(
-                    "fail",
-                    "STAGING PHPMYADMIN SECRET IN GIT",
-                    "Staging/UAT phpMyAdmin configuration contains a hardcoded database/admin password-like value.",
-                    str(path),
-                    line,
+            if has_hardcoded_secret(text):
+                failures.append(
+                    Finding(
+                        "fail",
+                        "STAGING PHPMYADMIN SECRET IN GIT",
+                        "Staging/UAT phpMyAdmin configuration contains a hardcoded database/admin password-like value.",
+                        str(path),
+                        line,
+                    )
                 )
-            )
-        if has_insecure_staging_auth(text):
-            failures.append(
-                Finding(
-                    "fail",
-                    "STAGING PHPMYADMIN INSECURE AUTH",
-                    "Staging/UAT phpMyAdmin permits config auth or empty-password login.",
-                    str(path),
-                    line,
+            if has_insecure_staging_auth(text):
+                failures.append(
+                    Finding(
+                        "fail",
+                        "STAGING PHPMYADMIN INSECURE AUTH",
+                        "Staging/UAT phpMyAdmin permits config auth or empty-password login.",
+                        str(path),
+                        line,
+                    )
                 )
-            )
-        if "http://" in text.lower() and "https://" not in text.lower():
-            warnings.append(
-                Finding(
-                    "warn",
-                    "STAGING PHPMYADMIN HTTPS NOT PROVEN",
-                    "Staging/UAT phpMyAdmin should use HTTPS; this file contains only an HTTP URL.",
-                    str(path),
-                    line,
+            if "http://" in text.lower() and "https://" not in text.lower():
+                warnings.append(
+                    Finding(
+                        "warn",
+                        "STAGING PHPMYADMIN HTTPS NOT PROVEN",
+                        "Staging/UAT phpMyAdmin should use HTTPS; this file contains only an HTTP URL.",
+                        str(path),
+                        line,
+                    )
                 )
-            )
-        if not has_auth_signal(text):
-            warnings.append(
-                Finding(
-                    "warn",
-                    "STAGING PHPMYADMIN AUTH NOT PROVEN",
-                    "Staging/UAT phpMyAdmin is present, but authentication controls were not proven from this file.",
-                    str(path),
-                    line,
+            if not has_auth_signal(text):
+                warnings.append(
+                    Finding(
+                        "warn",
+                        "STAGING PHPMYADMIN AUTH NOT PROVEN",
+                        "Staging/UAT phpMyAdmin is present, but authentication controls were not proven from this file.",
+                        str(path),
+                        line,
+                    )
                 )
-            )
+
+        if contains_pgadmin(text) and is_staging_context(path, text):
+            pgadmin_found = True
+            line = find_indicator_lines(text, PGADMIN_PATTERNS)[0] if find_indicator_lines(text, PGADMIN_PATTERNS) else 1
+            if references_production_db(text):
+                failures.append(
+                    Finding(
+                        "fail",
+                        "STAGING PGADMIN POINTS TO PRODUCTION DATABASE",
+                        "Staging/UAT pgAdmin configuration appears to target a production PostgreSQL host or database name.",
+                        str(path),
+                        line,
+                    )
+                )
+            if references_privileged_db_user(text) or references_postgres_privileged_role(text):
+                failures.append(
+                    Finding(
+                        "fail",
+                        "STAGING PGADMIN POSTGRES ROLE NOT LEAST PRIVILEGE",
+                        "Staging/UAT pgAdmin must use an application and environment-scoped PostgreSQL role without superuser, CREATEROLE, or BYPASSRLS.",
+                        str(path),
+                        line,
+                    )
+                )
+            if references_unscoped_db_privileges(text):
+                failures.append(
+                    Finding(
+                        "fail",
+                        "STAGING PGADMIN DATABASE ACCESS NOT SCOPED",
+                        "Staging/UAT pgAdmin PostgreSQL privileges must be scoped to one application non-production database.",
+                        str(path),
+                        line,
+                    )
+                )
+            if has_hardcoded_secret(text):
+                failures.append(
+                    Finding(
+                        "fail",
+                        "STAGING PGADMIN SECRET IN GIT",
+                        "Staging/UAT pgAdmin configuration contains a hardcoded database/admin password-like value.",
+                        str(path),
+                        line,
+                    )
+                )
+            if "http://" in text.lower() and "https://" not in text.lower():
+                warnings.append(
+                    Finding(
+                        "warn",
+                        "STAGING PGADMIN HTTPS NOT PROVEN",
+                        "Staging/UAT pgAdmin should use HTTPS; this file contains only an HTTP URL.",
+                        str(path),
+                        line,
+                    )
+                )
+            if not has_pgadmin_auth_signal(text):
+                warnings.append(
+                    Finding(
+                        "warn",
+                        "STAGING PGADMIN AUTH NOT PROVEN",
+                        "Staging/UAT pgAdmin is present, but authentication controls were not proven from this file.",
+                        str(path),
+                        line,
+                    )
+                )
     if not found:
         warnings.append(Finding("info", "NO PHPMYADMIN", "No staging/UAT phpMyAdmin runtime configuration was found.", ""))
-    return failures, warnings, found
+    if not pgadmin_found:
+        warnings.append(Finding("info", "NO PGADMIN", "No staging/UAT pgAdmin runtime configuration was found.", ""))
+    return failures, warnings, found, pgadmin_found
 
 
 def write_reports(out: Path | None, json_out: Path | None, mode: str, failures: list[Finding], warnings: list[Finding]) -> None:
@@ -620,7 +955,7 @@ def write_reports(out: Path | None, json_out: Path | None, mode: str, failures: 
             lines.append(f"- `{finding.code}`{location} - {finding.message}")
         lines.append("")
     if not failures and not warnings:
-        lines.append("No phpMyAdmin policy findings.")
+        lines.append("No database administration policy findings.")
         lines.append("")
 
     payload = {
@@ -663,16 +998,18 @@ def main() -> int:
     changed = changed_files(repo, args.base_sha, args.head_sha)
 
     staging_phpmyadmin_found = False
+    staging_pgadmin_found = False
     if args.mode == "production":
         failures, warnings = production_scan(repo, changed)
     else:
-        failures, warnings, staging_phpmyadmin_found = staging_scan(repo)
+        failures, warnings, staging_phpmyadmin_found, staging_pgadmin_found = staging_scan(repo)
 
     config_failures, config_warnings = governance_config_scan(
         repo,
         args.governance_config,
         args.mode,
         require_environment_mapping=args.mode == "staging" and staging_phpmyadmin_found,
+        require_pgadmin_mapping=args.mode == "staging" and staging_pgadmin_found,
     )
     failures.extend(config_failures)
     warnings.extend(config_warnings)
