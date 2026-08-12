@@ -31,6 +31,7 @@ jobs:
       dotnet: ${{ steps.detect.outputs.dotnet }}
       rust: ${{ steps.detect.outputs.rust }}
       swift: ${{ steps.detect.outputs.swift }}
+      shell: ${{ steps.detect.outputs.shell }}
       terraform: ${{ steps.detect.outputs.terraform }}
     steps:
       - name: Checkout pull request

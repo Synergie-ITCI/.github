@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -24,6 +25,8 @@ class PrQaRegressionTests(unittest.TestCase):
         fake_gitleaks.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
         fake_gitleaks.chmod(0o755)
         self.env = dict(os.environ)
+        for key in ["GITHUB_REPOSITORY", "GITHUB_WORKSPACE", "GITHUB_ACTOR", "GITHUB_TRIGGERING_ACTOR"]:
+            self.env.pop(key, None)
         self.env["PATH"] = str(self.bin) + os.pathsep + self.env.get("PATH", "")
         self.env["PYTHONDONTWRITEBYTECODE"] = "1"
 
@@ -57,12 +60,19 @@ class PrQaRegressionTests(unittest.TestCase):
         static_only: bool = False,
         base_ref: str = "main",
         head_ref: str = "feature/regression",
+        head_sha: str = "HEAD",
         actor: str = "",
         pr_author: str = "SaurabhVermaIN",
         override_reason: str = "",
         review_policy: dict | None = None,
+        policy_path: Path | None = None,
+        repository: str = "",
+        baseline_alignment: bool = False,
+        body_extra: str = "",
+        event_labels: list[str] | None = None,
     ) -> tuple[int, str, dict, Path]:
         event = repo / "event.json"
+        labels = [{"name": label} for label in (event_labels or [])]
         event.write_text(
             json.dumps(
                 {
@@ -70,13 +80,15 @@ class PrQaRegressionTests(unittest.TestCase):
                         "number": 123,
                         "user": {"login": pr_author},
                         "base": {"sha": base, "ref": base_ref},
-                        "head": {"sha": "HEAD", "ref": head_ref},
+                        "head": {"sha": head_sha, "ref": head_ref},
+                        "labels": labels,
                         "body": (
                             "## Business Purpose\nRegression test.\n"
                             "## Testing Performed\nLocal automated regression.\n"
                             "## Rollback Strategy\nRevert this PR.\n"
                             "## Linked Issue\nhttps://github.com/Synergie-ITCI/.github/issues/123\n"
                             "## Screenshots\nN/A\n"
+                            f"{body_extra}"
                         ),
                     }
                 }
@@ -99,12 +111,19 @@ class PrQaRegressionTests(unittest.TestCase):
             "--json-out",
             str(json_report),
         ]
+        if policy_path is not None:
+            args.extend(["--policy", str(policy_path)])
         if static_only:
             args.append("--static-only")
         if review_policy is not None:
             review_policy_input.write_text(json.dumps(review_policy), encoding="utf-8")
             args.extend(["--review-policy-input", str(review_policy_input)])
         env = dict(self.env)
+        env["GITHUB_WORKSPACE"] = str(repo)
+        if repository:
+            env["GITHUB_REPOSITORY"] = repository
+        if baseline_alignment:
+            env["PR_QA_BASELINE_ALIGNMENT"] = "true"
         if actor:
             env["GITHUB_ACTOR"] = actor
         if override_reason:
@@ -113,6 +132,109 @@ class PrQaRegressionTests(unittest.TestCase):
         report_text = report.read_text(encoding="utf-8") if report.exists() else completed.stdout
         parsed_json = json.loads(json_report.read_text(encoding="utf-8")) if json_report.exists() else {}
         return completed.returncode, report_text, parsed_json, audit
+
+    def baseline_policy_for(
+        self,
+        *,
+        base_sha: str,
+        head_sha: str,
+        enabled: bool = True,
+        expires_after: str = "2099-12-31T23:59:59Z",
+        minimum_changed_files: int = 1,
+        gitleaks_allowlist: list[dict] | None = None,
+    ) -> Path:
+        policy = json.loads((ROOT / "policy" / "pr-qa-policy.json").read_text(encoding="utf-8"))
+        policy["one_time_baseline_alignment"] = {
+            "enabled": enabled,
+            "repository": "Synergie-ITCI/telemedicine-backend",
+            "base_ref": "main",
+            "head_ref": "release/production-baseline-alignment-20260812",
+            "expected_base_sha": base_sha,
+            "expected_head_sha": head_sha,
+            "expires_after": expires_after,
+            "minimum_changed_files": minimum_changed_files,
+            "required_pr_body_marker": "ONE-TIME TELEMEDICINE PRODUCTION BASELINE AUTHORIZATION",
+            "relaxations": [
+                "diff_size",
+                "changed_file_count",
+                "historical_commit_volume",
+                "historical_migration_count",
+                "generated_static_baseline_content",
+                "baseline_binary_assets",
+                "environment_fixture_classification",
+                "exact_gitleaks_fingerprint_allowlist",
+                "exact_secret_fallback_allowlist",
+            ],
+            "environment_files": {
+                "safe_paths": [".env.testing"],
+                "required_markers_by_path": {
+                    ".env.testing": [
+                        "APP_ENV=testing",
+                        "APP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+                    ]
+                },
+                "forbidden_patterns": [
+                    "AKIA[0-9A-Z]{16}",
+                    "gh[pousr]_[A-Za-z0-9_]{30,}",
+                    "(?im)^(DB_PASSWORD|JWT_SECRET)\\s*=\\s*['\\\" ]*(?!$|null$|<required_|\\$\\{|base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=)[^#\\s>]+",
+                ],
+            },
+            "binary_assets": {"safe_paths": ["baseline.docx"], "max_file_bytes": 1024},
+            "fallback_secret_allowlist": [],
+            "gitleaks_allowlist": gitleaks_allowlist or [],
+        }
+        path = self.tmp / f"policy-{head_sha[:8]}.json"
+        path.write_text(json.dumps(policy, indent=2) + "\n", encoding="utf-8")
+        return path
+
+    def baseline_marker(self) -> str:
+        return "\nONE-TIME TELEMEDICINE PRODUCTION BASELINE AUTHORIZATION\n"
+
+    def install_fake_composer(self, *, audit_exit: int = 0, test_exit: int = 0) -> None:
+        fake_composer = self.bin / "composer"
+        fake_composer.write_text(
+            f"""#!/usr/bin/env bash
+case "$1" in
+  install|validate|licenses)
+    exit 0
+    ;;
+  audit)
+    echo '{{"advisories":{{"demo/package":[{{"title":"Demo advisory"}}]}}}}'
+    exit {audit_exit}
+    ;;
+  run)
+    exit {test_exit}
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+""",
+            encoding="utf-8",
+        )
+        fake_composer.chmod(0o755)
+
+    def install_fake_gitleaks_report(self, findings: list[dict]) -> None:
+        fake_gitleaks = self.bin / "gitleaks"
+        payload = json.dumps(findings)
+        fake_gitleaks.write_text(
+            f"""#!/usr/bin/env bash
+report=""
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--report-path" ]; then
+    report="$2"
+    shift 2
+  else
+    shift
+  fi
+done
+mkdir -p "$(dirname "$report")"
+printf '%s\n' '{payload}' > "$report"
+exit 1
+""",
+            encoding="utf-8",
+        )
+        fake_gitleaks.chmod(0o755)
 
     def test_saurabh_authored_pr_allows_green_without_independent_review(self) -> None:
         repo, base = self.init_repo("saurabh-no-review-green")
@@ -258,6 +380,192 @@ class PrQaRegressionTests(unittest.TestCase):
         self.assertEqual(code, 0, report)
         self.assertEqual(report_json["summary"]["gate_statuses"]["Executable Classification"], "PASS")
         self.assertTrue(any(result.get("technology") == "SQL/PostgreSQL" for result in report_json["results"]))
+
+    def test_large_normal_feature_pr_exceeds_size_thresholds(self) -> None:
+        repo, base = self.init_repo("large-normal-feature")
+        for index in range(205):
+            self.write(repo / "docs" / f"note-{index:03d}.md", ("ordinary docs change\n" * 30))
+        self.commit(repo, "docs: add large feature fixture")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Baseline Alignment"], "PASS")
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Risk Engine"], "FAIL")
+        self.assertIn("PR exceeds central size thresholds", report)
+
+    def test_authorized_telemedicine_baseline_relaxes_size_history_and_safe_fixtures(self) -> None:
+        self.install_fake_composer(audit_exit=0, test_exit=0)
+        repo, base = self.init_repo("telemedicine-authorized-baseline")
+        self.write(repo / "composer.json", json.dumps({"require": {}, "scripts": {"test": "echo ok"}}))
+        self.write(repo / "composer.lock", json.dumps({"packages": [], "packages-dev": []}))
+        self.write(repo / ".env.testing", "APP_ENV=testing\nAPP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n")
+        self.write(repo / "baseline.docx", "baseline binary fixture\x00\n")
+        for index in range(205):
+            self.write(repo / "docs" / f"baseline-{index:03d}.md", ("baseline docs change\n" * 30))
+        self.write(repo / "database" / "migrations" / "2026_08_12_000001_create_baseline_table.php", "<?php\nreturn new class { public function up() { Schema::create('baseline', function ($table) {}); } public function down() { Schema::dropIfExists('baseline'); } };\n")
+        self.commit(repo, "legacy baseline import")
+        head = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        policy = self.baseline_policy_for(base_sha=base, head_sha=head, minimum_changed_files=200)
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            base_ref="main",
+            head_ref="release/production-baseline-alignment-20260812",
+            head_sha=head,
+            repository="Synergie-ITCI/telemedicine-backend",
+            baseline_alignment=True,
+            body_extra=self.baseline_marker(),
+            policy_path=policy,
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Baseline Alignment"], "PASS")
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Integrity"], "WARNING")
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Migration Risk"], "WARNING")
+        self.assertIn("BASELINE ALIGNMENT PREFLIGHT", report)
+        self.assertIn("Baseline-only repository integrity relaxations applied", report)
+        self.assertNotIn("PR exceeds central size thresholds", report)
+
+    def test_authorized_baseline_with_real_secret_still_fails(self) -> None:
+        repo, base = self.init_repo("baseline-real-secret")
+        self.write(repo / ".env", "PASSWORD=\"super-secret-value\"\n")
+        for index in range(3):
+            self.write(repo / "docs" / f"baseline-{index}.md", "baseline docs change\n")
+        self.commit(repo, "legacy baseline import")
+        head = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        policy = self.baseline_policy_for(base_sha=base, head_sha=head, minimum_changed_files=1)
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            head_ref="release/production-baseline-alignment-20260812",
+            head_sha=head,
+            repository="Synergie-ITCI/telemedicine-backend",
+            baseline_alignment=True,
+            body_extra=self.baseline_marker(),
+            policy_path=policy,
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Baseline Alignment"], "PASS")
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Secrets"], "FAIL")
+        self.assertIn("environment file committed", report)
+        self.assertIn("generic credential assignment", report)
+
+    def test_authorized_baseline_with_composer_advisory_still_fails(self) -> None:
+        self.install_fake_composer(audit_exit=1, test_exit=0)
+        repo, base = self.init_repo("baseline-composer-advisory")
+        self.write(repo / "composer.json", json.dumps({"require": {}, "scripts": {"test": "echo ok"}}))
+        self.write(repo / "composer.lock", json.dumps({"packages": [], "packages-dev": []}))
+        self.write(repo / "app" / "Demo.php", "<?php\nclass Demo {}\n")
+        self.commit(repo, "legacy baseline import")
+        head = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        policy = self.baseline_policy_for(base_sha=base, head_sha=head)
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            head_ref="release/production-baseline-alignment-20260812",
+            head_sha=head,
+            repository="Synergie-ITCI/telemedicine-backend",
+            baseline_alignment=True,
+            body_extra=self.baseline_marker(),
+            policy_path=policy,
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Baseline Alignment"], "PASS")
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Dependencies"], "FAIL")
+        self.assertIn("Composer audit found vulnerabilities", report)
+
+    def test_authorized_baseline_with_migration_syntax_failure_still_fails(self) -> None:
+        repo, base = self.init_repo("baseline-migration-failure")
+        self.write(repo / "composer.json", json.dumps({"require": {}}))
+        self.write(repo / "composer.lock", json.dumps({"packages": [], "packages-dev": []}))
+        self.write(repo / "database" / "migrations" / "2026_08_12_000001_broken.php", "<?php\nfunction broken( {\n")
+        self.commit(repo, "legacy baseline import")
+        head = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        policy = self.baseline_policy_for(base_sha=base, head_sha=head)
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            head_ref="release/production-baseline-alignment-20260812",
+            head_sha=head,
+            repository="Synergie-ITCI/telemedicine-backend",
+            baseline_alignment=True,
+            body_extra=self.baseline_marker(),
+            policy_path=policy,
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Baseline Alignment"], "PASS")
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Lint"], "FAIL")
+        self.assertIn("PHP syntax lint failed", report)
+
+    def test_baseline_mode_fails_closed_for_wrong_repository_target_or_source(self) -> None:
+        repo, base = self.init_repo("baseline-authorization-failures")
+        self.write(repo / "docs" / "baseline.md", "baseline docs change\n")
+        self.commit(repo, "legacy baseline import")
+        head = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        policy = self.baseline_policy_for(base_sha=base, head_sha=head)
+
+        cases = [
+            {"repository": "Synergie-ITCI/saksham-backend", "base_ref": "main", "head_ref": "release/production-baseline-alignment-20260812", "needle": "repository `Synergie-ITCI/saksham-backend` is not authorized"},
+            {"repository": "Synergie-ITCI/telemedicine-backend", "base_ref": "staging", "head_ref": "release/production-baseline-alignment-20260812", "needle": "target branch `staging` is not authorized"},
+            {"repository": "Synergie-ITCI/telemedicine-backend", "base_ref": "main", "head_ref": "release/other-baseline", "needle": "source branch `release/other-baseline` is not authorized"},
+            {"repository": "Synergie-ITCI/telemedicine-backend", "base_ref": "main", "head_ref": "agent/production-baseline", "needle": "source branch `agent/production-baseline` is not authorized"},
+        ]
+        for case in cases:
+            with self.subTest(case=case["needle"]):
+                code, report, report_json, _ = self.run_engine_with_artifacts(
+                    repo,
+                    base,
+                    base_ref=case["base_ref"],
+                    head_ref=case["head_ref"],
+                    head_sha=head,
+                    repository=case["repository"],
+                    baseline_alignment=True,
+                    body_extra=self.baseline_marker(),
+                    policy_path=policy,
+                )
+                self.assertNotEqual(code, 0)
+                self.assertEqual(report_json["summary"]["gate_statuses"]["Baseline Alignment"], "FAIL")
+                self.assertIn(case["needle"], report)
+
+    def test_baseline_authorization_removed_or_expired_fails_closed(self) -> None:
+        repo, base = self.init_repo("baseline-expired")
+        for index in range(3):
+            self.write(repo / "docs" / f"baseline-{index}.md", "baseline docs change\n")
+        self.commit(repo, "legacy baseline import")
+        head = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        expired = self.baseline_policy_for(base_sha=base, head_sha=head, expires_after="2000-01-01T00:00:00Z")
+        removed = self.baseline_policy_for(base_sha=base, head_sha=head, enabled=False)
+
+        for policy in [expired, removed]:
+            with self.subTest(policy=policy.name):
+                code, report, report_json, _ = self.run_engine_with_artifacts(
+                    repo,
+                    base,
+                    head_ref="release/production-baseline-alignment-20260812",
+                    head_sha=head,
+                    repository="Synergie-ITCI/telemedicine-backend",
+                    baseline_alignment=True,
+                    body_extra=self.baseline_marker(),
+                    policy_path=policy,
+                )
+                self.assertNotEqual(code, 0)
+                self.assertEqual(report_json["summary"]["gate_statuses"]["Baseline Alignment"], "FAIL")
+                self.assertIn("authorization failed closed", report)
 
     def test_non_saurabh_authored_pr_blocks_without_independent_review(self) -> None:
         repo, base = self.init_repo("developer-no-review")
@@ -701,6 +1009,70 @@ jobs:
 
         self.assertEqual(completed.returncode, 0)
         self.assertEqual(completed.stdout.strip(), "node-version=20")
+
+    def test_python_adapter_uses_current_interpreter_without_python_shim(self) -> None:
+        fake_bin = self.tmp / "python-path-without-python"
+        fake_bin.mkdir()
+        fake_gitleaks = fake_bin / "gitleaks"
+        fake_gitleaks.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+        fake_gitleaks.chmod(0o755)
+        fake_python = fake_bin / "python"
+        fake_python.write_text("#!/usr/bin/env bash\nexit 127\n", encoding="utf-8")
+        fake_python.chmod(0o755)
+        fake_pip_audit = fake_bin / "pip-audit"
+        fake_pip_audit.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+        fake_pip_audit.chmod(0o755)
+        repo, base = self.init_repo("python-no-python-shim")
+        self.write(repo / ".github" / "pr-qa.yml", self.base_config() + "runtime:\n  install_dependencies: false\n  allow_network_installs: false\n")
+        self.git(repo, "add", ".github/pr-qa.yml")
+        self.git(repo, "commit", "-q", "-m", "chore: configure python fixture qa")
+        base = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.write(repo / "app.py", "print('ok')\n")
+        self.commit(repo, "feat: add python fixture")
+        env = dict(self.env)
+        env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+        event = repo / "event.json"
+        event.write_text(
+            json.dumps(
+                {
+                    "pull_request": {
+                        "number": 123,
+                        "user": {"login": "SaurabhVermaIN"},
+                        "base": {"sha": base, "ref": "main"},
+                        "head": {"sha": "HEAD", "ref": "feature/regression"},
+                        "body": "## Business Purpose\nRegression.\n## Testing Performed\nUnit.\n## Rollback Strategy\nRevert.\n## Linked Issue\nhttps://github.com/Synergie-ITCI/.github/issues/123\n",
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(ENGINE),
+                "--repo",
+                str(repo),
+                "--event-path",
+                str(event),
+                "--out",
+                str(repo / "report.md"),
+                "--json-out",
+                str(repo / "report.json"),
+            ],
+            text=True,
+            capture_output=True,
+            env=env,
+            check=False,
+        )
+
+        report = (repo / "report.md").read_text(encoding="utf-8")
+        report_json = json.loads((repo / "report.json").read_text(encoding="utf-8"))
+        commands = json.loads((repo / "report.json").read_text(encoding="utf-8"))["commands"]
+        self.assertNotIn("No such file or directory: 'python'", completed.stderr + report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Build"], "PASS")
+        self.assertTrue(any(sys.executable in command["command"] and "compileall" in command["command"] for command in commands))
+        self.assertFalse(any(command["command"].startswith("python -m compileall") for command in commands))
 
     def test_terraform_adapter_uses_opentofu_without_apply(self) -> None:
         tofu_log = self.tmp / "tofu.log"
