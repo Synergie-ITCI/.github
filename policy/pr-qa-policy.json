@@ -313,7 +313,7 @@
         ".github/workflows/pr-qa.yml": {
           "source": "absent",
           "old_ref": "pr-qa-v1-rc5",
-          "new_ref": "pr-qa-v1-rc13",
+          "new_ref": "pr-qa-v1-rc14",
           "uses": "Synergie-ITCI/.github/.github/workflows/pr-qa.yml"
         }
       }
@@ -366,7 +366,7 @@
         "-----BEGIN [A-Z ]*PRIVATE KEY-----",
         "gh[pousr]_[A-Za-z0-9_]{30,}",
         "github_pat_[A-Za-z0-9_]+",
-        "(?im)^(AWS_SECRET_ACCESS_KEY|HEALTH_WORKER_GOOGLE_ROUTES_API_KEY|JWT_SECRET|SMSPassword|SMS_GATEWAY_API_KEY|PUSHER_APP_SECRET|DB_PASSWORD)\\s*=\\s*['\" ]*(?!$|null$|<required_|\\$\\{|base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=)[^#\\s>]+"
+        "(?im)^(AWS_SECRET_ACCESS_KEY|HEALTH_WORKER_GOOGLE_ROUTES_API_KEY|JWT_SECRET|SMSPassword|SMS_GATEWAY_API_KEY|PUSHER_APP_SECRET|DB_PASSWORD)\\s*=[ \\t]*['\" ]*(?!$|null$|<required_|\\$\\{|base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=)[^#\\s>]+"
       ]
     },
     "binary_assets": {
@@ -385,7 +385,7 @@
         "expires_after": "2026-08-20T23:59:59Z"
       },
       {
-        "path": "database/seeders/EnterpriseCanonicalUatDatasetSeeder.php",
+        "path": "app/Services/Reference/EnterpriseCanonicalUatDatasetSeeder.php",
         "label": "generic credential assignment",
         "line_sha256": "3a1080d13f798c345289559abd529a50e487a10329e5de49359626e725806d7d",
         "justification": "Deterministic UAT fixture password only; exact line hash for one-time baseline.",
@@ -393,13 +393,40 @@
         "expires_after": "2026-08-20T23:59:59Z"
       },
       {
-        "path": "database/seeders/ReferenceDatasetSeeder.php",
+        "path": "app/Services/Reference/ReferenceDatasetSeeder.php",
         "label": "generic credential assignment",
         "line_sha256": "6a9b90fc464a4e606f9eb358788ffd6702dc5719aee8ada09015f9b463005683",
         "justification": "Deterministic UAT fixture password only; exact line hash for one-time baseline.",
         "scope": "Synergie-ITCI/telemedicine-backend one-time production baseline only",
         "expires_after": "2026-08-20T23:59:59Z"
+      },
+      {
+        "path": "tests/Feature/OperationsPlatformUatRuntimeAssignmentTest.php",
+        "label": "generic credential assignment",
+        "line_sha256": "6a9b90fc464a4e606f9eb358788ffd6702dc5719aee8ada09015f9b463005683",
+        "justification": "Inherited test fixture password only; exact line hash for one-time baseline.",
+        "scope": "Synergie-ITCI/telemedicine-backend one-time production baseline only",
+        "expires_after": "2026-08-20T23:59:59Z"
+      },
+      {
+        "path": "tests/Feature/PilotV1MobileTrustBoundaryTest.php",
+        "label": "generic credential assignment",
+        "line_sha256": "8c4a9b2c1da417b9f885dcdee62172c573c81ad1565daa50e717db548871c516",
+        "justification": "Inherited mobile trust-boundary test fixture password only; exact line hash for one-time baseline.",
+        "scope": "Synergie-ITCI/telemedicine-backend one-time production baseline only",
+        "expires_after": "2026-08-20T23:59:59Z"
       }
+    ],
+    "fallback_secret_inherited_false_positive_paths": [
+      "public/assest/plugins/codemirror/**",
+      "public/assest/plugins/pdfmake/**",
+      "public/assest/plugins/bootstrap-slider/**",
+      "public/assest/dist/js/**",
+      "vendor/almasaeed2010/adminlte/plugins/pdfmake/**",
+      "vendor/symfony/mime/MimeTypes.php"
+    ],
+    "fallback_secret_inherited_false_positive_labels": [
+      "generic credential assignment"
     ],
     "gitleaks_allowlist": [
       {

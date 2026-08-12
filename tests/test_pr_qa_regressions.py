@@ -187,6 +187,64 @@ class PrQaRegressionTests(unittest.TestCase):
         path.write_text(json.dumps(policy, indent=2) + "\n", encoding="utf-8")
         return path
 
+    def source_overlay_policy_from_base(
+        self,
+        *,
+        base_policy: Path,
+        base_sha: str,
+        source_sha: str,
+        allowed_paths: list[str] | None = None,
+    ) -> Path:
+        data = json.loads(base_policy.read_text(encoding="utf-8"))
+        data["one_time_baseline_alignment"]["expected_base_sha"] = base_sha
+        data["one_time_baseline_alignment"]["expected_head_sha"] = source_sha
+        data["one_time_baseline_alignment"]["source_overlay"] = {
+            "approved_application_source_sha": source_sha,
+            "allowed_paths": allowed_paths or [
+                ".github/CODEOWNERS",
+                ".github/actionlint.yaml",
+                ".github/workflows/pr-qa.yml",
+            ],
+            "paths": {
+                ".github/CODEOWNERS": {"source": "absent", "candidate": "base"},
+                ".github/actionlint.yaml": {"source": "present", "candidate": "base"},
+                ".github/workflows/pr-qa.yml": {
+                    "source": "absent",
+                    "old_ref": "pr-qa-v1-rc5",
+                    "new_ref": "pr-qa-v1-rc13",
+                    "uses": "Synergie-ITCI/.github/.github/workflows/pr-qa.yml",
+                },
+            },
+        }
+        data["one_time_baseline_alignment"]["environment_files"]["safe_paths"] = sorted(
+            set(data["one_time_baseline_alignment"]["environment_files"].get("safe_paths", []))
+            | {".env.testing.example", ".env.uat.template"}
+        )
+        data["one_time_baseline_alignment"]["environment_files"]["required_markers_by_path"].update(
+            {
+                ".env.testing.example": [
+                    "APP_ENV=testing",
+                    "APP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+                    "HEALTH_WORKER_GOOGLE_ROUTES_API_KEY=",
+                ],
+                ".env.uat.template": [
+                    "Placeholder-only. Do not commit real UAT secrets.",
+                    "APP_KEY=<required_laravel_app_key>",
+                    "JWT_SECRET=<required_jwt_secret>",
+                ],
+            }
+        )
+        data["one_time_baseline_alignment"]["fallback_secret_inherited_false_positive_paths"] = [
+            "public/assest/plugins/codemirror/**",
+            "tests/Feature/InheritedFixturePasswordTest.php",
+        ]
+        data["one_time_baseline_alignment"]["fallback_secret_inherited_false_positive_labels"] = [
+            "generic credential assignment"
+        ]
+        path = self.tmp / f"policy-source-overlay-{source_sha[:8]}.json"
+        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        return path
+
     def baseline_overlay_policy_for(
         self,
         *,
@@ -256,6 +314,31 @@ class PrQaRegressionTests(unittest.TestCase):
         source = self.git(repo, "rev-parse", "HEAD").stdout.strip()
 
         self.git(repo, "checkout", "-q", "-b", "release/production-baseline-alignment-20260812")
+        self.write(repo / ".github" / "CODEOWNERS", "* @SaurabhVermaIN\n")
+        self.write(
+            repo / ".github" / "workflows" / "pr-qa.yml",
+            "name: PR Quality Assurance\non:\n  pull_request:\n    types: [opened, synchronize, reopened, ready_for_review, edited]\njobs:\n  pr-qa:\n    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@pr-qa-v1-rc13\n",
+        )
+        self.git(repo, "add", ".github")
+        self.git(repo, "commit", "-q", "-m", "ci: apply governed baseline overlay")
+        return repo, base, source
+
+    def init_inherited_content_repo(self, name: str = "telemedicine-inherited-content") -> tuple[Path, str, str]:
+        repo, base, _ = self.init_telemedicine_overlay_repo(name)
+        self.git(repo, "checkout", "-q", "staging-source")
+        self.write(repo / ".env.testing.example", "APP_ENV=testing\nAPP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\nHEALTH_WORKER_GOOGLE_ROUTES_API_KEY=\n")
+        self.write(repo / ".env.uat.template", "Placeholder-only. Do not commit real UAT secrets.\nAPP_KEY=<required_laravel_app_key>\nJWT_SECRET=<required_jwt_secret>\n")
+        self.write(repo / ".github" / "workflows" / "deploy.yml", "name: Deploy\non: workflow_dispatch\njobs:\n  deploy:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo production deploy review only\n")
+        self.write(repo / "public" / "assest" / "plugins" / "bootstrap-slider" / "bootstrap-slider.js", "<<<<<<< not-a-real-conflict-in-vendored-fixture\n")
+        self.write(repo / "app" / "LegacyWhitespace.php", "<?php\nclass LegacyWhitespace {    \n}\n")
+        self.write(repo / "public" / "assest" / "plugins" / "codemirror" / "mode" / "factor" / "factor.js", "const token = \"not-a-live-secret-static-language-fixture\";\n")
+        self.write(repo / "tests" / "Feature" / "InheritedFixturePasswordTest.php", "<?php\nconst PASSWORD = 'TelepathyReference#2026';\n")
+        self.write_bytes(repo / "public" / "assest" / "plugins" / "fontawesome-free" / "webfonts" / "fa-solid-900.woff2", b"\x00font-fixture")
+        self.git(repo, "add", ".")
+        self.git(repo, "commit", "-q", "-m", "legacy inherited content import")
+        source = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        self.git(repo, "checkout", "-q", "-B", "release/production-baseline-alignment-20260812")
         self.write(repo / ".github" / "CODEOWNERS", "* @SaurabhVermaIN\n")
         self.write(
             repo / ".github" / "workflows" / "pr-qa.yml",
@@ -534,6 +617,72 @@ exit 1
         self.assertEqual(report_json["summary"]["gate_statuses"]["Baseline Alignment"], "PASS")
         self.assertTrue(report_json["summary"]["baseline_alignment"]["authorized"])
         self.assertIn("BASELINE ALIGNMENT PREFLIGHT", report)
+
+    def test_authorized_telemedicine_baseline_classifies_inherited_content_findings(self) -> None:
+        self.install_fake_composer(audit_exit=0, test_exit=0)
+        repo, base, source = self.init_inherited_content_repo()
+        head = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        base_policy = self.baseline_policy_for(base_sha=base, head_sha=source, minimum_changed_files=1)
+        policy = self.source_overlay_policy_from_base(base_policy=base_policy, base_sha=base, source_sha=source)
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            base_ref="main",
+            head_ref="release/production-baseline-alignment-20260812",
+            head_sha=head,
+            repository="Synergie-ITCI/telemedicine-backend",
+            baseline_alignment=True,
+            body_extra=self.baseline_marker(),
+            policy_path=policy,
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Baseline Alignment"], "PASS")
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Integrity"], "WARNING")
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "WARNING")
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Git Validation"], "WARNING")
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Secrets"], "WARNING")
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Protected Resources"], "WARNING")
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Deployment Risk"], "WARNING")
+        self.assertIn("INHERITED_BASELINE", report)
+        self.assertIn("AUTHORIZED_OVERLAY", report)
+        self.assertIn("Inherited baseline deployment-sensitive content requires human review", report)
+
+    def test_authorized_telemedicine_baseline_blocks_new_non_inherited_findings(self) -> None:
+        self.install_fake_composer(audit_exit=0, test_exit=0)
+        cases = [
+            ("app/NewWhitespace.php", "<?php\nclass NewWhitespace {    \n}\n", "Git Validation", "trailing whitespace"),
+            ("app/NewConflict.php", "<?php\n<<<<<<< HEAD\n", "Repository Hygiene", "Merge conflict markers found"),
+            (".env.testing.example", "APP_ENV=testing\nAPP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\nDB_PASSWORD=live-password\nHEALTH_WORKER_GOOGLE_ROUTES_API_KEY=\n", "Baseline Alignment", "candidate differs from approved application source outside the governance overlay"),
+            ("public/assest/plugins/codemirror/mode/factor/factor.js", "const token = \"new-static-change-not-in-source\";\n", "Baseline Alignment", "candidate differs from approved application source outside the governance overlay"),
+            (".github/workflows/new-deploy.yml", "name: new deploy\non: workflow_dispatch\njobs:\n  deploy:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo production\n", "Baseline Alignment", "candidate differs from approved application source outside the governance overlay"),
+        ]
+        for path, content, expected_gate, needle in cases:
+            with self.subTest(path=path):
+                repo, base, source = self.init_inherited_content_repo(f"inherited-new-finding-{abs(hash(path))}")
+                self.write(repo / path, content)
+                self.commit(repo, "chore: introduce non inherited finding")
+                head = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+                base_policy = self.baseline_policy_for(base_sha=base, head_sha=source, minimum_changed_files=1)
+                policy = self.source_overlay_policy_from_base(base_policy=base_policy, base_sha=base, source_sha=source)
+
+                code, report, report_json, _ = self.run_engine_with_artifacts(
+                    repo,
+                    base,
+                    base_ref="main",
+                    head_ref="release/production-baseline-alignment-20260812",
+                    head_sha=head,
+                    repository="Synergie-ITCI/telemedicine-backend",
+                    baseline_alignment=True,
+                    body_extra=self.baseline_marker(),
+                    policy_path=policy,
+                )
+
+                self.assertNotEqual(code, 0)
+                self.assertEqual(report_json["summary"]["gate_statuses"][expected_gate], "FAIL")
+                self.assertIn(needle, report)
 
     def test_telemedicine_source_overlay_rejects_tamper_cases(self) -> None:
         self.install_fake_composer(audit_exit=0, test_exit=0)
