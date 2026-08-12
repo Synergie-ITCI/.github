@@ -7,15 +7,16 @@ from .base import CheckResult, PRContext, TechnologyAdapter, command_exists, com
 
 class TerraformAdapter(TechnologyAdapter):
     key = "terraform"
-    name = "Terraform"
+    name = "Terraform/OpenTofu"
 
     def detect(self, repo: Path) -> list[Path]:
         return sorted(set(path.parent for path in find_files(repo, ["*.tf"])))
 
     def format(self, ctx: PRContext, roots: list[Path]) -> list[CheckResult]:
-        if not command_exists("terraform"):
-            return [warning("Formatting", self.name, "`terraform` is not available on the runner.")]
-        return [command_result("Formatting", self.name, ctx.run(["terraform", "fmt", "-check", "-recursive"], cwd=root), f"{ctx.rel(root)}: terraform fmt passed.", f"{ctx.rel(root)}: terraform fmt failed.", score=8) for root in roots]
+        cli = self._cli()
+        if not cli:
+            return [warning("Formatting", self.name, "`tofu` or `terraform` is not available on the runner.")]
+        return [command_result("Formatting", self.name, ctx.run([cli, "fmt", "-check", "-recursive"], cwd=root), f"{ctx.rel(root)}: {cli} fmt passed.", f"{ctx.rel(root)}: {cli} fmt failed.", score=8) for root in roots]
 
     def lint(self, ctx: PRContext, roots: list[Path]) -> list[CheckResult]:
         if command_exists("tflint"):
@@ -23,20 +24,21 @@ class TerraformAdapter(TechnologyAdapter):
         return [warning("Lint", self.name, "tflint is not installed on the runner.")]
 
     def build(self, ctx: PRContext, roots: list[Path]) -> list[CheckResult]:
-        if not command_exists("terraform"):
-            return [warning("Build", self.name, "`terraform` is not available on the runner.")]
+        cli = self._cli()
+        if not cli:
+            return [warning("Build", self.name, "`tofu` or `terraform` is not available on the runner.")]
         results = []
         init_backend = bool(ctx.adapter_config(self.key).get("init_backend", False))
         for root in roots:
-            init_command = ["terraform", "init", "-input=false"]
+            init_command = [cli, "init", "-input=false", "-no-color"]
             if not init_backend:
                 init_command.append("-backend=false")
             init = ctx.run(init_command, cwd=root)
             if not init.ok:
-                results.append(command_result("Build", self.name, init, f"{ctx.rel(root)}: terraform init passed.", f"{ctx.rel(root)}: terraform init failed.", score=12))
+                results.append(command_result("Build", self.name, init, f"{ctx.rel(root)}: {cli} init passed.", f"{ctx.rel(root)}: {cli} init failed.", score=12))
                 continue
-            validate = ctx.run(["terraform", "validate", "-no-color"], cwd=root)
-            results.append(command_result("Build", self.name, validate, f"{ctx.rel(root)}: terraform validate passed.", f"{ctx.rel(root)}: terraform validate failed.", score=12))
+            validate = ctx.run([cli, "validate", "-no-color"], cwd=root)
+            results.append(command_result("Build", self.name, validate, f"{ctx.rel(root)}: {cli} validate passed.", f"{ctx.rel(root)}: {cli} validate failed.", score=12))
         return results
 
     def test(self, ctx: PRContext, roots: list[Path]) -> list[CheckResult]:
@@ -51,3 +53,10 @@ class TerraformAdapter(TechnologyAdapter):
 
     def licences(self, ctx: PRContext, roots: list[Path]) -> list[CheckResult]:
         return [warning("Licence", self.name, "Terraform provider licence inventory requires SBOM tooling.")]
+
+    def _cli(self) -> str:
+        if command_exists("tofu"):
+            return "tofu"
+        if command_exists("terraform"):
+            return "terraform"
+        return ""

@@ -28,11 +28,13 @@ from adapters.base import (
     PRContext,
     command_exists,
     failed,
+    find_named_files,
     grep_text_files,
     is_binary_file,
     markdown_escape,
     match_any,
     passed,
+    read_json,
     read_text,
     redact,
     should_skip_path,
@@ -454,7 +456,7 @@ def detect_technologies(repo: Path) -> dict[str, dict[str, Any]]:
 def write_detection_outputs(technologies: dict[str, dict[str, Any]], github_output: str) -> None:
     payload = sorted(value["name"] for value in technologies.values())
     lines = [f"technologies={json.dumps(payload)}"]
-    for key in ["php", "node", "python", "go", "gradle", "java", "dotnet", "rust", "swift"]:
+    for key in ["php", "node", "python", "go", "gradle", "java", "dotnet", "rust", "swift", "terraform"]:
         lines.append(f"{key}={'true' if key in technologies else 'false'}")
     if github_output:
         with open(github_output, "a", encoding="utf-8") as handle:
@@ -557,6 +559,156 @@ def list_repo_files(repo: Path) -> list[str]:
             if not should_skip_path(rel):
                 files.append(rel.as_posix())
     return sorted(files)
+
+
+def react_native_roots(ctx: PRContext) -> list[Path]:
+    cache = context_cache(ctx)
+    if "react_native_roots" in cache:
+        return list(cache["react_native_roots"])
+    roots: list[Path] = []
+    for package_json in find_named_files(ctx.repo, {"package.json"}):
+        package = read_json(package_json)
+        dependencies: set[str] = set()
+        for key in ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]:
+            dependencies.update((package.get(key) or {}).keys())
+        root = package_json.parent
+        if "react-native" in dependencies and (root / "android").is_dir() and (root / "ios").is_dir():
+            roots.append(root)
+    detected = sorted(set(roots))
+    cache["react_native_roots"] = detected
+    return detected
+
+
+def context_cache(ctx: PRContext) -> dict[str, Any]:
+    cache = getattr(ctx, "_stack_cache", None)
+    if cache is None:
+        cache = {}
+        setattr(ctx, "_stack_cache", cache)
+    return cache
+
+
+def is_react_native_repository(ctx: PRContext) -> bool:
+    return bool(react_native_roots(ctx))
+
+
+def react_native_exception_settings(ctx: PRContext) -> dict[str, Any]:
+    return dict(ctx.policy.get("stack_integrity_exceptions", {}).get("react_native", {}) or {})
+
+
+def react_native_relative_path(ctx: PRContext, rel: str) -> str:
+    for root in react_native_roots(ctx):
+        root_rel = ctx.rel(root).rstrip("/")
+        if root_rel in {"", "."}:
+            return rel
+        prefix = root_rel + "/"
+        if rel.startswith(prefix):
+            return rel[len(prefix) :]
+    return rel
+
+
+def is_react_native_hidden_text_exception(ctx: PRContext, rel: str) -> bool:
+    if not is_react_native_repository(ctx):
+        return False
+    rn_rel = react_native_relative_path(ctx, rel)
+    allowed = set(react_native_exception_settings(ctx).get("hidden_text_files", []) or [])
+    path = ctx.repo / rel
+    if rn_rel not in allowed or not path.is_file() or is_binary_file(path):
+        return False
+    max_bytes = int(react_native_exception_settings(ctx).get("max_hidden_text_file_bytes", 8192))
+    if path.stat().st_size > max_bytes:
+        return False
+    text = read_text(path)
+    if rn_rel == ".watchmanconfig":
+        try:
+            parsed = json.loads(text or "{}")
+        except json.JSONDecodeError:
+            return False
+        if not isinstance(parsed, dict):
+            return False
+    return not contains_mobile_credential_indicator(text)
+
+
+def is_react_native_binary_bootstrap_exception(ctx: PRContext, rel: str) -> bool:
+    if not is_react_native_repository(ctx):
+        return False
+    rn_rel = react_native_relative_path(ctx, rel)
+    path = ctx.repo / rel
+    settings = react_native_exception_settings(ctx)
+    if rn_rel not in set(settings.get("binary_bootstrap_files", []) or []) or not path.is_file():
+        return False
+    if rn_rel == "android/gradle/wrapper/gradle-wrapper.jar":
+        max_bytes = int(settings.get("max_gradle_wrapper_jar_bytes", 262144))
+        return path.stat().st_size <= max_bytes and is_zip_archive(path) and uses_official_gradle_distribution(ctx, rel)
+    if rn_rel == "android/app/debug.keystore":
+        max_bytes = int(settings.get("max_debug_keystore_bytes", 16384))
+        return path.stat().st_size <= max_bytes and uses_android_debug_keystore(ctx, rel)
+    return False
+
+
+def is_react_native_line_ending_exception(ctx: PRContext, rel: str) -> bool:
+    if not is_react_native_repository(ctx):
+        return False
+    rn_rel = react_native_relative_path(ctx, rel)
+    allowed = set(react_native_exception_settings(ctx).get("line_ending_text_files", []) or [])
+    path = ctx.repo / rel
+    if rn_rel not in allowed or not path.is_file() or is_binary_file(path):
+        return False
+    return path.name == "gradlew.bat" and "gradle" in read_text(path).lower()
+
+
+def uses_official_gradle_distribution(ctx: PRContext, rel: str) -> bool:
+    rn_rel = react_native_relative_path(ctx, rel)
+    prefix = rel[: -len(rn_rel)] if rel.endswith(rn_rel) else ""
+    properties = ctx.repo / prefix / "android/gradle/wrapper/gradle-wrapper.properties"
+    text = read_text(properties)
+    normalized = text.replace("\\:", ":")
+    return bool(re.search(r"(?m)^distributionUrl=https://services\.gradle\.org/distributions/gradle-[0-9][0-9A-Za-z._-]*-(?:bin|all)\.zip$", normalized))
+
+
+def is_zip_archive(path: Path) -> bool:
+    try:
+        return path.read_bytes()[:4] == b"PK\x03\x04"
+    except OSError:
+        return False
+
+
+def uses_android_debug_keystore(ctx: PRContext, rel: str) -> bool:
+    rn_rel = react_native_relative_path(ctx, rel)
+    prefix = rel[: -len(rn_rel)] if rel.endswith(rn_rel) else ""
+    build_gradle = read_text(ctx.repo / prefix / "android/app/build.gradle") + "\n" + read_text(ctx.repo / prefix / "android/app/build.gradle.kts")
+    required_patterns = [
+        r"debug\.keystore",
+        r"androiddebugkey",
+        r"storePassword\s*=?\s*['\"]android['\"]",
+        r"keyPassword\s*=?\s*['\"]android['\"]",
+    ]
+    return all(re.search(pattern, build_gradle) for pattern in required_patterns) and "release.keystore" not in build_gradle.lower()
+
+
+def contains_mobile_credential_indicator(text: str) -> bool:
+    pattern = re.compile(
+        r"(?i)\b(password|passwd|secret|token|api[_-]?(?:key|token)|access[_-]?token|client[_-]?secret|certificate|"
+        r"provisioning|profile|app[_-]?store|play[_-]?store|signing|keystore|p12|pfx)\b"
+    )
+    return bool(pattern.search(text))
+
+
+def filter_diff_check_output(ctx: PRContext, output: str) -> tuple[list[str], list[str]]:
+    blocking: list[str] = []
+    ignored: list[str] = []
+    ignoring_continuation = False
+    for line in output.splitlines():
+        match = re.match(r"^([^:]+):", line)
+        rel = match.group(1) if match else ""
+        if rel and is_react_native_line_ending_exception(ctx, rel):
+            ignored.append(line)
+            ignoring_continuation = True
+        elif ignoring_continuation and line.startswith("+"):
+            ignored.append(line)
+        elif line.strip():
+            blocking.append(line)
+            ignoring_continuation = False
+    return blocking, ignored
 
 
 def run_static_preflight(ctx: PRContext, git_context: dict[str, Any], technologies: dict[str, dict[str, Any]], report_path: str) -> list[CheckResult]:
@@ -669,7 +821,7 @@ def gate_repository_integrity(ctx: PRContext, git_context: dict[str, Any]) -> li
         if not is_approved_governance_asset(ctx, rel):
             hidden_parts = [part for part in parts if part.startswith(".") and part not in {".github"}]
             for hidden in hidden_parts:
-                if hidden not in allowed_hidden:
+                if hidden not in allowed_hidden and not is_react_native_hidden_text_exception(ctx, rel):
                     findings.append(f"{rel}: unexpected hidden file or directory `{hidden}`.")
         if any(part in generated_components for part in parts) or match_any(rel, generated_patterns):
             findings.append(f"{rel}: generated artifact path changed.")
@@ -680,7 +832,7 @@ def gate_repository_integrity(ctx: PRContext, git_context: dict[str, Any]) -> li
             size = path.stat().st_size
             if size > max_bytes:
                 findings.append(f"{rel}: oversized file ({size} bytes).")
-            if is_binary_file(path) and path.suffix.lower() not in allowed_binary:
+            if is_binary_file(path) and path.suffix.lower() not in allowed_binary and not is_react_native_binary_bootstrap_exception(ctx, rel):
                 findings.append(f"{rel}: binary file type is not allowed.")
             if is_lfs_pointer(path):
                 findings.append(f"{rel}: Git LFS pointer changed; actual object is not available for local scanning.")
@@ -778,7 +930,12 @@ def gate_git_validation(ctx: PRContext, git_context: dict[str, Any]) -> list[Che
         if outcome.ok:
             results.append(passed("Git Validation", None, "`git diff --check` passed."))
         else:
-            results.append(failed("Git Validation", None, "`git diff --check` found whitespace or marker issues.", [outcome.concise_output()], score=10))
+            full_output = redact("\n".join(part for part in [outcome.stdout, outcome.stderr] if part).strip())
+            blocking, ignored = filter_diff_check_output(ctx, full_output)
+            if blocking:
+                results.append(failed("Git Validation", None, "`git diff --check` found whitespace or marker issues.", blocking[:30], score=10))
+            else:
+                results.append(passed("Git Validation", None, "`git diff --check` passed with only approved React Native Gradle wrapper batch line-ending findings.", ignored[:30]))
     else:
         results.append(failed("Git Validation", None, "Git diff range was not available; failing closed.", score=20))
     crlf = []
@@ -786,7 +943,7 @@ def gate_git_validation(ctx: PRContext, git_context: dict[str, Any]) -> list[Che
         path = ctx.repo / rel
         if path.is_file() and not is_binary_file(path):
             try:
-                if b"\r\n" in path.read_bytes():
+                if b"\r\n" in path.read_bytes() and not is_react_native_line_ending_exception(ctx, rel):
                     crlf.append(rel)
             except OSError:
                 pass
@@ -844,7 +1001,7 @@ def fallback_secret_scan(ctx: PRContext) -> tuple[list[str], list[str]]:
         "AWS access key": r"AKIA[0-9A-Z]{16}",
         "private key": r"-----BEGIN [A-Z ]+PRIVATE KEY-----",
         "GitHub token": r"(ghp|github_pat)_[A-Za-z0-9_]{20,}",
-        "generic credential assignment": r"(?i)\b(password|passwd|secret|token|api[_-]?key)\b\s*[:=]\s*['\"][^'\"\s]{8,}['\"]",
+        "generic credential assignment": r"(?i)\b(password|passwd|secret|token|api[_-]?(?:key|token)|access[_-]?token)\b\s*[:=]\s*['\"][^'\"\s]{8,}['\"]",
     }
     for rel in ctx.changed_files:
         rel_findings: list[str] = []
@@ -1028,7 +1185,7 @@ def gate_deployment_safety(ctx: PRContext) -> list[CheckResult]:
         for path in framework_approved:
             text = read_text(ctx.repo / path)
             lower = (path + "\n" + text).lower()
-            for token in ["ssh", "rsync", "sudo", "kubectl apply", "terraform apply"]:
+            for token in ["ssh", "rsync", "sudo", "kubectl apply", "terraform apply", "tofu apply"]:
                 if token in lower:
                     dangerous_tokens.append(f"{path}: `{token}`")
         if not dangerous_tokens:
@@ -1047,7 +1204,7 @@ def gate_deployment_safety(ctx: PRContext) -> list[CheckResult]:
         text = read_text(ctx.repo / path)
         lower = (path + "\n" + text).lower()
         item_score = 5
-        for token, value in {"production": 10, "prod": 8, "ssh": 12, "rsync": 12, "sudo": 12, "kubectl apply": 10, "terraform apply": 15}.items():
+        for token, value in {"production": 10, "prod": 8, "ssh": 12, "rsync": 12, "sudo": 12, "kubectl apply": 10, "terraform apply": 15, "tofu apply": 15}.items():
             if token in lower:
                 item_score += value
                 risky_tokens.append(f"{path}: `{token}`")
