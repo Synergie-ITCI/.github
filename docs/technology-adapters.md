@@ -81,6 +81,10 @@ The repository-integrity gate allows only the standard bootstrap/native files li
 
 These exceptions are constrained by exact path, file type, size, content checks, official Gradle distribution configuration, and standard Android debug keystore signing metadata. Release keystores, production signing certificates, provisioning secrets, App Store credentials, Play Store credentials, and arbitrary binaries remain prohibited.
 
+When a React Native project is detected, Android and iOS native project roots are not reclassified as standalone Gradle or Swift applications for generic build/test/dependency gates. Repository-defined React Native/Node CI commands remain the canonical validation path, while central integrity, secret, protected-resource, dependency, and evidence gates still run.
+
+Node dependency scanning prefers a repository-defined `audit:ci` script when present and otherwise falls back to the package-manager audit. This lets documented, narrowly accepted development advisories remain visible without globally suppressing dependency scanning.
+
 ## Terraform/OpenTofu Validation
 
 The reusable PR QA workflow provisions pinned OpenTofu and pinned `tfsec` when Terraform files are detected. The Terraform adapter prefers `tofu` when available and falls back to `terraform`.

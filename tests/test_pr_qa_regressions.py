@@ -393,6 +393,60 @@ class PrQaRegressionTests(unittest.TestCase):
         self.assertNotEqual(code, 0)
         self.assertIn("unexpected hidden file or directory `.watchmanconfig`", report)
 
+    def test_react_native_uses_node_audit_ci_and_skips_generic_native_builds(self) -> None:
+        npm_log = self.tmp / "npm.log"
+        fake_npm = self.bin / "npm"
+        fake_npm.write_text(
+            f"""#!/usr/bin/env bash
+printf '%s\\n' "$*" >> {npm_log}
+exit 0
+""",
+            encoding="utf-8",
+        )
+        fake_npm.chmod(0o755)
+        fake_swift = self.bin / "swift"
+        fake_swift.write_text("#!/usr/bin/env bash\nexit 99\n", encoding="utf-8")
+        fake_swift.chmod(0o755)
+
+        repo, base = self.init_repo("react-native-runtime")
+        self.write(
+            repo / "package.json",
+            json.dumps(
+                {
+                    "dependencies": {"react-native": "0.87.0"},
+                    "scripts": {
+                        "audit:ci": "node scripts/audit-with-risk-acceptance.mjs",
+                        "build": "tsc -p tsconfig.json",
+                    },
+                    "license": "UNLICENSED",
+                }
+            ),
+        )
+        self.write(repo / "package-lock.json", json.dumps({"lockfileVersion": 3, "packages": {}}))
+        self.write(repo / "src" / "app.ts", "export const ready = true;\n")
+        self.write(repo / "scripts" / "audit-with-risk-acceptance.mjs", 'console.log("accepted audit remains visible");\n')
+        self.write(repo / "android" / "settings.gradle", "pluginManagement {}\n")
+        self.write(repo / "ios" / "SynergieGiving.xcodeproj" / "project.pbxproj", "// !$*UTF8*$!\n")
+        self.commit(repo, "feat: add react native runtime fixture")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base)
+        npm_commands = npm_log.read_text(encoding="utf-8")
+
+        self.assertEqual(code, 0, report)
+        self.assertIn("run audit:ci", npm_commands)
+        self.assertNotIn("audit --audit-level", npm_commands)
+        self.assertNotIn("Gradle assemble failed", report)
+        self.assertNotIn("Swift dependency vulnerability audit requires configured tooling", report)
+        self.assertTrue(
+            any(
+                result["gate"] == "Dependencies"
+                and result["technology"] == "Node.js"
+                and result["status"] == "PASS"
+                and "`audit:ci` dependency audit passed" in result["message"]
+                for result in report_json["results"]
+            )
+        )
+
     def test_codeowners_modification_fails(self) -> None:
         repo, base = self.init_repo("codeowners-change")
         self.write(repo / ".github" / "CODEOWNERS", "* @attacker\n")
