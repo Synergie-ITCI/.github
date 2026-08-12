@@ -45,6 +45,7 @@ Register the adapter in `pr-qa/adapters/__init__.py`.
 | Java/Maven | `pom.xml` |
 | .NET | `.sln`, `.csproj`, `.fsproj`, `.vbproj` |
 | Rust | `Cargo.toml` |
+| SQL/PostgreSQL | `.sql` migration files |
 | Docker | Dockerfile and compose files |
 | Terraform/OpenTofu | `.tf` files |
 | Kubernetes | YAML manifests with `apiVersion` and `kind` |
@@ -84,6 +85,10 @@ These exceptions are constrained by exact path, file type, size, content checks,
 When a React Native project is detected, Android and iOS native project roots are not reclassified as standalone Gradle or Swift applications for generic build/test/dependency gates. Repository-defined React Native/Node CI commands remain the canonical validation path, while central integrity, secret, protected-resource, dependency, and evidence gates still run.
 
 Node dependency scanning prefers a repository-defined `audit:ci` script when present and otherwise falls back to the package-manager audit. This lets documented, narrowly accepted development advisories remain visible without globally suppressing dependency scanning.
+
+## SQL Migration Classification
+
+SQL migration files are classified by the SQL/PostgreSQL adapter so application repositories can add database migrations without failing executable-code classification. The adapter does not apply migrations itself. Repository-native migration validation remains the authoritative build/test evidence, while central lint blocks database-wide destructive operations such as `DROP DATABASE`, `DROP SCHEMA`, and `TRUNCATE TABLE`.
 
 ## Terraform/OpenTofu Validation
 

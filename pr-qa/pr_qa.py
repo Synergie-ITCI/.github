@@ -81,6 +81,7 @@ ADAPTER_EXTENSIONS = {
     "swift": {".swift"},
     "dotnet": {".cs", ".vb", ".fs"},
     "rust": {".rs"},
+    "sql": {".sql"},
     "terraform": {".tf"},
 }
 
@@ -132,6 +133,7 @@ TECHNOLOGY_CHANGE_PATTERNS = {
     "swift": ["*.swift", "Package.swift", "*.xcodeproj/**", "*.xcworkspace/**"],
     "dotnet": ["*.cs", "*.vb", "*.fs", "*.sln", "*.csproj", "*.vbproj", "*.fsproj"],
     "rust": ["*.rs", "Cargo.toml", "Cargo.lock"],
+    "sql": ["*.sql", "**/*.sql"],
     "docker": ["Dockerfile", "Dockerfile.*", "docker-compose*.yml", "docker-compose*.yaml", "compose.yml", "compose.yaml"],
     "terraform": ["*.tf", "*.tfvars", "*.tf.json", "*.tfvars.json", ".terraform.lock.hcl"],
     "kubernetes": ["*.yml", "*.yaml"],
