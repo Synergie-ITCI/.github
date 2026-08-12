@@ -192,7 +192,7 @@ class PrQaRegressionTests(unittest.TestCase):
         *,
         base_sha: str,
         source_sha: str,
-        new_ref: str = "pr-qa-v1-rc12",
+        new_ref: str = "pr-qa-v1-rc13",
         enabled: bool = True,
         expires_after: str = "2099-12-31T23:59:59Z",
     ) -> Path:
@@ -259,7 +259,7 @@ class PrQaRegressionTests(unittest.TestCase):
         self.write(repo / ".github" / "CODEOWNERS", "* @SaurabhVermaIN\n")
         self.write(
             repo / ".github" / "workflows" / "pr-qa.yml",
-            "name: PR Quality Assurance\non:\n  pull_request:\n    types: [opened, synchronize, reopened, ready_for_review, edited]\njobs:\n  pr-qa:\n    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@pr-qa-v1-rc12\n",
+            "name: PR Quality Assurance\non:\n  pull_request:\n    types: [opened, synchronize, reopened, ready_for_review, edited]\njobs:\n  pr-qa:\n    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@pr-qa-v1-rc13\n",
         )
         self.git(repo, "add", ".github")
         self.git(repo, "commit", "-q", "-m", "ci: apply governed baseline overlay")
