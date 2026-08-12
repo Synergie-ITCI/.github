@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from .base import (
@@ -75,7 +76,7 @@ class PythonAdapter(TechnologyAdapter):
         results: list[CheckResult] = []
         for root in roots:
             prefix = f"{ctx.rel(root)}: "
-            outcome = ctx.run(["python", "-m", "compileall", "-q", "."], cwd=root)
+            outcome = ctx.run([sys.executable, "-m", "compileall", "-q", "."], cwd=root)
             results.append(command_result("Build", self.name, outcome, f"{prefix}Python bytecode compilation passed.", f"{prefix}Python bytecode compilation failed.", score=12))
         return results
 
@@ -93,7 +94,7 @@ class PythonAdapter(TechnologyAdapter):
             if command_exists("pytest"):
                 outcome = ctx.run(["pytest"], cwd=root)
             else:
-                outcome = ctx.run(["python", "-m", "pytest"], cwd=root)
+                outcome = ctx.run([sys.executable, "-m", "pytest"], cwd=root)
             results.append(command_result("Tests", self.name, outcome, f"{prefix}Pytest passed.", f"{prefix}Pytest failed.", score=14))
         return results
 
@@ -108,7 +109,7 @@ class PythonAdapter(TechnologyAdapter):
                 else:
                     results.append(failed("Dependencies", self.name, f"{prefix}pip-audit found vulnerabilities.", [outcome.concise_output()], score=18))
             else:
-                outcome = ctx.run(["python", "-m", "pip_audit"], cwd=root)
+                outcome = ctx.run([sys.executable, "-m", "pip_audit"], cwd=root)
                 if outcome.ok:
                     results.append(passed("Dependencies", self.name, f"{prefix}pip-audit module passed."))
                 elif "No module named" in outcome.concise_output():
@@ -142,14 +143,14 @@ class PythonAdapter(TechnologyAdapter):
         commands: list[list[str]] = []
         pyproject = read_text(root / "pyproject.toml")
         if (root / "requirements-dev.txt").exists():
-            commands.append(["python", "-m", "pip", "install", "-r", "requirements-dev.txt"])
+            commands.append([sys.executable, "-m", "pip", "install", "-r", "requirements-dev.txt"])
         if (root / "requirements.txt").exists():
-            commands.append(["python", "-m", "pip", "install", "-r", "requirements.txt"])
+            commands.append([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
         if (root / "pyproject.toml").exists():
             if "optional-dependencies" in pyproject and "dev" in pyproject:
-                commands.append(["python", "-m", "pip", "install", "-e", ".[dev]"])
+                commands.append([sys.executable, "-m", "pip", "install", "-e", ".[dev]"])
             else:
-                commands.append(["python", "-m", "pip", "install", "-e", "."])
+                commands.append([sys.executable, "-m", "pip", "install", "-e", "."])
         for command in commands[:2]:
             outcome = ctx.run(command, cwd=root)
             if not outcome.ok:

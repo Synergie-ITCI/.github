@@ -19,6 +19,7 @@ SKIP = "SKIP"
 
 BLOCKING_STATUSES = {FAIL}
 MANDATORY_GATES = {
+    "baseline_alignment",
     "repository_hygiene",
     "formatting",
     "lint",

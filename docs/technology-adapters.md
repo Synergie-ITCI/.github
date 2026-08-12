@@ -45,6 +45,7 @@ Register the adapter in `pr-qa/adapters/__init__.py`.
 | Java/Maven | `pom.xml` |
 | .NET | `.sln`, `.csproj`, `.fsproj`, `.vbproj` |
 | Rust | `Cargo.toml` |
+| Shell | `.sh`, `.bash` scripts |
 | SQL/PostgreSQL | `.sql` migration files |
 | Docker | Dockerfile and compose files |
 | Terraform/OpenTofu | `.tf` files |
@@ -89,6 +90,10 @@ Node dependency scanning prefers a repository-defined `audit:ci` script when pre
 ## SQL Migration Classification
 
 SQL migration files are classified by the SQL/PostgreSQL adapter so application repositories can add database migrations without failing executable-code classification. The adapter does not apply migrations itself. Repository-native migration validation remains the authoritative build/test evidence, while central lint blocks database-wide destructive operations such as `DROP DATABASE`, `DROP SCHEMA`, and `TRUNCATE TABLE`.
+
+## Shell Script Classification
+
+Shell scripts are classified by the Shell adapter so repository utility scripts do not fail executable-code classification. The adapter runs `bash -n` syntax lint for changed `.sh` and `.bash` files, records formatting/runtime review as warnings, and never executes script contents.
 
 ## Terraform/OpenTofu Validation
 

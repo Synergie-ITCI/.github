@@ -49,6 +49,7 @@ CONFIG_PATH = ".github/pr-qa.yml"
 EMERGENCY_OVERRIDE_REASON_ENV = "PR_QA_EMERGENCY_OVERRIDE_REASON"
 
 GATE_ORDER = [
+    ("baseline_alignment", "Baseline Alignment"),
     ("config_validation", "Config Validation"),
     ("repository_integrity", "Repository Integrity"),
     ("repository_hygiene", "Repository Hygiene"),
@@ -71,6 +72,16 @@ GATE_ORDER = [
     ("review_policy", "Review Policy"),
 ]
 
+BASELINE_NON_RELAXABLE_CHECKS = [
+    "Gitleaks execution and true-secret detection",
+    "Composer/dependency security audit",
+    "language syntax/lint and application tests",
+    "migration syntax/executability evidence",
+    "CODEOWNERS, human review, and branch protection",
+    "deployment and workflow-security review",
+    "dangerous credential files and suspicious binaries",
+]
+
 ADAPTER_EXTENSIONS = {
     "php": {".php"},
     "node": {".js", ".jsx", ".ts", ".tsx"},
@@ -81,6 +92,7 @@ ADAPTER_EXTENSIONS = {
     "swift": {".swift"},
     "dotnet": {".cs", ".vb", ".fs"},
     "rust": {".rs"},
+    "shell": {".sh", ".bash"},
     "sql": {".sql"},
     "terraform": {".tf"},
 }
@@ -133,6 +145,7 @@ TECHNOLOGY_CHANGE_PATTERNS = {
     "swift": ["*.swift", "Package.swift", "*.xcodeproj/**", "*.xcworkspace/**"],
     "dotnet": ["*.cs", "*.vb", "*.fs", "*.sln", "*.csproj", "*.vbproj", "*.fsproj"],
     "rust": ["*.rs", "Cargo.toml", "Cargo.lock"],
+    "shell": ["*.sh", "*.bash"],
     "sql": ["*.sql", "**/*.sql"],
     "docker": ["Dockerfile", "Dockerfile.*", "docker-compose*.yml", "docker-compose*.yaml", "compose.yml", "compose.yaml"],
     "terraform": ["*.tf", "*.tfvars", "*.tf.json", "*.tfvars.json", ".terraform.lock.hcl"],
@@ -458,7 +471,7 @@ def detect_technologies(repo: Path) -> dict[str, dict[str, Any]]:
 def write_detection_outputs(technologies: dict[str, dict[str, Any]], github_output: str) -> None:
     payload = sorted(value["name"] for value in technologies.values())
     lines = [f"technologies={json.dumps(payload)}"]
-    for key in ["php", "node", "python", "go", "gradle", "java", "dotnet", "rust", "swift", "terraform"]:
+    for key in ["php", "node", "python", "go", "gradle", "java", "dotnet", "rust", "swift", "shell", "terraform"]:
         lines.append(f"{key}={'true' if key in technologies else 'false'}")
     if github_output:
         with open(github_output, "a", encoding="utf-8") as handle:
@@ -715,6 +728,7 @@ def filter_diff_check_output(ctx: PRContext, output: str) -> tuple[list[str], li
 
 def run_static_preflight(ctx: PRContext, git_context: dict[str, Any], technologies: dict[str, dict[str, Any]], report_path: str) -> list[CheckResult]:
     results: list[CheckResult] = []
+    results.extend(gate_baseline_alignment(ctx, git_context))
     results.extend(gate_config_validation(ctx))
     results.extend(gate_repository_integrity(ctx, git_context))
     results.extend(gate_repository_hygiene(ctx, git_context))
@@ -818,6 +832,115 @@ def add_phase_skips(results: list[CheckResult], message: str) -> None:
             results.append(skipped(display, None, message))
 
 
+def baseline_policy(ctx: PRContext) -> dict[str, Any]:
+    return dict(ctx.policy.get("one_time_baseline_alignment", {}) or {})
+
+
+def baseline_requested(ctx: PRContext) -> bool:
+    requested = os.environ.get("PR_QA_BASELINE_ALIGNMENT", "").strip().lower()
+    if requested in {"1", "true", "yes", "on"}:
+        return True
+    pull_request = ctx.event.get("pull_request", {}) or {}
+    labels = pull_request.get("labels", []) or []
+    label_names = {str((label or {}).get("name", "")).lower() for label in labels if isinstance(label, dict)}
+    return "one-time-baseline-alignment" in label_names
+
+
+def baseline_authorization(ctx: PRContext, git_context: dict[str, Any]) -> tuple[bool, list[str], dict[str, Any]]:
+    policy = baseline_policy(ctx)
+    details: list[str] = []
+    if not baseline_requested(ctx):
+        return False, ["Baseline alignment mode was not requested."], policy
+    if not policy.get("enabled", False):
+        return False, ["Central policy does not enable baseline alignment mode."], policy
+
+    repository = resolve_repository_name(ctx)
+    expected_repository = str(policy.get("repository", ""))
+    if repository != expected_repository:
+        details.append(f"repository `{repository}` is not authorized; expected `{expected_repository}`.")
+
+    head_ref = ctx.head_ref or ""
+    expected_head = str(policy.get("head_ref", ""))
+    if head_ref != expected_head:
+        details.append(f"source branch `{head_ref}` is not authorized; expected `{expected_head}`.")
+
+    base_ref = ctx.base_ref or ""
+    expected_base = str(policy.get("base_ref", ""))
+    if base_ref != expected_base:
+        details.append(f"target branch `{base_ref}` is not authorized; expected `{expected_base}`.")
+
+    head_sha = resolve_head_sha(ctx.repo, git_context)
+    expected_head_sha = str(policy.get("expected_head_sha", ""))
+    if expected_head_sha and head_sha != expected_head_sha:
+        details.append(f"source SHA `{head_sha}` is not authorized; expected `{expected_head_sha}`.")
+
+    base_sha = str(git_context.get("base_sha") or "")
+    expected_base_sha = str(policy.get("expected_base_sha", ""))
+    if expected_base_sha and base_sha != expected_base_sha:
+        details.append(f"destination SHA `{base_sha}` is not authorized; expected `{expected_base_sha}`.")
+
+    expires_after = str(policy.get("expires_after", ""))
+    if expires_after:
+        try:
+            expires = datetime.fromisoformat(expires_after.replace("Z", "+00:00"))
+            if datetime.now(timezone.utc) > expires:
+                details.append(f"baseline authorization expired at `{expires_after}`.")
+        except ValueError:
+            details.append(f"baseline authorization expiry `{expires_after}` is invalid.")
+
+    minimum_changed = int(policy.get("minimum_changed_files", 0) or 0)
+    if len(ctx.changed_files) < minimum_changed:
+        details.append(f"changed-file count `{len(ctx.changed_files)}` is below baseline minimum `{minimum_changed}`.")
+
+    marker = str(policy.get("required_pr_body_marker", ""))
+    if marker and marker not in (ctx.pr_body or ""):
+        details.append(f"PR body is missing required baseline marker `{marker}`.")
+
+    return not details, details, policy
+
+
+def baseline_active(ctx: PRContext) -> bool:
+    cache = context_cache(ctx)
+    return bool(cache.get("baseline_authorized"))
+
+
+def baseline_policy_settings(ctx: PRContext) -> dict[str, Any]:
+    return dict(context_cache(ctx).get("baseline_policy") or baseline_policy(ctx))
+
+
+def baseline_relaxations(ctx: PRContext) -> set[str]:
+    return set(baseline_policy_settings(ctx).get("relaxations", []) or [])
+
+
+def baseline_allows(ctx: PRContext, relaxation: str) -> bool:
+    return baseline_active(ctx) and relaxation in baseline_relaxations(ctx)
+
+
+def gate_baseline_alignment(ctx: PRContext, git_context: dict[str, Any]) -> list[CheckResult]:
+    authorized, details, policy = baseline_authorization(ctx, git_context)
+    cache = context_cache(ctx)
+    cache["baseline_authorized"] = authorized
+    cache["baseline_policy"] = policy
+    cache["baseline_authorization_details"] = details
+    if not baseline_requested(ctx):
+        return [passed("Baseline Alignment", None, "One-time baseline alignment mode was not requested.")]
+    if not authorized:
+        return [failed("Baseline Alignment", None, "One-time baseline alignment authorization failed closed.", details, score=30)]
+    evidence = [
+        f"repository={resolve_repository_name(ctx)}",
+        f"source_branch={ctx.head_ref or 'unknown'}",
+        f"target_branch={ctx.base_ref or 'unknown'}",
+        f"source_sha={resolve_head_sha(ctx.repo, git_context)}",
+        f"destination_sha={git_context.get('base_sha') or 'unknown'}",
+        f"changed_files={len(ctx.changed_files)}",
+        f"additions={ctx.additions}",
+        f"deletions={ctx.deletions}",
+        "mode=BASELINE ALIGNMENT PREFLIGHT",
+    ]
+    evidence.extend(f"relaxed={item}" for item in sorted(baseline_relaxations(ctx)))
+    return [passed("Baseline Alignment", None, "BASELINE ALIGNMENT PREFLIGHT authorized by central one-time policy.", evidence)]
+
+
 def gate_config_validation(ctx: PRContext) -> list[CheckResult]:
     if ctx.config_violations:
         return [failed("Config Validation", None, "Repository QA configuration failed immutable policy validation.", ctx.config_violations, score=25)]
@@ -826,6 +949,7 @@ def gate_config_validation(ctx: PRContext) -> list[CheckResult]:
 
 def gate_repository_integrity(ctx: PRContext, git_context: dict[str, Any]) -> list[CheckResult]:
     findings: list[str] = []
+    relaxed: list[str] = []
     if ctx.diff_error:
         findings.append(ctx.diff_error)
     allowed_hidden = set(ctx.policy.get("allowed_hidden_files", []))
@@ -843,10 +967,15 @@ def gate_repository_integrity(ctx: PRContext, git_context: dict[str, Any]) -> li
         if not is_approved_governance_asset(ctx, rel):
             hidden_parts = [part for part in parts if part.startswith(".") and part not in {".github"}]
             for hidden in hidden_parts:
-                if hidden not in allowed_hidden and not is_react_native_hidden_text_exception(ctx, rel):
+                if is_baseline_safe_environment_file(ctx, rel):
+                    relaxed.append(f"{rel}: baseline-approved environment template/test fixture classification.")
+                elif hidden not in allowed_hidden and not is_react_native_hidden_text_exception(ctx, rel):
                     findings.append(f"{rel}: unexpected hidden file or directory `{hidden}`.")
         if any(part in generated_components for part in parts) or match_any(rel, generated_patterns):
-            findings.append(f"{rel}: generated artifact path changed.")
+            if baseline_allows(ctx, "generated_static_baseline_content"):
+                relaxed.append(f"{rel}: generated/static baseline content allowed for one-time baseline.")
+            else:
+                findings.append(f"{rel}: generated artifact path changed.")
         if path.is_symlink():
             target = os.readlink(path)
             findings.append(f"{rel}: symlink changed; target `{target}` requires manual security review.")
@@ -855,7 +984,10 @@ def gate_repository_integrity(ctx: PRContext, git_context: dict[str, Any]) -> li
             if size > max_bytes:
                 findings.append(f"{rel}: oversized file ({size} bytes).")
             if is_binary_file(path) and path.suffix.lower() not in allowed_binary and not is_react_native_binary_bootstrap_exception(ctx, rel):
-                findings.append(f"{rel}: binary file type is not allowed.")
+                if is_baseline_allowed_binary(ctx, rel):
+                    relaxed.append(f"{rel}: baseline-approved binary asset classification.")
+                else:
+                    findings.append(f"{rel}: binary file type is not allowed.")
             if is_lfs_pointer(path):
                 findings.append(f"{rel}: Git LFS pointer changed; actual object is not available for local scanning.")
     if git_context.get("is_git_repo"):
@@ -865,6 +997,8 @@ def gate_repository_integrity(ctx: PRContext, git_context: dict[str, Any]) -> li
                 findings.append(f"{rel}: submodule/gitlink changed.")
     if findings:
         return [failed("Repository Integrity", None, "Repository integrity checks failed.", findings[:60], score=25)]
+    if relaxed:
+        return [warning("Repository Integrity", None, "Baseline-only repository integrity relaxations applied; secret, binary safety, and path traversal checks remain active.", relaxed[:60])]
     return [passed("Repository Integrity", None, "No symlink, submodule, LFS, Unicode, hidden-file, generated-artifact, binary, or path traversal issues detected.")]
 
 
@@ -876,6 +1010,37 @@ def is_lfs_pointer(path: Path) -> bool:
     except UnicodeDecodeError:
         return False
     return text.startswith("version https://git-lfs.github.com/spec/v1")
+
+
+def is_baseline_safe_environment_file(ctx: PRContext, rel: str) -> bool:
+    if not baseline_allows(ctx, "environment_fixture_classification"):
+        return False
+    settings = baseline_policy_settings(ctx).get("environment_files", {}) or {}
+    allowed = set(settings.get("safe_paths", []) or [])
+    if rel not in allowed:
+        return False
+    path = ctx.repo / rel
+    if not path.is_file() or is_binary_file(path):
+        return False
+    text = read_text(path)
+    required_by_path = settings.get("required_markers_by_path", {}) or {}
+    required_markers = list(required_by_path.get(rel, []) or settings.get("required_markers", []) or [])
+    if required_markers and not all(str(marker) in text for marker in required_markers):
+        return False
+    forbidden_patterns = settings.get("forbidden_patterns", []) or []
+    return not any(re.search(str(pattern), text, flags=re.IGNORECASE) for pattern in forbidden_patterns)
+
+
+def is_baseline_allowed_binary(ctx: PRContext, rel: str) -> bool:
+    if not baseline_allows(ctx, "baseline_binary_assets"):
+        return False
+    settings = baseline_policy_settings(ctx).get("binary_assets", {}) or {}
+    allowed = set(settings.get("safe_paths", []) or [])
+    if rel not in allowed:
+        return False
+    max_bytes = int(settings.get("max_file_bytes", 0) or 0)
+    path = ctx.repo / rel
+    return path.is_file() and (not max_bytes or path.stat().st_size <= max_bytes)
 
 
 def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list[CheckResult]:
@@ -893,7 +1058,10 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
     commit_patterns = ctx.config.get("commit_messages", {}).get("allowed_patterns", [])
     invalid_commits = [message for message in commits if not any(re.match(pattern, message) for pattern in commit_patterns)]
     if invalid_commits:
-        results.append(failed("Repository Hygiene", None, "Commit messages do not match convention.", invalid_commits[:20], score=8))
+        if baseline_allows(ctx, "historical_commit_volume"):
+            results.append(warning("Repository Hygiene", None, "Historical baseline commit messages predate current convention; future commits remain governed.", invalid_commits[:20]))
+        else:
+            results.append(failed("Repository Hygiene", None, "Commit messages do not match convention.", invalid_commits[:20], score=8))
     elif commits:
         results.append(passed("Repository Hygiene", None, "Commit messages match convention."))
     else:
@@ -914,7 +1082,9 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
             unexpected_merge_commits = [
                 sha for sha in merge_commits if not merge_commit_matches_second_parent_tree(ctx.repo, sha)
             ]
-        if unexpected_merge_commits and not ctx.config.get("repository", {}).get("allow_merge_commits", False):
+        if unexpected_merge_commits and baseline_allows(ctx, "historical_commit_volume"):
+            results.append(warning("Repository Hygiene", None, "Historical baseline merge commits predate current promotion policy; future PRs remain governed.", unexpected_merge_commits[:20]))
+        elif unexpected_merge_commits and not ctx.config.get("repository", {}).get("allow_merge_commits", False):
             results.append(failed("Repository Hygiene", None, "Accidental merge commits detected.", unexpected_merge_commits[:20], score=8))
         elif merge_commits and canonical_branch_promotion(ctx):
             results.append(passed("Repository Hygiene", None, "Only governed branch-promotion merge commits detected."))
@@ -1011,7 +1181,86 @@ def run_gitleaks(ctx: PRContext, git_context: dict[str, Any], report_path: str) 
     outcome = ctx.run(command, cwd=ctx.repo)
     if outcome.ok:
         return passed("Secrets", None, "Gitleaks scan passed.")
-    return failed("Secrets", None, "Gitleaks detected secrets.", [outcome.concise_output()], score=40)
+    report = out_dir / "gitleaks.json"
+    allowed, unexpected, allowance_details = classify_gitleaks_findings(ctx, report)
+    if allowed and not unexpected:
+        return warning(
+            "Secrets",
+            None,
+            "Gitleaks executed and returned only centrally allowlisted baseline fixture fingerprints; future findings remain blocking.",
+            allowance_details[:60],
+        )
+    details = [outcome.concise_output()]
+    if unexpected:
+        details.extend(unexpected[:60])
+    return failed("Secrets", None, "Gitleaks detected secrets.", details, score=40)
+
+
+def classify_gitleaks_findings(ctx: PRContext, report: Path) -> tuple[bool, list[str], list[str]]:
+    if not report.exists():
+        return False, ["Gitleaks report was not generated."], []
+    try:
+        findings = json.loads(report.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return False, [f"Gitleaks report is invalid JSON: {exc}"], []
+    if not isinstance(findings, list):
+        return False, ["Gitleaks report is not a list."], []
+    if not findings:
+        return False, [], []
+    if not baseline_allows(ctx, "exact_gitleaks_fingerprint_allowlist"):
+        return False, [gitleaks_finding_summary(item) for item in findings if isinstance(item, dict)], []
+    allowed = baseline_policy_settings(ctx).get("gitleaks_allowlist", []) or []
+    unexpected: list[str] = []
+    allowed_details: list[str] = []
+    for raw in findings:
+        item = raw if isinstance(raw, dict) else {}
+        match = matching_gitleaks_allowance(item, allowed)
+        if not match:
+            unexpected.append(gitleaks_finding_summary(item))
+            continue
+        allowed_details.append(
+            f"{item.get('File', 'unknown')}:{item.get('StartLine', '?')} {item.get('RuleID', 'unknown')} "
+            f"fingerprint={item.get('Fingerprint', 'unknown')} justification={match.get('justification', 'baseline fixture')}"
+        )
+    return bool(allowed_details), unexpected, allowed_details
+
+
+def matching_gitleaks_allowance(item: dict[str, Any], allowlist: list[Any]) -> dict[str, Any] | None:
+    for candidate in allowlist:
+        if not isinstance(candidate, dict):
+            continue
+        fingerprint = str(candidate.get("fingerprint", ""))
+        if fingerprint and fingerprint != str(item.get("Fingerprint", "")):
+            continue
+        rule = str(candidate.get("rule_id", ""))
+        if rule and rule != str(item.get("RuleID", "")):
+            continue
+        path = str(candidate.get("path", ""))
+        if path and path != str(item.get("File", "")):
+            continue
+        line = candidate.get("line")
+        if line is not None and int(line) != int(item.get("StartLine") or 0):
+            continue
+        expires_after = str(candidate.get("expires_after", ""))
+        if expires_after and baseline_allowance_expired(expires_after):
+            continue
+        return candidate
+    return None
+
+
+def baseline_allowance_expired(expires_after: str) -> bool:
+    try:
+        expires = datetime.fromisoformat(expires_after.replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    return datetime.now(timezone.utc) > expires
+
+
+def gitleaks_finding_summary(item: dict[str, Any]) -> str:
+    return (
+        f"{item.get('File', 'unknown')}:{item.get('StartLine', '?')} "
+        f"{item.get('RuleID', 'unknown')} fingerprint={item.get('Fingerprint', 'unknown')}"
+    )
 
 
 def fallback_secret_scan(ctx: PRContext) -> tuple[list[str], list[str]]:
@@ -1029,7 +1278,7 @@ def fallback_secret_scan(ctx: PRContext) -> tuple[list[str], list[str]]:
         rel_findings: list[str] = []
         path = ctx.repo / rel
         name = Path(rel).name
-        if any(fnmatch.fnmatch(name, pattern) for pattern in env_patterns) and name not in allowed_env:
+        if any(fnmatch.fnmatch(name, pattern) for pattern in env_patterns) and name not in allowed_env and not is_baseline_safe_environment_file(ctx, rel):
             rel_findings.append(f"{rel}: environment file committed.")
         if name.endswith((".pem", ".key", ".p12", ".pfx")):
             rel_findings.append(f"{rel}: key or certificate container committed.")
@@ -1038,19 +1287,72 @@ def fallback_secret_scan(ctx: PRContext) -> tuple[list[str], list[str]]:
             continue
         texts = decoded_text_variants(path)
         for text in texts:
+            line_labels_found: set[str] = set()
+            for line in text.splitlines():
+                normalized = normalize_secret_text(line)
+                for label, pattern in regexes.items():
+                    if re.search(pattern, normalized):
+                        rel_findings.append(fallback_secret_finding(rel, label, line))
+                        line_labels_found.add(label)
+                for decoded in decode_base64_candidates(line, ctx.policy):
+                    for label, pattern in regexes.items():
+                        if re.search(pattern, decoded):
+                            decoded_label = f"base64-encoded {label}"
+                            rel_findings.append(fallback_secret_finding(rel, decoded_label, line))
+                            line_labels_found.add(decoded_label)
             normalized = normalize_secret_text(text)
             for label, pattern in regexes.items():
-                if re.search(pattern, normalized):
+                if label not in line_labels_found and re.search(pattern, normalized):
                     rel_findings.append(f"{rel}: {label}.")
             for decoded in decode_base64_candidates(text, ctx.policy):
                 for label, pattern in regexes.items():
-                    if re.search(pattern, decoded):
-                        rel_findings.append(f"{rel}: base64-encoded {label}.")
-        if is_approved_regression_fixture(ctx, rel):
+                    decoded_label = f"base64-encoded {label}"
+                    if decoded_label not in line_labels_found and re.search(pattern, decoded):
+                        rel_findings.append(f"{rel}: {decoded_label}.")
+        if baseline_allowed_fallback_secret_findings(ctx, rel, rel_findings, texts):
+            fixture_findings.extend(rel_findings)
+        elif is_approved_regression_fixture(ctx, rel):
             fixture_findings.extend(rel_findings)
         else:
             findings.extend(rel_findings)
     return sorted(set(findings)), sorted(set(fixture_findings))
+
+
+def fallback_secret_finding(rel: str, label: str, line: str) -> str:
+    line_sha256 = hashlib.sha256(line.strip().encode("utf-8")).hexdigest()
+    return f"{rel}: {label}. line_sha256={line_sha256}"
+
+
+def baseline_allowed_fallback_secret_findings(ctx: PRContext, rel: str, rel_findings: list[str], texts: list[str]) -> bool:
+    if not rel_findings or not baseline_allows(ctx, "exact_secret_fallback_allowlist"):
+        return False
+    allowlist = baseline_policy_settings(ctx).get("fallback_secret_allowlist", []) or []
+    for finding in rel_findings:
+        if not any(fallback_secret_allowance_matches(rel, finding, texts, item) for item in allowlist if isinstance(item, dict)):
+            return False
+    return True
+
+
+def fallback_secret_allowance_matches(rel: str, finding: str, texts: list[str], allowance: dict[str, Any]) -> bool:
+    if str(allowance.get("path", "")) != rel:
+        return False
+    label = str(allowance.get("label", ""))
+    if label and label not in finding:
+        return False
+    line_sha256 = str(allowance.get("line_sha256", ""))
+    if not line_sha256:
+        return False
+    expires_after = str(allowance.get("expires_after", ""))
+    if expires_after and baseline_allowance_expired(expires_after):
+        return False
+    finding_hash = re.search(r"line_sha256=([0-9a-f]{64})", finding)
+    if not finding_hash or finding_hash.group(1) != line_sha256:
+        return False
+    return any(
+        hashlib.sha256(line.strip().encode("utf-8")).hexdigest() == line_sha256
+        for text in texts
+        for line in text.splitlines()
+    )
 
 
 def repository_profile(ctx: PRContext) -> str:
@@ -1245,19 +1547,21 @@ def gate_database_safety(ctx: PRContext) -> list[CheckResult]:
     migrations = [path for path in ctx.changed_files if match_any(path, migration_patterns)]
     if not migrations:
         return [passed("Migration Risk", None, "No database migration files changed.")]
-    critical = []
-    high = []
-    medium = []
-    for rel in migrations:
-        text = read_text(ctx.repo / rel)
-        upper = text.upper()
-        collapsed = re.sub(r"[^A-Z]+", "", upper)
-        if any(token in collapsed for token in ["DROPTABLE", "DROPDATABASE", "DROPSCHEMA", "TRUNCATE", "DELETEFROM"]) or re.search(r"drop(Column|IfExists|Table|Database|Schema)", text):
-            critical.append(rel)
-        elif re.search(r"\bDROP\s+COLUMN\b|\bRENAME\s+COLUMN\b|\bALTER\s+TABLE\b|dropColumn|renameColumn", text, re.IGNORECASE):
-            high.append(rel)
-        elif re.search(r"\bCREATE\s+TABLE\b|\bADD\s+COLUMN\b|\bCREATE\s+INDEX\b|createTable|addColumn", text, re.IGNORECASE):
-            medium.append(rel)
+    if baseline_allows(ctx, "historical_migration_count"):
+        critical, high, medium = classify_migration_risk(ctx, migrations)
+        if critical:
+            return [failed("Migration Risk", None, "CRITICAL migration risk: destructive database operations detected.", critical[:30], score=30)]
+        rollback_destructive = baseline_rollback_destructive_migrations(ctx, migrations)
+        details = [
+            f"migration_count={len(migrations)}",
+            "baseline classification only; fresh migration execution remains required in application QA.",
+            "forward-path destructive migration detection ran; rollback/down-method drops remain production DB review evidence.",
+        ]
+        if rollback_destructive:
+            details.append(f"rollback_destructive_count={len(rollback_destructive)}")
+        details.extend((high or medium or migrations)[:30])
+        return [warning("Migration Risk", None, "Historical baseline migration volume classified for one-time review; migration execution remains mandatory.", details)]
+    critical, high, medium = classify_migration_risk(ctx, migrations)
     if critical:
         return [failed("Migration Risk", None, "CRITICAL migration risk: destructive database operations detected.", critical[:30], score=30)]
     if high:
@@ -1265,6 +1569,45 @@ def gate_database_safety(ctx: PRContext) -> list[CheckResult]:
     if medium:
         return [warning("Migration Risk", None, "MEDIUM migration risk: additive schema changes detected.", medium[:30])]
     return [warning("Migration Risk", None, "LOW migration risk: migration files changed without obvious destructive operations.", migrations[:30])]
+
+
+def classify_migration_risk(ctx: PRContext, migrations: list[str]) -> tuple[list[str], list[str], list[str]]:
+    critical = []
+    high = []
+    medium = []
+    for rel in migrations:
+        text = read_text(ctx.repo / rel)
+        risk_text = migration_risk_text(ctx, text)
+        upper = risk_text.upper()
+        collapsed = re.sub(r"[^A-Z]+", "", upper)
+        if any(token in collapsed for token in ["DROPTABLE", "DROPDATABASE", "DROPSCHEMA", "TRUNCATE", "DELETEFROM"]) or re.search(r"drop(Column|IfExists|Table|Database|Schema)", risk_text):
+            critical.append(rel)
+        elif re.search(r"\bDROP\s+COLUMN\b|\bRENAME\s+COLUMN\b|\bALTER\s+TABLE\b|dropColumn|renameColumn", risk_text, re.IGNORECASE):
+            high.append(rel)
+        elif re.search(r"\bCREATE\s+TABLE\b|\bADD\s+COLUMN\b|\bCREATE\s+INDEX\b|createTable|addColumn", risk_text, re.IGNORECASE):
+            medium.append(rel)
+    return critical, high, medium
+
+
+def migration_risk_text(ctx: PRContext, text: str) -> str:
+    if baseline_allows(ctx, "historical_migration_count"):
+        parts = re.split(r"(?i)\bfunction\s+down\s*\(", text, maxsplit=1)
+        return parts[0]
+    return text
+
+
+def baseline_rollback_destructive_migrations(ctx: PRContext, migrations: list[str]) -> list[str]:
+    risky: list[str] = []
+    for rel in migrations:
+        text = read_text(ctx.repo / rel)
+        parts = re.split(r"(?i)\bfunction\s+down\s*\(", text, maxsplit=1)
+        if len(parts) < 2:
+            continue
+        down_text = parts[1]
+        collapsed = re.sub(r"[^A-Z]+", "", down_text.upper())
+        if any(token in collapsed for token in ["DROPTABLE", "DROPDATABASE", "DROPSCHEMA", "TRUNCATE", "DELETEFROM"]) or re.search(r"drop(Column|IfExists|Table|Database|Schema)", down_text):
+            risky.append(rel)
+    return risky
 
 
 def gate_documentation(ctx: PRContext) -> list[CheckResult]:
@@ -1316,6 +1659,12 @@ def gate_risk(ctx: PRContext, existing_results: list[CheckResult]) -> list[Check
         f"Deletions: {ctx.deletions}",
         f"Repository criticality: {ctx.config.get('repository', {}).get('criticality', 'medium')}",
     ]
+    threshold_findings = risk_threshold_findings(ctx)
+    if threshold_findings:
+        return [failed("Risk Engine", None, "PR exceeds central size thresholds.", details + threshold_findings, score=max(score, 85))]
+    if baseline_active(ctx) and score >= ctx.threshold("risk_fail", 85):
+        details.append("Baseline mode active: size/history risk remains visible for human review but is not a standalone blocker.")
+        return [warning("Risk Engine", None, f"Overall baseline PR risk is {level}: {score} / 100.", details)]
     if score >= ctx.threshold("risk_fail", 85):
         return [failed("Risk Engine", None, f"Overall PR risk is {level}: {score} / 100.", details, score=score)]
     if score >= ctx.threshold("risk_warning", 40):
@@ -1323,15 +1672,26 @@ def gate_risk(ctx: PRContext, existing_results: list[CheckResult]) -> list[Check
     return [passed("Risk Engine", None, f"Overall PR risk is {level}: {score} / 100.", details)]
 
 
+def risk_threshold_findings(ctx: PRContext) -> list[str]:
+    findings: list[str] = []
+    max_changed = ctx.threshold("max_changed_files", 200)
+    if not baseline_allows(ctx, "changed_file_count") and len(ctx.changed_files) > max_changed:
+        findings.append(f"changed_files={len(ctx.changed_files)} exceeds max_changed_files={max_changed}")
+    max_additions = ctx.threshold("max_additions", 5000)
+    if not baseline_allows(ctx, "diff_size") and ctx.additions > max_additions:
+        findings.append(f"additions={ctx.additions} exceeds max_additions={max_additions}")
+    return findings
+
+
 def calculate_risk_score(ctx: PRContext, results: list[CheckResult]) -> int:
     score = {"low": 0, "medium": 5, "high": 12, "critical": 20}.get(str(ctx.config.get("repository", {}).get("criticality", "medium")).lower(), 5)
-    if len(ctx.changed_files) > ctx.threshold("max_changed_files", 200):
+    if not baseline_allows(ctx, "changed_file_count") and len(ctx.changed_files) > ctx.threshold("max_changed_files", 200):
         score += 15
-    elif len(ctx.changed_files) > 50:
+    elif not baseline_allows(ctx, "changed_file_count") and len(ctx.changed_files) > 50:
         score += 8
-    if ctx.additions > ctx.threshold("max_additions", 5000):
+    if not baseline_allows(ctx, "diff_size") and ctx.additions > ctx.threshold("max_additions", 5000):
         score += 15
-    elif ctx.additions > 1000:
+    elif not baseline_allows(ctx, "diff_size") and ctx.additions > 1000:
         score += 8
     if any(match_any(path, ctx.config.get("repository", {}).get("protected_paths", [])) for path in ctx.changed_files):
         score += 12
@@ -1556,6 +1916,57 @@ def summarize(results: list[CheckResult], technologies: dict[str, dict[str, Any]
         "merge_readiness": "READY FOR HUMAN REVIEW" if overall == PASS else "NOT READY FOR HUMAN REVIEW",
         "risk_score": extract_risk_score(risk_result.message if risk_result else ""),
         "policy_id": ctx.policy.get("policy_id", "unknown"),
+        "baseline_alignment": build_baseline_summary(ctx, git_context, results),
+    }
+
+
+def build_baseline_summary(ctx: PRContext, git_context: dict[str, Any], results: list[CheckResult]) -> dict[str, Any]:
+    migration_patterns = ["**/migrations/**", "**/migration/**", "database/**", "db/migrate/**", "**/*.sql"]
+    env_files = [
+        rel
+        for rel in ctx.changed_files
+        if fnmatch.fnmatch(Path(rel).name, ".env") or fnmatch.fnmatch(Path(rel).name, ".env.*")
+    ]
+    safe_env = [rel for rel in env_files if is_baseline_safe_environment_file(ctx, rel)]
+    unsafe_env = sorted(set(env_files) - set(safe_env))
+    workflow_changes = [rel for rel in ctx.changed_files if rel.startswith(".github/workflows/")]
+    governance_files = [
+        rel
+        for rel in ctx.changed_files
+        if rel in {"CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS", ".gitleaks.toml"}
+        or rel.startswith(("policy/", "schemas/", ".github/"))
+    ]
+    binary_files = [
+        rel
+        for rel in ctx.changed_files
+        if (ctx.repo / rel).is_file() and is_binary_file(ctx.repo / rel)
+    ]
+    return {
+        "requested": baseline_requested(ctx),
+        "authorized": baseline_active(ctx),
+        "authorization_details": context_cache(ctx).get("baseline_authorization_details", []),
+        "repository": resolve_repository_name(ctx),
+        "source_branch": ctx.head_ref or "",
+        "target_branch": ctx.base_ref or "",
+        "source_sha": resolve_head_sha(ctx.repo, git_context),
+        "destination_sha": git_context.get("base_sha") or "",
+        "changed_files": len(ctx.changed_files),
+        "additions": ctx.additions,
+        "deletions": ctx.deletions,
+        "migration_count": len([rel for rel in ctx.changed_files if match_any(rel, migration_patterns)]),
+        "binary_count": len(binary_files),
+        "binary_files": binary_files[:50],
+        "environment_files": env_files[:50],
+        "safe_environment_files": safe_env[:50],
+        "unsafe_environment_files": unsafe_env[:50],
+        "workflow_changes": workflow_changes[:50],
+        "governance_files": governance_files[:50],
+        "relaxed_checks": sorted(baseline_relaxations(ctx)) if baseline_active(ctx) else [],
+        "non_relaxed_checks": BASELINE_NON_RELAXABLE_CHECKS,
+        "secret_scan_status": aggregate_status([result for result in results if result.gate == "Secrets"]),
+        "dependency_audit_status": aggregate_status([result for result in results if result.gate == "Dependencies"]),
+        "test_status": aggregate_status([result for result in results if result.gate == "Tests"]),
+        "migration_status": aggregate_status([result for result in results if result.gate == "Migration Risk"]),
     }
 
 
@@ -1758,6 +2169,36 @@ def render_markdown_report(summary: dict[str, Any], results: list[CheckResult]) 
     for _, display in GATE_ORDER:
         lines.append(f"| {markdown_escape(display)} | {summary['gate_statuses'].get(display, SKIP)} |")
     lines.extend(["", f"Risk Score: {summary['risk_score']} / 100", "", f"Overall Result: {summary['overall_result']}", "", f"Merge Readiness: {summary['merge_readiness']}", ""])
+    baseline = summary.get("baseline_alignment") or {}
+    if baseline.get("requested"):
+        lines.extend(
+            [
+                "## BASELINE ALIGNMENT PREFLIGHT",
+                f"- Authorization: {'AUTHORIZED' if baseline.get('authorized') else 'FAILED CLOSED'}",
+                f"- Repository: `{markdown_escape(baseline.get('repository', ''))}`",
+                f"- Source: `{markdown_escape(baseline.get('source_branch', '') or 'unknown')}` @ `{markdown_escape(baseline.get('source_sha', '') or 'unknown')}`",
+                f"- Target: `{markdown_escape(baseline.get('target_branch', '') or 'unknown')}` @ `{markdown_escape(baseline.get('destination_sha', '') or 'unknown')}`",
+                f"- Size: {baseline.get('changed_files', 0)} files, +{baseline.get('additions', 0)} / -{baseline.get('deletions', 0)}",
+                f"- Migrations: {baseline.get('migration_count', 0)}",
+                f"- Binary files: {baseline.get('binary_count', 0)}",
+                f"- Environment files: {len(baseline.get('environment_files', []))} total, {len(baseline.get('safe_environment_files', []))} classified as safe templates/fixtures, {len(baseline.get('unsafe_environment_files', []))} unsafe/unclassified",
+                f"- Workflow changes: {len(baseline.get('workflow_changes', []))}",
+                f"- Governance files: {len(baseline.get('governance_files', []))}",
+                f"- Secret scan: {baseline.get('secret_scan_status', SKIP)}",
+                f"- Dependency audit: {baseline.get('dependency_audit_status', SKIP)}",
+                f"- Tests: {baseline.get('test_status', SKIP)}",
+                f"- Migration validation gate: {baseline.get('migration_status', SKIP)}",
+                f"- Relaxed checks: {markdown_escape(', '.join(baseline.get('relaxed_checks', [])) or 'none')}",
+                f"- Non-relaxed checks: {markdown_escape(', '.join(baseline.get('non_relaxed_checks', [])))}",
+            ]
+        )
+        for detail in baseline.get("authorization_details", [])[:8]:
+            lines.append(f"- Authorization detail: {markdown_escape(str(detail))}")
+        for rel in baseline.get("workflow_changes", [])[:8]:
+            lines.append(f"- Workflow change: `{markdown_escape(rel)}`")
+        for rel in baseline.get("unsafe_environment_files", [])[:8]:
+            lines.append(f"- Unsafe/unclassified environment file: `{markdown_escape(rel)}`")
+        lines.append("")
     findings = [result for result in results if result.status in {FAIL, WARNING}]
     if findings:
         lines.append("## Findings")
