@@ -82,6 +82,22 @@ BASELINE_NON_RELAXABLE_CHECKS = [
     "dangerous credential files and suspicious binaries",
 ]
 
+NEW_FINDING = "NEW_FINDING"
+INHERITED_BASELINE = "INHERITED_BASELINE"
+AUTHORIZED_OVERLAY = "AUTHORIZED_OVERLAY"
+NON_INHERITABLE_SECURITY_FINDING = "NON_INHERITABLE_SECURITY_FINDING"
+
+BASELINE_STATIC_ASSET_PATTERNS = [
+    "public/**",
+    "assets/**",
+    "static/**",
+    "resources/**/*.min.js",
+    "resources/**/*.min.css",
+    "**/*.min.js",
+    "**/*.min.css",
+    "**/*.map",
+]
+
 ADAPTER_EXTENSIONS = {
     "php": {".php"},
     "node": {".js", ".jsx", ".ts", ".tsx"},
@@ -744,6 +760,54 @@ def filter_diff_check_output(ctx: PRContext, output: str) -> tuple[list[str], li
     return blocking, ignored
 
 
+def split_path_line(value: str) -> tuple[str, int]:
+    parts = value.rsplit(":", 1)
+    if len(parts) != 2:
+        return value, 0
+    try:
+        return parts[0], int(parts[1])
+    except ValueError:
+        return value, 0
+
+
+def read_line(path: Path, line_number: int) -> str:
+    if line_number <= 0 or not path.is_file() or is_binary_file(path):
+        return ""
+    try:
+        return read_text(path).splitlines()[line_number - 1]
+    except IndexError:
+        return ""
+
+
+def classify_diff_check_output(ctx: PRContext, output: str) -> tuple[list[str], list[str]]:
+    blocking: list[str] = []
+    inherited: list[str] = []
+    lines = output.splitlines()
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        match = re.match(r"^([^:]+):([0-9]+):", line)
+        if not match:
+            if line.strip():
+                blocking.append(line)
+            index += 1
+            continue
+        rel = match.group(1)
+        line_number = int(match.group(2))
+        preview = lines[index + 1] if index + 1 < len(lines) and lines[index + 1].startswith("+") else ""
+        source_line = read_line(ctx.repo / rel, line_number)
+        if baseline_inherited_path(ctx, rel, "whitespace", line=source_line):
+            inherited.append(f"{line}: INHERITED_BASELINE whitespace.")
+            if preview:
+                inherited.append(preview)
+        else:
+            blocking.append(line)
+            if preview:
+                blocking.append(preview)
+        index += 2 if preview else 1
+    return blocking, inherited
+
+
 def run_static_preflight(ctx: PRContext, git_context: dict[str, Any], technologies: dict[str, dict[str, Any]], report_path: str) -> list[CheckResult]:
     results: list[CheckResult] = []
     results.extend(gate_baseline_alignment(ctx, git_context))
@@ -1044,6 +1108,157 @@ def baseline_allows(ctx: PRContext, relaxation: str) -> bool:
     return baseline_active(ctx) and relaxation in baseline_relaxations(ctx)
 
 
+def baseline_source_sha(ctx: PRContext) -> str:
+    if not baseline_active(ctx):
+        return ""
+    policy = baseline_policy_settings(ctx)
+    overlay = policy.get("source_overlay", {}) or {}
+    return str(overlay.get("approved_application_source_sha") or policy.get("expected_head_sha") or "")
+
+
+def baseline_base_sha(ctx: PRContext) -> str:
+    if not baseline_active(ctx):
+        return ""
+    return str(baseline_policy_settings(ctx).get("expected_base_sha") or "")
+
+
+def baseline_candidate_head_sha(ctx: PRContext) -> str:
+    cache = context_cache(ctx)
+    key = "baseline_candidate_head_sha"
+    if key not in cache:
+        cache[key] = run_git(ctx.repo, ["rev-parse", "HEAD"]).strip()
+    return str(cache.get(key) or "")
+
+
+def baseline_tree_blob_ids(ctx: PRContext, ref: str) -> dict[str, str]:
+    cache = context_cache(ctx)
+    key = ("baseline_tree_blob_ids", ref)
+    if key in cache:
+        return dict(cache[key])
+    entries: dict[str, str] = {}
+    if ref and commit_exists(ctx.repo, ref):
+        completed = subprocess.run(["git", "ls-tree", "-r", "-z", ref], cwd=ctx.repo, capture_output=True, text=False, check=False)
+        if completed.returncode == 0:
+            for raw in completed.stdout.split(b"\0"):
+                if not raw:
+                    continue
+                meta, _, path = raw.partition(b"\t")
+                parts = meta.decode("utf-8", errors="replace").split()
+                if len(parts) >= 3 and parts[1] == "blob":
+                    entries[path.decode("utf-8", errors="replace")] = parts[2]
+    cache[key] = dict(entries)
+    return entries
+
+
+def baseline_read_tree_file(ctx: PRContext, ref: str, rel: str) -> str:
+    cache = context_cache(ctx)
+    key = ("baseline_read_tree_file", ref, rel)
+    if key not in cache:
+        cache[key] = read_tree_file(ctx.repo, ref, rel)
+    return str(cache.get(key) or "")
+
+
+def baseline_overlay_allowed_paths(ctx: PRContext) -> set[str]:
+    if not baseline_active(ctx):
+        return set()
+    overlay = baseline_policy_settings(ctx).get("source_overlay", {}) or {}
+    return {str(path) for path in overlay.get("allowed_paths", []) or []}
+
+
+def baseline_finding_classification(ctx: PRContext, rel: str, category: str, *, line: str = "") -> dict[str, str]:
+    cache_key = ("baseline_finding_classification", rel, category, hashlib.sha256(line.encode("utf-8")).hexdigest() if line else "")
+    cache = context_cache(ctx)
+    if cache_key in cache:
+        return dict(cache[cache_key])
+
+    def remember(result: dict[str, str]) -> dict[str, str]:
+        cache[cache_key] = dict(result)
+        return result
+
+    if not baseline_active(ctx):
+        return remember({"classification": NEW_FINDING, "reason": "baseline inactive"})
+    if category in {"confirmed_secret", "unsafe_binary", "path_traversal", "symlink", "submodule", "lfs"}:
+        return remember({"classification": NON_INHERITABLE_SECURITY_FINDING, "reason": f"{category} is non-inheritable"})
+    if rel in baseline_overlay_allowed_paths(ctx):
+        return remember(baseline_overlay_classification(ctx, rel))
+    source_sha = baseline_source_sha(ctx)
+    head_sha = baseline_candidate_head_sha(ctx)
+    if not source_sha or not head_sha or not commit_exists(ctx.repo, source_sha):
+        return remember({"classification": NEW_FINDING, "reason": "approved source unavailable"})
+    source_blobs = baseline_tree_blob_ids(ctx, source_sha)
+    head_blobs = baseline_tree_blob_ids(ctx, head_sha)
+    source_blob = source_blobs.get(rel, "")
+    head_blob = head_blobs.get(rel, "")
+    if not source_blob:
+        return remember({"classification": NEW_FINDING, "reason": "path absent from approved source"})
+    if not head_blob:
+        return remember({"classification": NEW_FINDING, "reason": "path absent from candidate"})
+    if source_blob != head_blob:
+        return remember({"classification": NEW_FINDING, "reason": "candidate blob differs from approved source"})
+    if line and line not in baseline_read_tree_file(ctx, source_sha, rel):
+        return remember({"classification": NEW_FINDING, "reason": "finding line is not present in approved source blob"})
+    return remember({
+        "classification": INHERITED_BASELINE,
+        "reason": f"path/blob matches approved source {source_sha}",
+        "candidate_blob": head_blob,
+        "approved_source_blob": source_blob,
+        "category": category,
+    })
+
+
+def baseline_overlay_classification(ctx: PRContext, rel: str) -> dict[str, str]:
+    policy = baseline_policy_settings(ctx)
+    overlay = policy.get("source_overlay", {}) or {}
+    details = validate_baseline_overlay_path(
+        ctx,
+        baseline_source_sha(ctx),
+        baseline_candidate_head_sha(ctx),
+        baseline_base_sha(ctx),
+        rel,
+        (overlay.get("paths", {}) or {}).get(rel) or {},
+    )
+    if details:
+        return {"classification": NEW_FINDING, "reason": "; ".join(details)}
+    return {"classification": AUTHORIZED_OVERLAY, "reason": "matches exact source+overlay authorization"}
+
+
+def baseline_classified_detail(ctx: PRContext, rel: str, category: str, message: str, *, line: str = "") -> tuple[bool, str]:
+    classification = baseline_finding_classification(ctx, rel, category, line=line)
+    state = classification["classification"]
+    if state in {INHERITED_BASELINE, AUTHORIZED_OVERLAY}:
+        return True, f"{rel}: {state} {category}; {message}"
+    return False, f"{rel}: {message}"
+
+
+def append_or_relax_baseline_finding(
+    ctx: PRContext,
+    findings: list[str],
+    relaxed: list[str],
+    rel: str,
+    category: str,
+    message: str,
+    *,
+    line: str = "",
+) -> None:
+    can_relax, detail = baseline_classified_detail(ctx, rel, category, message, line=line)
+    if can_relax:
+        relaxed.append(detail)
+    else:
+        findings.append(detail)
+
+
+def baseline_inherited_path(ctx: PRContext, rel: str, category: str = "historical_content", *, line: str = "") -> bool:
+    return baseline_finding_classification(ctx, rel, category, line=line)["classification"] == INHERITED_BASELINE
+
+
+def baseline_authorized_overlay_path(ctx: PRContext, rel: str) -> bool:
+    return baseline_finding_classification(ctx, rel, "governance_overlay")["classification"] == AUTHORIZED_OVERLAY
+
+
+def baseline_inherited_or_overlay_path(ctx: PRContext, rel: str, category: str = "historical_content", *, line: str = "") -> bool:
+    return baseline_finding_classification(ctx, rel, category, line=line)["classification"] in {INHERITED_BASELINE, AUTHORIZED_OVERLAY}
+
+
 def gate_baseline_alignment(ctx: PRContext, git_context: dict[str, Any]) -> list[CheckResult]:
     authorized, details, policy = baseline_authorization(ctx, git_context)
     cache = context_cache(ctx)
@@ -1098,31 +1313,77 @@ def gate_repository_integrity(ctx: PRContext, git_context: dict[str, Any]) -> li
                 if is_baseline_safe_environment_file(ctx, rel):
                     relaxed.append(f"{rel}: baseline-approved environment template/test fixture classification.")
                 elif hidden not in allowed_hidden and not is_react_native_hidden_text_exception(ctx, rel):
-                    findings.append(f"{rel}: unexpected hidden file or directory `{hidden}`.")
+                    append_or_relax_baseline_finding(
+                        ctx,
+                        findings,
+                        relaxed,
+                        rel,
+                        "hidden_file",
+                        f"unexpected hidden file or directory `{hidden}`.",
+                    )
         if any(part in generated_components for part in parts) or match_any(rel, generated_patterns):
-            if baseline_allows(ctx, "generated_static_baseline_content"):
-                relaxed.append(f"{rel}: generated/static baseline content allowed for one-time baseline.")
-            else:
-                findings.append(f"{rel}: generated artifact path changed.")
+            append_or_relax_baseline_finding(
+                ctx,
+                findings,
+                relaxed,
+                rel,
+                "generated_static_baseline_content",
+                "generated artifact path changed.",
+            )
         if path.is_symlink():
             target = os.readlink(path)
-            findings.append(f"{rel}: symlink changed; target `{target}` requires manual security review.")
+            append_or_relax_baseline_finding(
+                ctx,
+                findings,
+                relaxed,
+                rel,
+                "symlink",
+                f"symlink changed; target `{target}` requires manual security review.",
+            )
         if path.is_file():
             size = path.stat().st_size
             if size > max_bytes:
-                findings.append(f"{rel}: oversized file ({size} bytes).")
+                append_or_relax_baseline_finding(
+                    ctx,
+                    findings,
+                    relaxed,
+                    rel,
+                    "oversized_file",
+                    f"oversized file ({size} bytes).",
+                )
             if is_binary_file(path) and path.suffix.lower() not in allowed_binary and not is_react_native_binary_bootstrap_exception(ctx, rel):
                 if is_baseline_allowed_binary(ctx, rel):
                     relaxed.append(f"{rel}: baseline-approved binary asset classification.")
                 else:
-                    findings.append(f"{rel}: binary file type is not allowed.")
+                    append_or_relax_baseline_finding(
+                        ctx,
+                        findings,
+                        relaxed,
+                        rel,
+                        "binary_file",
+                        "binary file type is not allowed.",
+                    )
             if is_lfs_pointer(path):
-                findings.append(f"{rel}: Git LFS pointer changed; actual object is not available for local scanning.")
+                append_or_relax_baseline_finding(
+                    ctx,
+                    findings,
+                    relaxed,
+                    rel,
+                    "lfs",
+                    "Git LFS pointer changed; actual object is not available for local scanning.",
+                )
     if git_context.get("is_git_repo"):
         for rel in ctx.changed_files:
             mode = git_lines(ctx.repo, ["ls-files", "-s", "--", rel])
             if mode and mode[0].startswith("160000 "):
-                findings.append(f"{rel}: submodule/gitlink changed.")
+                append_or_relax_baseline_finding(
+                    ctx,
+                    findings,
+                    relaxed,
+                    rel,
+                    "submodule",
+                    "submodule/gitlink changed.",
+                )
     if findings:
         return [failed("Repository Integrity", None, "Repository integrity checks failed.", findings[:60], score=25)]
     if relaxed:
@@ -1147,6 +1408,8 @@ def is_baseline_safe_environment_file(ctx: PRContext, rel: str) -> bool:
     allowed = set(settings.get("safe_paths", []) or [])
     if rel not in allowed:
         return False
+    if not baseline_inherited_path(ctx, rel, "environment_fixture"):
+        return False
     path = ctx.repo / rel
     if not path.is_file() or is_binary_file(path):
         return False
@@ -1165,6 +1428,8 @@ def is_baseline_allowed_binary(ctx: PRContext, rel: str) -> bool:
     settings = baseline_policy_settings(ctx).get("binary_assets", {}) or {}
     allowed = set(settings.get("safe_paths", []) or [])
     if rel not in allowed:
+        return False
+    if not baseline_inherited_path(ctx, rel, "binary_asset"):
         return False
     max_bytes = int(settings.get("max_file_bytes", 0) or 0)
     path = ctx.repo / rel
@@ -1197,7 +1462,19 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
 
     merge_marker_hits = grep_text_files(ctx.repo, ctx.changed_files, r"^(<<<<<<<|=======|>>>>>>>)")
     if merge_marker_hits:
-        results.append(failed("Repository Hygiene", None, "Merge conflict markers found in changed files.", merge_marker_hits, score=20))
+        blocking_markers: list[str] = []
+        inherited_markers: list[str] = []
+        for hit in merge_marker_hits:
+            rel, line_no = split_path_line(hit)
+            line_text = read_line(ctx.repo / rel, line_no)
+            if match_any(rel, BASELINE_STATIC_ASSET_PATTERNS) and baseline_inherited_path(ctx, rel, "static_asset_marker", line=line_text):
+                inherited_markers.append(f"{hit}: INHERITED_BASELINE static asset marker-like content.")
+            else:
+                blocking_markers.append(hit)
+        if blocking_markers:
+            results.append(failed("Repository Hygiene", None, "Merge conflict markers found in changed files.", blocking_markers[:60], score=20))
+        if inherited_markers:
+            results.append(warning("Repository Hygiene", None, "Inherited baseline static assets contain marker-like text; future changes remain blocking.", inherited_markers[:60]))
     else:
         results.append(passed("Repository Hygiene", None, "No merge conflict markers found in changed files."))
 
@@ -1252,10 +1529,16 @@ def gate_git_validation(ctx: PRContext, git_context: dict[str, Any]) -> list[Che
         else:
             full_output = redact("\n".join(part for part in [outcome.stdout, outcome.stderr] if part).strip())
             blocking, ignored = filter_diff_check_output(ctx, full_output)
+            inherited_blocking: list[str] = []
+            if blocking and baseline_active(ctx):
+                blocking, inherited_blocking = classify_diff_check_output(ctx, "\n".join(blocking))
             if blocking:
                 results.append(failed("Git Validation", None, "`git diff --check` found whitespace or marker issues.", blocking[:30], score=10))
+            if inherited_blocking:
+                results.append(warning("Git Validation", None, "Inherited baseline whitespace detected; future whitespace changes remain blocking.", inherited_blocking[:60]))
             else:
-                results.append(passed("Git Validation", None, "`git diff --check` passed with only approved React Native Gradle wrapper batch line-ending findings.", ignored[:30]))
+                if not blocking:
+                    results.append(passed("Git Validation", None, "`git diff --check` passed with only approved React Native Gradle wrapper batch line-ending findings.", ignored[:30]))
     else:
         results.append(failed("Git Validation", None, "Git diff range was not available; failing closed.", score=20))
     crlf = []
@@ -1282,7 +1565,10 @@ def gate_secrets(ctx: PRContext, git_context: dict[str, Any], report_path: str) 
     elif results[0].status == PASS:
         results.append(passed("Secrets", None, "Fallback and encoded secret scans found no high-confidence issues."))
     if fixture_findings and not findings and results[0].status == PASS:
-        results.append(passed("Secrets", None, "Approved framework regression fixtures remain detectable and isolated.", fixture_findings[:60]))
+        if baseline_active(ctx):
+            results.append(warning("Secrets", None, "Inherited baseline secret-like false positives were classified; future findings remain blocking.", fixture_findings[:60]))
+        else:
+            results.append(passed("Secrets", None, "Approved framework regression fixtures remain detectable and isolated.", fixture_findings[:60]))
     return results
 
 
@@ -1456,9 +1742,22 @@ def baseline_allowed_fallback_secret_findings(ctx: PRContext, rel: str, rel_find
         return False
     allowlist = baseline_policy_settings(ctx).get("fallback_secret_allowlist", []) or []
     for finding in rel_findings:
-        if not any(fallback_secret_allowance_matches(rel, finding, texts, item) for item in allowlist if isinstance(item, dict)):
+        exact_match = any(fallback_secret_allowance_matches(rel, finding, texts, item) for item in allowlist if isinstance(item, dict))
+        inherited_false_positive = baseline_inherited_fallback_secret_false_positive(ctx, rel, finding)
+        if not exact_match and not inherited_false_positive:
             return False
     return True
+
+
+def baseline_inherited_fallback_secret_false_positive(ctx: PRContext, rel: str, finding: str) -> bool:
+    settings = baseline_policy_settings(ctx)
+    patterns = settings.get("fallback_secret_inherited_false_positive_paths", []) or []
+    labels = settings.get("fallback_secret_inherited_false_positive_labels", []) or ["generic credential assignment"]
+    if not patterns or not match_any(rel, [str(pattern) for pattern in patterns]):
+        return False
+    if labels and not any(str(label) in finding for label in labels):
+        return False
+    return baseline_inherited_path(ctx, rel, "secret_false_positive")
 
 
 def fallback_secret_allowance_matches(rel: str, finding: str, texts: list[str], allowance: dict[str, Any]) -> bool:
@@ -1550,32 +1849,46 @@ def gate_executable_classification(ctx: PRContext, technologies: dict[str, dict[
     for key in technologies:
         covered.update(ADAPTER_EXTENSIONS.get(key, set()))
     unknown = []
+    inherited = []
     for rel in ctx.changed_files:
         suffix = Path(rel).suffix
         if suffix in executable_extensions and suffix not in covered:
-            unknown.append(rel)
+            if baseline_inherited_path(ctx, rel, "executable_static_asset") and match_any(rel, BASELINE_STATIC_ASSET_PATTERNS):
+                inherited.append(f"{rel}: INHERITED_BASELINE static executable asset.")
+            else:
+                unknown.append(rel)
     if unknown:
         return [failed("Executable Classification", None, "Executable code changed without a supported technology adapter.", unknown[:50], score=18)]
+    if inherited:
+        return [warning("Executable Classification", None, "Inherited baseline static executable assets are classified; future modifications remain blocking.", inherited[:50])]
     return [passed("Executable Classification", None, "All changed executable code is covered by detected technology adapters.")]
 
 
 def gate_protected_resources(ctx: PRContext, git_context: dict[str, Any]) -> list[CheckResult]:
     protected_patterns = ctx.config.get("repository", {}).get("protected_paths", [])
     changed = [path for path in ctx.changed_files if match_any(path, protected_patterns)]
+    authorized_overlay = [path for path in changed if baseline_authorized_overlay_path(ctx, path)]
+    changed_for_standard_policy = [path for path in changed if path not in set(authorized_overlay)]
     codeowners_changed = any(path in {"CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"} for path in ctx.changed_files)
+    codeowners_changed_for_standard_policy = any(path in {"CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"} for path in changed_for_standard_policy)
     codeowners = load_base_codeowners(ctx.repo, git_context)
-    if codeowners_changed and not codeowners and is_codeowners_bootstrap_pr(ctx):
+    if codeowners_changed and authorized_overlay and not codeowners_changed_for_standard_policy:
+        return [warning("Protected Resources", None, "Authorized governance overlay passed exact source+overlay validation; required status checks and Review Policy gate remain mandatory.", authorized_overlay[:30])]
+    if codeowners_changed_for_standard_policy and not codeowners and is_codeowners_bootstrap_pr(ctx):
         return [warning("Protected Resources", None, "Base CODEOWNERS bootstrap detected; required status checks and Review Policy gate must enforce governance.", sorted(ctx.changed_files))]
-    if codeowners_changed:
+    if codeowners_changed_for_standard_policy:
         return [failed("Protected Resources", None, "CODEOWNERS changes are not allowed in PR QA guarded changes.", score=20)]
-    if not changed:
+    if not changed_for_standard_policy:
+        if authorized_overlay:
+            return [warning("Protected Resources", None, "Authorized governance overlay passed exact source+overlay validation; required status checks and Review Policy gate remain mandatory.", authorized_overlay[:30])]
         return [passed("Protected Resources", None, "No protected resources changed.")]
     if not codeowners:
-        return [failed("Protected Resources", None, "Protected resources changed but base-branch CODEOWNERS was not found.", changed[:30], score=14)]
-    uncovered = [path for path in changed if not codeowners_covers(path, codeowners)]
+        return [failed("Protected Resources", None, "Protected resources changed but base-branch CODEOWNERS was not found.", changed_for_standard_policy[:30], score=14)]
+    uncovered = [path for path in changed_for_standard_policy if not codeowners_covers(path, codeowners)]
     if uncovered:
         return [failed("Protected Resources", None, "Protected resources changed without base-branch CODEOWNERS coverage.", uncovered[:30], score=14)]
-    return [warning("Protected Resources", None, "Protected resources changed; required status checks and Review Policy gate must enforce governance.", changed[:30])]
+    details = changed_for_standard_policy[:30] + [f"{path}: AUTHORIZED_OVERLAY" for path in authorized_overlay[:30]]
+    return [warning("Protected Resources", None, "Protected resources changed; required status checks and Review Policy gate must enforce governance.", details)]
 
 
 def is_codeowners_bootstrap_pr(ctx: PRContext) -> bool:
@@ -1631,6 +1944,35 @@ def gate_deployment_safety(ctx: PRContext) -> list[CheckResult]:
     changed = [path for path in ctx.changed_files if match_any(path, deployment_patterns)]
     if not changed:
         return [passed("Deployment Risk", None, "No deployment-sensitive files changed.")]
+    if baseline_active(ctx):
+        blocking: list[str] = []
+        inherited: list[str] = []
+        overlay: list[str] = []
+        for path in changed:
+            text = read_text(ctx.repo / path)
+            lower = (path + "\n" + text).lower()
+            risky_tokens = [token for token in ["production", "prod", "ssh", "rsync", "sudo", "kubectl apply", "terraform apply", "tofu apply"] if token in lower]
+            if baseline_authorized_overlay_path(ctx, path):
+                overlay.append(f"{path}: AUTHORIZED_OVERLAY")
+            elif baseline_inherited_path(ctx, path, "deployment_sensitive"):
+                workflow_note = " inherited workflow introduction" if path.startswith(".github/workflows/") and path != ".github/workflows/pr-qa.yml" else ""
+                inherited.append(f"{path}: INHERITED_BASELINE deployment-sensitive content{workflow_note}" + (f" tokens={','.join(risky_tokens[:8])}" if risky_tokens else ""))
+            elif path.startswith(".github/workflows/") and path != ".github/workflows/pr-qa.yml":
+                blocking.append(f"{path}: workflow introduction is not part of the authorized governance overlay or approved source.")
+                blocking.extend(f"{path}: `{token}`" for token in risky_tokens[:8])
+            else:
+                blocking.append(f"{path}: new or modified deployment-sensitive content.")
+                blocking.extend(f"{path}: `{token}`" for token in risky_tokens[:8])
+        if blocking:
+            return [failed("Deployment Risk", None, "High-risk deployment change detected. Risk: CRITICAL.", blocking[:60], score=20)]
+        return [
+            warning(
+                "Deployment Risk",
+                None,
+                "Inherited baseline deployment-sensitive content requires human review; no production deployment is authorized by this QA result.",
+                (inherited + overlay)[:60],
+            )
+        ]
     framework_approved = [path for path in changed if is_approved_deployment_sensitive_asset(ctx, path)]
     if framework_approved and len(framework_approved) == len(changed):
         dangerous_tokens = []
@@ -2099,6 +2441,10 @@ def build_baseline_summary(ctx: PRContext, git_context: dict[str, Any], results:
 
 
 def resolve_repository_name(ctx: PRContext) -> str:
+    event_repository = ctx.event.get("repository", {}) or {}
+    event_full_name = str(event_repository.get("full_name") or "")
+    if event_full_name:
+        return event_full_name
     github_repository = os.environ.get("GITHUB_REPOSITORY")
     if github_repository and is_github_workspace_repo(ctx):
         return github_repository
