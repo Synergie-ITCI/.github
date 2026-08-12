@@ -150,7 +150,28 @@ class NodeAdapter(TechnologyAdapter):
         for root in roots:
             manager = detect_package_manager(root)
             prefix = f"{ctx.rel(root)}: "
-            if manager == "npm" and (root / "package-lock.json").exists() and command_exists("npm"):
+            package = read_json(root / "package.json")
+            scripts = package.get("scripts", {}) or {}
+            script = first_existing_script(
+                scripts,
+                list(ctx.adapter_config(self.key).get("dependency_audit_script_names", ["audit:ci"])),
+            )
+            if script:
+                results.extend(self._ensure_dependencies(ctx, root, "Dependencies"))
+                if any(result.status == FAIL for result in results[-1:]):
+                    continue
+                outcome = ctx.run(script_command(manager, script), cwd=root)
+                results.append(
+                    command_result(
+                        "Dependencies",
+                        self.name,
+                        outcome,
+                        f"{prefix}`{script}` dependency audit passed.",
+                        f"{prefix}`{script}` dependency audit failed.",
+                        score=18,
+                    )
+                )
+            elif manager == "npm" and (root / "package-lock.json").exists() and command_exists("npm"):
                 outcome = ctx.run(["npm", "audit", "--audit-level=high", "--json"], cwd=root)
             elif manager == "pnpm" and command_exists("pnpm"):
                 outcome = ctx.run(["pnpm", "audit", "--audit-level", "high", "--json"], cwd=root)
@@ -158,6 +179,8 @@ class NodeAdapter(TechnologyAdapter):
                 outcome = ctx.run(["yarn", "npm", "audit", "--recursive", "--severity", "high", "--json"], cwd=root)
             else:
                 results.append(failed("Dependencies", self.name, f"{prefix}No supported Node lockfile audit is available.", score=18))
+                continue
+            if script:
                 continue
             if outcome.ok:
                 results.append(passed("Dependencies", self.name, f"{prefix}Dependency audit passed."))

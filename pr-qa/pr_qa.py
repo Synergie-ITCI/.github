@@ -771,6 +771,7 @@ def run_adapter_gate(ctx: PRContext, technologies: dict[str, dict[str, Any]], ke
 
 
 def relevant_roots_for_adapter(ctx: PRContext, adapter_key: str, roots: list[Path]) -> list[Path]:
+    roots = roots_after_stack_classification(ctx, adapter_key, roots)
     patterns = TECHNOLOGY_CHANGE_PATTERNS.get(adapter_key)
     if patterns is None:
         return roots
@@ -779,6 +780,25 @@ def relevant_roots_for_adapter(ctx: PRContext, adapter_key: str, roots: list[Pat
         if any(match_any(relative_to_root(ctx, root, rel), patterns) for rel in ctx.changed_under(root)):
             relevant.append(root)
     return relevant
+
+
+def roots_after_stack_classification(ctx: PRContext, adapter_key: str, roots: list[Path]) -> list[Path]:
+    if adapter_key not in {"gradle", "swift"}:
+        return roots
+    if not is_react_native_repository(ctx):
+        return roots
+    return [root for root in roots if not is_react_native_native_project_root(ctx, root)]
+
+
+def is_react_native_native_project_root(ctx: PRContext, root: Path) -> bool:
+    for rn_root in react_native_roots(ctx):
+        try:
+            relative = root.resolve().relative_to(rn_root.resolve())
+        except ValueError:
+            continue
+        if relative.parts and relative.parts[0] in {"android", "ios"}:
+            return True
+    return False
 
 
 def relative_to_root(ctx: PRContext, root: Path, rel: str) -> str:
