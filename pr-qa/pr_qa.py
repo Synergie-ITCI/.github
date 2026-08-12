@@ -535,6 +535,10 @@ def commit_exists(repo: Path, sha: str) -> bool:
     return subprocess.run(["git", "cat-file", "-e", f"{sha}^{{commit}}"], cwd=repo, capture_output=True).returncode == 0
 
 
+def tree_entry_exists(repo: Path, ref: str, rel: str) -> bool:
+    return subprocess.run(["git", "cat-file", "-e", f"{ref}:{rel}"], cwd=repo, capture_output=True).returncode == 0
+
+
 def run_git(repo: Path, args: list[str]) -> str:
     completed = subprocess.run(["git"] + args, cwd=repo, capture_output=True, text=True, check=False)
     return completed.stdout if completed.returncode == 0 else ""
@@ -564,6 +568,20 @@ def read_base_file(repo: Path, git_context: dict[str, Any], rel: str) -> str:
         return ""
     completed = subprocess.run(["git", "show", f"{base_sha}:{rel}"], cwd=repo, capture_output=True, text=True, check=False)
     return completed.stdout if completed.returncode == 0 else ""
+
+
+def read_tree_file(repo: Path, ref: str, rel: str) -> str:
+    if not ref or not is_git_repo(repo) or not commit_exists(repo, ref):
+        return ""
+    completed = subprocess.run(["git", "show", f"{ref}:{rel}"], cwd=repo, capture_output=True, text=True, check=False)
+    return completed.stdout if completed.returncode == 0 else ""
+
+
+def tree_file_sha256(repo: Path, ref: str, rel: str) -> str:
+    completed = subprocess.run(["git", "show", f"{ref}:{rel}"], cwd=repo, capture_output=True, check=False)
+    if completed.returncode != 0:
+        return ""
+    return hashlib.sha256(completed.stdout).hexdigest()
 
 
 def list_repo_files(repo: Path) -> list[str]:
@@ -869,15 +887,13 @@ def baseline_authorization(ctx: PRContext, git_context: dict[str, Any]) -> tuple
     if base_ref != expected_base:
         details.append(f"target branch `{base_ref}` is not authorized; expected `{expected_base}`.")
 
-    head_sha = resolve_head_sha(ctx.repo, git_context)
-    expected_head_sha = str(policy.get("expected_head_sha", ""))
-    if expected_head_sha and head_sha != expected_head_sha:
-        details.append(f"source SHA `{head_sha}` is not authorized; expected `{expected_head_sha}`.")
-
     base_sha = str(git_context.get("base_sha") or "")
     expected_base_sha = str(policy.get("expected_base_sha", ""))
     if expected_base_sha and base_sha != expected_base_sha:
         details.append(f"destination SHA `{base_sha}` is not authorized; expected `{expected_base_sha}`.")
+
+    head_sha = resolve_head_sha(ctx.repo, git_context)
+    details.extend(baseline_source_overlay_authorization(ctx, git_context, policy, head_sha, base_sha))
 
     expires_after = str(policy.get("expires_after", ""))
     if expires_after:
@@ -897,6 +913,118 @@ def baseline_authorization(ctx: PRContext, git_context: dict[str, Any]) -> tuple
         details.append(f"PR body is missing required baseline marker `{marker}`.")
 
     return not details, details, policy
+
+
+def baseline_source_overlay_authorization(ctx: PRContext, git_context: dict[str, Any], policy: dict[str, Any], head_sha: str, base_sha: str) -> list[str]:
+    source_overlay = policy.get("source_overlay")
+    expected_head_sha = str(policy.get("expected_head_sha", ""))
+    if not source_overlay:
+        if expected_head_sha and head_sha != expected_head_sha:
+            return [f"source SHA `{head_sha}` is not authorized; expected `{expected_head_sha}`."]
+        return []
+    return validate_baseline_source_overlay(ctx, git_context, source_overlay, expected_head_sha, head_sha, base_sha)
+
+
+def validate_baseline_source_overlay(
+    ctx: PRContext,
+    git_context: dict[str, Any],
+    overlay: dict[str, Any],
+    expected_head_sha: str,
+    head_sha: str,
+    base_sha: str,
+) -> list[str]:
+    details: list[str] = []
+    if not git_context.get("is_git_repo"):
+        return ["source-plus-overlay authorization requires a Git checkout."]
+
+    source_sha = str(overlay.get("approved_application_source_sha") or expected_head_sha)
+    if not source_sha:
+        return ["source-plus-overlay authorization is missing approved application source SHA."]
+    if not commit_exists(ctx.repo, source_sha):
+        ensure_ref_available(ctx.repo, source_sha, str(ctx.head_ref or ""))
+    if not commit_exists(ctx.repo, source_sha):
+        return [f"approved application source SHA `{source_sha}` is unavailable."]
+    if not head_sha or head_sha == "HEAD":
+        head_sha = run_git(ctx.repo, ["rev-parse", "HEAD"]).strip()
+    if not commit_exists(ctx.repo, head_sha):
+        return [f"candidate source SHA `{head_sha}` is unavailable."]
+    if base_sha and not commit_exists(ctx.repo, base_sha):
+        return [f"authorized base SHA `{base_sha}` is unavailable."]
+
+    allowed_paths = {str(path) for path in overlay.get("allowed_paths", []) or []}
+    if not allowed_paths:
+        return ["source-plus-overlay authorization has no allowed overlay paths."]
+
+    changed_from_source = set(git_lines(ctx.repo, ["diff", "--name-only", "--diff-filter=ACMRTUXB", f"{source_sha}...{head_sha}"]))
+    unexpected = sorted(path for path in changed_from_source if path not in allowed_paths)
+    if unexpected:
+        details.append("candidate differs from approved application source outside the governance overlay: " + ", ".join(unexpected[:30]))
+
+    overlay_entries = overlay.get("paths", {}) or {}
+    for path in sorted(allowed_paths):
+        spec = overlay_entries.get(path) or {}
+        details.extend(validate_baseline_overlay_path(ctx, source_sha, head_sha, base_sha, path, spec))
+
+    return details
+
+
+def validate_baseline_overlay_path(ctx: PRContext, source_sha: str, head_sha: str, base_sha: str, path: str, spec: dict[str, Any]) -> list[str]:
+    details: list[str] = []
+    source_exists = tree_entry_exists(ctx.repo, source_sha, path)
+    head_exists = tree_entry_exists(ctx.repo, head_sha, path)
+    base_exists = tree_entry_exists(ctx.repo, base_sha, path) if base_sha else False
+    if not head_exists:
+        return [f"governance overlay path `{path}` is missing from candidate head."]
+
+    expected_source = str(spec.get("source") or "")
+    if expected_source == "absent" and source_exists:
+        details.append(f"governance overlay path `{path}` must be absent in approved application source.")
+    elif expected_source == "present" and not source_exists:
+        details.append(f"governance overlay path `{path}` must exist in approved application source.")
+
+    expected_candidate = str(spec.get("candidate") or "")
+    if expected_candidate == "base" and base_sha:
+        if not base_exists:
+            details.append(f"governance overlay path `{path}` must match base but is absent from authorized base.")
+        elif tree_file_sha256(ctx.repo, head_sha, path) != tree_file_sha256(ctx.repo, base_sha, path):
+            details.append(f"governance overlay path `{path}` does not match authorized base content.")
+    elif expected_candidate == "source" and source_exists:
+        if tree_file_sha256(ctx.repo, head_sha, path) != tree_file_sha256(ctx.repo, source_sha, path):
+            details.append(f"governance overlay path `{path}` does not match approved application source content.")
+
+    if path == ".github/workflows/pr-qa.yml":
+        details.extend(validate_baseline_pr_qa_caller_update(ctx, source_sha, head_sha, base_sha, path, spec))
+    return details
+
+
+def validate_baseline_pr_qa_caller_update(ctx: PRContext, source_sha: str, head_sha: str, base_sha: str, path: str, spec: dict[str, Any]) -> list[str]:
+    details: list[str] = []
+    old_ref = str(spec.get("old_ref") or "")
+    new_ref = str(spec.get("new_ref") or "")
+    expected_uses = str(spec.get("uses") or "Synergie-ITCI/.github/.github/workflows/pr-qa.yml")
+    if not old_ref or not new_ref:
+        return [f"governance overlay path `{path}` is missing exact PR-QA caller ref transition."]
+    source_text = read_tree_file(ctx.repo, source_sha, path)
+    base_text = read_tree_file(ctx.repo, base_sha, path) if base_sha else ""
+    head_text = read_tree_file(ctx.repo, head_sha, path)
+    expected_old_line = f"uses: {expected_uses}@{old_ref}"
+    expected_new_line = f"uses: {expected_uses}@{new_ref}"
+
+    if source_text:
+        starting_text = source_text
+        starting_label = "approved application source"
+    else:
+        starting_text = base_text
+        starting_label = "authorized base"
+    if expected_old_line not in starting_text:
+        details.append(f"governance overlay path `{path}` does not start from `{expected_old_line}` in {starting_label}.")
+        return details
+    expected_text = starting_text.replace(expected_old_line, expected_new_line, 1)
+    if expected_old_line in expected_text:
+        details.append(f"governance overlay path `{path}` contains multiple old PR-QA caller refs.")
+    if head_text != expected_text:
+        details.append(f"governance overlay path `{path}` must only update PR-QA caller `{old_ref}` to `{new_ref}`.")
+    return details
 
 
 def baseline_active(ctx: PRContext) -> bool:

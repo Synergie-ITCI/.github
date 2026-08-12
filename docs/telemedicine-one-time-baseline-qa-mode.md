@@ -24,6 +24,22 @@ Baseline mode fails closed unless all central-policy authorization fields match:
 
 The mode may be requested by `PR_QA_BASELINE_ALIGNMENT=true` or the `one-time-baseline-alignment` label, but request alone is not authorization.
 
+## Source Plus Overlay Authorization
+
+The Telemedicine baseline PR is authorized as:
+
+approved staging application source plus a restricted governance overlay.
+
+The approved application source remains `f1689d9cb6d9c3276006915275257a178f50154d`. The candidate PR head may differ only because the branch must preserve approved governance files from `main` and move the PR QA caller from `pr-qa-v1-rc5` to the next immutable governance release.
+
+The only allowed overlay paths are:
+
+- `.github/CODEOWNERS`
+- `.github/actionlint.yaml`
+- `.github/workflows/pr-qa.yml`
+
+No application path, route, configuration, migration, Composer file, environment file, deployment workflow, UAT operations workflow, or arbitrary `.github/**` path is included in the overlay allowance. The PR QA caller content must be the approved workflow with only the central QA ref changed from `pr-qa-v1-rc5` to the released baseline governance ref.
+
 ## PR #29 Failure Mapping
 
 | Check | Normal Purpose | Baseline Relevance | Relaxable? |
@@ -100,4 +116,4 @@ After the Telemedicine baseline PR merges, remove or disable `one_time_baseline_
 
 ## Telemedicine Next Step
 
-After this governance change is merged and released through the normal governance process, create `release/production-baseline-alignment-20260812` in `Synergie-ITCI/telemedicine-backend` at `f1689d9cb6d9c3276006915275257a178f50154d`, open the PR to `main`, include the required authorization marker in the PR body, and ensure the caller workflow references the approved governance release that contains this mode.
+After this governance change is merged and released through the normal governance process, create `release/production-baseline-alignment-20260812` in `Synergie-ITCI/telemedicine-backend` from the approved staging application source at `f1689d9cb6d9c3276006915275257a178f50154d`, apply only the restricted governance overlay, open the PR to `main`, include the required authorization marker in the PR body, and ensure the caller workflow references the approved governance release that contains this mode.

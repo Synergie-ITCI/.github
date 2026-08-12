@@ -294,6 +294,30 @@
     "head_ref": "release/production-baseline-alignment-20260812",
     "expected_base_sha": "9d2684e82f466d3e1d2a40695f1b2987ec1906c8",
     "expected_head_sha": "f1689d9cb6d9c3276006915275257a178f50154d",
+    "source_overlay": {
+      "approved_application_source_sha": "f1689d9cb6d9c3276006915275257a178f50154d",
+      "allowed_paths": [
+        ".github/CODEOWNERS",
+        ".github/actionlint.yaml",
+        ".github/workflows/pr-qa.yml"
+      ],
+      "paths": {
+        ".github/CODEOWNERS": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        ".github/actionlint.yaml": {
+          "source": "present",
+          "candidate": "base"
+        },
+        ".github/workflows/pr-qa.yml": {
+          "source": "absent",
+          "old_ref": "pr-qa-v1-rc5",
+          "new_ref": "pr-qa-v1-rc12",
+          "uses": "Synergie-ITCI/.github/.github/workflows/pr-qa.yml"
+        }
+      }
+    },
     "expires_after": "2026-08-20T23:59:59Z",
     "minimum_changed_files": 3000,
     "required_pr_body_marker": "ONE-TIME TELEMEDICINE PRODUCTION BASELINE AUTHORIZATION",
