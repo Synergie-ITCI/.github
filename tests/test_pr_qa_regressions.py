@@ -184,7 +184,11 @@ class PrQaRegressionTests(unittest.TestCase):
         self.git(repo, "checkout", "-q", "feature/regression")
         self.git(repo, "merge", "--no-ff", "-m", "Merge side branch", "feature/side-branch")
 
-        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            review_policy={"mergeable": True, "reviews": []},
+        )
 
         self.assertNotEqual(code, 0)
         self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
@@ -236,6 +240,24 @@ class PrQaRegressionTests(unittest.TestCase):
         self.assertNotEqual(code, 0)
         self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
         self.assertIn("Accidental merge commits detected", report)
+
+    def test_sql_migration_is_classified_by_sql_adapter(self) -> None:
+        repo, base = self.init_repo("sql-migration")
+        self.write(
+            repo / "migrations" / "001_identity.sql",
+            "create table user_identities (id uuid primary key, normalized_email text not null unique);\n",
+        )
+        self.commit(repo, "feat: add identity migration")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Executable Classification"], "PASS")
+        self.assertTrue(any(result.get("technology") == "SQL/PostgreSQL" for result in report_json["results"]))
 
     def test_non_saurabh_authored_pr_blocks_without_independent_review(self) -> None:
         repo, base = self.init_repo("developer-no-review")

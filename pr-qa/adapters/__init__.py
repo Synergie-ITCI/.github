@@ -9,6 +9,7 @@ from .node import NodeAdapter
 from .php import PhpAdapter
 from .python import PythonAdapter
 from .rust import RustAdapter
+from .sql import SqlAdapter
 from .swift import SwiftAdapter
 from .terraform import TerraformAdapter
 
@@ -23,6 +24,7 @@ ADAPTERS = [
     JavaAdapter(),
     DotnetAdapter(),
     RustAdapter(),
+    SqlAdapter(),
     DockerAdapter(),
     TerraformAdapter(),
     KubernetesAdapter(),
