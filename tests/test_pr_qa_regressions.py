@@ -187,6 +187,84 @@ class PrQaRegressionTests(unittest.TestCase):
         path.write_text(json.dumps(policy, indent=2) + "\n", encoding="utf-8")
         return path
 
+    def baseline_overlay_policy_for(
+        self,
+        *,
+        base_sha: str,
+        source_sha: str,
+        new_ref: str = "pr-qa-v1-rc12",
+        enabled: bool = True,
+        expires_after: str = "2099-12-31T23:59:59Z",
+    ) -> Path:
+        policy = self.baseline_policy_for(
+            base_sha=base_sha,
+            head_sha=source_sha,
+            enabled=enabled,
+            expires_after=expires_after,
+            minimum_changed_files=1,
+        )
+        data = json.loads(policy.read_text(encoding="utf-8"))
+        data["one_time_baseline_alignment"]["source_overlay"] = {
+            "approved_application_source_sha": source_sha,
+            "allowed_paths": [
+                ".github/CODEOWNERS",
+                ".github/actionlint.yaml",
+                ".github/workflows/pr-qa.yml",
+            ],
+            "paths": {
+                ".github/CODEOWNERS": {"source": "absent", "candidate": "base"},
+                ".github/actionlint.yaml": {"source": "present", "candidate": "base"},
+                ".github/workflows/pr-qa.yml": {
+                    "source": "absent",
+                    "old_ref": "pr-qa-v1-rc5",
+                    "new_ref": new_ref,
+                    "uses": "Synergie-ITCI/.github/.github/workflows/pr-qa.yml",
+                },
+            },
+        }
+        path = self.tmp / f"policy-overlay-{source_sha[:8]}.json"
+        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        return path
+
+    def init_telemedicine_overlay_repo(self, name: str = "telemedicine-source-overlay") -> tuple[Path, str, str]:
+        repo = self.tmp / name
+        repo.mkdir()
+        self.git(repo, "init", "-q")
+        self.git(repo, "config", "user.email", "qa@example.invalid")
+        self.git(repo, "config", "user.name", "QA Regression")
+        self.write(repo / ".github" / "CODEOWNERS", "* @SaurabhVermaIN\n")
+        self.write(repo / ".github" / "actionlint.yaml", "self-hosted-runner:\n  labels:\n    - fleetos-uat\n")
+        self.write(
+            repo / ".github" / "workflows" / "pr-qa.yml",
+            "name: PR Quality Assurance\non:\n  pull_request:\n    types: [opened, synchronize, reopened, ready_for_review, edited]\njobs:\n  pr-qa:\n    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@pr-qa-v1-rc5\n",
+        )
+        self.write(repo / "README.md", "# old governance shell\n")
+        self.git(repo, "add", ".")
+        self.git(repo, "commit", "-q", "-m", "chore: governance shell")
+        base = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        self.git(repo, "checkout", "-q", "-b", "staging-source")
+        self.git(repo, "rm", "-q", ".github/CODEOWNERS", ".github/workflows/pr-qa.yml")
+        (repo / "README.md").unlink()
+        self.write(repo / ".github" / "actionlint.yaml", "self-hosted-runner:\n  labels:\n    - fleetos-uat\n")
+        self.write(repo / "app" / "Http" / "Controllers" / "BaselineController.php", "<?php\nclass BaselineController {}\n")
+        self.write(repo / "routes" / "api.php", "<?php\nRoute::get('/baseline', fn () => 'ok');\n")
+        self.write(repo / "composer.json", json.dumps({"require": {}, "scripts": {"test": "echo ok"}}))
+        self.write(repo / "composer.lock", json.dumps({"packages": [], "packages-dev": []}))
+        self.git(repo, "add", ".")
+        self.git(repo, "commit", "-q", "-m", "chore: staging application source")
+        source = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        self.git(repo, "checkout", "-q", "-b", "release/production-baseline-alignment-20260812")
+        self.write(repo / ".github" / "CODEOWNERS", "* @SaurabhVermaIN\n")
+        self.write(
+            repo / ".github" / "workflows" / "pr-qa.yml",
+            "name: PR Quality Assurance\non:\n  pull_request:\n    types: [opened, synchronize, reopened, ready_for_review, edited]\njobs:\n  pr-qa:\n    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@pr-qa-v1-rc12\n",
+        )
+        self.git(repo, "add", ".github")
+        self.git(repo, "commit", "-q", "-m", "ci: apply governed baseline overlay")
+        return repo, base, source
+
     def baseline_marker(self) -> str:
         return "\nONE-TIME TELEMEDICINE PRODUCTION BASELINE AUTHORIZATION\n"
 
@@ -432,6 +510,134 @@ exit 1
         self.assertIn("BASELINE ALIGNMENT PREFLIGHT", report)
         self.assertIn("Baseline-only repository integrity relaxations applied", report)
         self.assertNotIn("PR exceeds central size thresholds", report)
+
+    def test_authorized_telemedicine_source_overlay_accepts_exact_governance_overlay(self) -> None:
+        self.install_fake_composer(audit_exit=0, test_exit=0)
+        repo, base, source = self.init_telemedicine_overlay_repo()
+        head = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        policy = self.baseline_overlay_policy_for(base_sha=base, source_sha=source)
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            base_ref="main",
+            head_ref="release/production-baseline-alignment-20260812",
+            head_sha=head,
+            repository="Synergie-ITCI/telemedicine-backend",
+            baseline_alignment=True,
+            body_extra=self.baseline_marker(),
+            policy_path=policy,
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Baseline Alignment"], "PASS")
+        self.assertTrue(report_json["summary"]["baseline_alignment"]["authorized"])
+        self.assertIn("BASELINE ALIGNMENT PREFLIGHT", report)
+
+    def test_telemedicine_source_overlay_rejects_tamper_cases(self) -> None:
+        self.install_fake_composer(audit_exit=0, test_exit=0)
+        cases = [
+            ("app/Demo.php", "<?php\nclass Tampered {}\n", "candidate differs from approved application source outside the governance overlay"),
+            ("routes/api.php", "<?php\nRoute::get('/tampered', fn () => 'bad');\n", "candidate differs from approved application source outside the governance overlay"),
+            ("config/app.php", "<?php\nreturn ['debug' => true];\n", "candidate differs from approved application source outside the governance overlay"),
+            ("database/migrations/2026_08_12_000002_tamper.php", "<?php\nreturn new class {};\n", "candidate differs from approved application source outside the governance overlay"),
+            ("composer.json", json.dumps({"require": {"evil/package": "*"}}), "candidate differs from approved application source outside the governance overlay"),
+            (".env.testing", "APP_ENV=testing\nDB_PASSWORD=real-password\n", "candidate differs from approved application source outside the governance overlay"),
+            (".github/workflows/deploy.yml", "name: deploy\non: push\njobs: {}\n", "candidate differs from approved application source outside the governance overlay"),
+            (".github/workflows/uat-operations.yml", "name: uat\non: workflow_dispatch\njobs: {}\n", "candidate differs from approved application source outside the governance overlay"),
+            ("docs/extra.md", "extra\n", "candidate differs from approved application source outside the governance overlay"),
+        ]
+        for path, content, needle in cases:
+            with self.subTest(path=path):
+                repo, base, source = self.init_telemedicine_overlay_repo(f"telemedicine-tamper-{len(path)}-{abs(hash(path))}")
+                self.write(repo / path, content)
+                self.commit(repo, "chore: tamper with baseline candidate")
+                head = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+                policy = self.baseline_overlay_policy_for(base_sha=base, source_sha=source)
+
+                code, report, report_json, _ = self.run_engine_with_artifacts(
+                    repo,
+                    base,
+                    base_ref="main",
+                    head_ref="release/production-baseline-alignment-20260812",
+                    head_sha=head,
+                    repository="Synergie-ITCI/telemedicine-backend",
+                    baseline_alignment=True,
+                    body_extra=self.baseline_marker(),
+                    policy_path=policy,
+                )
+
+                self.assertNotEqual(code, 0)
+                self.assertEqual(report_json["summary"]["gate_statuses"]["Baseline Alignment"], "FAIL")
+                self.assertIn(needle, report)
+
+    def test_telemedicine_source_overlay_rejects_governance_content_tamper(self) -> None:
+        self.install_fake_composer(audit_exit=0, test_exit=0)
+        cases = [
+            (".github/CODEOWNERS", "* @attacker\n", "does not match authorized base content"),
+            (".github/actionlint.yaml", "config-variables: {}\n", "does not match authorized base content"),
+            (
+                ".github/workflows/pr-qa.yml",
+                "name: PR Quality Assurance\non: [pull_request]\njobs:\n  pr-qa:\n    permissions: write-all\n    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@main\n",
+                "must only update PR-QA caller",
+            ),
+        ]
+        for path, content, needle in cases:
+            with self.subTest(path=path):
+                repo, base, source = self.init_telemedicine_overlay_repo(f"telemedicine-governance-tamper-{len(path)}-{abs(hash(path))}")
+                self.write(repo / path, content)
+                self.commit(repo, "chore: tamper with governance overlay")
+                head = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+                policy = self.baseline_overlay_policy_for(base_sha=base, source_sha=source)
+
+                code, report, report_json, _ = self.run_engine_with_artifacts(
+                    repo,
+                    base,
+                    base_ref="main",
+                    head_ref="release/production-baseline-alignment-20260812",
+                    head_sha=head,
+                    repository="Synergie-ITCI/telemedicine-backend",
+                    baseline_alignment=True,
+                    body_extra=self.baseline_marker(),
+                    policy_path=policy,
+                )
+
+                self.assertNotEqual(code, 0)
+                self.assertEqual(report_json["summary"]["gate_statuses"]["Baseline Alignment"], "FAIL")
+                self.assertIn(needle, report)
+
+    def test_telemedicine_source_overlay_fails_closed_for_wrong_coordinates_marker_and_expiry(self) -> None:
+        self.install_fake_composer(audit_exit=0, test_exit=0)
+        repo, base, source = self.init_telemedicine_overlay_repo()
+        head = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        good_policy = self.baseline_overlay_policy_for(base_sha=base, source_sha=source)
+        wrong_source_policy = self.baseline_overlay_policy_for(base_sha=base, source_sha=base)
+        expired_policy = self.baseline_overlay_policy_for(base_sha=base, source_sha=source, expires_after="2000-01-01T00:00:00Z")
+        cases = [
+            {"repository": "Synergie-ITCI/other", "base_ref": "main", "head_ref": "release/production-baseline-alignment-20260812", "body": self.baseline_marker(), "policy": good_policy, "needle": "repository `Synergie-ITCI/other` is not authorized"},
+            {"repository": "Synergie-ITCI/telemedicine-backend", "base_ref": "staging", "head_ref": "release/production-baseline-alignment-20260812", "body": self.baseline_marker(), "policy": good_policy, "needle": "target branch `staging` is not authorized"},
+            {"repository": "Synergie-ITCI/telemedicine-backend", "base_ref": "main", "head_ref": "release/other", "body": self.baseline_marker(), "policy": good_policy, "needle": "source branch `release/other` is not authorized"},
+            {"repository": "Synergie-ITCI/telemedicine-backend", "base_ref": "main", "head_ref": "release/production-baseline-alignment-20260812", "body": "", "policy": good_policy, "needle": "PR body is missing required baseline marker"},
+            {"repository": "Synergie-ITCI/telemedicine-backend", "base_ref": "main", "head_ref": "release/production-baseline-alignment-20260812", "body": self.baseline_marker(), "policy": expired_policy, "needle": "baseline authorization expired"},
+            {"repository": "Synergie-ITCI/telemedicine-backend", "base_ref": "main", "head_ref": "release/production-baseline-alignment-20260812", "body": self.baseline_marker(), "policy": wrong_source_policy, "needle": "candidate differs from approved application source outside the governance overlay"},
+        ]
+        for case in cases:
+            with self.subTest(needle=case["needle"]):
+                code, report, report_json, _ = self.run_engine_with_artifacts(
+                    repo,
+                    base,
+                    base_ref=case["base_ref"],
+                    head_ref=case["head_ref"],
+                    head_sha=head,
+                    repository=case["repository"],
+                    baseline_alignment=True,
+                    body_extra=case["body"],
+                    policy_path=case["policy"],
+                )
+                self.assertNotEqual(code, 0)
+                self.assertEqual(report_json["summary"]["gate_statuses"]["Baseline Alignment"], "FAIL")
+                self.assertIn(case["needle"], report)
 
     def test_authorized_baseline_with_real_secret_still_fails(self) -> None:
         repo, base = self.init_repo("baseline-real-secret")
