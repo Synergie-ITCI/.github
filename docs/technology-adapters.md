@@ -40,12 +40,13 @@ Register the adapter in `pr-qa/adapters/__init__.py`.
 | Python | `pyproject.toml`, `requirements.txt`, setup files, Python files |
 | Go | `go.mod` |
 | Kotlin/Gradle | Gradle files or wrapper |
+| React Native bootstrap policy | `react-native` package plus `android/` and `ios/` native projects |
 | Swift | `Package.swift`, Xcode project/workspace markers |
 | Java/Maven | `pom.xml` |
 | .NET | `.sln`, `.csproj`, `.fsproj`, `.vbproj` |
 | Rust | `Cargo.toml` |
 | Docker | Dockerfile and compose files |
-| Terraform | `.tf` files |
+| Terraform/OpenTofu | `.tf` files |
 | Kubernetes | YAML manifests with `apiVersion` and `kind` |
 | GitHub Actions | `.github/workflows/*.yml` |
 
@@ -64,3 +65,24 @@ Register the adapter in `pr-qa/adapters/__init__.py`.
 Adapters should use `ctx.run([...], cwd=root)` so command output is captured, redacted, timed out, and included in the JSON evidence trail.
 
 Do not call `subprocess` directly inside adapters.
+
+## React Native Bootstrap Classification
+
+React Native repositories are detected by capability markers, not repository names: a `package.json` containing `react-native` and sibling `android/` and `ios/` native project directories.
+
+The repository-integrity gate allows only the standard bootstrap/native files listed in central policy for detected React Native projects:
+
+- `.watchmanconfig`
+- `.bundle/config`
+- `ios/.xcode.env`
+- `android/gradle/wrapper/gradle-wrapper.jar`
+- `android/app/debug.keystore`
+- `android/gradlew.bat` line endings
+
+These exceptions are constrained by exact path, file type, size, content checks, official Gradle distribution configuration, and standard Android debug keystore signing metadata. Release keystores, production signing certificates, provisioning secrets, App Store credentials, Play Store credentials, and arbitrary binaries remain prohibited.
+
+## Terraform/OpenTofu Validation
+
+The reusable PR QA workflow provisions pinned OpenTofu and pinned `tfsec` when Terraform files are detected. The Terraform adapter prefers `tofu` when available and falls back to `terraform`.
+
+PR validation may run format, backend-disabled init, validate, and static security analysis. It must not run `terraform apply` or `tofu apply`.

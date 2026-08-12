@@ -11,7 +11,9 @@ env:
   PR_QA_COMMAND_TIMEOUT_MINUTES: "20"
   PYTHONDONTWRITEBYTECODE: "1"
   GITLEAKS_VERSION: "8.30.1"
-  PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc7"
+  OPENTOFU_VERSION: "1.12.5"
+  TFSEC_VERSION: "1.28.14"
+  PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc8"
 
 jobs:
   detect:
@@ -29,6 +31,7 @@ jobs:
       dotnet: ${{ steps.detect.outputs.dotnet }}
       rust: ${{ steps.detect.outputs.rust }}
       swift: ${{ steps.detect.outputs.swift }}
+      terraform: ${{ steps.detect.outputs.terraform }}
     steps:
       - name: Checkout pull request
         uses: actions/checkout@v4
@@ -141,11 +144,17 @@ jobs:
         if: steps.static.outputs.exit_code != '0'
         run: exit 1
 
+      - name: Resolve Node.js version
+        id: node-version
+        if: needs.detect.outputs.node == 'true'
+        run: |
+          python3 .pr-qa-framework/pr-qa/resolve_node_version.py "$GITHUB_WORKSPACE" >> "$GITHUB_OUTPUT"
+
       - name: Set up Node.js
         if: needs.detect.outputs.node == 'true'
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: ${{ steps.node-version.outputs.node-version }}
 
       - name: Set up PHP
         if: needs.detect.outputs.php == 'true'
@@ -182,6 +191,26 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+
+      - name: Set up OpenTofu
+        if: needs.detect.outputs.terraform == 'true'
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: ${{ env.OPENTOFU_VERSION }}
+          tofu_wrapper: false
+
+      - name: Install mandatory Terraform security scanner
+        if: needs.detect.outputs.terraform == 'true'
+        run: |
+          set -euo pipefail
+          asset="tfsec_${TFSEC_VERSION}_linux_amd64.tar.gz"
+          curl -sSfL "https://github.com/aquasecurity/tfsec/releases/download/v${TFSEC_VERSION}/${asset}" -o "/tmp/${asset}"
+          curl -sSfL "https://github.com/aquasecurity/tfsec/releases/download/v${TFSEC_VERSION}/tfsec_${TFSEC_VERSION}_checksums.txt" -o /tmp/tfsec-checksums.txt
+          grep " ${asset}$" /tmp/tfsec-checksums.txt > /tmp/tfsec.sha256
+          (cd /tmp && sha256sum -c /tmp/tfsec.sha256)
+          tar -xzf "/tmp/${asset}" -C /tmp tfsec
+          sudo install -m 0755 /tmp/tfsec /usr/local/bin/tfsec
+          tfsec --version
 
       - name: Set up .NET
         if: needs.detect.outputs.dotnet == 'true'

@@ -12,6 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ENGINE = ROOT / "pr-qa" / "pr_qa.py"
+NODE_RESOLVER = ROOT / "pr-qa" / "resolve_node_version.py"
 
 
 class PrQaRegressionTests(unittest.TestCase):
@@ -322,6 +323,76 @@ class PrQaRegressionTests(unittest.TestCase):
         self.assertNotEqual(code, 0)
         self.assertIn("unexpected hidden file or directory `.unknownrc`", report)
 
+    def test_react_native_bootstrap_files_are_narrowly_allowed(self) -> None:
+        repo, base = self.init_repo("react-native-bootstrap")
+        self.write(
+            repo / "package.json",
+            json.dumps({"dependencies": {"react-native": "0.87.0"}, "devDependencies": {}}),
+        )
+        self.write(repo / ".watchmanconfig", "{}\n")
+        self.write(repo / ".bundle" / "config", 'BUNDLE_PATH: "vendor/bundle"\nBUNDLE_FORCE_RUBY_PLATFORM: 1\n')
+        self.write(repo / "ios" / ".xcode.env", "export NODE_BINARY=$(command -v node)\n")
+        self.write(
+            repo / "android" / "gradle" / "wrapper" / "gradle-wrapper.properties",
+            "distributionUrl=https\\://services.gradle.org/distributions/gradle-9.4.1-bin.zip\n",
+        )
+        self.write_bytes(repo / "android" / "gradle" / "wrapper" / "gradle-wrapper.jar", b"PK\x03\x04\x00gradle-wrapper")
+        self.write(
+            repo / "android" / "app" / "build.gradle",
+            "signingConfigs { debug { storeFile file('debug.keystore') storePassword 'android' keyAlias 'androiddebugkey' keyPassword 'android' } }\n",
+        )
+        self.write_bytes(repo / "android" / "app" / "debug.keystore", b"\x00android-debug-keystore")
+        self.write(repo / "android" / "gradlew.bat", "@rem Gradle wrapper script \r\nset DIRNAME=%~dp0\r\n")
+        self.commit(repo, "chore: add react native bootstrap files")
+
+        code, report = self.run_engine(repo, base, static_only=True)
+
+        self.assertEqual(code, 0, report)
+        self.assertNotIn("unexpected hidden file or directory", report)
+        self.assertNotIn("binary file type is not allowed", report)
+
+    def test_react_native_release_keystore_remains_blocked(self) -> None:
+        repo, base = self.init_repo("react-native-release-keystore")
+        self.write(
+            repo / "package.json",
+            json.dumps({"dependencies": {"react-native": "0.87.0"}, "devDependencies": {}}),
+        )
+        self.write(repo / "android" / "settings.gradle", "pluginManagement {}\n")
+        self.write(repo / "ios" / "README.md", "native project marker\n")
+        self.write_bytes(repo / "android" / "app" / "release.keystore", b"\x00production-signing")
+        self.commit(repo, "chore: add release keystore")
+
+        code, report = self.run_engine(repo, base, static_only=True)
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("android/app/release.keystore: binary file type is not allowed", report)
+
+    def test_react_native_secret_bearing_hidden_config_remains_blocked(self) -> None:
+        repo, base = self.init_repo("react-native-hidden-secret")
+        self.write(
+            repo / "package.json",
+            json.dumps({"dependencies": {"react-native": "0.87.0"}, "devDependencies": {}}),
+        )
+        self.write(repo / "android" / "settings.gradle", "pluginManagement {}\n")
+        self.write(repo / "ios" / ".xcode.env", 'API_TOKEN="super-secret-value"\n')
+        self.commit(repo, "chore: add secret-bearing xcode env")
+
+        code, report = self.run_engine(repo, base, static_only=True)
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("unexpected hidden file or directory `.xcode.env`", report)
+        self.assertIn("generic credential assignment", report)
+
+    def test_watchmanconfig_without_react_native_markers_still_fails(self) -> None:
+        repo, base = self.init_repo("watchman-non-react-native")
+        self.write(repo / ".watchmanconfig", "{}\n")
+        self.commit(repo, "chore: add watchman config")
+
+        code, report = self.run_engine(repo, base, static_only=True)
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("unexpected hidden file or directory `.watchmanconfig`", report)
+
     def test_codeowners_modification_fails(self) -> None:
         repo, base = self.init_repo("codeowners-change")
         self.write(repo / ".github" / "CODEOWNERS", "* @attacker\n")
@@ -528,6 +599,64 @@ jobs:
         self.assertNotIn("framework-ref", workflow + caller)
         self.assertIn("persist-credentials: false", workflow)
         self.assertIn("@pr-qa-v1-rc2", caller)
+        self.assertIn("resolve_node_version.py", workflow)
+        self.assertIn("opentofu/setup-opentofu@v1", workflow)
+        self.assertIn("tfsec_${TFSEC_VERSION}_linux_amd64.tar.gz", workflow)
+
+    def test_node_version_resolver_honors_supported_engine_major(self) -> None:
+        repo = self.tmp / "node-version-24"
+        repo.mkdir()
+        self.write(
+            repo / "package.json",
+            json.dumps({"engines": {"node": "^24.3.0 || >=26.0.0"}}),
+        )
+
+        completed = subprocess.run(["python3", str(NODE_RESOLVER), str(repo)], text=True, capture_output=True, check=False)
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(completed.stdout.strip(), "node-version=24")
+
+    def test_node_version_resolver_preserves_default_without_engine(self) -> None:
+        repo = self.tmp / "node-version-default"
+        repo.mkdir()
+        self.write(repo / "package.json", json.dumps({"dependencies": {}}))
+
+        completed = subprocess.run(["python3", str(NODE_RESOLVER), str(repo)], text=True, capture_output=True, check=False)
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(completed.stdout.strip(), "node-version=20")
+
+    def test_terraform_adapter_uses_opentofu_without_apply(self) -> None:
+        tofu_log = self.tmp / "tofu.log"
+        fake_tofu = self.bin / "tofu"
+        fake_tofu.write_text(
+            f"""#!/usr/bin/env bash
+printf '%s\\n' "$*" >> {tofu_log}
+if printf '%s\\n' "$*" | grep -q 'apply'; then
+  exit 99
+fi
+exit 0
+""",
+            encoding="utf-8",
+        )
+        fake_tofu.chmod(0o755)
+        fake_tfsec = self.bin / "tfsec"
+        fake_tfsec.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+        fake_tfsec.chmod(0o755)
+
+        repo, base = self.init_repo("opentofu-validation")
+        self.write(repo / "aws" / "main.tf", 'terraform {\n  required_version = ">= 1.6.0"\n}\n')
+        self.commit(repo, "feat: add infrastructure skeleton")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base)
+        commands = tofu_log.read_text(encoding="utf-8")
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Build"], "PASS")
+        self.assertIn("fmt -check -recursive", commands)
+        self.assertIn("init -input=false -no-color -backend=false", commands)
+        self.assertIn("validate -no-color", commands)
+        self.assertNotIn("apply", commands)
 
     def test_output_redaction_removes_fake_tokens(self) -> None:
         code = "from adapters.base import redact; print(redact('token=\"ghp_abcdefghijklmnopqrstuvwxyz123456\"'))"
@@ -637,6 +766,10 @@ jobs:
     def write(self, path: Path, text: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
+
+    def write_bytes(self, path: Path, data: bytes) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
 
     def base_config(self, *, profile: str = "application") -> str:
         return f"""version: 1

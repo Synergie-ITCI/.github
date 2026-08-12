@@ -32,6 +32,12 @@ These assets bypass only the unexpected-hidden-file integrity finding. They do n
 
 Unknown hidden files continue to fail.
 
+## Stack-Specific Integrity Exceptions
+
+Stack-specific exceptions are central-policy controlled and are not repository-configurable. They are applied only after the framework detects the relevant stack by capability markers.
+
+For React Native repositories, exact bootstrap/native paths may be permitted when they match the central policy constraints. Production signing material, secret-bearing hidden files, and arbitrary binaries remain blocking failures under every repository profile.
+
 ## Framework Regression Fixtures
 
 The `framework` profile may classify centrally approved regression fixture paths as non-blocking when the fixture content is intentionally used to test detection.
