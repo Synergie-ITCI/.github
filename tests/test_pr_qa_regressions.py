@@ -650,6 +650,37 @@ exit 1
         self.assertIn("AUTHORIZED_OVERLAY", report)
         self.assertIn("Inherited baseline deployment-sensitive content requires human review", report)
 
+    def test_authorized_telemedicine_baseline_marker_activates_inherited_classification(self) -> None:
+        self.install_fake_composer(audit_exit=0, test_exit=0)
+        repo, base, source = self.init_inherited_content_repo()
+        head = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        base_policy = self.baseline_policy_for(base_sha=base, head_sha=source, minimum_changed_files=1)
+        policy = self.source_overlay_policy_from_base(base_policy=base_policy, base_sha=base, source_sha=source)
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            base_ref="main",
+            head_ref="release/production-baseline-alignment-20260812",
+            head_sha=head,
+            repository="Synergie-ITCI/telemedicine-backend",
+            baseline_alignment=False,
+            body_extra=self.baseline_marker(),
+            policy_path=policy,
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertTrue(report_json["summary"]["baseline_alignment"]["requested"])
+        self.assertTrue(report_json["summary"]["baseline_alignment"]["authorized"])
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Baseline Alignment"], "PASS")
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Integrity"], "WARNING")
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "WARNING")
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Git Validation"], "WARNING")
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Secrets"], "WARNING")
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Deployment Risk"], "WARNING")
+        self.assertIn("INHERITED_BASELINE", report)
+
     def test_authorized_telemedicine_baseline_blocks_new_non_inherited_findings(self) -> None:
         self.install_fake_composer(audit_exit=0, test_exit=0)
         cases = [
