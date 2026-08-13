@@ -14,6 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 ENGINE = ROOT / "pr-qa" / "pr_qa.py"
 NODE_RESOLVER = ROOT / "pr-qa" / "resolve_node_version.py"
+PHP_RESOLVER = ROOT / "pr-qa" / "resolve_php_version.py"
 
 
 class PrQaRegressionTests(unittest.TestCase):
@@ -1741,6 +1742,7 @@ jobs:
         self.assertIn("persist-credentials: false", workflow)
         self.assertIn("@pr-qa-v1-rc2", caller)
         self.assertIn("resolve_node_version.py", workflow)
+        self.assertIn("resolve_php_version.py", workflow)
         self.assertIn("opentofu/setup-opentofu@v1", workflow)
         self.assertIn("tfsec_${TFSEC_VERSION}_linux_amd64.tar.gz", workflow)
 
@@ -1766,6 +1768,40 @@ jobs:
 
         self.assertEqual(completed.returncode, 0)
         self.assertEqual(completed.stdout.strip(), "node-version=20")
+
+    def test_php_version_resolver_honors_locked_package_runtime_floor(self) -> None:
+        repo = self.tmp / "php-version-84"
+        repo.mkdir()
+        self.write(
+            repo / "composer.lock",
+            json.dumps(
+                {
+                    "packages": [
+                        {
+                            "name": "symfony/yaml",
+                            "require": {"php": ">=8.4.1"},
+                        }
+                    ],
+                    "packages-dev": [],
+                    "platform": {"php": "^8.2"},
+                }
+            ),
+        )
+
+        completed = subprocess.run(["python3", str(PHP_RESOLVER), str(repo)], text=True, capture_output=True, check=False)
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(completed.stdout.strip(), "php-version=8.4")
+
+    def test_php_version_resolver_preserves_default_without_higher_floor(self) -> None:
+        repo = self.tmp / "php-version-default"
+        repo.mkdir()
+        self.write(repo / "composer.json", json.dumps({"require": {"php": "^8.2"}}))
+
+        completed = subprocess.run(["python3", str(PHP_RESOLVER), str(repo)], text=True, capture_output=True, check=False)
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(completed.stdout.strip(), "php-version=8.2")
 
     def test_python_adapter_uses_current_interpreter_without_python_shim(self) -> None:
         fake_bin = self.tmp / "python-path-without-python"
