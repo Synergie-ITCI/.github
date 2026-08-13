@@ -1644,7 +1644,7 @@ def classify_gitleaks_findings(ctx: PRContext, report: Path) -> tuple[bool, list
     allowed_details: list[str] = []
     for raw in findings:
         item = raw if isinstance(raw, dict) else {}
-        match = matching_gitleaks_allowance(item, allowed)
+        match = matching_gitleaks_allowance(ctx, item, allowed)
         if not match:
             unexpected.append(gitleaks_finding_summary(item))
             continue
@@ -1655,13 +1655,11 @@ def classify_gitleaks_findings(ctx: PRContext, report: Path) -> tuple[bool, list
     return bool(allowed_details), unexpected, allowed_details
 
 
-def matching_gitleaks_allowance(item: dict[str, Any], allowlist: list[Any]) -> dict[str, Any] | None:
+def matching_gitleaks_allowance(ctx: PRContext, item: dict[str, Any], allowlist: list[Any]) -> dict[str, Any] | None:
     for candidate in allowlist:
         if not isinstance(candidate, dict):
             continue
         fingerprint = str(candidate.get("fingerprint", ""))
-        if fingerprint and fingerprint != str(item.get("Fingerprint", "")):
-            continue
         rule = str(candidate.get("rule_id", ""))
         if rule and rule != str(item.get("RuleID", "")):
             continue
@@ -1674,6 +1672,13 @@ def matching_gitleaks_allowance(item: dict[str, Any], allowlist: list[Any]) -> d
         expires_after = str(candidate.get("expires_after", ""))
         if expires_after and baseline_allowance_expired(expires_after):
             continue
+        if fingerprint and fingerprint != str(item.get("Fingerprint", "")):
+            if not baseline_inherited_path(ctx, path, "gitleaks_fingerprint"):
+                continue
+            allowed_parts = fingerprint.split(":")
+            item_parts = str(item.get("Fingerprint", "")).split(":")
+            if len(allowed_parts) < 4 or len(item_parts) < 4 or allowed_parts[1:] != item_parts[1:]:
+                continue
         return candidate
     return None
 
@@ -1769,11 +1774,44 @@ def baseline_inherited_fallback_secret_false_positive(ctx: PRContext, rel: str, 
     settings = baseline_policy_settings(ctx)
     patterns = settings.get("fallback_secret_inherited_false_positive_paths", []) or []
     labels = settings.get("fallback_secret_inherited_false_positive_labels", []) or ["generic credential assignment"]
-    if not patterns or not match_any(rel, [str(pattern) for pattern in patterns]):
+    if patterns and match_any(rel, [str(pattern) for pattern in patterns]):
+        path_allowed = True
+    else:
+        line = baseline_finding_line_from_sha(ctx, rel, finding)
+        path_allowed = bool(
+            line
+            and "generic credential assignment" in finding
+            and baseline_inherited_config_reference_false_positive(line)
+        )
+    if not path_allowed:
         return False
     if labels and not any(str(label) in finding for label in labels):
         return False
     return baseline_inherited_path(ctx, rel, "secret_false_positive")
+
+
+def baseline_finding_line_from_sha(ctx: PRContext, rel: str, finding: str) -> str:
+    match = re.search(r"line_sha256=([0-9a-f]{64})", finding)
+    if not match:
+        return ""
+    target_hash = match.group(1)
+    path = ctx.repo / rel
+    if not path.is_file():
+        return ""
+    for text in decoded_text_variants(path):
+        for line in text.splitlines():
+            if hashlib.sha256(line.strip().encode("utf-8")).hexdigest() == target_hash:
+                return line
+    return ""
+
+
+def baseline_inherited_config_reference_false_positive(line: str) -> bool:
+    normalized = normalize_secret_text(line)
+    return bool(
+        re.search(r"\b(config|env)\s*\(", normalized)
+        or re.search(r"\$result\s*\[", normalized)
+        or re.search(r"['\"][A-Za-z0-9_.-]+['\"]\s*=>\s*['\"][A-Za-z0-9_.-]+['\"]", normalized)
+    )
 
 
 def fallback_secret_allowance_matches(rel: str, finding: str, texts: list[str], allowance: dict[str, Any]) -> bool:
