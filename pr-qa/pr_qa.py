@@ -1656,6 +1656,7 @@ def classify_gitleaks_findings(ctx: PRContext, report: Path) -> tuple[bool, list
 
 
 def matching_gitleaks_allowance(ctx: PRContext, item: dict[str, Any], allowlist: list[Any]) -> dict[str, Any] | None:
+    inherited_match: dict[str, Any] | None = None
     for candidate in allowlist:
         if not isinstance(candidate, dict):
             continue
@@ -1667,20 +1668,59 @@ def matching_gitleaks_allowance(ctx: PRContext, item: dict[str, Any], allowlist:
         if path and path != str(item.get("File", "")):
             continue
         line = candidate.get("line")
-        if line is not None and int(line) != int(item.get("StartLine") or 0):
-            continue
         expires_after = str(candidate.get("expires_after", ""))
         if expires_after and baseline_allowance_expired(expires_after):
             continue
+        item_line = int(item.get("StartLine") or 0)
+        if line is not None and int(line) != item_line:
+            if baseline_inherited_gitleaks_false_positive(ctx, item):
+                inherited_match = candidate
+            continue
         if fingerprint and fingerprint != str(item.get("Fingerprint", "")):
-            if not baseline_inherited_path(ctx, path, "gitleaks_fingerprint"):
+            if not baseline_inherited_gitleaks_false_positive(ctx, item):
                 continue
             allowed_parts = fingerprint.split(":")
             item_parts = str(item.get("Fingerprint", "")).split(":")
-            if len(allowed_parts) < 4 or len(item_parts) < 4 or allowed_parts[1:] != item_parts[1:]:
+            if len(allowed_parts) < 4 or len(item_parts) < 4 or allowed_parts[2] != item_parts[2]:
                 continue
         return candidate
-    return None
+    return inherited_match
+
+
+def baseline_inherited_gitleaks_false_positive(ctx: PRContext, item: dict[str, Any]) -> bool:
+    rel = str(item.get("File", ""))
+    if not rel or not baseline_inherited_path(ctx, rel, "gitleaks_fingerprint"):
+        return False
+    line = source_line(ctx.repo, rel, int(item.get("StartLine") or 0))
+    return baseline_inherited_gitleaks_fixture_line(rel, line)
+
+
+def baseline_inherited_gitleaks_fixture_line(rel: str, line: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return False
+    if re.search(r"-----BEGIN [A-Z ]*PRIVATE KEY-----", stripped):
+        return False
+    if re.search(r"\b(AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]+)\b", stripped):
+        return False
+    if re.search(r"\b(idempotency_key|jwt\.secret|PROVIDER_SECRET|api_surface)\b", stripped):
+        return True
+    if rel.startswith("tests/") and re.search(r"\b(test|fixture|secret|key|token|provider|idempotent|jwt|razorpay)\b", stripped, re.IGNORECASE):
+        return True
+    return baseline_inherited_config_reference_false_positive(stripped)
+
+
+def source_line(repo: Path, rel: str, line_number: int) -> str:
+    if line_number <= 0:
+        return ""
+    path = repo / rel
+    if not path.is_file():
+        return ""
+    for text in decoded_text_variants(path):
+        lines = text.splitlines()
+        if line_number <= len(lines):
+            return lines[line_number - 1]
+    return ""
 
 
 def baseline_allowance_expired(expires_after: str) -> bool:

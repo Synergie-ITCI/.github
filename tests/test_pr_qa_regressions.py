@@ -834,6 +834,136 @@ exit 1
         self.assertEqual(report_json["summary"]["gate_statuses"]["Secrets"], "FAIL")
         self.assertIn("Gitleaks detected secrets", report)
 
+    def test_source_overlay_accepts_inherited_gitleaks_stale_line_coordinates_for_fixture_shape(self) -> None:
+        self.install_fake_composer(audit_exit=0, test_exit=0)
+        repo, base, source = self.init_inherited_content_repo()
+        secret_path = "tests/Feature/InheritedGitleaksFixtureTest.php"
+        self.git(repo, "checkout", "-q", "staging-source")
+        self.write(
+            repo / secret_path,
+            "<?php\n// harmless test fixture padding\nconfig(['jwt.secret' => 'baseline-fixture-test-secret']);\n",
+        )
+        self.git(repo, "add", secret_path)
+        self.git(repo, "commit", "-q", "-m", "test: add inherited stale-coordinate gitleaks fixture")
+        source = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.git(repo, "checkout", "-q", "-B", "release/production-baseline-alignment-20260812", base)
+        self.git(repo, "rm", "-qr", ".")
+        completed = subprocess.run(["git", "checkout", source, "--", "."], cwd=repo, text=True, capture_output=True, check=False)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.write(repo / ".github" / "CODEOWNERS", "* @SaurabhVermaIN\n")
+        self.write(
+            repo / ".github" / "workflows" / "pr-qa.yml",
+            "name: PR Quality Assurance\non:\n  pull_request:\n    types: [opened, synchronize, reopened, ready_for_review, edited]\njobs:\n  pr-qa:\n    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@pr-qa-v1-rc13\n",
+        )
+        self.git(repo, "add", ".")
+        self.git(repo, "commit", "-q", "-m", "chore: rebuild baseline candidate on main ancestry")
+        head = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.install_fake_gitleaks_report(
+            [
+                {
+                    "RuleID": "generic-api-key",
+                    "File": secret_path,
+                    "StartLine": 3,
+                    "Fingerprint": f"{head}:{secret_path}:generic-api-key:3",
+                }
+            ]
+        )
+        base_policy = self.baseline_policy_for(
+            base_sha=base,
+            head_sha=source,
+            minimum_changed_files=1,
+            gitleaks_allowlist=[
+                {
+                    "rule_id": "generic-api-key",
+                    "path": secret_path,
+                    "line": 2,
+                    "fingerprint": f"{source}:{secret_path}:generic-api-key:2",
+                    "expires_after": "2099-12-31T23:59:59Z",
+                }
+            ],
+        )
+        policy = self.source_overlay_policy_from_base(base_policy=base_policy, base_sha=base, source_sha=source)
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            base_ref="main",
+            head_ref="release/production-baseline-alignment-20260812",
+            head_sha=head,
+            repository="Synergie-ITCI/telemedicine-backend",
+            baseline_alignment=False,
+            body_extra=self.baseline_marker(),
+            policy_path=policy,
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Secrets"], "WARNING")
+        self.assertIn("Gitleaks executed and returned only centrally allowlisted baseline fixture fingerprints", report)
+
+    def test_source_overlay_rejects_inherited_gitleaks_real_token_shape(self) -> None:
+        self.install_fake_composer(audit_exit=0, test_exit=0)
+        repo, base, source = self.init_inherited_content_repo()
+        secret_path = "tests/Feature/InheritedRealTokenShapeTest.php"
+        self.git(repo, "checkout", "-q", "staging-source")
+        self.write(repo / secret_path, "<?php\nconst TOKEN = 'ghp_abcdefghijklmnopqrstuvwxyz123456';\n")
+        self.git(repo, "add", secret_path)
+        self.git(repo, "commit", "-q", "-m", "test: add inherited real token-shaped fixture")
+        source = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.git(repo, "checkout", "-q", "-B", "release/production-baseline-alignment-20260812", base)
+        self.git(repo, "rm", "-qr", ".")
+        completed = subprocess.run(["git", "checkout", source, "--", "."], cwd=repo, text=True, capture_output=True, check=False)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.write(repo / ".github" / "CODEOWNERS", "* @SaurabhVermaIN\n")
+        self.write(
+            repo / ".github" / "workflows" / "pr-qa.yml",
+            "name: PR Quality Assurance\non:\n  pull_request:\n    types: [opened, synchronize, reopened, ready_for_review, edited]\njobs:\n  pr-qa:\n    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@pr-qa-v1-rc13\n",
+        )
+        self.git(repo, "add", ".")
+        self.git(repo, "commit", "-q", "-m", "chore: rebuild baseline candidate on main ancestry")
+        head = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.install_fake_gitleaks_report(
+            [
+                {
+                    "RuleID": "generic-api-key",
+                    "File": secret_path,
+                    "StartLine": 2,
+                    "Fingerprint": f"{head}:{secret_path}:generic-api-key:2",
+                }
+            ]
+        )
+        base_policy = self.baseline_policy_for(
+            base_sha=base,
+            head_sha=source,
+            minimum_changed_files=1,
+            gitleaks_allowlist=[
+                {
+                    "rule_id": "generic-api-key",
+                    "path": secret_path,
+                    "line": 1,
+                    "fingerprint": f"{source}:{secret_path}:generic-api-key:1",
+                    "expires_after": "2099-12-31T23:59:59Z",
+                }
+            ],
+        )
+        policy = self.source_overlay_policy_from_base(base_policy=base_policy, base_sha=base, source_sha=source)
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            base_ref="main",
+            head_ref="release/production-baseline-alignment-20260812",
+            head_sha=head,
+            repository="Synergie-ITCI/telemedicine-backend",
+            baseline_alignment=False,
+            body_extra=self.baseline_marker(),
+            policy_path=policy,
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Secrets"], "FAIL")
+        self.assertIn("Gitleaks detected secrets", report)
+
     def test_source_overlay_accepts_inherited_config_reference_fallback_secret(self) -> None:
         self.install_fake_composer(audit_exit=0, test_exit=0)
         repo, base, source = self.init_inherited_content_repo()
