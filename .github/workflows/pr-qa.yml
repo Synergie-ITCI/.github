@@ -13,7 +13,7 @@ env:
   GITLEAKS_VERSION: "8.30.1"
   OPENTOFU_VERSION: "1.12.5"
   TFSEC_VERSION: "1.28.14"
-  PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc20"
+  PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc21"
 
 jobs:
   detect:
@@ -157,11 +157,17 @@ jobs:
         with:
           node-version: ${{ steps.node-version.outputs.node-version }}
 
+      - name: Resolve PHP version
+        id: php-version
+        if: needs.detect.outputs.php == 'true'
+        run: |
+          python3 .pr-qa-framework/pr-qa/resolve_php_version.py "$GITHUB_WORKSPACE" >> "$GITHUB_OUTPUT"
+
       - name: Set up PHP
         if: needs.detect.outputs.php == 'true'
         uses: shivammathur/setup-php@v2
         with:
-          php-version: "8.2"
+          php-version: ${{ steps.php-version.outputs.php-version }}
           tools: composer
           coverage: none
 

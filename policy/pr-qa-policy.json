@@ -313,7 +313,7 @@
         ".github/workflows/pr-qa.yml": {
           "source": "absent",
           "old_ref": "pr-qa-v1-rc5",
-          "new_ref": "pr-qa-v1-rc20",
+          "new_ref": "pr-qa-v1-rc21",
           "uses": "Synergie-ITCI/.github/.github/workflows/pr-qa.yml"
         }
       }
