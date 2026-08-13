@@ -1743,6 +1743,8 @@ jobs:
         self.assertIn("@pr-qa-v1-rc2", caller)
         self.assertIn("resolve_node_version.py", workflow)
         self.assertIn("resolve_php_version.py", workflow)
+        self.assertIn("postgres:16", workflow)
+        self.assertIn("POSTGRES_DB: telepathy_test", workflow)
         self.assertIn("opentofu/setup-opentofu@v1", workflow)
         self.assertIn("tfsec_${TFSEC_VERSION}_linux_amd64.tar.gz", workflow)
 
@@ -1802,6 +1804,29 @@ jobs:
 
         self.assertEqual(completed.returncode, 0)
         self.assertEqual(completed.stdout.strip(), "php-version=8.2")
+
+    def test_php_pint_failure_path_parser_extracts_only_reported_php_files(self) -> None:
+        sys.path.insert(0, str(ROOT / "pr-qa"))
+        try:
+            from adapters.php import pint_failure_paths
+        finally:
+            sys.path.pop(0)
+
+        output = """
+  ──────────────────────────────────────────────────────────────────── Laravel
+    FAIL   ......................................... 863 files, 8 style issues
+  ⨯ app/Http/Controllers/API/ToBeDeleted/AgoraController.php     phpdoc_indent
+  ⨯ app/Http/Controllers/AppointmentController.php phpdoc_indent, fully_quali…
+  plain diagnostic line
+"""
+
+        self.assertEqual(
+            pint_failure_paths(output),
+            [
+                "app/Http/Controllers/API/ToBeDeleted/AgoraController.php",
+                "app/Http/Controllers/AppointmentController.php",
+            ],
+        )
 
     def test_python_adapter_uses_current_interpreter_without_python_shim(self) -> None:
         fake_bin = self.tmp / "python-path-without-python"

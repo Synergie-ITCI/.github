@@ -4,6 +4,7 @@ from pathlib import Path
 
 from .base import (
     FAIL,
+    WARNING,
     CheckResult,
     PRContext,
     TechnologyAdapter,
@@ -37,6 +38,18 @@ class PhpAdapter(TechnologyAdapter):
                 continue
             if (root / "vendor/bin/pint").exists():
                 outcome = ctx.run(["php", "vendor/bin/pint", "--test"], cwd=root)
+                if not outcome.ok and baseline_inherited_pint_failure(ctx, outcome.concise_output()):
+                    results.append(
+                        CheckResult(
+                            "Formatting",
+                            WARNING,
+                            f"{prefix}Laravel Pint reported only inherited baseline formatting issues; future formatting drift remains blocking.",
+                            pint_failure_paths(outcome.concise_output()),
+                            technology=self.name,
+                            blocking=False,
+                        )
+                    )
+                    continue
                 results.append(command_result("Formatting", self.name, outcome, f"{prefix}Laravel Pint passed.", f"{prefix}Laravel Pint failed.", score=8))
             elif (root / "vendor/bin/php-cs-fixer").exists() or (root / ".php-cs-fixer.php").exists():
                 command = ["php", "vendor/bin/php-cs-fixer", "fix", "--dry-run", "--diff"]
@@ -186,3 +199,24 @@ class PhpAdapter(TechnologyAdapter):
             if restricted_license_hit(line):
                 hits.append(line.strip())
         return hits
+
+
+def baseline_inherited_pint_failure(ctx: PRContext, output: str) -> bool:
+    from pr_qa import baseline_inherited_path
+
+    paths = pint_failure_paths(output)
+    return bool(paths) and all(baseline_inherited_path(ctx, path, "php_formatting") for path in paths)
+
+
+def pint_failure_paths(output: str) -> list[str]:
+    paths: list[str] = []
+    for line in output.splitlines():
+        if "⨯" not in line:
+            continue
+        candidate = line.split("⨯", 1)[1].strip()
+        if not candidate.endswith(".php") and ".php " not in candidate:
+            continue
+        path = candidate.split(".php", 1)[0].strip() + ".php"
+        if path and path not in paths:
+            paths.append(path)
+    return paths
