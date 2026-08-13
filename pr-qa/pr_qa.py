@@ -923,6 +923,9 @@ def baseline_requested(ctx: PRContext) -> bool:
     if requested in {"1", "true", "yes", "on"}:
         return True
     pull_request = ctx.event.get("pull_request", {}) or {}
+    marker = str(baseline_policy(ctx).get("required_pr_body_marker", "") or "")
+    if marker and marker in str(pull_request.get("body") or ctx.pr_body or ""):
+        return True
     labels = pull_request.get("labels", []) or []
     label_names = {str((label or {}).get("name", "")).lower() for label in labels if isinstance(label, dict)}
     return "one-time-baseline-alignment" in label_names
