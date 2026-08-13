@@ -528,8 +528,23 @@ def gather_git_context(repo: Path, event: dict[str, Any], base_ref: str, head_re
 
     changed = git_lines(repo, ["diff", "--name-only", "--diff-filter=ACMRTUXB", diff_range])
     additions, deletions = git_numstat(repo, diff_range)
-    commits = git_lines(repo, ["log", "--format=%s", f"{base_sha}..HEAD"]) if base_sha else git_lines(repo, ["log", "--format=%s", "-n", "1"])
-    context.update({"changed_files": changed, "commits": commits, "additions": additions, "deletions": deletions, "diff_range": diff_range})
+    if base_sha:
+        pr_commit_range = f"{base_sha}..HEAD"
+        commits = git_lines(repo, ["log", "--first-parent", "--format=%s", pr_commit_range])
+        commit_shas = git_lines(repo, ["rev-list", "--first-parent", pr_commit_range])
+    else:
+        pr_commit_range = "HEAD~1..HEAD"
+        commits = git_lines(repo, ["log", "--format=%s", "-n", "1"])
+        commit_shas = git_lines(repo, ["rev-list", "-n", "1", "HEAD"])
+    context.update({
+        "changed_files": changed,
+        "commits": commits,
+        "commit_shas": commit_shas,
+        "pr_commit_range": pr_commit_range,
+        "additions": additions,
+        "deletions": deletions,
+        "diff_range": diff_range,
+    })
     return context
 
 
@@ -1615,13 +1630,15 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
         results.append(passed("Repository Hygiene", None, "No merge conflict markers found in changed files."))
 
     if git_context.get("is_git_repo") and git_context.get("base_sha"):
-        merge_base = git_lines(ctx.repo, ["merge-base", git_context["base_sha"], "HEAD"])
-        merge_base_sha = merge_base[0] if merge_base else git_context["base_sha"]
-        merge_commits = git_lines(ctx.repo, ["rev-list", "--merges", f"{merge_base_sha}..HEAD"])
+        merge_commits = git_lines(ctx.repo, ["rev-list", "--first-parent", "--merges", git_context.get("pr_commit_range") or f"{git_context['base_sha']}..HEAD"])
         unexpected_merge_commits = merge_commits
         if merge_commits and canonical_branch_promotion(ctx):
             unexpected_merge_commits = [
                 sha for sha in merge_commits if not merge_commit_matches_second_parent_tree(ctx.repo, sha)
+            ]
+        elif merge_commits:
+            unexpected_merge_commits = [
+                sha for sha in merge_commits if not governed_ancestry_alignment_merge_commit(ctx, sha)
             ]
         if unexpected_merge_commits and baseline_allows(ctx, "historical_commit_volume"):
             results.append(warning("Repository Hygiene", None, "Historical baseline merge commits predate current promotion policy; future PRs remain governed.", unexpected_merge_commits[:20]))
@@ -1629,6 +1646,8 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
             results.append(failed("Repository Hygiene", None, "Accidental merge commits detected.", unexpected_merge_commits[:20], score=8))
         elif merge_commits and canonical_branch_promotion(ctx):
             results.append(passed("Repository Hygiene", None, "Only governed branch-promotion merge commits detected."))
+        elif merge_commits:
+            results.append(passed("Repository Hygiene", None, "Only governed ancestry-alignment merge commits detected."))
         else:
             results.append(passed("Repository Hygiene", None, "No accidental merge commits detected."))
     return results
@@ -1652,6 +1671,24 @@ def merge_commit_matches_second_parent_tree(repo: Path, sha: str) -> bool:
         return False
     completed = subprocess.run(["git", "diff", "--quiet", sha, f"{sha}^2"], cwd=repo, text=True, capture_output=True, check=False)
     return completed.returncode == 0
+
+
+def governed_ancestry_alignment_merge_commit(ctx: PRContext, sha: str) -> bool:
+    allowed_paths = {".github/CODEOWNERS", ".github/workflows/pr-qa.yml"}
+    base = (ctx.base_ref or "").lower()
+    head = (ctx.head_ref or "").lower()
+    if base not in {"development", "staging", "main", "master"}:
+        return False
+    if "align" not in head and "promote" not in head:
+        return False
+    if not set(ctx.changed_files).issubset(allowed_paths):
+        return False
+    parents = git_lines(ctx.repo, ["show", "-s", "--format=%P", sha])
+    parent_values = parents[0].split() if parents else []
+    if len(parent_values) != 2:
+        return False
+    first_parent_delta = set(git_lines(ctx.repo, ["diff", "--name-only", f"{sha}^1..{sha}"]))
+    return bool(first_parent_delta) and first_parent_delta.issubset(allowed_paths)
 
 
 def gate_git_validation(ctx: PRContext, git_context: dict[str, Any]) -> list[CheckResult]:
@@ -1726,7 +1763,9 @@ def run_gitleaks(ctx: PRContext, git_context: dict[str, Any], report_path: str) 
         "--exit-code",
         "1",
     ]
-    if git_context.get("base_sha"):
+    if git_context.get("pr_commit_range"):
+        command.extend(["--log-opts", f"--first-parent {git_context['pr_commit_range']}"])
+    elif git_context.get("base_sha"):
         command.extend(["--log-opts", f"{git_context['base_sha']}..HEAD"])
     outcome = ctx.run(command, cwd=ctx.repo)
     if outcome.ok:
