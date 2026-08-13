@@ -293,9 +293,9 @@
     "base_ref": "main",
     "head_ref": "release/production-baseline-alignment-20260812",
     "expected_base_sha": "9d2684e82f466d3e1d2a40695f1b2987ec1906c8",
-    "expected_head_sha": "f1689d9cb6d9c3276006915275257a178f50154d",
+    "expected_head_sha": "36d87c59c017ed9cea599fbbb3f1ac8513a2bcd9",
     "source_overlay": {
-      "approved_application_source_sha": "f1689d9cb6d9c3276006915275257a178f50154d",
+      "approved_application_source_sha": "36d87c59c017ed9cea599fbbb3f1ac8513a2bcd9",
       "allowed_paths": [
         ".github/CODEOWNERS",
         ".github/actionlint.yaml",
