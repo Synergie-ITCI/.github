@@ -448,6 +448,26 @@ exit 1
         )
         fake_gitleaks.chmod(0o755)
 
+    def install_fake_gitleaks_asserting_log_opts(self, expected: str) -> None:
+        fake_gitleaks = self.bin / "gitleaks"
+        fake_gitleaks.write_text(
+            f"""#!/usr/bin/env bash
+args="$*"
+case "$args" in
+  *"--log-opts {expected}"*)
+    exit 0
+    ;;
+  *)
+    echo "missing expected log opts: {expected}" >&2
+    echo "$args" >&2
+    exit 1
+    ;;
+esac
+""",
+            encoding="utf-8",
+        )
+        fake_gitleaks.chmod(0o755)
+
     def test_saurabh_authored_pr_allows_green_without_independent_review(self) -> None:
         repo, base = self.init_repo("saurabh-no-review-green")
         self.write(repo / "README.md", "# regression\n\nSaurabh-authored governance correction.\n")
@@ -573,7 +593,101 @@ exit 1
 
         self.assertNotEqual(code, 0)
         self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
+
+    def test_alignment_pr_uses_first_parent_history_for_inherited_baseline_ancestry(self) -> None:
+        repo, base = self.init_repo("alignment-first-parent-history", profile="framework")
+        self.git(repo, "checkout", "-q", "-b", "development", base)
+        self.write(repo / "tests" / "Feature" / "InheritedHistorySecretTest.php", "<?php\nconst TOKEN_FIXTURE = 'historical-secret-token-value';\n")
+        self.git(repo, "add", ".")
+        self.git(repo, "commit", "-q", "-m", "telemedicine-main baseline alignment (#30)")
+        self.git(repo, "checkout", "-q", "-b", "chore/align-development-into-staging", base)
+        self.git(repo, "merge", "--no-ff", "--no-commit", "development")
+        self.git(repo, "rm", "-q", "-f", "tests/Feature/InheritedHistorySecretTest.php")
+        self.write(
+            repo / ".github" / "workflows" / "pr-qa.yml",
+            "name: PR Quality Assurance\non: pull_request\njobs:\n  pr-qa:\n    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@pr-qa-v1-rc26\n",
+        )
+        self.git(repo, "add", ".")
+        self.git(repo, "commit", "-q", "-m", "Merge development baseline into staging")
+        self.install_fake_gitleaks_asserting_log_opts(f"--first-parent {base}..HEAD")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            static_only=True,
+            base_ref="staging",
+            head_ref="chore/align-development-into-staging",
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "PASS")
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Secrets"], "PASS")
+        self.assertTrue(
+            any(
+                result["gate"] == "Repository Hygiene"
+                and result["message"] == "Only governed ancestry-alignment merge commits detected."
+                for result in report_json["results"]
+            )
+        )
+
+    def test_alignment_pr_blocks_contentful_merge_commit(self) -> None:
+        repo, base = self.init_repo("alignment-contentful-merge", profile="framework")
+        self.git(repo, "checkout", "-q", "-b", "development", base)
+        self.write(repo / "app" / "Feature.php", "<?php\nreturn 'feature';\n")
+        self.commit(repo, "feat: add application feature")
+        self.git(repo, "checkout", "-q", "-b", "chore/align-development-into-staging", base)
+        self.git(repo, "merge", "--no-ff", "-m", "Merge development into staging", "development")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            static_only=True,
+            base_ref="staging",
+            head_ref="chore/align-development-into-staging",
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
         self.assertIn("Accidental merge commits detected", report)
+
+    def test_first_parent_commit_message_policy_still_blocks_new_bad_message(self) -> None:
+        repo, base = self.init_repo("bad-first-parent-message", profile="framework")
+        self.write(repo / "README.md", "# regression\n\nBad subject.\n")
+        self.git(repo, "add", ".")
+        self.git(repo, "commit", "-q", "-m", "Update README.md")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
+        self.assertIn("Commit messages do not match convention", report)
+
+    def test_new_secret_content_remains_blocking(self) -> None:
+        repo, base = self.init_repo("new-secret-content", profile="framework")
+        self.write(repo / "app" / "NewSecret.php", "<?php\n$password = 'new-super-secret-value';\n")
+        self.commit(repo, "feat: add secret content")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Secrets"], "FAIL")
+        self.assertIn("High-confidence secret indicators found", report)
+
+    def test_changed_inherited_secret_like_line_remains_blocking(self) -> None:
+        repo, base = self.init_repo("changed-inherited-secret-line", profile="framework")
+        self.git(repo, "checkout", "-q", "-b", "staging-secret-base", base)
+        self.write(repo / "tests" / "Feature" / "InheritedSecretFixtureTest.php", "<?php\n$password = 'old-fixture-secret-value';\n")
+        self.commit(repo, "test: add inherited secret-like fixture")
+        inherited_base = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.git(repo, "checkout", "-q", "-b", "feature/change-inherited-secret", inherited_base)
+        self.write(repo / "tests" / "Feature" / "InheritedSecretFixtureTest.php", "<?php\n$password = 'changed-fixture-secret-value';\n")
+        self.commit(repo, "test: change inherited secret-like fixture")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, inherited_base, static_only=True)
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Secrets"], "FAIL")
+        self.assertIn("High-confidence secret indicators found", report)
 
     def test_one_time_branch_alignment_allows_exact_main_tree_plus_caller_overlay(self) -> None:
         repo, development_sha = self.init_repo("branch-alignment-exact-tree")
