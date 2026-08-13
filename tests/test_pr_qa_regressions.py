@@ -1745,6 +1745,7 @@ jobs:
         self.assertIn("resolve_php_version.py", workflow)
         self.assertIn("postgres:16", workflow)
         self.assertIn("POSTGRES_DB: telepathy_test", workflow)
+        self.assertIn("CREATE ROLE runner LOGIN", workflow)
         self.assertIn("opentofu/setup-opentofu@v1", workflow)
         self.assertIn("tfsec_${TFSEC_VERSION}_linux_amd64.tar.gz", workflow)
 

@@ -13,7 +13,7 @@ env:
   GITLEAKS_VERSION: "8.30.1"
   OPENTOFU_VERSION: "1.12.5"
   TFSEC_VERSION: "1.28.14"
-  PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc22"
+  PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc23"
 
 jobs:
   detect:
@@ -237,6 +237,22 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
+
+      - name: Prepare PostgreSQL test database
+        if: needs.detect.outputs.php == 'true'
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -U postgres -d telepathy_test -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'runner') THEN
+              CREATE ROLE runner LOGIN;
+            END IF;
+          END
+          $$;
+          ALTER DATABASE telepathy_test OWNER TO runner;
+          GRANT ALL PRIVILEGES ON DATABASE telepathy_test TO runner;
+          SQL
 
       - name: Phase 2 and Phase 3 validation
         id: full
