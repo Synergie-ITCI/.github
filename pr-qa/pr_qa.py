@@ -918,6 +918,10 @@ def baseline_policy(ctx: PRContext) -> dict[str, Any]:
     return dict(ctx.policy.get("one_time_baseline_alignment", {}) or {})
 
 
+def branch_alignment_policy(ctx: PRContext) -> dict[str, Any]:
+    return dict(ctx.policy.get("one_time_branch_alignment", {}) or {})
+
+
 def baseline_requested(ctx: PRContext) -> bool:
     requested = os.environ.get("PR_QA_BASELINE_ALIGNMENT", "").strip().lower()
     if requested in {"1", "true", "yes", "on"}:
@@ -929,6 +933,19 @@ def baseline_requested(ctx: PRContext) -> bool:
     labels = pull_request.get("labels", []) or []
     label_names = {str((label or {}).get("name", "")).lower() for label in labels if isinstance(label, dict)}
     return "one-time-baseline-alignment" in label_names
+
+
+def branch_alignment_requested(ctx: PRContext) -> bool:
+    requested = os.environ.get("PR_QA_BRANCH_ALIGNMENT", "").strip().lower()
+    if requested in {"1", "true", "yes", "on"}:
+        return True
+    pull_request = ctx.event.get("pull_request", {}) or {}
+    marker = str(branch_alignment_policy(ctx).get("required_pr_body_marker", "") or "")
+    if marker and marker in str(pull_request.get("body") or ctx.pr_body or ""):
+        return True
+    labels = pull_request.get("labels", []) or []
+    label_names = {str((label or {}).get("name", "")).lower() for label in labels if isinstance(label, dict)}
+    return "one-time-branch-alignment" in label_names
 
 
 def baseline_authorization(ctx: PRContext, git_context: dict[str, Any]) -> tuple[bool, list[str], dict[str, Any]]:
@@ -980,6 +997,97 @@ def baseline_authorization(ctx: PRContext, git_context: dict[str, Any]) -> tuple
         details.append(f"PR body is missing required baseline marker `{marker}`.")
 
     return not details, details, policy
+
+
+def branch_alignment_authorization(ctx: PRContext, git_context: dict[str, Any]) -> tuple[bool, list[str], dict[str, Any]]:
+    policy = branch_alignment_policy(ctx)
+    details: list[str] = []
+    if not branch_alignment_requested(ctx):
+        return False, ["Branch alignment mode was not requested."], policy
+    if not policy.get("enabled", False):
+        return False, ["Central policy does not enable branch alignment mode."], policy
+
+    repository = resolve_repository_name(ctx)
+    expected_repository = str(policy.get("repository", ""))
+    if repository != expected_repository:
+        details.append(f"repository `{repository}` is not authorized; expected `{expected_repository}`.")
+
+    head_ref = ctx.head_ref or ""
+    expected_head = str(policy.get("head_ref", ""))
+    if head_ref != expected_head:
+        details.append(f"source branch `{head_ref}` is not authorized; expected `{expected_head}`.")
+
+    base_ref = ctx.base_ref or ""
+    expected_base = str(policy.get("base_ref", ""))
+    if base_ref != expected_base:
+        details.append(f"target branch `{base_ref}` is not authorized; expected `{expected_base}`.")
+
+    base_sha = str(git_context.get("base_sha") or "")
+    expected_base_sha = str(policy.get("expected_base_sha", ""))
+    if expected_base_sha and base_sha != expected_base_sha:
+        details.append(f"destination SHA `{base_sha}` is not authorized; expected `{expected_base_sha}`.")
+
+    head_sha = resolve_head_sha(ctx.repo, git_context)
+    expected_head_sha = str(policy.get("expected_head_sha", ""))
+    if expected_head_sha and head_sha != expected_head_sha:
+        details.append(f"source SHA `{head_sha}` is not authorized; expected `{expected_head_sha}`.")
+
+    if not git_context.get("is_git_repo"):
+        details.append("branch alignment authorization requires a Git checkout.")
+    else:
+        details.extend(branch_alignment_merge_authorization(ctx, head_sha, policy))
+        details.extend(baseline_source_overlay_authorization(ctx, git_context, policy, head_sha, base_sha))
+
+    expires_after = str(policy.get("expires_after", ""))
+    if expires_after:
+        try:
+            expires = datetime.fromisoformat(expires_after.replace("Z", "+00:00"))
+            if datetime.now(timezone.utc) > expires:
+                details.append(f"branch alignment authorization expired at `{expires_after}`.")
+        except ValueError:
+            details.append(f"branch alignment authorization expiry `{expires_after}` is invalid.")
+
+    minimum_changed = int(policy.get("minimum_changed_files", 0) or 0)
+    if len(ctx.changed_files) < minimum_changed:
+        details.append(f"changed-file count `{len(ctx.changed_files)}` is below branch alignment minimum `{minimum_changed}`.")
+
+    marker = str(policy.get("required_pr_body_marker", ""))
+    if marker and marker not in (ctx.pr_body or ""):
+        details.append(f"PR body is missing required branch alignment marker `{marker}`.")
+
+    return not details, details, policy
+
+
+def branch_alignment_merge_authorization(ctx: PRContext, head_sha: str, policy: dict[str, Any]) -> list[str]:
+    details: list[str] = []
+    merge_sha = str(policy.get("expected_merge_commit_sha") or "")
+    if not merge_sha:
+        return ["branch alignment authorization is missing expected merge commit SHA."]
+    if not commit_exists(ctx.repo, merge_sha):
+        ensure_ref_available(ctx.repo, merge_sha, str(ctx.head_ref or ""))
+    if not commit_exists(ctx.repo, merge_sha):
+        return [f"expected alignment merge commit `{merge_sha}` is unavailable."]
+    if not head_sha or not commit_exists(ctx.repo, head_sha):
+        return [f"candidate source SHA `{head_sha}` is unavailable."]
+
+    ancestor = subprocess.run(["git", "merge-base", "--is-ancestor", merge_sha, head_sha], cwd=ctx.repo, text=True, capture_output=True, check=False)
+    if ancestor.returncode != 0:
+        details.append(f"expected alignment merge commit `{merge_sha}` is not in candidate head ancestry.")
+
+    parents = git_lines(ctx.repo, ["show", "-s", "--format=%P", merge_sha])
+    parent_values = parents[0].split() if parents else []
+    if len(parent_values) != 2:
+        details.append(f"expected alignment merge commit `{merge_sha}` must have exactly two parents.")
+    else:
+        expected_first = str(policy.get("expected_merge_first_parent_sha") or "")
+        expected_second = str(policy.get("expected_merge_second_parent_sha") or "")
+        if expected_first and parent_values[0] != expected_first:
+            details.append(f"alignment merge first parent `{parent_values[0]}` is not authorized; expected `{expected_first}`.")
+        if expected_second and parent_values[1] != expected_second:
+            details.append(f"alignment merge second parent `{parent_values[1]}` is not authorized; expected `{expected_second}`.")
+        if expected_second and not merge_commit_matches_second_parent_tree(ctx.repo, merge_sha):
+            details.append(f"alignment merge commit `{merge_sha}` does not preserve the approved second-parent tree.")
+    return details
 
 
 def baseline_source_overlay_authorization(ctx: PRContext, git_context: dict[str, Any], policy: dict[str, Any], head_sha: str, base_sha: str) -> list[str]:
@@ -1129,7 +1237,7 @@ def baseline_source_sha(ctx: PRContext) -> str:
         return ""
     policy = baseline_policy_settings(ctx)
     overlay = policy.get("source_overlay", {}) or {}
-    return str(overlay.get("approved_application_source_sha") or policy.get("expected_head_sha") or "")
+    return str(overlay.get("approved_application_source_sha") or policy.get("approved_target_tree_sha") or policy.get("expected_head_sha") or "")
 
 
 def baseline_base_sha(ctx: PRContext) -> str:
@@ -1276,15 +1384,27 @@ def baseline_inherited_or_overlay_path(ctx: PRContext, rel: str, category: str =
 
 
 def gate_baseline_alignment(ctx: PRContext, git_context: dict[str, Any]) -> list[CheckResult]:
-    authorized, details, policy = baseline_authorization(ctx, git_context)
+    mode = "baseline"
+    requested = baseline_requested(ctx)
+    if requested:
+        authorized, details, policy = baseline_authorization(ctx, git_context)
+    elif branch_alignment_requested(ctx):
+        mode = "branch_alignment"
+        requested = True
+        authorized, details, policy = branch_alignment_authorization(ctx, git_context)
+    else:
+        authorized, details, policy = False, ["Baseline alignment mode was not requested."], baseline_policy(ctx)
     cache = context_cache(ctx)
     cache["baseline_authorized"] = authorized
     cache["baseline_policy"] = policy
     cache["baseline_authorization_details"] = details
-    if not baseline_requested(ctx):
+    cache["baseline_mode"] = mode
+    if not requested:
         return [passed("Baseline Alignment", None, "One-time baseline alignment mode was not requested.")]
     if not authorized:
-        return [failed("Baseline Alignment", None, "One-time baseline alignment authorization failed closed.", details, score=30)]
+        label = "branch alignment" if mode == "branch_alignment" else "baseline alignment"
+        return [failed("Baseline Alignment", None, f"One-time {label} authorization failed closed.", details, score=30)]
+    mode_label = "BRANCH ANCESTRY ALIGNMENT PREFLIGHT" if mode == "branch_alignment" else "BASELINE ALIGNMENT PREFLIGHT"
     evidence = [
         f"repository={resolve_repository_name(ctx)}",
         f"source_branch={ctx.head_ref or 'unknown'}",
@@ -1294,10 +1414,10 @@ def gate_baseline_alignment(ctx: PRContext, git_context: dict[str, Any]) -> list
         f"changed_files={len(ctx.changed_files)}",
         f"additions={ctx.additions}",
         f"deletions={ctx.deletions}",
-        "mode=BASELINE ALIGNMENT PREFLIGHT",
+        f"mode={mode_label}",
     ]
     evidence.extend(f"relaxed={item}" for item in sorted(baseline_relaxations(ctx)))
-    return [passed("Baseline Alignment", None, "BASELINE ALIGNMENT PREFLIGHT authorized by central one-time policy.", evidence)]
+    return [passed("Baseline Alignment", None, f"{mode_label} authorized by central one-time policy.", evidence)]
 
 
 def gate_config_validation(ctx: PRContext) -> list[CheckResult]:
