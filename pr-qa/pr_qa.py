@@ -9,7 +9,9 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
+import tempfile
 import urllib.error
 import urllib.request
 from copy import deepcopy
@@ -1604,6 +1606,8 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
     if invalid_commits:
         if baseline_allows(ctx, "historical_commit_volume"):
             results.append(warning("Repository Hygiene", None, "Historical baseline commit messages predate current convention; future commits remain governed.", invalid_commits[:20]))
+        elif long_lived_staging_to_main_promotion(ctx):
+            results.append(warning("Repository Hygiene", None, "Inherited branch-promotion commit messages predate current convention; future direct PR commits remain governed.", invalid_commits[:20]))
         else:
             results.append(failed("Repository Hygiene", None, "Commit messages do not match convention.", invalid_commits[:20], score=8))
     elif commits:
@@ -1642,6 +1646,8 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
             ]
         if unexpected_merge_commits and baseline_allows(ctx, "historical_commit_volume"):
             results.append(warning("Repository Hygiene", None, "Historical baseline merge commits predate current promotion policy; future PRs remain governed.", unexpected_merge_commits[:20]))
+        elif unexpected_merge_commits and long_lived_staging_to_main_promotion(ctx):
+            results.append(warning("Repository Hygiene", None, "Inherited branch-promotion merge commits predate current promotion policy; future direct PR merges remain governed.", unexpected_merge_commits[:20]))
         elif unexpected_merge_commits and not ctx.config.get("repository", {}).get("allow_merge_commits", False):
             results.append(failed("Repository Hygiene", None, "Accidental merge commits detected.", unexpected_merge_commits[:20], score=8))
         elif merge_commits and canonical_branch_promotion(ctx):
@@ -1658,6 +1664,14 @@ def canonical_branch_promotion(ctx: PRContext) -> bool:
     return pair in {
         ("develop", "staging"),
         ("development", "staging"),
+        ("staging", "main"),
+        ("staging", "master"),
+    }
+
+
+def long_lived_staging_to_main_promotion(ctx: PRContext) -> bool:
+    pair = ((ctx.head_ref or "").lower(), (ctx.base_ref or "").lower())
+    return pair in {
         ("staging", "main"),
         ("staging", "master"),
     }
@@ -1763,13 +1777,23 @@ def run_gitleaks(ctx: PRContext, git_context: dict[str, Any], report_path: str) 
         "--exit-code",
         "1",
     ]
-    if git_context.get("pr_commit_range"):
-        command.extend(["--log-opts", f"--first-parent {git_context['pr_commit_range']}"])
-    elif git_context.get("base_sha"):
-        command.extend(["--log-opts", f"{git_context['base_sha']}..HEAD"])
-    outcome = ctx.run(command, cwd=ctx.repo)
+    if long_lived_staging_to_main_promotion(ctx) and not baseline_active(ctx):
+        with tempfile.TemporaryDirectory(prefix="pr-qa-gitleaks-content-") as scan_root:
+            scan_source = Path(scan_root)
+            populate_changed_file_scan_source(ctx, scan_source)
+            command[command.index(str(ctx.repo))] = str(scan_source)
+            command.append("--no-git")
+            outcome = ctx.run(command, cwd=ctx.repo)
+        success_message = "Gitleaks content-delta scan passed for canonical branch promotion."
+    else:
+        if git_context.get("pr_commit_range"):
+            command.extend(["--log-opts", f"--first-parent {git_context['pr_commit_range']}"])
+        elif git_context.get("base_sha"):
+            command.extend(["--log-opts", f"{git_context['base_sha']}..HEAD"])
+        outcome = ctx.run(command, cwd=ctx.repo)
+        success_message = "Gitleaks scan passed."
     if outcome.ok:
-        return passed("Secrets", None, "Gitleaks scan passed.")
+        return passed("Secrets", None, success_message)
     report = out_dir / "gitleaks.json"
     allowed, unexpected, allowance_details = classify_gitleaks_findings(ctx, report)
     if allowed and not unexpected:
@@ -1783,6 +1807,17 @@ def run_gitleaks(ctx: PRContext, git_context: dict[str, Any], report_path: str) 
     if unexpected:
         details.extend(unexpected[:60])
     return failed("Secrets", None, "Gitleaks detected secrets.", details, score=40)
+
+
+def populate_changed_file_scan_source(ctx: PRContext, scan_source: Path) -> None:
+    scan_source.mkdir(parents=True, exist_ok=True)
+    for rel in ctx.changed_files:
+        src = ctx.repo / rel
+        if not src.is_file():
+            continue
+        dst = scan_source / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, dst)
 
 
 def classify_gitleaks_findings(ctx: PRContext, report: Path) -> tuple[bool, list[str], list[str]]:

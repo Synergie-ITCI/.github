@@ -468,6 +468,33 @@ esac
         )
         fake_gitleaks.chmod(0o755)
 
+    def install_fake_gitleaks_asserting_content_delta_scan(self) -> None:
+        fake_gitleaks = self.bin / "gitleaks"
+        fake_gitleaks.write_text(
+            """#!/usr/bin/env bash
+args="$*"
+case "$args" in
+  *"--no-git"* )
+    ;;
+  *)
+    echo "missing --no-git content scan mode" >&2
+    echo "$args" >&2
+    exit 1
+    ;;
+esac
+case "$args" in
+  *"--log-opts"* )
+    echo "unexpected history log opts for canonical promotion content scan" >&2
+    echo "$args" >&2
+    exit 1
+    ;;
+esac
+exit 0
+""",
+            encoding="utf-8",
+        )
+        fake_gitleaks.chmod(0o755)
+
     def test_saurabh_authored_pr_allows_green_without_independent_review(self) -> None:
         repo, base = self.init_repo("saurabh-no-review-green")
         self.write(repo / "README.md", "# regression\n\nSaurabh-authored governance correction.\n")
@@ -593,6 +620,70 @@ esac
 
         self.assertNotEqual(code, 0)
         self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
+
+    def test_canonical_promotion_classifies_inherited_first_parent_history(self) -> None:
+        repo, base = self.init_repo("canonical-promotion-inherited-history", profile="framework")
+        self.git(repo, "checkout", "-q", "-b", "staging", base)
+        self.write(repo / "feature.txt", "feature change\n")
+        self.git(repo, "add", ".")
+        self.git(repo, "commit", "-q", "-m", "Legacy feature import")
+        self.git(repo, "checkout", "-q", "-b", "feature/side-branch", base)
+        self.write(repo / "side.txt", "side change\n")
+        self.git(repo, "add", ".")
+        self.git(repo, "commit", "-q", "-m", "feat: add side branch content")
+        self.git(repo, "checkout", "-q", "staging")
+        self.git(repo, "merge", "--no-ff", "-m", "Merge side branch", "feature/side-branch")
+        self.install_fake_gitleaks_asserting_content_delta_scan()
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            static_only=True,
+            base_ref="main",
+            head_ref="staging",
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "WARNING")
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Secrets"], "PASS")
+        self.assertIn("Inherited branch-promotion commit messages predate current convention", report)
+        self.assertIn("Inherited branch-promotion merge commits predate current promotion policy", report)
+        self.assertTrue(
+            any(
+                result["gate"] == "Secrets"
+                and result["message"] == "Gitleaks content-delta scan passed for canonical branch promotion."
+                for result in report_json["results"]
+            )
+        )
+
+    def test_canonical_promotion_content_delta_secret_still_fails(self) -> None:
+        repo, base = self.init_repo("canonical-promotion-secret-delta", profile="framework")
+        self.git(repo, "checkout", "-q", "-b", "staging", base)
+        self.write(repo / "secret.txt", "token fixture\n")
+        self.git(repo, "add", ".")
+        self.git(repo, "commit", "-q", "-m", "feat: add staged application content")
+        self.install_fake_gitleaks_report(
+            [
+                {
+                    "Description": "Generic API Key",
+                    "File": "secret.txt",
+                    "StartLine": 1,
+                    "Fingerprint": "HEAD:secret.txt:generic-api-key",
+                }
+            ]
+        )
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            static_only=True,
+            base_ref="main",
+            head_ref="staging",
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Secrets"], "FAIL")
+        self.assertIn("Gitleaks detected secrets", report)
 
     def test_alignment_pr_uses_first_parent_history_for_inherited_baseline_ancestry(self) -> None:
         repo, base = self.init_repo("alignment-first-parent-history", profile="framework")
