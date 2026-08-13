@@ -681,6 +681,47 @@ exit 1
         self.assertEqual(report_json["summary"]["gate_statuses"]["Deployment Risk"], "WARNING")
         self.assertIn("INHERITED_BASELINE", report)
 
+    def test_source_overlay_authorizes_main_ancestry_candidate_by_final_tree(self) -> None:
+        self.install_fake_composer(audit_exit=0, test_exit=0)
+        repo, base, source = self.init_inherited_content_repo()
+        self.git(repo, "checkout", "-q", "-B", "release/production-baseline-alignment-20260812", base)
+        self.git(repo, "rm", "-qr", ".")
+        completed = subprocess.run(
+            ["git", "checkout", source, "--", "."],
+            cwd=repo,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.write(repo / ".github" / "CODEOWNERS", "* @SaurabhVermaIN\n")
+        self.write(
+            repo / ".github" / "workflows" / "pr-qa.yml",
+            "name: PR Quality Assurance\non:\n  pull_request:\n    types: [opened, synchronize, reopened, ready_for_review, edited]\njobs:\n  pr-qa:\n    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@pr-qa-v1-rc13\n",
+        )
+        self.git(repo, "add", ".")
+        self.git(repo, "commit", "-q", "-m", "chore: rebuild baseline candidate on main ancestry")
+        head = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        base_policy = self.baseline_policy_for(base_sha=base, head_sha=source, minimum_changed_files=1)
+        policy = self.source_overlay_policy_from_base(base_policy=base_policy, base_sha=base, source_sha=source)
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            base_ref="main",
+            head_ref="release/production-baseline-alignment-20260812",
+            head_sha=head,
+            repository="Synergie-ITCI/telemedicine-backend",
+            baseline_alignment=False,
+            body_extra=self.baseline_marker(),
+            policy_path=policy,
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertTrue(report_json["summary"]["baseline_alignment"]["authorized"])
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Baseline Alignment"], "PASS")
+
     def test_authorized_telemedicine_baseline_blocks_new_non_inherited_findings(self) -> None:
         self.install_fake_composer(audit_exit=0, test_exit=0)
         cases = [
@@ -689,6 +730,9 @@ exit 1
             (".env.testing.example", "APP_ENV=testing\nAPP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\nDB_PASSWORD=live-password\nHEALTH_WORKER_GOOGLE_ROUTES_API_KEY=\n", "Baseline Alignment", "candidate differs from approved application source outside the governance overlay"),
             ("public/assest/plugins/codemirror/mode/factor/factor.js", "const token = \"new-static-change-not-in-source\";\n", "Baseline Alignment", "candidate differs from approved application source outside the governance overlay"),
             (".github/workflows/new-deploy.yml", "name: new deploy\non: workflow_dispatch\njobs:\n  deploy:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo production\n", "Baseline Alignment", "candidate differs from approved application source outside the governance overlay"),
+            ("database/migrations/2026_08_12_000099_tamper.php", "<?php\nreturn new class { public function up() { Schema::dropIfExists('users'); } };\n", "Baseline Alignment", "candidate differs from approved application source outside the governance overlay"),
+            ("composer.lock", json.dumps({"packages": [{"name": "unexpected/package", "version": "1.0.0"}]}), "Baseline Alignment", "candidate differs from approved application source outside the governance overlay"),
+            ("docs/unexpected.md", "unexpected docs\n", "Baseline Alignment", "candidate differs from approved application source outside the governance overlay"),
         ]
         for path, content, expected_gate, needle in cases:
             with self.subTest(path=path):

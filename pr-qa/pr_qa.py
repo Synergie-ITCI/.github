@@ -1022,8 +1022,7 @@ def validate_baseline_source_overlay(
     if not allowed_paths:
         return ["source-plus-overlay authorization has no allowed overlay paths."]
 
-    changed_from_source = set(git_lines(ctx.repo, ["diff", "--name-only", "--diff-filter=ACMRTUXB", f"{source_sha}...{head_sha}"]))
-    unexpected = sorted(path for path in changed_from_source if path not in allowed_paths)
+    unexpected = baseline_source_tree_differences(ctx, source_sha, head_sha, allowed_paths)
     if unexpected:
         details.append("candidate differs from approved application source outside the governance overlay: " + ", ".join(unexpected[:30]))
 
@@ -1033,6 +1032,20 @@ def validate_baseline_source_overlay(
         details.extend(validate_baseline_overlay_path(ctx, source_sha, head_sha, base_sha, path, spec))
 
     return details
+
+
+def baseline_source_tree_differences(ctx: PRContext, source_sha: str, head_sha: str, allowed_paths: set[str]) -> list[str]:
+    source_blobs = {
+        path: blob
+        for path, blob in baseline_tree_blob_ids(ctx, source_sha).items()
+        if path not in allowed_paths
+    }
+    head_blobs = {
+        path: blob
+        for path, blob in baseline_tree_blob_ids(ctx, head_sha).items()
+        if path not in allowed_paths
+    }
+    return sorted(set(source_blobs).symmetric_difference(head_blobs) | {path for path in set(source_blobs) & set(head_blobs) if source_blobs[path] != head_blobs[path]})
 
 
 def validate_baseline_overlay_path(ctx: PRContext, source_sha: str, head_sha: str, base_sha: str, path: str, spec: dict[str, Any]) -> list[str]:
