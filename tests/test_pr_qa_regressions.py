@@ -285,6 +285,53 @@ class PrQaRegressionTests(unittest.TestCase):
         path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
         return path
 
+    def branch_alignment_policy_for(
+        self,
+        *,
+        base_sha: str,
+        head_sha: str,
+        merge_sha: str,
+        target_sha: str,
+        source_branch: str = "chore/align-main-into-development",
+        target_branch: str = "development",
+        expires_after: str = "2099-12-31T23:59:59Z",
+    ) -> Path:
+        policy = self.baseline_overlay_policy_for(base_sha=base_sha, source_sha=target_sha, new_ref="pr-qa-v1-rc24")
+        data = json.loads(policy.read_text(encoding="utf-8"))
+        baseline = data["one_time_baseline_alignment"]
+        data["one_time_branch_alignment"] = {
+            **baseline,
+            "enabled": True,
+            "base_ref": target_branch,
+            "head_ref": source_branch,
+            "expected_base_sha": base_sha,
+            "expected_head_sha": head_sha,
+            "approved_target_tree_sha": target_sha,
+            "expected_merge_commit_sha": merge_sha,
+            "expected_merge_first_parent_sha": base_sha,
+            "expected_merge_second_parent_sha": target_sha,
+            "expires_after": expires_after,
+            "minimum_changed_files": 1,
+            "required_pr_body_marker": "ONE-TIME TELEMEDICINE BRANCH ANCESTRY ALIGNMENT AUTHORIZATION",
+        }
+        data["one_time_branch_alignment"]["source_overlay"] = {
+            "approved_application_source_sha": target_sha,
+            "allowed_paths": [
+                ".github/workflows/pr-qa.yml",
+            ],
+            "paths": {
+                ".github/workflows/pr-qa.yml": {
+                    "source": "present",
+                    "old_ref": "pr-qa-v1-rc13",
+                    "new_ref": "pr-qa-v1-rc24",
+                    "uses": "Synergie-ITCI/.github/.github/workflows/pr-qa.yml",
+                },
+            },
+        }
+        path = self.tmp / f"policy-branch-alignment-{head_sha[:8]}.json"
+        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        return path
+
     def init_telemedicine_overlay_repo(self, name: str = "telemedicine-source-overlay") -> tuple[Path, str, str]:
         repo = self.tmp / name
         repo.mkdir()
@@ -351,6 +398,9 @@ class PrQaRegressionTests(unittest.TestCase):
 
     def baseline_marker(self) -> str:
         return "\nONE-TIME TELEMEDICINE PRODUCTION BASELINE AUTHORIZATION\n"
+
+    def branch_alignment_marker(self) -> str:
+        return "\nONE-TIME TELEMEDICINE BRANCH ANCESTRY ALIGNMENT AUTHORIZATION\n"
 
     def install_fake_composer(self, *, audit_exit: int = 0, test_exit: int = 0) -> None:
         fake_composer = self.bin / "composer"
@@ -524,6 +574,84 @@ exit 1
         self.assertNotEqual(code, 0)
         self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
         self.assertIn("Accidental merge commits detected", report)
+
+    def test_one_time_branch_alignment_allows_exact_main_tree_plus_caller_overlay(self) -> None:
+        repo, development_sha = self.init_repo("branch-alignment-exact-tree")
+        self.git(repo, "checkout", "-q", "-b", "main", development_sha)
+        self.write(repo / ".github" / "workflows" / "pr-qa.yml", "jobs:\n  pr-qa:\n    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@pr-qa-v1-rc13\n")
+        self.write(repo / ".env.testing", "APP_ENV=testing\nAPP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\nDB_DATABASE=telepathy_test\n")
+        self.write(repo / "app" / "Http" / "Controllers" / "BaselineController.php", "<?php\nclass BaselineController {}\n")
+        self.git(repo, "add", ".")
+        self.git(repo, "commit", "-q", "-m", "legacy import before conventions")
+        main_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        self.git(repo, "checkout", "-q", "-b", "chore/align-main-into-development", development_sha)
+        self.git(repo, "merge", "--no-ff", "-X", "theirs", "-m", "Merge main baseline into development", main_sha)
+        merge_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.write(repo / ".github" / "workflows" / "pr-qa.yml", "jobs:\n  pr-qa:\n    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@pr-qa-v1-rc24\n")
+        self.commit(repo, "ci: consume pr qa rc24")
+        head_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        policy = self.branch_alignment_policy_for(
+            base_sha=development_sha,
+            head_sha=head_sha,
+            merge_sha=merge_sha,
+            target_sha=main_sha,
+        )
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            development_sha,
+            static_only=True,
+            base_ref="development",
+            head_ref="chore/align-main-into-development",
+            head_sha=head_sha,
+            repository="Synergie-ITCI/telemedicine-backend",
+            policy_path=policy,
+            body_extra=self.branch_alignment_marker(),
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Baseline Alignment"], "PASS")
+        self.assertTrue(report_json["summary"]["baseline_alignment"]["authorized"])
+
+    def test_one_time_branch_alignment_blocks_candidate_tree_drift(self) -> None:
+        repo, development_sha = self.init_repo("branch-alignment-tree-drift")
+        self.git(repo, "checkout", "-q", "-b", "main", development_sha)
+        self.write(repo / ".github" / "workflows" / "pr-qa.yml", "jobs:\n  pr-qa:\n    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@pr-qa-v1-rc13\n")
+        self.write(repo / "app" / "Http" / "Controllers" / "BaselineController.php", "<?php\nclass BaselineController {}\n")
+        self.git(repo, "add", ".")
+        self.git(repo, "commit", "-q", "-m", "legacy import before conventions")
+        main_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        self.git(repo, "checkout", "-q", "-b", "chore/align-main-into-development", development_sha)
+        self.git(repo, "merge", "--no-ff", "-X", "theirs", "-m", "Merge main baseline into development", main_sha)
+        merge_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.write(repo / ".github" / "workflows" / "pr-qa.yml", "jobs:\n  pr-qa:\n    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@pr-qa-v1-rc24\n")
+        self.write(repo / "app" / "Http" / "Controllers" / "BaselineController.php", "<?php\nclass BaselineController { public function drift() {} }\n")
+        self.commit(repo, "ci: consume pr qa rc24")
+        head_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        policy = self.branch_alignment_policy_for(
+            base_sha=development_sha,
+            head_sha=head_sha,
+            merge_sha=merge_sha,
+            target_sha=main_sha,
+        )
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            development_sha,
+            static_only=True,
+            base_ref="development",
+            head_ref="chore/align-main-into-development",
+            head_sha=head_sha,
+            repository="Synergie-ITCI/telemedicine-backend",
+            policy_path=policy,
+            body_extra=self.branch_alignment_marker(),
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Baseline Alignment"], "FAIL")
+        self.assertIn("candidate differs from approved application source outside the governance overlay", report)
 
     def test_sql_migration_is_classified_by_sql_adapter(self) -> None:
         repo, base = self.init_repo("sql-migration")
