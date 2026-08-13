@@ -13,7 +13,7 @@ env:
   GITLEAKS_VERSION: "8.30.1"
   OPENTOFU_VERSION: "1.12.5"
   TFSEC_VERSION: "1.28.14"
-  PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc21"
+  PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc22"
 
 jobs:
   detect:
@@ -69,6 +69,19 @@ jobs:
     runs-on: ubuntu-latest
     needs: detect
     timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: telepathy_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d telepathy_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Checkout pull request
         uses: actions/checkout@v4
