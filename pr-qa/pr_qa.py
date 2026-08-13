@@ -2082,7 +2082,13 @@ def gate_protected_resources(ctx: PRContext, git_context: dict[str, Any]) -> lis
     protected_patterns = ctx.config.get("repository", {}).get("protected_paths", [])
     changed = [path for path in ctx.changed_files if match_any(path, protected_patterns)]
     authorized_overlay = [path for path in changed if baseline_authorized_overlay_path(ctx, path)]
-    changed_for_standard_policy = [path for path in changed if path not in set(authorized_overlay)]
+    inherited_codeowners = [
+        path
+        for path in changed
+        if path in {"CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"}
+        and baseline_inherited_path(ctx, path, "codeowners")
+    ]
+    changed_for_standard_policy = [path for path in changed if path not in set(authorized_overlay + inherited_codeowners)]
     codeowners_changed = any(path in {"CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"} for path in ctx.changed_files)
     codeowners_changed_for_standard_policy = any(path in {"CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"} for path in changed_for_standard_policy)
     codeowners = load_base_codeowners(ctx.repo, git_context)
@@ -2101,7 +2107,7 @@ def gate_protected_resources(ctx: PRContext, git_context: dict[str, Any]) -> lis
     uncovered = [path for path in changed_for_standard_policy if not codeowners_covers(path, codeowners)]
     if uncovered:
         return [failed("Protected Resources", None, "Protected resources changed without base-branch CODEOWNERS coverage.", uncovered[:30], score=14)]
-    details = changed_for_standard_policy[:30] + [f"{path}: AUTHORIZED_OVERLAY" for path in authorized_overlay[:30]]
+    details = changed_for_standard_policy[:30] + [f"{path}: INHERITED_BASELINE" for path in inherited_codeowners[:30]] + [f"{path}: AUTHORIZED_OVERLAY" for path in authorized_overlay[:30]]
     return [warning("Protected Resources", None, "Protected resources changed; required status checks and Review Policy gate must enforce governance.", details)]
 
 

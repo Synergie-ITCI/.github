@@ -579,6 +579,7 @@ exit 1
         repo, development_sha = self.init_repo("branch-alignment-exact-tree")
         self.git(repo, "checkout", "-q", "-b", "main", development_sha)
         self.write(repo / ".github" / "workflows" / "pr-qa.yml", "jobs:\n  pr-qa:\n    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@pr-qa-v1-rc13\n")
+        self.write(repo / ".github" / "CODEOWNERS", "* @SaurabhVermaIN\n.github/** @SaurabhVermaIN\n")
         self.write(repo / ".env.testing", "APP_ENV=testing\nAPP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\nDB_DATABASE=telepathy_test\n")
         self.write(repo / "app" / "Http" / "Controllers" / "BaselineController.php", "<?php\nclass BaselineController {}\n")
         self.git(repo, "add", ".")
@@ -612,6 +613,7 @@ exit 1
 
         self.assertEqual(code, 0, report)
         self.assertEqual(report_json["summary"]["gate_statuses"]["Baseline Alignment"], "PASS")
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Protected Resources"], "WARNING")
         self.assertTrue(report_json["summary"]["baseline_alignment"]["authorized"])
 
     def test_one_time_branch_alignment_blocks_candidate_tree_drift(self) -> None:

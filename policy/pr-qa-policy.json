@@ -698,7 +698,7 @@
     "base_ref": "development",
     "head_ref": "chore/align-main-into-development",
     "expected_base_sha": "062d083e7d025c663bffa343842d2060bc0c24fc",
-    "expected_head_sha": "34ff068980823ce50b26fd9f15dda1b75b60b0a7",
+    "expected_head_sha": "145756db17e7748d9d801aa3e86659a9483b0d5d",
     "source_overlay": {
       "approved_application_source_sha": "a36c8cc7b214c6331259dae91cfe0640c533c131",
       "allowed_paths": [
@@ -708,7 +708,7 @@
         ".github/workflows/pr-qa.yml": {
           "source": "present",
           "old_ref": "pr-qa-v1-rc23",
-          "new_ref": "pr-qa-v1-rc24",
+          "new_ref": "pr-qa-v1-rc25",
           "uses": "Synergie-ITCI/.github/.github/workflows/pr-qa.yml"
         }
       }
