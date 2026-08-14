@@ -2236,6 +2236,17 @@ def gate_deployment_safety(ctx: PRContext) -> list[CheckResult]:
         ".env.example",
     ]
     changed = [path for path in ctx.changed_files if match_any(path, deployment_patterns)]
+    if is_canonical_staging_to_main_promotion(ctx):
+        changed, equivalent = final_tree_deployment_changes(ctx, changed)
+        if equivalent and not changed:
+            return [
+                passed(
+                    "Deployment Risk",
+                    None,
+                    "Canonical staging-to-main promotion has no deployment-sensitive final-tree changes.",
+                    equivalent[:40],
+                )
+            ]
     if not changed:
         return [passed("Deployment Risk", None, "No deployment-sensitive files changed.")]
     if baseline_active(ctx):
@@ -2304,6 +2315,28 @@ def gate_deployment_safety(ctx: PRContext) -> list[CheckResult]:
     if risky_tokens and level in {"HIGH", "CRITICAL"}:
         return [failed("Deployment Risk", None, f"High-risk deployment change detected. Risk: {level}.", details[:30] + risky_tokens[:20], score=20)]
     return [warning("Deployment Risk", None, f"Deployment-sensitive changes detected. Risk: {level}.", details[:40])]
+
+
+def is_canonical_staging_to_main_promotion(ctx: PRContext) -> bool:
+    return (ctx.base_ref or "") == "main" and (ctx.head_ref or "") == "staging"
+
+
+def final_tree_deployment_changes(ctx: PRContext, paths: list[str]) -> tuple[list[str], list[str]]:
+    pull_request = ctx.event.get("pull_request", {}) or {}
+    base_sha = pull_request.get("base", {}).get("sha") or ""
+    if not base_sha or not is_git_repo(ctx.repo) or not commit_exists(ctx.repo, base_sha):
+        return paths, []
+
+    changed: list[str] = []
+    equivalent: list[str] = []
+    for path in paths:
+        base_exists = tree_entry_exists(ctx.repo, base_sha, path)
+        head_exists = tree_entry_exists(ctx.repo, "HEAD", path)
+        if base_exists and head_exists and tree_file_sha256(ctx.repo, base_sha, path) == tree_file_sha256(ctx.repo, "HEAD", path):
+            equivalent.append(f"{path}: FINAL_TREE_EQUIVALENT")
+        else:
+            changed.append(path)
+    return changed, equivalent
 
 
 def gate_database_safety(ctx: PRContext) -> list[CheckResult]:
