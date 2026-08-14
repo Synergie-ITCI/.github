@@ -2070,6 +2070,81 @@ jobs:
             )
         )
 
+    def test_canonical_staging_to_main_deployment_risk_uses_final_tree_equivalence(self) -> None:
+        repo, base = self.init_repo("canonical-promotion-final-tree-equivalent")
+        workflow = "name: Deploy\non: workflow_dispatch\njobs:\n  deploy:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo production review only\n"
+
+        self.git(repo, "checkout", "-q", "-B", "main", base)
+        self.write(repo / ".github" / "workflows" / "deploy.yml", workflow)
+        self.commit(repo, "ci: add reviewed deployment workflow")
+        main_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        self.git(repo, "checkout", "-q", "-B", "staging", base)
+        self.write(repo / ".github" / "workflows" / "deploy.yml", workflow)
+        self.commit(repo, "ci: add staging deployment workflow")
+        staging_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            main_sha,
+            static_only=True,
+            base_ref="main",
+            head_ref="staging",
+            head_sha=staging_sha,
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertTrue(
+            any(
+                result["gate"] == "Deployment Risk"
+                and result["status"] == "PASS"
+                and "final-tree changes" in result["message"]
+                for result in report_json["results"]
+            ),
+            report,
+        )
+
+    def test_canonical_staging_to_main_deployment_risk_blocks_real_final_tree_change(self) -> None:
+        repo, base = self.init_repo("canonical-promotion-real-deploy-change")
+        main_workflow = "name: Deploy\non: workflow_dispatch\njobs:\n  deploy:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo reviewed deployment\n"
+        staging_workflow = (
+            "name: Deploy\non: workflow_dispatch\njobs:\n  deploy:\n    runs-on: ubuntu-latest\n    steps:\n"
+            "      - run: ssh deployer@production.example.invalid ./deploy-production.sh\n"
+            "      - run: rsync -av build/ prod:/var/www\n"
+            "      - run: sudo kubectl apply -f k8s/production.yml\n"
+            "      - run: terraform apply -auto-approve\n"
+        )
+
+        self.git(repo, "checkout", "-q", "-B", "main", base)
+        self.write(repo / ".github" / "workflows" / "deploy.yml", main_workflow)
+        self.commit(repo, "ci: add reviewed deployment workflow")
+        main_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        self.git(repo, "checkout", "-q", "-B", "staging", base)
+        self.write(repo / ".github" / "workflows" / "deploy.yml", staging_workflow)
+        self.commit(repo, "ci: add production deploy command")
+        staging_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            main_sha,
+            static_only=True,
+            base_ref="main",
+            head_ref="staging",
+            head_sha=staging_sha,
+        )
+
+        self.assertNotEqual(code, 0, report)
+        self.assertTrue(
+            any(
+                result["gate"] == "Deployment Risk"
+                and result["status"] == "FAIL"
+                and "High-risk deployment change detected" in result["message"]
+                for result in report_json["results"]
+            ),
+            report,
+        )
+
     def test_workflow_has_no_framework_override_or_checkout_credentials(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "pr-qa.yml").read_text(encoding="utf-8")
         caller = (ROOT / "examples" / "caller-workflow.yml").read_text(encoding="utf-8")
