@@ -504,6 +504,9 @@ def gather_git_context(repo: Path, event: dict[str, Any], base_ref: str, head_re
     head_sha = pull_request.get("head", {}).get("sha") or "HEAD"
     resolved_head_ref = pull_request.get("head", {}).get("ref") or head_ref or os.environ.get("GITHUB_HEAD_REF") or current_branch(repo)
     resolved_base_ref = pull_request.get("base", {}).get("ref") or base_ref or os.environ.get("GITHUB_BASE_REF")
+    canonical_base_sha = resolve_current_canonical_promotion_base_sha(repo, resolved_base_ref, resolved_head_ref)
+    if canonical_base_sha:
+        base_sha = canonical_base_sha
     pr_body = pull_request.get("body") or ""
     context = {
         "base_ref": resolved_base_ref,
@@ -562,6 +565,18 @@ def ensure_ref_available(repo: Path, base_sha: str, base_ref: str) -> None:
     if commit_exists(repo, base_sha) or not base_ref:
         return
     subprocess.run(["git", "fetch", "--no-tags", "origin", f"+refs/heads/{base_ref}:refs/remotes/origin/{base_ref}"], cwd=repo, check=False, capture_output=True)
+
+
+def resolve_current_canonical_promotion_base_sha(repo: Path, base_ref: str, head_ref: str) -> str:
+    if base_ref != "main" or head_ref != "staging" or not is_git_repo(repo):
+        return ""
+    remote_ref = f"refs/remotes/origin/{base_ref}"
+    resolved = run_git(repo, ["rev-parse", "--verify", f"{remote_ref}^{{commit}}"]).strip()
+    if resolved and commit_exists(repo, resolved):
+        return resolved
+    subprocess.run(["git", "fetch", "--no-tags", "origin", f"+refs/heads/{base_ref}:{remote_ref}"], cwd=repo, check=False, capture_output=True)
+    resolved = run_git(repo, ["rev-parse", "--verify", f"{remote_ref}^{{commit}}"]).strip()
+    return resolved if resolved and commit_exists(repo, resolved) else ""
 
 
 def commit_exists(repo: Path, sha: str) -> bool:
@@ -2323,7 +2338,9 @@ def is_canonical_staging_to_main_promotion(ctx: PRContext) -> bool:
 
 def final_tree_deployment_changes(ctx: PRContext, paths: list[str]) -> tuple[list[str], list[str]]:
     pull_request = ctx.event.get("pull_request", {}) or {}
-    base_sha = pull_request.get("base", {}).get("sha") or ""
+    base_sha = resolve_current_canonical_promotion_base_sha(ctx.repo, ctx.base_ref or "", ctx.head_ref or "")
+    if not base_sha:
+        base_sha = pull_request.get("base", {}).get("sha") or ""
     if not base_sha or not is_git_repo(ctx.repo) or not commit_exists(ctx.repo, base_sha):
         return paths, []
 

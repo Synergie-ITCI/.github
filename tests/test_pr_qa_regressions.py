@@ -2104,6 +2104,49 @@ jobs:
             report,
         )
 
+    def test_canonical_staging_to_main_uses_current_base_when_event_sha_is_stale(self) -> None:
+        repo, base = self.init_repo("canonical-promotion-stale-event-base")
+        workflow = (
+            "name: Deploy\non: workflow_dispatch\njobs:\n  deploy:\n    runs-on: ubuntu-latest\n    steps:\n"
+            "      - run: ssh deployer@production.example.invalid ./deploy-production.sh\n"
+            "      - run: rsync -av build/ prod:/var/www\n"
+            "      - run: sudo terraform apply -auto-approve\n"
+        )
+
+        self.git(repo, "checkout", "-q", "-B", "main", base)
+        self.write(repo / ".github" / "workflows" / "deploy.yml", workflow)
+        self.commit(repo, "ci: add reviewed deployment workflow")
+        current_main_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.git(repo, "update-ref", "refs/remotes/origin/main", current_main_sha)
+
+        self.git(repo, "checkout", "-q", "-B", "staging", base)
+        self.write(repo / ".github" / "workflows" / "deploy.yml", workflow)
+        self.write(repo / ".env.example", "APP_ENV=production\nRAZORPAY_MODE=prod\n")
+        self.commit(repo, "chore: prepare staging promotion")
+        staging_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            static_only=True,
+            base_ref="main",
+            head_ref="staging",
+            head_sha=staging_sha,
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["baseline_alignment"]["destination_sha"], current_main_sha)
+        self.assertNotIn(".github/workflows/deploy.yml: +", report)
+        self.assertTrue(
+            any(
+                result["gate"] == "Deployment Risk"
+                and result["status"] == "WARNING"
+                and result["message"] == "Deployment-sensitive changes detected. Risk: LOW."
+                for result in report_json["results"]
+            ),
+            report,
+        )
+
     def test_canonical_staging_to_main_deployment_risk_blocks_real_final_tree_change(self) -> None:
         repo, base = self.init_repo("canonical-promotion-real-deploy-change")
         main_workflow = "name: Deploy\non: workflow_dispatch\njobs:\n  deploy:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo reviewed deployment\n"
