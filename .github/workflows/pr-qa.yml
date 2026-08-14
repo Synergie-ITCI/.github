@@ -41,6 +41,15 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Fetch current pull request base branch
+        if: github.event_name == 'pull_request' && github.event.pull_request.base.ref != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: bearer ${GH_TOKEN}" \
+            fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+
       - name: Prepare local central PR QA framework
         if: github.repository == 'Synergie-ITCI/.github'
         run: |
@@ -89,6 +98,15 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Fetch current pull request base branch
+        if: github.event_name == 'pull_request' && github.event.pull_request.base.ref != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: bearer ${GH_TOKEN}" \
+            fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
 
       - name: Prepare local central PR QA framework
         if: github.repository == 'Synergie-ITCI/.github'

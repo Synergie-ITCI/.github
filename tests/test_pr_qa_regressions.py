@@ -2193,6 +2193,8 @@ jobs:
         caller = (ROOT / "examples" / "caller-workflow.yml").read_text(encoding="utf-8")
         self.assertNotIn("framework-ref", workflow + caller)
         self.assertIn("persist-credentials: false", workflow)
+        self.assertIn("Fetch current pull request base branch", workflow)
+        self.assertIn("refs/remotes/origin/${BASE_REF}", workflow)
         self.assertIn("@pr-qa-v1-rc2", caller)
         self.assertIn("resolve_node_version.py", workflow)
         self.assertIn("resolve_php_version.py", workflow)
