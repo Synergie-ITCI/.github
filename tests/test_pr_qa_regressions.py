@@ -473,6 +473,7 @@ gates:
             "relaxations": [
                 "diff_size",
                 "changed_file_count",
+                "historical_branch_name",
                 "historical_commit_volume",
                 "historical_migration_count",
                 "historical_protected_resources",
@@ -984,7 +985,13 @@ exit 0
         self.git(repo, "init", "-q")
         self.git(repo, "config", "user.email", "qa@example.invalid")
         self.git(repo, "config", "user.name", "QA Regression")
-        self.write(repo / ".github" / "pr-qa.yml", self.base_config())
+        self.write(
+            repo / ".github" / "pr-qa.yml",
+            self.base_config()
+            + "branch_naming:\n"
+            + "  allowed_patterns:\n"
+            + "    - '^(feature|fix|hotfix|release|chore|docs|test|refactor|security|codex)/[a-zA-Z0-9._/-]+$'\n",
+        )
         self.write(repo / "README.md", "# staging shell\n")
         self.git(repo, "add", ".")
         self.git(repo, "commit", "-q", "-m", "chore: staging shell")
@@ -1022,8 +1029,10 @@ exit 0
 
         self.assertEqual(code, 0, report)
         self.assertEqual(report_json["summary"]["gate_statuses"]["Baseline Alignment"], "PASS")
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "WARNING")
         self.assertIn(report_json["summary"]["gate_statuses"]["Risk Engine"], {"PASS", "WARNING"})
         self.assertEqual(report_json["summary"]["gate_statuses"]["Protected Resources"], "WARNING")
+        self.assertIn("Historical baseline source branch `development` predates current branch naming convention", report)
         self.assertIn("Inherited baseline protected resources match the exact approved source", report)
         self.assertNotIn("PR exceeds central size thresholds", report)
 
@@ -2484,7 +2493,7 @@ jobs:
         self.assertIn("persist-credentials: false", workflow)
         self.assertIn("Fetch current pull request base branch", workflow)
         self.assertIn("refs/remotes/origin/${BASE_REF}", workflow)
-        self.assertIn('PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc34"', workflow)
+        self.assertIn('PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc35"', workflow)
         self.assertIn("@pr-qa-v1-rc2", caller)
         self.assertIn("resolve_node_version.py", workflow)
         self.assertIn("resolve_php_version.py", workflow)
