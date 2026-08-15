@@ -113,9 +113,18 @@ gates:
         baseline_alignment: bool = False,
         body_extra: str = "",
         event_labels: list[str] | None = None,
+        body_override: str | None = None,
     ) -> tuple[int, str, dict, Path]:
         event = repo / "event.json"
         labels = [{"name": label} for label in (event_labels or [])]
+        body = (
+            "## Business Purpose\nRegression test.\n"
+            "## Testing Performed\nLocal automated regression.\n"
+            "## Rollback Strategy\nRevert this PR.\n"
+            "## Linked Issue\nhttps://github.com/Synergie-ITCI/.github/issues/123\n"
+            "## Screenshots\nN/A\n"
+            f"{body_extra}"
+        )
         event.write_text(
             json.dumps(
                 {
@@ -125,14 +134,7 @@ gates:
                         "base": {"sha": base, "ref": base_ref},
                         "head": {"sha": head_sha, "ref": head_ref},
                         "labels": labels,
-                        "body": (
-                            "## Business Purpose\nRegression test.\n"
-                            "## Testing Performed\nLocal automated regression.\n"
-                            "## Rollback Strategy\nRevert this PR.\n"
-                            "## Linked Issue\nhttps://github.com/Synergie-ITCI/.github/issues/123\n"
-                            "## Screenshots\nN/A\n"
-                            f"{body_extra}"
-                        ),
+                        "body": body_override if body_override is not None else body,
                     }
                 }
             ),
@@ -443,6 +445,42 @@ gates:
 
     def branch_alignment_marker(self) -> str:
         return "\nONE-TIME TELEMEDICINE BRANCH ANCESTRY ALIGNMENT AUTHORIZATION\n"
+
+    def programme_platform_marker(self) -> str:
+        return "\nONE-TIME PROGRAMME PLATFORM DEVELOPMENT TO STAGING BASELINE AUTHORIZATION\n"
+
+    def programme_platform_policy_for(
+        self,
+        *,
+        base_sha: str,
+        head_sha: str,
+        base_ref: str = "staging",
+        head_ref: str = "development",
+        repository: str = "Synergie-ITCI/programme-management-platform",
+        expires_after: str = "2099-12-31T23:59:59Z",
+    ) -> Path:
+        policy = json.loads((ROOT / "policy" / "pr-qa-policy.json").read_text(encoding="utf-8"))
+        policy["one_time_baseline_alignment"] = {
+            "enabled": True,
+            "repository": repository,
+            "base_ref": base_ref,
+            "head_ref": head_ref,
+            "expected_base_sha": base_sha,
+            "expected_head_sha": head_sha,
+            "expires_after": expires_after,
+            "minimum_changed_files": 1,
+            "required_pr_body_marker": "ONE-TIME PROGRAMME PLATFORM DEVELOPMENT TO STAGING BASELINE AUTHORIZATION",
+            "relaxations": [
+                "diff_size",
+                "changed_file_count",
+                "historical_commit_volume",
+                "historical_migration_count",
+                "historical_protected_resources",
+            ],
+        }
+        path = self.tmp / f"programme-platform-policy-{head_sha[:8]}.json"
+        path.write_text(json.dumps(policy, indent=2) + "\n", encoding="utf-8")
+        return path
 
     def install_fake_composer(self, *, audit_exit: int = 0, test_exit: int = 0) -> None:
         fake_composer = self.bin / "composer"
@@ -936,6 +974,170 @@ exit 0
         self.assertEqual(report_json["summary"]["gate_statuses"]["Baseline Alignment"], "PASS")
         self.assertEqual(report_json["summary"]["gate_statuses"]["Risk Engine"], "FAIL")
         self.assertIn("PR exceeds central size thresholds", report)
+
+    def init_programme_platform_baseline_repo(self, name: str, *, include_secret: bool = False) -> tuple[Path, str, str]:
+        fake_pip_audit = self.bin / "pip-audit"
+        fake_pip_audit.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+        fake_pip_audit.chmod(0o755)
+        repo = self.tmp / name
+        repo.mkdir()
+        self.git(repo, "init", "-q")
+        self.git(repo, "config", "user.email", "qa@example.invalid")
+        self.git(repo, "config", "user.name", "QA Regression")
+        self.write(repo / ".github" / "pr-qa.yml", self.base_config())
+        self.write(repo / "README.md", "# staging shell\n")
+        self.git(repo, "add", ".")
+        self.git(repo, "commit", "-q", "-m", "chore: staging shell")
+        base = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.git(repo, "checkout", "-q", "-b", "development")
+        self.write(repo / ".github" / "CODEOWNERS", "* @SaurabhVermaIN\n.github/** @SaurabhVermaIN\n")
+        self.write(repo / ".github" / "pull_request_template.md", "## Business Purpose\n\n## Testing Performed\n\n## Rollback Strategy\n\n## Linked Issue\n")
+        self.write(repo / ".github" / "workflows" / "architecture-governance.yml", "name: architecture\non: pull_request\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n")
+        self.write(repo / "apps" / "api" / "alembic" / "versions" / "20260815_0016_sign_authenticated_database_context.py", "revision = '20260815_0016'\ndown_revision = '20260815_0015'\n")
+        for index in range(205):
+            self.write(repo / "docs" / f"baseline-{index:03d}.md", ("verified baseline evidence\n" * 30))
+        if include_secret:
+            self.write(repo / "apps" / "api" / "app" / "secret_fixture.py", "password = 'real-secret-password-value'\n")
+        self.git(repo, "add", ".")
+        self.git(repo, "commit", "-q", "-m", "Merge pull request #13 from feature/p1a-config-driven-case-lifecycle")
+        head = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        return repo, base, head
+
+    def test_programme_platform_one_time_baseline_allows_only_exact_verified_development_to_staging(self) -> None:
+        repo, base, head = self.init_programme_platform_baseline_repo("programme-platform-baseline")
+        policy = self.programme_platform_policy_for(base_sha=base, head_sha=head)
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            base_ref="staging",
+            head_ref="development",
+            head_sha=head,
+            repository="Synergie-ITCI/programme-management-platform",
+            baseline_alignment=True,
+            body_extra=self.programme_platform_marker(),
+            policy_path=policy,
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Baseline Alignment"], "PASS")
+        self.assertIn(report_json["summary"]["gate_statuses"]["Risk Engine"], {"PASS", "WARNING"})
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Protected Resources"], "WARNING")
+        self.assertIn("Inherited baseline protected resources match the exact approved source", report)
+        self.assertNotIn("PR exceeds central size thresholds", report)
+
+    def test_programme_platform_one_time_baseline_rejects_wrong_scope_or_reuse(self) -> None:
+        repo, base, head = self.init_programme_platform_baseline_repo("programme-platform-baseline-scope")
+        policy = self.programme_platform_policy_for(base_sha=base, head_sha=head)
+        cases = [
+            {
+                "name": "another repository",
+                "repository": "Synergie-ITCI/another-repo",
+                "base_ref": "staging",
+                "head_ref": "development",
+                "head_sha": head,
+                "base": base,
+                "needle": "is not authorized",
+            },
+            {
+                "name": "another development sha",
+                "repository": "Synergie-ITCI/programme-management-platform",
+                "base_ref": "staging",
+                "head_ref": "development",
+                "head_sha": base,
+                "base": base,
+                "needle": "source SHA",
+            },
+            {
+                "name": "another source branch",
+                "repository": "Synergie-ITCI/programme-management-platform",
+                "base_ref": "staging",
+                "head_ref": "release/programme-platform-baseline",
+                "head_sha": head,
+                "base": base,
+                "needle": "source branch",
+            },
+            {
+                "name": "another target branch",
+                "repository": "Synergie-ITCI/programme-management-platform",
+                "base_ref": "main",
+                "head_ref": "development",
+                "head_sha": head,
+                "base": base,
+                "needle": "target branch",
+            },
+            {
+                "name": "reuse after staging moved",
+                "repository": "Synergie-ITCI/programme-management-platform",
+                "base_ref": "staging",
+                "head_ref": "development",
+                "head_sha": head,
+                "base": head,
+                "needle": "destination SHA",
+            },
+        ]
+        for case in cases:
+            with self.subTest(case=case["name"]):
+                code, report, report_json, _ = self.run_engine_with_artifacts(
+                    repo,
+                    case["base"],
+                    static_only=True,
+                    base_ref=case["base_ref"],
+                    head_ref=case["head_ref"],
+                    head_sha=case["head_sha"],
+                    repository=case["repository"],
+                    baseline_alignment=True,
+                    body_extra=self.programme_platform_marker(),
+                    policy_path=policy,
+                    review_policy={"mergeable": True, "reviews": []},
+                )
+
+                self.assertNotEqual(code, 0)
+                self.assertEqual(report_json["summary"]["gate_statuses"]["Baseline Alignment"], "FAIL")
+                self.assertIn(case["needle"], report)
+
+    def test_programme_platform_one_time_baseline_does_not_waive_evidence_or_secrets(self) -> None:
+        repo, base, head = self.init_programme_platform_baseline_repo("programme-platform-baseline-evidence")
+        policy = self.programme_platform_policy_for(base_sha=base, head_sha=head)
+
+        missing_evidence_code, missing_evidence_report, missing_evidence_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            base_ref="staging",
+            head_ref="development",
+            head_sha=head,
+            repository="Synergie-ITCI/programme-management-platform",
+            baseline_alignment=True,
+            body_override=self.programme_platform_marker(),
+            policy_path=policy,
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertNotEqual(missing_evidence_code, 0)
+        self.assertEqual(missing_evidence_json["summary"]["gate_statuses"]["Baseline Alignment"], "PASS")
+        self.assertEqual(missing_evidence_json["summary"]["gate_statuses"]["Evidence"], "FAIL")
+        self.assertIn("Mandatory PR template evidence is missing", missing_evidence_report)
+
+        repo, base, head = self.init_programme_platform_baseline_repo("programme-platform-baseline-secret", include_secret=True)
+        policy = self.programme_platform_policy_for(base_sha=base, head_sha=head)
+        secret_code, secret_report, secret_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            base_ref="staging",
+            head_ref="development",
+            head_sha=head,
+            repository="Synergie-ITCI/programme-management-platform",
+            baseline_alignment=True,
+            body_extra=self.programme_platform_marker(),
+            policy_path=policy,
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertNotEqual(secret_code, 0)
+        self.assertEqual(secret_json["summary"]["gate_statuses"]["Baseline Alignment"], "PASS")
+        self.assertEqual(secret_json["summary"]["gate_statuses"]["Secrets"], "FAIL")
+        self.assertIn("High-confidence secret indicators found", secret_report)
 
     def test_authorized_telemedicine_baseline_relaxes_size_history_and_safe_fixtures(self) -> None:
         self.install_fake_composer(audit_exit=0, test_exit=0)
@@ -2282,7 +2484,7 @@ jobs:
         self.assertIn("persist-credentials: false", workflow)
         self.assertIn("Fetch current pull request base branch", workflow)
         self.assertIn("refs/remotes/origin/${BASE_REF}", workflow)
-        self.assertIn('PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc33"', workflow)
+        self.assertIn('PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc34"', workflow)
         self.assertIn("@pr-qa-v1-rc2", caller)
         self.assertIn("resolve_node_version.py", workflow)
         self.assertIn("resolve_php_version.py", workflow)
