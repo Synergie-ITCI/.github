@@ -49,6 +49,48 @@ class PrQaRegressionTests(unittest.TestCase):
         self.git(repo, "checkout", "-q", "-b", "feature/regression")
         return repo, base
 
+    def init_repo_with_migration_protection(self, name: str) -> tuple[Path, str]:
+        repo = self.tmp / name
+        repo.mkdir()
+        self.git(repo, "init", "-q")
+        self.git(repo, "config", "user.email", "qa@example.invalid")
+        self.git(repo, "config", "user.name", "QA Regression")
+        self.write(
+            repo / ".github" / "pr-qa.yml",
+            """version: 1
+repository:
+  profile: application
+  criticality: medium
+  protected_paths:
+    - .github/**
+    - apps/api/alembic/**
+gates:
+  repository_hygiene: true
+  formatting: true
+  lint: true
+  build: true
+  tests: true
+  git_validation: true
+  secrets: true
+  dependencies: true
+  licence: true
+  deployment_safety: true
+  database_safety: true
+  documentation: true
+  protected_resources: true
+  advisory_review: true
+  risk: true
+  evidence: true
+""",
+        )
+        self.write(repo / ".github" / "CODEOWNERS", ".github/** @Synergie-ITCI/saurabh-pr-review-bypass\n")
+        self.write(repo / "README.md", "# regression\n")
+        self.git(repo, "add", ".")
+        self.git(repo, "commit", "-q", "-m", "chore: baseline")
+        base = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.git(repo, "checkout", "-q", "-b", "feature/regression")
+        return repo, base
+
     def run_engine(self, repo: Path, base: str, *, static_only: bool = False) -> tuple[int, str]:
         code, report, _, _ = self.run_engine_with_artifacts(repo, base, static_only=static_only)
         return code, report
@@ -1878,6 +1920,51 @@ exit 0
         self.assertNotEqual(code, 0)
         self.assertIn("CODEOWNERS changes are not allowed", report)
 
+    def test_codeowners_additive_protected_path_maintenance_passes(self) -> None:
+        repo, base = self.init_repo_with_migration_protection("codeowners-maintenance")
+        self.write(
+            repo / ".github" / "CODEOWNERS",
+            ".github/** @Synergie-ITCI/saurabh-pr-review-bypass\n"
+            "apps/api/alembic/versions/** @Synergie-ITCI/saurabh-pr-review-bypass\n",
+        )
+        self.commit(repo, "chore: add migration codeowner")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Protected Resources"], "WARNING")
+        self.assertIn("Controlled CODEOWNERS maintenance added protected-path coverage", report)
+        self.assertIn("apps/api/alembic/versions/** @Synergie-ITCI/saurabh-pr-review-bypass", report)
+
+    def test_codeowners_additive_maintenance_rejects_unverified_owner(self) -> None:
+        repo, base = self.init_repo_with_migration_protection("codeowners-maintenance-unverified-owner")
+        self.write(
+            repo / ".github" / "CODEOWNERS",
+            ".github/** @Synergie-ITCI/saurabh-pr-review-bypass\n"
+            "apps/api/alembic/versions/** @Synergie-ITCI/database-admins\n",
+        )
+        self.commit(repo, "chore: add migration codeowner")
+
+        code, report = self.run_engine(repo, base, static_only=True)
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("new owners are not already present in base CODEOWNERS", report)
+
+    def test_codeowners_additive_maintenance_rejects_bundled_app_changes(self) -> None:
+        repo, base = self.init_repo_with_migration_protection("codeowners-maintenance-bundled")
+        self.write(
+            repo / ".github" / "CODEOWNERS",
+            ".github/** @Synergie-ITCI/saurabh-pr-review-bypass\n"
+            "apps/api/alembic/versions/** @Synergie-ITCI/saurabh-pr-review-bypass\n",
+        )
+        self.write(repo / "apps" / "api" / "alembic" / "versions" / "001_create_table.py", "# migration\n")
+        self.commit(repo, "chore: add migration codeowner")
+
+        code, report = self.run_engine(repo, base, static_only=True)
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("CODEOWNERS maintenance PRs may change only one CODEOWNERS file", report)
+
     def test_codeowners_bootstrap_allows_pr_qa_caller_recovery(self) -> None:
         repo = self.tmp / "codeowners-bootstrap"
         repo.mkdir()
@@ -2195,7 +2282,7 @@ jobs:
         self.assertIn("persist-credentials: false", workflow)
         self.assertIn("Fetch current pull request base branch", workflow)
         self.assertIn("refs/remotes/origin/${BASE_REF}", workflow)
-        self.assertIn('PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc32"', workflow)
+        self.assertIn('PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc33"', workflow)
         self.assertIn("@pr-qa-v1-rc2", caller)
         self.assertIn("resolve_node_version.py", workflow)
         self.assertIn("resolve_php_version.py", workflow)
