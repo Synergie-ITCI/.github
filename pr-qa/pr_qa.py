@@ -1612,6 +1612,8 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
     branch_patterns = ctx.config.get("branch_naming", {}).get("allowed_patterns", [])
     if branch and any(re.match(pattern, branch) for pattern in branch_patterns):
         results.append(passed("Repository Hygiene", None, f"Branch name `{branch}` matches allowed convention."))
+    elif branch and baseline_allows(ctx, "historical_branch_name"):
+        results.append(warning("Repository Hygiene", None, f"Historical baseline source branch `{branch}` predates current branch naming convention; future PRs remain governed."))
     elif branch:
         results.append(failed("Repository Hygiene", None, f"Branch name `{branch}` does not match allowed convention.", score=5))
     else:

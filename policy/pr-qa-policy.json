@@ -300,6 +300,7 @@
     "relaxations": [
       "diff_size",
       "changed_file_count",
+      "historical_branch_name",
       "historical_commit_volume",
       "historical_migration_count",
       "historical_protected_resources"
