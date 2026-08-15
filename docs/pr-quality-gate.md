@@ -82,6 +82,18 @@ explicitly opts into stricter behavior.
 - File annotations appear for failures and warnings
 - Branch Protection, CODEOWNERS, approvals, and merge permissions remain owned by GitHub
 
+## CODEOWNERS Maintenance
+
+The Protected Resources gate reads CODEOWNERS from the pull request base branch.
+If the base branch has no CODEOWNERS file, a narrow bootstrap PR may introduce
+CODEOWNERS and the PR QA caller workflow.
+
+After CODEOWNERS exists, maintenance is intentionally append-only. A maintenance
+PR may change exactly one CODEOWNERS file and only append coverage for configured
+protected paths. Existing rules must remain byte-for-byte equivalent in order,
+new owners must already appear in base CODEOWNERS, and application or migration
+changes must be delivered in a separate PR.
+
 ## Sample Report
 
 ```text

@@ -15,6 +15,7 @@ import tempfile
 import urllib.error
 import urllib.request
 from copy import deepcopy
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -49,6 +50,7 @@ FRAMEWORK_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_POLICY_PATH = FRAMEWORK_ROOT / "policy" / "pr-qa-policy.json"
 CONFIG_PATH = ".github/pr-qa.yml"
 EMERGENCY_OVERRIDE_REASON_ENV = "PR_QA_EMERGENCY_OVERRIDE_REASON"
+CODEOWNERS_PATHS = {"CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"}
 
 GATE_ORDER = [
     ("baseline_alignment", "Baseline Alignment"),
@@ -2174,19 +2176,22 @@ def gate_protected_resources(ctx: PRContext, git_context: dict[str, Any]) -> lis
     inherited_codeowners = [
         path
         for path in changed
-        if path in {"CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"}
+        if path in CODEOWNERS_PATHS
         and baseline_inherited_path(ctx, path, "codeowners")
     ]
     changed_for_standard_policy = [path for path in changed if path not in set(authorized_overlay + inherited_codeowners)]
-    codeowners_changed = any(path in {"CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"} for path in ctx.changed_files)
-    codeowners_changed_for_standard_policy = any(path in {"CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"} for path in changed_for_standard_policy)
+    codeowners_changed = any(path in CODEOWNERS_PATHS for path in ctx.changed_files)
+    codeowners_changed_for_standard_policy = any(path in CODEOWNERS_PATHS for path in changed_for_standard_policy)
     codeowners = load_base_codeowners(ctx.repo, git_context)
     if codeowners_changed and authorized_overlay and not codeowners_changed_for_standard_policy:
         return [warning("Protected Resources", None, "Authorized governance overlay passed exact source+overlay validation; required status checks and Review Policy gate remain mandatory.", authorized_overlay[:30])]
     if codeowners_changed_for_standard_policy and not codeowners and is_codeowners_bootstrap_pr(ctx):
         return [warning("Protected Resources", None, "Base CODEOWNERS bootstrap detected; required status checks and Review Policy gate must enforce governance.", sorted(ctx.changed_files))]
     if codeowners_changed_for_standard_policy:
-        return [failed("Protected Resources", None, "CODEOWNERS changes are not allowed in PR QA guarded changes.", score=20)]
+        maintenance = evaluate_codeowners_maintenance(ctx, git_context, protected_patterns)
+        if maintenance.allowed:
+            return [warning("Protected Resources", None, "Controlled CODEOWNERS maintenance added protected-path coverage; required status checks and Review Policy gate remain mandatory.", maintenance.details[:30])]
+        return [failed("Protected Resources", None, "CODEOWNERS changes are not allowed in PR QA guarded changes except controlled additive protected-path coverage.", maintenance.details[:30], score=20)]
     if not changed_for_standard_policy:
         if authorized_overlay:
             return [warning("Protected Resources", None, "Authorized governance overlay passed exact source+overlay validation; required status checks and Review Policy gate remain mandatory.", authorized_overlay[:30])]
@@ -2203,7 +2208,107 @@ def gate_protected_resources(ctx: PRContext, git_context: dict[str, Any]) -> lis
 def is_codeowners_bootstrap_pr(ctx: PRContext) -> bool:
     allowed = {"CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS", ".github/workflows/pr-qa.yml"}
     changed = set(ctx.changed_files)
-    return bool(changed) and changed <= allowed and any(path in changed for path in {"CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"})
+    return bool(changed) and changed <= allowed and any(path in changed for path in CODEOWNERS_PATHS)
+
+
+@dataclass(frozen=True)
+class CodeownersEntry:
+    line_number: int
+    pattern: str
+    owners: tuple[str, ...]
+
+    def display(self) -> str:
+        return f"{self.pattern} {' '.join(self.owners)}"
+
+
+@dataclass(frozen=True)
+class CodeownersMaintenanceResult:
+    allowed: bool
+    details: list[str]
+
+
+def evaluate_codeowners_maintenance(
+    ctx: PRContext,
+    git_context: dict[str, Any],
+    protected_patterns: list[str],
+) -> CodeownersMaintenanceResult:
+    changed_codeowners = [path for path in ctx.changed_files if path in CODEOWNERS_PATHS]
+    if len(ctx.changed_files) != 1 or len(changed_codeowners) != 1:
+        return CodeownersMaintenanceResult(False, ["CODEOWNERS maintenance PRs may change only one CODEOWNERS file."])
+    rel = changed_codeowners[0]
+    base_text = read_base_file(ctx.repo, git_context, rel)
+    if not base_text:
+        return CodeownersMaintenanceResult(False, [f"{rel}: base CODEOWNERS file is absent; use the bootstrap path only before CODEOWNERS exists."])
+    head_path = ctx.repo / rel
+    if not head_path.is_file():
+        return CodeownersMaintenanceResult(False, [f"{rel}: CODEOWNERS deletion is not controlled maintenance."])
+    head_text = read_text(head_path)
+    base_entries, base_errors = parse_codeowners_entries(base_text)
+    head_entries, head_errors = parse_codeowners_entries(head_text)
+    if base_errors or head_errors:
+        return CodeownersMaintenanceResult(False, [f"{rel}: {error}" for error in (base_errors + head_errors)])
+    if len(head_entries) <= len(base_entries):
+        return CodeownersMaintenanceResult(False, [f"{rel}: controlled maintenance must append protected-path coverage without removing existing rules."])
+    for index, base_entry in enumerate(base_entries):
+        if index >= len(head_entries) or head_entries[index] != base_entry:
+            return CodeownersMaintenanceResult(False, [f"{rel}: existing CODEOWNERS rules must remain unchanged and in their original order."])
+    base_owners = {owner for entry in base_entries for owner in entry.owners}
+    if not base_owners:
+        return CodeownersMaintenanceResult(False, [f"{rel}: base CODEOWNERS has no verified owners to reuse."])
+    added = head_entries[len(base_entries) :]
+    details: list[str] = []
+    for entry in added:
+        owner_set = set(entry.owners)
+        if not owner_set <= base_owners:
+            unknown = sorted(owner_set - base_owners)
+            return CodeownersMaintenanceResult(False, [f"{rel}:{entry.line_number}: new owners are not already present in base CODEOWNERS: {', '.join(unknown)}"])
+        if not codeowners_pattern_targets_protected_path(entry.pattern, protected_patterns):
+            return CodeownersMaintenanceResult(False, [f"{rel}:{entry.line_number}: added rule does not target a configured protected path: {entry.pattern}"])
+        details.append(f"{rel}:{entry.line_number}: ADDED {entry.display()}")
+    return CodeownersMaintenanceResult(True, details)
+
+
+def parse_codeowners_entries(text: str) -> tuple[list[CodeownersEntry], list[str]]:
+    entries: list[CodeownersEntry] = []
+    errors: list[str] = []
+    for line_number, line in enumerate(text.splitlines(), 1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        parts = stripped.split()
+        if len(parts) < 2:
+            errors.append(f"line {line_number} has a CODEOWNERS pattern without an owner.")
+            continue
+        entries.append(CodeownersEntry(line_number=line_number, pattern=parts[0], owners=tuple(parts[1:])))
+    return entries, errors
+
+
+def normalize_codeowners_pattern(pattern: str) -> str:
+    normalized = pattern.lstrip("/")
+    if normalized.endswith("/"):
+        normalized += "**"
+    return normalized
+
+
+def pattern_probe_path(pattern: str) -> str:
+    normalized = normalize_codeowners_pattern(pattern)
+    wildcard = re.search(r"[*?\[]", normalized)
+    if not wildcard:
+        return normalized
+    prefix = normalized[: wildcard.start()]
+    if prefix.endswith("/"):
+        return prefix + "__pr_qa_probe__"
+    return prefix + "__pr_qa_probe__"
+
+
+def codeowners_pattern_targets_protected_path(pattern: str, protected_patterns: list[str]) -> bool:
+    normalized_protected = [normalize_codeowners_pattern(item) for item in protected_patterns]
+    for protected_pattern in normalized_protected:
+        if fnmatch.fnmatch(pattern_probe_path(pattern), protected_pattern):
+            return True
+        if codeowners_covers(pattern_probe_path(protected_pattern), [pattern]):
+            return True
+    return False
 
 
 def load_base_codeowners(repo: Path, git_context: dict[str, Any]) -> list[str]:

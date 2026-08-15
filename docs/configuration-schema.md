@@ -34,7 +34,10 @@ repository:
 
 `criticality` affects the risk score. Allowed values are `low`, `medium`, `high`, and `critical`.
 
-`protected_paths` are checked against CODEOWNERS coverage.
+`protected_paths` are checked against CODEOWNERS coverage. Once CODEOWNERS
+exists on the base branch, CODEOWNERS maintenance is limited to append-only
+coverage for these configured protected paths, using owners that already appear
+in the base CODEOWNERS file.
 
 ## Gates
 
