@@ -976,6 +976,22 @@ exit 0
         self.assertEqual(report_json["summary"]["gate_statuses"]["Risk Engine"], "FAIL")
         self.assertIn("PR exceeds central size thresholds", report)
 
+    def test_canonical_development_to_staging_branch_name_is_allowed(self) -> None:
+        repo, base = self.init_repo("canonical-development-to-staging")
+        self.write(repo / "README.md", "# canonical promotion\n")
+        self.commit(repo, "docs: update promotion fixture")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            base_ref="staging",
+            head_ref="development",
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "PASS")
+
     def init_programme_platform_baseline_repo(self, name: str, *, include_secret: bool = False) -> tuple[Path, str, str]:
         fake_pip_audit = self.bin / "pip-audit"
         fake_pip_audit.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
@@ -1029,10 +1045,9 @@ exit 0
 
         self.assertEqual(code, 0, report)
         self.assertEqual(report_json["summary"]["gate_statuses"]["Baseline Alignment"], "PASS")
-        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "WARNING")
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "PASS")
         self.assertIn(report_json["summary"]["gate_statuses"]["Risk Engine"], {"PASS", "WARNING"})
         self.assertEqual(report_json["summary"]["gate_statuses"]["Protected Resources"], "WARNING")
-        self.assertIn("Historical baseline source branch `development` predates current branch naming convention", report)
         self.assertIn("Inherited baseline protected resources match the exact approved source", report)
         self.assertNotIn("PR exceeds central size thresholds", report)
 
@@ -2493,7 +2508,7 @@ jobs:
         self.assertIn("persist-credentials: false", workflow)
         self.assertIn("Fetch current pull request base branch", workflow)
         self.assertIn("refs/remotes/origin/${BASE_REF}", workflow)
-        self.assertIn('PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc35"', workflow)
+        self.assertIn('PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc36"', workflow)
         self.assertIn("@pr-qa-v1-rc2", caller)
         self.assertIn("resolve_node_version.py", workflow)
         self.assertIn("resolve_php_version.py", workflow)
