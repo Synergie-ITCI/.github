@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       mode:
-        description: Feature, promotion, candidate, release, or production-preflight validation mode.
+        description: Feature, promotion, candidate, or release validation mode.
         required: true
         type: string
       provenance-dir:
@@ -19,11 +19,6 @@ on:
         type: string
       qa-record:
         description: Caller-relative independent QA record JSON.
-        required: false
-        default: ""
-        type: string
-      production-approval:
-        description: Authorized reviewer login for dry-run production selection only.
         required: false
         default: ""
         type: string
@@ -42,6 +37,7 @@ permissions:
 
 env:
   GOVERNANCE_V2_FRAMEWORK_RELEASE: "governance-v2-shadow-v2.0.0"
+  GOVERNANCE_V2_FRAMEWORK_PATH: .governance-v2-framework
 
 jobs:
   evaluate:
@@ -66,11 +62,9 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > current-pr.json
 
-      - name: Prepare local framework source
+      - name: Use local framework source
         if: ${{ github.repository == 'Synergie-ITCI/.github' }}
-        run: |
-          mkdir -p .governance-v2-framework
-          rsync -a --exclude='.git' --exclude='.governance-v2-framework' ./ .governance-v2-framework/
+        run: echo "GOVERNANCE_V2_FRAMEWORK_PATH=${GITHUB_WORKSPACE}" >> "$GITHUB_ENV"
 
       - name: Checkout immutable Governance V2 framework
         if: ${{ github.repository != 'Synergie-ITCI/.github' }}
@@ -118,7 +112,6 @@ jobs:
           PROVENANCE_DIR: ${{ inputs.provenance-dir }}
           CANDIDATE_JSON: ${{ inputs.candidate-json }}
           QA_RECORD: ${{ inputs.qa-record }}
-          PRODUCTION_APPROVAL: ${{ inputs.production-approval }}
         run: |
           set -euo pipefail
           args=(
@@ -140,8 +133,7 @@ jobs:
           if [ -n "$PROVENANCE_DIR" ]; then args+=(--provenance-dir "$PROVENANCE_DIR"); fi
           if [ -n "$CANDIDATE_JSON" ]; then args+=(--candidate-json "$CANDIDATE_JSON"); fi
           if [ -n "$QA_RECORD" ]; then args+=(--qa-record "$QA_RECORD"); fi
-          if [ -n "$PRODUCTION_APPROVAL" ]; then args+=(--production-approval "$PRODUCTION_APPROVAL"); fi
-          python3 .governance-v2-framework/governance-v2/governance_v2.py "${args[@]}"
+          python3 "${GOVERNANCE_V2_FRAMEWORK_PATH}/governance-v2/governance_v2.py" "${args[@]}"
 
       - name: Materialize feature provenance
         if: ${{ inputs.mode == 'feature' && always() }}
