@@ -64,7 +64,7 @@ def main() -> int:
 
     feature_records = load_records(Path(args.provenance_dir) if args.provenance_dir else None)
     if args.mode in {"promotion", "release"}:
-        result["provenance"] = verify_provenance(repo, repository, base_sha, head_sha, feature_records)
+        result["provenance"] = verify_provenance(repo, repository, base_sha, head_sha, feature_records, policy)
 
     candidate = build_candidate(repo, repository, head_sha, policy, feature_records)
     result["candidate"] = candidate
@@ -277,17 +277,29 @@ def load_records(directory: Path | None) -> list[dict[str, Any]]:
     return records
 
 
-def verify_provenance(repo: Path, repository: str, base_sha: str, head_sha: str, records: list[dict[str, Any]]) -> dict[str, Any]:
+def verify_provenance(repo: Path, repository: str, base_sha: str, head_sha: str, records: list[dict[str, Any]], policy: dict[str, Any]) -> dict[str, Any]:
     if not base_sha:
         return {"status": "FAIL", "reason": "promotion provenance requires an exact base SHA"}
     entries = tree_entries(repo, head_sha)
+    baseline_entries: dict[str, str] = {}
+    baseline = policy.get("bootstrap_baselines", {}).get(repository, {})
+    if baseline:
+        baseline_sha = resolve_commit(repo, str(baseline.get("commit_sha", "")))
+        expected_tree = str(baseline.get("tree_sha", ""))
+        if git(repo, "rev-parse", f"{baseline_sha}^{{tree}}") != expected_tree:
+            return {"status": "FAIL", "reason": "configured bootstrap baseline tree does not match its commit"}
+        baseline_entries = tree_entries(repo, baseline_sha)
     missing: list[str] = []
     foreign: list[str] = []
+    bootstrap_covered: list[str] = []
     for path in changed_paths(repo, base_sha, head_sha):
         expected = entries.get(path, "__deleted__")
         matching = [record for record in records if record.get("approved_blobs", {}).get(path) == expected]
         if not matching:
-            missing.append(path)
+            if baseline_entries.get(path, "__deleted__") == expected:
+                bootstrap_covered.append(path)
+            else:
+                missing.append(path)
         elif not any(record.get("repository") == repository for record in matching):
             foreign.append(path)
     if missing or foreign:
@@ -297,7 +309,12 @@ def verify_provenance(repo: Path, repository: str, base_sha: str, head_sha: str,
         if foreign:
             details.append(f"wrong-repository attestations: {', '.join(foreign[:20])}")
         return {"status": "FAIL", "reason": "; ".join(details), "record_count": len(records)}
-    return {"status": "PASS", "record_count": len(records), "covered_paths": len(changed_paths(repo, base_sha, head_sha))}
+    return {
+        "status": "PASS",
+        "record_count": len(records),
+        "covered_paths": len(changed_paths(repo, base_sha, head_sha)),
+        "bootstrap_covered_paths": len(bootstrap_covered),
+    }
 
 
 def extract_evidence(pr: dict[str, Any]) -> dict[str, Any]:

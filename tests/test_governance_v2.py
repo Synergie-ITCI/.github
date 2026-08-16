@@ -12,6 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = ROOT / "governance-v2" / "governance_v2.py"
 POLICY = json.loads((ROOT / "policy" / "governance-v2-policy.json").read_text(encoding="utf-8"))
+TEST_POLICY = {**POLICY, "bootstrap_baselines": {}}
 SPEC = importlib.util.spec_from_file_location("governance_v2", MODULE_PATH)
 assert SPEC and SPEC.loader
 GOV = importlib.util.module_from_spec(SPEC)
@@ -46,7 +47,7 @@ class GovernanceV2Tests(unittest.TestCase):
         self.git("commit", "-q", "-m", message)
 
     def candidate(self, sha: str) -> dict:
-        return GOV.build_candidate(self.repo, "Synergie-ITCI/programme-management-platform", sha, POLICY, [])
+        return GOV.build_candidate(self.repo, "Synergie-ITCI/programme-management-platform", sha, TEST_POLICY, [])
 
     def feature_record(self, base: str, head: str) -> dict:
         evidence = {
@@ -93,7 +94,7 @@ class GovernanceV2Tests(unittest.TestCase):
         feature_head = self.git("rev-parse", "HEAD")
         record = self.feature_record(self.base, feature_head)
         self.git("commit", "--allow-empty", "-q", "-m", "promote: staging candidate")
-        result = GOV.verify_provenance(self.repo, "Synergie-ITCI/programme-management-platform", self.base, self.git("rev-parse", "HEAD"), [record])
+        result = GOV.verify_provenance(self.repo, "Synergie-ITCI/programme-management-platform", self.base, self.git("rev-parse", "HEAD"), [record], TEST_POLICY)
         self.assertEqual(result["status"], "PASS")
 
     def test_promotion_rejects_unattested_mutation(self) -> None:
@@ -102,9 +103,46 @@ class GovernanceV2Tests(unittest.TestCase):
         record = self.feature_record(self.base, self.git("rev-parse", "HEAD"))
         self.write("backdoor.txt", "unattested\n")
         self.commit("fix: hidden mutation")
-        result = GOV.verify_provenance(self.repo, "Synergie-ITCI/programme-management-platform", self.base, self.git("rev-parse", "HEAD"), [record])
+        result = GOV.verify_provenance(self.repo, "Synergie-ITCI/programme-management-platform", self.base, self.git("rev-parse", "HEAD"), [record], TEST_POLICY)
         self.assertEqual(result["status"], "FAIL")
         self.assertIn("backdoor.txt", result["reason"])
+
+    def test_bootstrap_baseline_accepts_only_its_unchanged_blobs(self) -> None:
+        self.write("baseline-service.txt", "accepted before V2 activation\n")
+        self.commit("feat: accepted baseline")
+        baseline = self.git("rev-parse", "HEAD")
+        policy = {
+            **TEST_POLICY,
+            "bootstrap_baselines": {
+                "Synergie-ITCI/programme-management-platform": {
+                    "commit_sha": baseline,
+                    "tree_sha": self.git("rev-parse", "HEAD^{tree}"),
+                }
+            },
+        }
+        accepted = GOV.verify_provenance(
+            self.repo,
+            "Synergie-ITCI/programme-management-platform",
+            self.base,
+            baseline,
+            [],
+            policy,
+        )
+        self.assertEqual(accepted["status"], "PASS")
+        self.assertEqual(accepted["bootstrap_covered_paths"], 1)
+
+        self.write("unattested-after-activation.txt", "must be proven\n")
+        self.commit("fix: unproven follow-up")
+        rejected = GOV.verify_provenance(
+            self.repo,
+            "Synergie-ITCI/programme-management-platform",
+            self.base,
+            self.git("rev-parse", "HEAD"),
+            [],
+            policy,
+        )
+        self.assertEqual(rejected["status"], "FAIL")
+        self.assertIn("unattested-after-activation.txt", rejected["reason"])
 
     def test_candidate_binding_invalidates_after_staging_mutation(self) -> None:
         self.write("service.txt", "candidate A\n")
@@ -134,16 +172,16 @@ class GovernanceV2Tests(unittest.TestCase):
         self.write("service.txt", "candidate\n")
         self.commit("feat: candidate")
         candidate = self.candidate(self.git("rev-parse", "HEAD"))
-        self.assertEqual(GOV.verify_qa_record(self.qa_record(candidate), candidate, POLICY, candidate["repository"])["status"], "PASS")
+        self.assertEqual(GOV.verify_qa_record(self.qa_record(candidate), candidate, TEST_POLICY, candidate["repository"])["status"], "PASS")
         record = self.qa_record(candidate)
         record["candidate_id"] = "0" * 64
-        self.assertEqual(GOV.verify_qa_record(record, candidate, POLICY, candidate["repository"])["status"], "FAIL")
+        self.assertEqual(GOV.verify_qa_record(record, candidate, TEST_POLICY, candidate["repository"])["status"], "FAIL")
 
     def test_fail_qa_never_authorizes_release(self) -> None:
         self.write("service.txt", "candidate\n")
         self.commit("feat: candidate")
         candidate = self.candidate(self.git("rev-parse", "HEAD"))
-        result = GOV.verify_qa_record(self.qa_record(candidate, "FAIL"), candidate, POLICY, candidate["repository"])
+        result = GOV.verify_qa_record(self.qa_record(candidate, "FAIL"), candidate, TEST_POLICY, candidate["repository"])
         self.assertEqual(result["status"], "FAIL")
         self.assertIn("verdict", " ".join(result["errors"]))
 
@@ -155,19 +193,19 @@ class GovernanceV2Tests(unittest.TestCase):
             {"authorization_id": "exact-a", "repository": candidate["repository"], "pr_number": 42, "boundary": "staging-to-main", "base_sha": self.base, "head_sha": candidate["staging_sha"], "tree_sha": candidate["tree_sha"], "expires_at": "2099-01-01T00:00:00Z"},
             {"authorization_id": "expired-a", "repository": candidate["repository"], "pr_number": 42, "boundary": "staging-to-main", "base_sha": self.base, "head_sha": candidate["staging_sha"], "tree_sha": candidate["tree_sha"], "expires_at": "2000-01-01T00:00:00Z"}
         ]}
-        valid = GOV.verify_authorization(registry, "exact-a", candidate["repository"], 42, "staging-to-main", self.base, candidate["staging_sha"], candidate, POLICY)
+        valid = GOV.verify_authorization(registry, "exact-a", candidate["repository"], 42, "staging-to-main", self.base, candidate["staging_sha"], candidate, TEST_POLICY)
         self.assertEqual(valid["status"], "PASS")
-        wrong_pr = GOV.verify_authorization(registry, "exact-a", candidate["repository"], 43, "staging-to-main", self.base, candidate["staging_sha"], candidate, POLICY)
+        wrong_pr = GOV.verify_authorization(registry, "exact-a", candidate["repository"], 43, "staging-to-main", self.base, candidate["staging_sha"], candidate, TEST_POLICY)
         self.assertEqual(wrong_pr["status"], "FAIL")
-        expired = GOV.verify_authorization(registry, "expired-a", candidate["repository"], 42, "staging-to-main", self.base, candidate["staging_sha"], candidate, POLICY)
+        expired = GOV.verify_authorization(registry, "expired-a", candidate["repository"], 42, "staging-to-main", self.base, candidate["staging_sha"], candidate, TEST_POLICY)
         self.assertEqual(expired["status"], "FAIL")
 
     def test_production_selection_never_starts_deployment_without_authorization(self) -> None:
         self.write("service.txt", "candidate\n")
         self.commit("feat: candidate")
         candidate = self.candidate(self.git("rev-parse", "HEAD"))
-        blocked = GOV.production_selection(candidate, "", POLICY, candidate["repository"])
-        allowed = GOV.production_selection(candidate, "SaurabhVermaIN", POLICY, candidate["repository"])
+        blocked = GOV.production_selection(candidate, "", TEST_POLICY, candidate["repository"])
+        allowed = GOV.production_selection(candidate, "SaurabhVermaIN", TEST_POLICY, candidate["repository"])
         self.assertEqual(blocked["status"], "FAIL")
         self.assertEqual(allowed["status"], "PASS")
         self.assertFalse(blocked["deployment_started"])
