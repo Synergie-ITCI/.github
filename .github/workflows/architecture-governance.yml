@@ -1,0 +1,36 @@
+name: architecture-governance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/**'
+      - 'governance-v2/**'
+      - 'policy/**'
+      - 'schemas/**'
+      - 'tests/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  architecture-governance:
+    name: Architecture Governance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Validate Governance V2 policy and schema JSON
+        run: |
+          python3 -m json.tool policy/governance-v2-policy.json >/dev/null
+          python3 -m json.tool policy/governance-v2-authorizations.json >/dev/null
+          python3 -m json.tool policy/status-check-registry.json >/dev/null
+          python3 -m json.tool schemas/governance-v2-evidence.schema.json >/dev/null
+          python3 -m json.tool schemas/governance-v2-qa-record.schema.json >/dev/null
+
+      - name: Run Governance V2 adversarial tests
+        run: python3 -m unittest tests/test_governance_v2.py -q
