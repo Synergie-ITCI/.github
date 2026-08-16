@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "version": "governance-v2-shadow-v2.0.0",
-  "mode": "shadow",
+  "version": "governance-v2-pilot-v2.1.0",
+  "mode": "authoritative-pilot",
   "pilot_repositories": {
     "Synergie-ITCI/programme-management-platform": {
       "independent_qa_reviewers": ["SaurabhVermaIN"],
