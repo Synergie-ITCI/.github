@@ -288,21 +288,18 @@
     "minimum_base64_length": 24
   },
   "one_time_baseline_alignment": {
-    "enabled": false,
+    "enabled": true,
     "repository": "Synergie-ITCI/programme-management-platform",
-    "base_ref": "staging",
-    "head_ref": "development",
-    "expected_base_sha": "596c5e4a16798133295cec00a0da012113a8fd64",
-    "expected_head_sha": "efcafe2a98bbc292383976a81d96ec98e8acae85",
+    "base_ref": "main",
+    "head_ref": "staging",
+    "expected_base_sha": "b81b2ac633c31adf554c73063af4902e4644447f",
+    "expected_head_sha": "9e4c0311aed64a77dd36472125eafc581ac03db0",
     "expires_after": "2026-08-16T23:59:59Z",
-    "minimum_changed_files": 80,
-    "required_pr_body_marker": "ONE-TIME PROGRAMME PLATFORM DEVELOPMENT TO STAGING BASELINE AUTHORIZATION",
+    "minimum_changed_files": 44,
+    "required_pr_body_marker": "ONE-TIME P1-H STAGING TO MAIN BASELINE AUTHORIZATION",
     "relaxations": [
       "diff_size",
       "changed_file_count",
-      "historical_branch_name",
-      "historical_commit_volume",
-      "historical_migration_count",
       "historical_protected_resources"
     ]
   },
