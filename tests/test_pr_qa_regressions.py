@@ -114,6 +114,7 @@ gates:
         body_extra: str = "",
         event_labels: list[str] | None = None,
         body_override: str | None = None,
+        pr_number: int = 123,
     ) -> tuple[int, str, dict, Path]:
         event = repo / "event.json"
         labels = [{"name": label} for label in (event_labels or [])]
@@ -129,7 +130,7 @@ gates:
             json.dumps(
                 {
                     "pull_request": {
-                        "number": 123,
+                        "number": pr_number,
                         "user": {"login": pr_author},
                         "base": {"sha": base, "ref": base_ref},
                         "head": {"sha": head_sha, "ref": head_ref},
@@ -229,6 +230,39 @@ gates:
             "gitleaks_allowlist": gitleaks_allowlist or [],
         }
         path = self.tmp / f"policy-{head_sha[:8]}.json"
+        path.write_text(json.dumps(policy, indent=2) + "\n", encoding="utf-8")
+        return path
+
+    def deployment_risk_authorization_policy_for(
+        self,
+        *,
+        base_sha: str,
+        head_sha: str,
+        tree_sha: str,
+        expires_after: str = "2099-12-31T23:59:59Z",
+    ) -> Path:
+        policy = json.loads((ROOT / "policy" / "pr-qa-policy.json").read_text(encoding="utf-8"))
+        policy["one_time_deployment_risk_authorization"] = {
+            "enabled": True,
+            "repository": "Synergie-ITCI/programme-management-platform",
+            "pr_number": 70,
+            "base_ref": "staging",
+            "head_ref": "development",
+            "expected_base_sha": base_sha,
+            "expected_head_sha": head_sha,
+            "expected_head_tree_sha": tree_sha,
+            "expected_changed_paths": [
+                ".github/workflows/governance-v2-independent-qa.yml",
+                ".github/workflows/governance-v2-production-preflight.yml",
+                ".github/workflows/governance-v2-shadow.yml",
+                ".github/workflows/staging-deploy.yml",
+            ],
+            "gate": "deployment_safety",
+            "expires_after": expires_after,
+            "required_pr_body_marker": "GOVERNANCE V2 SHADOW DEPLOYMENT-RISK AUTHORIZATION PR-70",
+            "reason": "Exact-scope Governance V2 shadow-pilot test authorization.",
+        }
+        path = self.tmp / f"policy-deployment-risk-{head_sha[:8]}.json"
         path.write_text(json.dumps(policy, indent=2) + "\n", encoding="utf-8")
         return path
 
@@ -2382,6 +2416,95 @@ jobs:
                 for result in report_json["results"]
             )
         )
+
+    def test_exact_deployment_risk_authorization_fails_closed_after_mutation_or_expiry(self) -> None:
+        repo, base = self.init_repo("exact-deployment-risk-authorization")
+        self.git(repo, "checkout", "-q", "-B", "development")
+        self.write(
+            repo / ".github" / "workflows" / "governance-v2-production-preflight.yml",
+            "name: Governance preflight\non: workflow_dispatch\njobs:\n  review:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo production review only\n",
+        )
+        self.write(
+            repo / ".github" / "workflows" / "governance-v2-independent-qa.yml",
+            "name: Independent QA\non: workflow_dispatch\njobs:\n  review:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo candidate review\n",
+        )
+        self.write(
+            repo / ".github" / "workflows" / "governance-v2-shadow.yml",
+            "name: Governance shadow\non: workflow_dispatch\njobs:\n  review:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo shadow review\n",
+        )
+        self.write(
+            repo / ".github" / "workflows" / "staging-deploy.yml",
+            "name: Staging\non: workflow_dispatch\njobs:\n  validate:\n    runs-on: ubuntu-latest\n    steps:\n      - run: sudo mkdir -p /opt/synergie-app/config\n",
+        )
+        self.commit(repo, "ci: add exact governance shadow workflows")
+        head = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        tree = self.git(repo, "rev-parse", "HEAD^{tree}").stdout.strip()
+        policy = self.deployment_risk_authorization_policy_for(base_sha=base, head_sha=head, tree_sha=tree)
+        marker = "\nGOVERNANCE V2 SHADOW DEPLOYMENT-RISK AUTHORIZATION PR-70\n"
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            static_only=True,
+            base_ref="staging",
+            head_ref="development",
+            head_sha=head,
+            repository="Synergie-ITCI/programme-management-platform",
+            policy_path=policy,
+            body_extra=marker,
+            pr_number=70,
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertTrue(
+            any(
+                result["gate"] == "Deployment Risk"
+                and result["status"] == "PASS"
+                and "Exact one-time Deployment Risk authorization accepted" in result["message"]
+                for result in report_json["results"]
+            ),
+            report,
+        )
+
+        self.write(repo / ".github" / "workflows" / "staging-deploy.yml", "name: Staging\non: workflow_dispatch\njobs:\n  validate:\n    runs-on: ubuntu-latest\n    steps:\n      - run: sudo rm -rf /opt/synergie-app/config\n")
+        self.commit(repo, "ci: mutate governed staging workflow")
+        mutated_head = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        code, report, _, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            static_only=True,
+            base_ref="staging",
+            head_ref="development",
+            head_sha=mutated_head,
+            repository="Synergie-ITCI/programme-management-platform",
+            policy_path=policy,
+            body_extra=marker,
+            pr_number=70,
+        )
+        self.assertNotEqual(code, 0, report)
+        self.assertIn("High-risk deployment change detected", report)
+
+        expired = self.deployment_risk_authorization_policy_for(
+            base_sha=base,
+            head_sha=head,
+            tree_sha=tree,
+            expires_after="2020-01-01T00:00:00Z",
+        )
+        self.git(repo, "checkout", "-q", head)
+        code, report, _, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            static_only=True,
+            base_ref="staging",
+            head_ref="development",
+            head_sha=head,
+            repository="Synergie-ITCI/programme-management-platform",
+            policy_path=expired,
+            body_extra=marker,
+            pr_number=70,
+        )
+        self.assertNotEqual(code, 0, report)
+        self.assertIn("High-risk deployment change detected", report)
 
     def test_canonical_staging_to_main_deployment_risk_uses_final_tree_equivalence(self) -> None:
         repo, base = self.init_repo("canonical-promotion-final-tree-equivalent")

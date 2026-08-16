@@ -852,7 +852,7 @@ def run_static_preflight(ctx: PRContext, git_context: dict[str, Any], technologi
     results.extend(gate_secrets(ctx, git_context, report_path))
     results.extend(gate_executable_classification(ctx, technologies))
     results.extend(gate_protected_resources(ctx, git_context))
-    results.extend(gate_deployment_safety(ctx))
+    results.extend(gate_deployment_safety(ctx, git_context))
     results.extend(gate_database_safety(ctx))
     return results
 
@@ -2358,7 +2358,7 @@ def codeowners_covers(path: str, patterns: list[str]) -> bool:
     return False
 
 
-def gate_deployment_safety(ctx: PRContext) -> list[CheckResult]:
+def gate_deployment_safety(ctx: PRContext, git_context: dict[str, Any]) -> list[CheckResult]:
     deployment_patterns = [
         ".github/workflows/**",
         "deploy/**",
@@ -2456,8 +2456,95 @@ def gate_deployment_safety(ctx: PRContext) -> list[CheckResult]:
         details.append(f"{path}: +{item_score}")
     level = risk_class(min(score, 100))
     if risky_tokens and level in {"HIGH", "CRITICAL"}:
+        authorized, authorization_details = deployment_risk_authorization(ctx, git_context, changed)
+        if authorized:
+            return [
+                passed(
+                    "Deployment Risk",
+                    None,
+                    "Exact one-time Deployment Risk authorization accepted; all other mandatory gates remain enforced.",
+                    authorization_details,
+                )
+            ]
         return [failed("Deployment Risk", None, f"High-risk deployment change detected. Risk: {level}.", details[:30] + risky_tokens[:20], score=20)]
     return [warning("Deployment Risk", None, f"Deployment-sensitive changes detected. Risk: {level}.", details[:40])]
+
+
+def deployment_risk_authorization(
+    ctx: PRContext,
+    git_context: dict[str, Any],
+    changed_paths: list[str],
+) -> tuple[bool, list[str]]:
+    policy = dict(ctx.policy.get("one_time_deployment_risk_authorization", {}) or {})
+    if not policy.get("enabled", False):
+        return False, []
+
+    details: list[str] = []
+    expected_gate = str(policy.get("gate", ""))
+    if expected_gate != "deployment_safety":
+        details.append("authorization is not restricted to the Deployment Risk gate.")
+
+    repository = resolve_repository_name(ctx)
+    expected_repository = str(policy.get("repository", ""))
+    if repository != expected_repository:
+        details.append(f"repository `{repository}` is not authorized; expected `{expected_repository}`.")
+
+    pr_number = str(extract_pr_number(ctx.event))
+    expected_pr_number = str(policy.get("pr_number", ""))
+    if pr_number != expected_pr_number:
+        details.append(f"PR `{pr_number}` is not authorized; expected `{expected_pr_number}`.")
+
+    if (ctx.base_ref or "") != str(policy.get("base_ref", "")):
+        details.append(f"target branch `{ctx.base_ref or ''}` is not authorized.")
+    if (ctx.head_ref or "") != str(policy.get("head_ref", "")):
+        details.append(f"source branch `{ctx.head_ref or ''}` is not authorized.")
+
+    base_sha = str(git_context.get("base_sha") or "")
+    expected_base_sha = str(policy.get("expected_base_sha", ""))
+    if base_sha != expected_base_sha:
+        details.append(f"base SHA `{base_sha}` is not authorized.")
+
+    head_sha = resolve_head_sha(ctx.repo, git_context)
+    expected_head_sha = str(policy.get("expected_head_sha", ""))
+    if head_sha != expected_head_sha:
+        details.append(f"head SHA `{head_sha}` is not authorized.")
+
+    expected_tree_sha = str(policy.get("expected_head_tree_sha", ""))
+    actual_tree_sha = run_git(ctx.repo, ["rev-parse", f"{head_sha}^{{tree}}"]).strip() if head_sha else ""
+    if not expected_tree_sha or actual_tree_sha != expected_tree_sha:
+        details.append("candidate tree is not authorized.")
+
+    expected_paths = sorted(str(path) for path in policy.get("expected_changed_paths", []) or [])
+    if sorted(changed_paths) != expected_paths:
+        details.append("deployment-sensitive path set is not authorized.")
+
+    marker = str(policy.get("required_pr_body_marker", ""))
+    if not marker or marker not in (ctx.pr_body or ""):
+        details.append("PR body is missing the required Deployment Risk authorization marker.")
+
+    expires_after = str(policy.get("expires_after", ""))
+    if not expires_after:
+        details.append("authorization expiry is missing.")
+    else:
+        try:
+            expires = datetime.fromisoformat(expires_after.replace("Z", "+00:00"))
+            if datetime.now(timezone.utc) > expires:
+                details.append(f"authorization expired at `{expires_after}`.")
+        except ValueError:
+            details.append(f"authorization expiry `{expires_after}` is invalid.")
+
+    if details:
+        return False, details
+    return True, [
+        f"repository={repository}",
+        f"pr={pr_number}",
+        f"base_sha={base_sha}",
+        f"head_sha={head_sha}",
+        f"head_tree={actual_tree_sha}",
+        f"gate={expected_gate}",
+        f"expires_after={expires_after}",
+        f"reason={str(policy.get('reason', ''))}",
+    ]
 
 
 def is_canonical_staging_to_main_promotion(ctx: PRContext) -> bool:

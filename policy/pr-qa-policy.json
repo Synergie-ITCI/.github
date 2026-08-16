@@ -287,6 +287,26 @@
     "scan_encoded_values": true,
     "minimum_base64_length": 24
   },
+  "one_time_deployment_risk_authorization": {
+    "enabled": true,
+    "repository": "Synergie-ITCI/programme-management-platform",
+    "pr_number": 70,
+    "base_ref": "staging",
+    "head_ref": "development",
+    "expected_base_sha": "7ca72e3391820505596e855b992d77538dc677f7",
+    "expected_head_sha": "0682c5c9f23d8571eb5a50625a927a38290f52ef",
+    "expected_head_tree_sha": "1468697d78059d9f7d69a0e6f033fbdd90bf87b1",
+    "expected_changed_paths": [
+      ".github/workflows/governance-v2-independent-qa.yml",
+      ".github/workflows/governance-v2-production-preflight.yml",
+      ".github/workflows/governance-v2-shadow.yml",
+      ".github/workflows/staging-deploy.yml"
+    ],
+    "gate": "deployment_safety",
+    "expires_after": "2026-08-17T12:00:00Z",
+    "required_pr_body_marker": "GOVERNANCE V2 SHADOW DEPLOYMENT-RISK AUTHORIZATION PR-70",
+    "reason": "Exact-scope Governance V2 shadow-pilot workflow and staging Compose validation review; no production deployment is authorized."
+  },
   "one_time_baseline_alignment": {
     "enabled": false,
     "repository": "Synergie-ITCI/programme-management-platform",
