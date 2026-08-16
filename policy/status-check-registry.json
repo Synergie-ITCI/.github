@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "context": "Architecture Governance",
+      "workflow": "architecture-governance.yml",
+      "job": "architecture-governance",
+      "state": "authoritative-v1"
+    },
+    {
+      "context": "Pull Request Quality Assurance / Pull Request Quality Assurance",
+      "workflow": "pr-qa.yml",
+      "job": "qa",
+      "state": "authoritative-v1"
+    },
+    {
+      "context": "Governance V2 Shadow / Evaluate current PR",
+      "workflow": "synergie-v2-shadow-governance.yml",
+      "job": "evaluate",
+      "state": "shadow-v2"
+    },
+    {
+      "context": "Governance V2 Candidate / Build staging candidate",
+      "workflow": "synergie-v2-shadow-governance.yml",
+      "job": "candidate",
+      "state": "shadow-v2"
+    }
+  ]
+}

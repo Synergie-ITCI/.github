@@ -2503,12 +2503,13 @@ jobs:
 
     def test_workflow_has_no_framework_override_or_checkout_credentials(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "pr-qa.yml").read_text(encoding="utf-8")
+        self_workflow = (ROOT / ".github" / "workflows" / "pr-qa-self.yml").read_text(encoding="utf-8")
         caller = (ROOT / "examples" / "caller-workflow.yml").read_text(encoding="utf-8")
         self.assertNotIn("framework-ref", workflow + caller)
         self.assertIn("persist-credentials: false", workflow)
         self.assertIn("Fetch current pull request base branch", workflow)
         self.assertIn("refs/remotes/origin/${BASE_REF}", workflow)
-        self.assertIn('PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc36"', workflow)
+        self.assertIn('PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc38"', workflow)
         self.assertIn("@pr-qa-v1-rc2", caller)
         self.assertIn("resolve_node_version.py", workflow)
         self.assertIn("resolve_php_version.py", workflow)
@@ -2517,6 +2518,7 @@ jobs:
         self.assertIn("CREATE ROLE runner LOGIN", workflow)
         self.assertIn("opentofu/setup-opentofu@v1", workflow)
         self.assertIn("tfsec_${TFSEC_VERSION}_linux_amd64.tar.gz", workflow)
+        self.assertIn("name: Pull Request Quality Assurance", self_workflow)
 
     def test_node_version_resolver_honors_supported_engine_major(self) -> None:
         repo = self.tmp / "node-version-24"

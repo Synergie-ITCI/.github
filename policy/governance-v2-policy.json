@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "version": "governance-v2-shadow-v2.0.0",
+  "mode": "shadow",
+  "pilot_repositories": {
+    "Synergie-ITCI/programme-management-platform": {
+      "independent_qa_reviewers": ["SaurabhVermaIN"],
+      "production_approvers": ["SaurabhVermaIN"]
+    }
+  },
+  "protected_path_patterns": [
+    ".github/**",
+    "CODEOWNERS",
+    "docs/CODEOWNERS",
+    "deploy/**"
+  ],
+  "migration_path_patterns": [
+    "**/alembic/**",
+    "**/migrations/**",
+    "**/*.sql"
+  ],
+  "dependency_path_patterns": [
+    "**/package-lock.json",
+    "**/pnpm-lock.yaml",
+    "**/yarn.lock",
+    "**/poetry.lock",
+    "**/Pipfile.lock",
+    "**/requirements*.txt",
+    "**/composer.lock",
+    "**/go.sum",
+    "**/Cargo.lock"
+  ],
+  "workflow_path_patterns": [".github/workflows/**"],
+  "authorization_max_hours": 72
+}

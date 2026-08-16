@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Synergie-ITCI/.github/governance-v2-evidence.schema.json",
+  "title": "Synergie Governance V2 PR Evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "change_summary", "testing", "migration", "privacy", "screenshots"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "change_summary": {"type": "string", "minLength": 1},
+    "testing": {"$ref": "#/$defs/applicability"},
+    "migration": {"$ref": "#/$defs/applicability"},
+    "privacy": {"$ref": "#/$defs/applicability"},
+    "screenshots": {"$ref": "#/$defs/applicability"}
+  },
+  "$defs": {
+    "applicability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["applicable"],
+      "properties": {
+        "applicable": {"type": "boolean"},
+        "details": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1}
+      },
+      "allOf": [
+        {"if": {"properties": {"applicable": {"const": true}}}, "then": {"required": ["details"]}},
+        {"if": {"properties": {"applicable": {"const": false}}}, "then": {"required": ["reason"]}}
+      ]
+    }
+  }
+}
