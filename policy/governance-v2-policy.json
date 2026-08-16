@@ -1,11 +1,17 @@
 {
   "schema_version": 1,
-  "version": "governance-v2-shadow-v2.0.0",
-  "mode": "shadow",
+  "version": "governance-v2-pilot-v2.1.0",
+  "mode": "authoritative-pilot",
   "pilot_repositories": {
     "Synergie-ITCI/programme-management-platform": {
       "independent_qa_reviewers": ["SaurabhVermaIN"],
       "production_approvers": ["SaurabhVermaIN"]
+    }
+  },
+  "bootstrap_baselines": {
+    "Synergie-ITCI/programme-management-platform": {
+      "commit_sha": "6f13da9410be6379598d041fef9f0bf74b0b2524",
+      "tree_sha": "1468697d78059d9f7d69a0e6f033fbdd90bf87b1"
     }
   },
   "protected_path_patterns": [
