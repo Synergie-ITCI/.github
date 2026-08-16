@@ -288,7 +288,7 @@
     "minimum_base64_length": 24
   },
   "one_time_baseline_alignment": {
-    "enabled": true,
+    "enabled": false,
     "repository": "Synergie-ITCI/programme-management-platform",
     "base_ref": "main",
     "head_ref": "staging",
