@@ -24,13 +24,18 @@
     "allowed_path_patterns": [
       ".github/synergie-governance.yml",
       ".github/synergie-recovery.yml",
+      ".github/governance-v2-policy.json",
+      ".github/scripts/governance_v2_*.py",
       ".github/workflows/architecture-governance.yml",
       ".github/workflows/synergie-v2-shadow-governance.yml",
+      ".github/workflows/deploy.yml",
       ".github/workflows/governance-v2-*.yml",
       ".github/workflows/*governance*v2*.yml",
       ".github/workflows/*independent*qa*.yml",
       ".github/workflows/*qa-record*.yml",
       ".github/workflows/*release*.yml",
+      ".github/workflows/pr-qa.yml",
+      ".github/workflows/uat-operations.yml",
       ".github/CODEOWNERS",
       "CODEOWNERS",
       "docs/CODEOWNERS"
