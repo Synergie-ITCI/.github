@@ -6,6 +6,10 @@
     "Synergie-ITCI/programme-management-platform": {
       "independent_qa_reviewers": ["SaurabhVermaIN"],
       "production_approvers": ["SaurabhVermaIN"]
+    },
+    "Synergie-ITCI/telemedicine-backend": {
+      "independent_qa_reviewers": ["SaurabhVermaIN"],
+      "production_approvers": ["SaurabhVermaIN"]
     }
   },
   "bootstrap_baselines": {
@@ -13,6 +17,30 @@
       "commit_sha": "6f13da9410be6379598d041fef9f0bf74b0b2524",
       "tree_sha": "1468697d78059d9f7d69a0e6f033fbdd90bf87b1"
     }
+  },
+  "repository_enrollment": {
+    "authorized_actors": ["SaurabhVermaIN"],
+    "max_hours": 72,
+    "allowed_path_patterns": [
+      ".github/synergie-governance.yml",
+      ".github/synergie-recovery.yml",
+      ".github/workflows/architecture-governance.yml",
+      ".github/workflows/synergie-v2-shadow-governance.yml",
+      ".github/workflows/governance-v2-*.yml",
+      ".github/workflows/*governance*v2*.yml",
+      ".github/workflows/*independent*qa*.yml",
+      ".github/workflows/*qa-record*.yml",
+      ".github/workflows/*release*.yml",
+      ".github/CODEOWNERS",
+      "CODEOWNERS",
+      "docs/CODEOWNERS"
+    ],
+    "required_evidence": [
+      "existing_ci",
+      "staging",
+      "architecture_governance",
+      "independent_qa"
+    ]
   },
   "protected_path_patterns": [
     ".github/**",
