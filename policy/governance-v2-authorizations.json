@@ -1,5 +1,58 @@
 {
   "schema_version": 1,
   "authorizations": [],
-  "repository_enrollments": []
+  "repository_enrollments": [
+    {
+      "authorized_by": "SaurabhVermaIN",
+      "blob_hashes": {
+        ".github/governance-v2-policy.json": "b721777b922e21ba822acee521b2382330db4be2",
+        ".github/scripts/governance_v2_release_binding.py": "cc929e7acfc1383798a4ccf5e80a85951711288b",
+        ".github/workflows/deploy.yml": "ca01c333f0b2d676ecef3a28e03d8c06703e3698",
+        ".github/workflows/governance-v2-independent-qa.yml": "cd1329c63c5836ba41ac7afe1f94c13210f72188",
+        ".github/workflows/governance-v2-pilot.yml": "4b7a2aeb92af457cd6361fc8aa37244ea28482ec",
+        ".github/workflows/governance-v2-production-preflight.yml": "360d6bbaf107a427833214ef14d2436313217196",
+        ".github/workflows/pr-qa.yml": "d55c8492df0d4ff94c0f3cb266dd4f7d09967ab1",
+        ".github/workflows/uat-operations.yml": "6e1655d0bc85a0f2ba9a3727f523cfee60bbd570"
+      },
+      "consumed_by": "",
+      "enrollment_id": "9868f2c4ee368e8c34b25f57582256d1df7007aca92262599b8a2804be5d02fa",
+      "evidence": {
+        "architecture_governance": {
+          "reference": "https://github.com/Synergie-ITCI/telemedicine-backend/actions/runs/32061426615/job/95483351386",
+          "status": "PASS"
+        },
+        "existing_ci": {
+          "reference": "https://github.com/Synergie-ITCI/telemedicine-backend/pull/75",
+          "status": "PASS"
+        },
+        "independent_qa": {
+          "reference": "https://github.com/Synergie-ITCI/telemedicine-backend/runs/95483019488",
+          "status": "PASS"
+        },
+        "staging": {
+          "reference": "https://github.com/Synergie-ITCI/telemedicine-backend/actions/runs/32057855415",
+          "status": "PASS"
+        }
+      },
+      "expires_at": "2026-08-20T20:00:00Z",
+      "governance_version": "governance-v2-pilot-v2.1.0",
+      "paths": [
+        ".github/governance-v2-policy.json",
+        ".github/scripts/governance_v2_release_binding.py",
+        ".github/workflows/deploy.yml",
+        ".github/workflows/governance-v2-independent-qa.yml",
+        ".github/workflows/governance-v2-pilot.yml",
+        ".github/workflows/governance-v2-production-preflight.yml",
+        ".github/workflows/pr-qa.yml",
+        ".github/workflows/uat-operations.yml"
+      ],
+      "paths_digest": "0653162163ee0492feb48e1a09c5468a037530f65615f79b995c3bdb743fc0b4",
+      "repository": "Synergie-ITCI/telemedicine-backend",
+      "schema_version": 1,
+      "source_sha": "d20ce22a02b84db91e32b22abcbdded96455fb5e",
+      "staging_sha": "8fd31c22d9bb2daeba391e727d700ba6faa682bc",
+      "tree_sha": "bd8c02f24e990fc5b44772f2c9aa449518821844",
+      "type": "governance_v2_repository_enrollment"
+    }
+  ]
 }

@@ -220,6 +220,23 @@ class GovernanceV2Tests(unittest.TestCase):
         result = GOV.verify_provenance(self.repo, "Synergie-ITCI/programme-management-platform", self.base, head, [], TEST_POLICY, resolved)
         self.assertEqual(result["status"], "PASS")
 
+    def test_repository_enrollment_accepts_release_control_bootstrap_paths(self) -> None:
+        paths = [
+            ".github/governance-v2-policy.json",
+            ".github/scripts/governance_v2_release_binding.py",
+            ".github/workflows/deploy.yml",
+            ".github/workflows/pr-qa.yml",
+            ".github/workflows/uat-operations.yml",
+        ]
+        for path in paths:
+            self.write(path, f"{path}\n")
+        self.commit("ci: enroll release controls")
+        head = self.git("rev-parse", "HEAD")
+        enrollment = self.enrollment_record(self.base, head, paths=paths)
+        result = GOV.verify_provenance(self.repo, "Synergie-ITCI/programme-management-platform", self.base, head, [], TEST_POLICY, enrollment)
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["enrolled_paths"], len(paths))
+
     def test_repository_enrollment_blocks_application_code(self) -> None:
         self.write(".github/workflows/synergie-v2-shadow-governance.yml", "name: Governance V2 Shadow\n")
         self.write("app/service.php", "<?php echo 'app';\n")
