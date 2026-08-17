@@ -63,8 +63,13 @@ def main() -> int:
             result["evidence"] = {"status": "FAIL", "errors": [str(exc)]}
 
     feature_records = load_records(Path(args.provenance_dir) if args.provenance_dir else None)
+    enrollment_record = load_repository_enrollment(args, repository, base_sha, head_sha)
     if args.mode in {"promotion", "release"}:
-        result["provenance"] = verify_provenance(repo, repository, base_sha, head_sha, feature_records, policy)
+        result["provenance"] = verify_provenance(repo, repository, base_sha, head_sha, feature_records, policy, enrollment_record)
+        if enrollment_record:
+            result["repository_enrollment"] = verify_repository_enrollment(repo, repository, base_sha, head_sha, enrollment_record, policy)
+            if result["repository_enrollment"].get("status") == "PASS" and args.repository_enrollment_consumption_out:
+                write_json(args.repository_enrollment_consumption_out, build_enrollment_consumption(result["repository_enrollment"], head_sha))
 
     candidate = build_candidate(repo, repository, head_sha, policy, feature_records)
     result["candidate"] = candidate
@@ -127,6 +132,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--event-json", default="")
     parser.add_argument("--current-pr-json", default="")
     parser.add_argument("--provenance-dir", default="")
+    parser.add_argument("--repository-enrollment", default="")
+    parser.add_argument("--repository-enrollment-registry", default="")
+    parser.add_argument("--repository-enrollment-id", default="")
+    parser.add_argument("--repository-enrollment-consumption-out", default="")
     parser.add_argument("--candidate-json", default="")
     parser.add_argument("--qa-record", default="")
     parser.add_argument("--authorization-registry", default="")
@@ -160,6 +169,37 @@ def load_json(path: Path, label: str) -> dict[str, Any]:
 
 def load_optional_json(raw: str) -> dict[str, Any]:
     return load_json(Path(raw), "input") if raw else {}
+
+
+def load_repository_enrollment(args: argparse.Namespace, repository: str, base_sha: str, head_sha: str) -> dict[str, Any]:
+    if args.repository_enrollment:
+        return load_json(Path(args.repository_enrollment), "repository enrollment")
+    if not args.repository_enrollment_registry:
+        return {}
+    registry = load_json(Path(args.repository_enrollment_registry), "repository enrollment registry")
+    records = registry.get("repository_enrollments", [])
+    if records is None:
+        return {}
+    if not isinstance(records, list):
+        raise GovernanceError("repository enrollment registry must contain repository_enrollments as a list")
+    matches = []
+    for record in records:
+        if not isinstance(record, dict):
+            raise GovernanceError("repository enrollment registry entries must be JSON objects")
+        if args.repository_enrollment_id and record.get("enrollment_id") != args.repository_enrollment_id:
+            continue
+        if record.get("repository") != repository:
+            continue
+        if record.get("source_sha") != base_sha:
+            continue
+        if record.get("staging_sha") != head_sha:
+            continue
+        matches.append(record)
+    if args.repository_enrollment_id and not matches:
+        raise GovernanceError(f"repository enrollment was not found for id {args.repository_enrollment_id}")
+    if len(matches) > 1:
+        raise GovernanceError("repository enrollment registry matched multiple records")
+    return matches[0] if matches else {}
 
 
 def git(repo: Path, *args: str) -> str:
@@ -277,7 +317,15 @@ def load_records(directory: Path | None) -> list[dict[str, Any]]:
     return records
 
 
-def verify_provenance(repo: Path, repository: str, base_sha: str, head_sha: str, records: list[dict[str, Any]], policy: dict[str, Any]) -> dict[str, Any]:
+def verify_provenance(
+    repo: Path,
+    repository: str,
+    base_sha: str,
+    head_sha: str,
+    records: list[dict[str, Any]],
+    policy: dict[str, Any],
+    enrollment_record: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     if not base_sha:
         return {"status": "FAIL", "reason": "promotion provenance requires an exact base SHA"}
     entries = tree_entries(repo, head_sha)
@@ -289,17 +337,20 @@ def verify_provenance(repo: Path, repository: str, base_sha: str, head_sha: str,
         if git(repo, "rev-parse", f"{baseline_sha}^{{tree}}") != expected_tree:
             return {"status": "FAIL", "reason": "configured bootstrap baseline tree does not match its commit"}
         baseline_entries = tree_entries(repo, baseline_sha)
+    enrollment = verify_repository_enrollment(repo, repository, base_sha, head_sha, enrollment_record, policy) if enrollment_record else {}
     missing: list[str] = []
     foreign: list[str] = []
     bootstrap_covered: list[str] = []
+    enrolled: list[str] = []
     for path in changed_paths(repo, base_sha, head_sha):
         expected = entries.get(path, "__deleted__")
         matching = [record for record in records if record.get("approved_blobs", {}).get(path) == expected]
-        if not matching:
-            if baseline_entries.get(path, "__deleted__") == expected:
-                bootstrap_covered.append(path)
-            else:
-                missing.append(path)
+        if not matching and enrollment.get("status") == "PASS" and path in set(enrollment.get("covered_paths", [])):
+            enrolled.append(path)
+        elif not matching and baseline_entries.get(path, "__deleted__") == expected:
+            bootstrap_covered.append(path)
+        elif not matching:
+            missing.append(path)
         elif not any(record.get("repository") == repository for record in matching):
             foreign.append(path)
     if missing or foreign:
@@ -308,13 +359,150 @@ def verify_provenance(repo: Path, repository: str, base_sha: str, head_sha: str,
             details.append(f"un-attested paths: {', '.join(missing[:20])}")
         if foreign:
             details.append(f"wrong-repository attestations: {', '.join(foreign[:20])}")
-        return {"status": "FAIL", "reason": "; ".join(details), "record_count": len(records)}
+        return {
+            "status": "FAIL",
+            "reason": "; ".join(details),
+            "record_count": len(records),
+            "bootstrap_covered_paths": len(bootstrap_covered),
+            "enrolled_paths": len(enrolled),
+        }
     return {
         "status": "PASS",
         "record_count": len(records),
         "covered_paths": len(changed_paths(repo, base_sha, head_sha)),
         "bootstrap_covered_paths": len(bootstrap_covered),
+        "enrolled_paths": len(enrolled),
     }
+
+
+def verify_repository_enrollment(
+    repo: Path,
+    repository: str,
+    base_sha: str,
+    head_sha: str,
+    record: dict[str, Any] | None,
+    policy: dict[str, Any],
+) -> dict[str, Any]:
+    if not record:
+        return {"status": "FAIL", "errors": ["repository enrollment record is unavailable"]}
+    settings = policy.get("repository_enrollment", {}) or {}
+    errors: list[str] = []
+    if record.get("schema_version") != 1:
+        errors.append("unsupported enrollment schema")
+    if record.get("type") != "governance_v2_repository_enrollment":
+        errors.append("invalid enrollment type")
+    if record.get("repository") != repository:
+        errors.append("enrollment repository does not match")
+    if record.get("source_sha") != base_sha:
+        errors.append("enrollment source SHA does not match")
+    if record.get("staging_sha") != head_sha:
+        errors.append("enrollment staging SHA does not match")
+    if record.get("governance_version") != policy.get("version"):
+        errors.append("enrollment governance version does not match policy")
+    if record.get("authorized_by") not in set(settings.get("authorized_actors", [])):
+        errors.append("enrollment actor is not authorized")
+    if record.get("consumed_by"):
+        errors.append("enrollment was already consumed")
+    try:
+        expires_at = parse_timestamp(str(record.get("expires_at", "")))
+        if expires_at <= datetime.now(timezone.utc):
+            errors.append("enrollment is expired")
+    except ValueError:
+        errors.append("enrollment expiry is invalid")
+
+    entries = tree_entries(repo, head_sha)
+    actual_tree = git(repo, "rev-parse", f"{head_sha}^{{tree}}")
+    if record.get("tree_sha") != actual_tree:
+        errors.append("enrollment tree SHA does not match")
+
+    raw_paths = record.get("paths", [])
+    paths = raw_paths if isinstance(raw_paths, list) else []
+    allowed_patterns = list(settings.get("allowed_path_patterns", []) or [])
+    if not paths:
+        errors.append("enrollment paths are empty")
+    changed = set(changed_paths(repo, base_sha, head_sha))
+    application_paths = []
+    for path in paths:
+        if not isinstance(path, str):
+            errors.append("enrollment path must be a string")
+            continue
+        if path not in changed:
+            errors.append(f"enrollment path is not changed in this promotion: {path}")
+        if not matches(path, allowed_patterns):
+            application_paths.append(path)
+    if application_paths:
+        errors.append("enrollment includes non-governance/application paths: " + ", ".join(application_paths[:20]))
+
+    blob_hashes = record.get("blob_hashes", {})
+    if not isinstance(blob_hashes, dict):
+        errors.append("enrollment blob_hashes must be an object")
+        blob_hashes = {}
+    content_hashes: dict[str, str] = {}
+    for path in paths:
+        if not isinstance(path, str):
+            continue
+        blob = entries.get(path)
+        if not blob:
+            errors.append(f"enrollment path is not present at staging SHA: {path}")
+            continue
+        content_hashes[path] = blob
+        if blob_hashes.get(path) != blob:
+            errors.append(f"enrollment blob hash does not match: {path}")
+    if record.get("paths_digest") != digest_mapping(content_hashes):
+        errors.append("enrollment paths digest does not match")
+
+    evidence = record.get("evidence", {})
+    required_evidence = settings.get("required_evidence", []) or []
+    if not isinstance(evidence, dict):
+        errors.append("enrollment evidence must be an object")
+        evidence = {}
+    for key in required_evidence:
+        item = evidence.get(key)
+        if not isinstance(item, dict) or item.get("status") != "PASS" or not item.get("reference"):
+            errors.append(f"enrollment evidence {key} must be PASS with a reference")
+
+    identity = enrollment_identity(record)
+    expected_id = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    if record.get("enrollment_id") != expected_id:
+        errors.append("enrollment id digest is invalid")
+
+    return {
+        "status": "PASS" if not errors else "FAIL",
+        "errors": errors,
+        "enrollment_id": record.get("enrollment_id", ""),
+        "covered_paths": sorted(path for path in paths if isinstance(path, str)),
+        "authorized_by": record.get("authorized_by", ""),
+    }
+
+
+def enrollment_identity(record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "repository": record.get("repository"),
+        "source_sha": record.get("source_sha"),
+        "staging_sha": record.get("staging_sha"),
+        "tree_sha": record.get("tree_sha"),
+        "governance_version": record.get("governance_version"),
+        "paths": record.get("paths"),
+        "blob_hashes": record.get("blob_hashes"),
+        "paths_digest": record.get("paths_digest"),
+        "authorized_by": record.get("authorized_by"),
+        "expires_at": record.get("expires_at"),
+        "evidence": record.get("evidence"),
+    }
+
+
+def build_enrollment_consumption(enrollment: dict[str, Any], head_sha: str) -> dict[str, Any]:
+    value = {
+        "schema_version": 1,
+        "type": "governance_v2_repository_enrollment_consumption",
+        "enrollment_id": enrollment.get("enrollment_id", ""),
+        "consumed_by": head_sha,
+        "covered_paths": enrollment.get("covered_paths", []),
+        "consumed_at": now(),
+        "single_use": True,
+    }
+    value["record_sha256"] = hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    return value
 
 
 def extract_evidence(pr: dict[str, Any]) -> dict[str, Any]:
