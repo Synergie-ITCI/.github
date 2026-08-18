@@ -2,3 +2,5 @@ Gate C review-policy proof trigger.
 
 This temporary file exists only to trigger the required Architecture Governance
 producer on the Gate C test branch. It must not be merged to main.
+
+Second harmless line for SHA-scoped status validation.
