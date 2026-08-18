@@ -237,6 +237,16 @@ class GovernanceV2Tests(unittest.TestCase):
         self.assertEqual(result["status"], "PASS")
         self.assertEqual(result["enrolled_paths"], len(paths))
 
+    def test_repository_enrollment_uses_central_policy_when_caller_is_bootstrapping(self) -> None:
+        self.write(".github/governance-v2-policy.json", "{}\n")
+        self.write(".github/workflows/pr-qa.yml", "name: PR QA\n")
+        self.commit("ci: enroll caller governance policy")
+        head = self.git("rev-parse", "HEAD")
+        caller_policy = {key: value for key, value in TEST_POLICY.items() if key != "repository_enrollment"}
+        enrollment = self.enrollment_record(self.base, head, paths=[".github/governance-v2-policy.json", ".github/workflows/pr-qa.yml"])
+        result = GOV.verify_provenance(self.repo, "Synergie-ITCI/programme-management-platform", self.base, head, [], caller_policy, enrollment)
+        self.assertEqual(result["status"], "PASS")
+
     def test_repository_enrollment_blocks_application_code(self) -> None:
         self.write(".github/workflows/synergie-v2-shadow-governance.yml", "name: Governance V2 Shadow\n")
         self.write("app/service.php", "<?php echo 'app';\n")

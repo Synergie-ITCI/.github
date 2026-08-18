@@ -5,17 +5,17 @@
     {
       "authorized_by": "SaurabhVermaIN",
       "blob_hashes": {
-        ".github/governance-v2-policy.json": "b721777b922e21ba822acee521b2382330db4be2",
+        ".github/governance-v2-policy.json": "cd92df2dc28907478019eed0f5b3132a5dbc7ffe",
         ".github/scripts/governance_v2_release_binding.py": "cc929e7acfc1383798a4ccf5e80a85951711288b",
         ".github/workflows/deploy.yml": "ca01c333f0b2d676ecef3a28e03d8c06703e3698",
-        ".github/workflows/governance-v2-independent-qa.yml": "cd1329c63c5836ba41ac7afe1f94c13210f72188",
-        ".github/workflows/governance-v2-pilot.yml": "4b7a2aeb92af457cd6361fc8aa37244ea28482ec",
-        ".github/workflows/governance-v2-production-preflight.yml": "360d6bbaf107a427833214ef14d2436313217196",
-        ".github/workflows/pr-qa.yml": "d55c8492df0d4ff94c0f3cb266dd4f7d09967ab1",
+        ".github/workflows/governance-v2-independent-qa.yml": "0033a68c66a05722af28bacdcb09f079a330b8bf",
+        ".github/workflows/governance-v2-pilot.yml": "c478b6445533ad632ce88b6f8597cb96e83f996c",
+        ".github/workflows/governance-v2-production-preflight.yml": "f3f83a4c74ce3050b0c3eb1e793a168fe5d6382f",
+        ".github/workflows/pr-qa.yml": "9947fdae8c19f8a65dabbabb070c1f5649807702",
         ".github/workflows/uat-operations.yml": "6e1655d0bc85a0f2ba9a3727f523cfee60bbd570"
       },
       "consumed_by": "",
-      "enrollment_id": "9868f2c4ee368e8c34b25f57582256d1df7007aca92262599b8a2804be5d02fa",
+      "enrollment_id": "1b1aa1e5b0f651cdfc6bc3d26054039de10a69ba5977d98fed53b1d03736b965",
       "evidence": {
         "architecture_governance": {
           "reference": "https://github.com/Synergie-ITCI/telemedicine-backend/actions/runs/32061426615/job/95483351386",
@@ -35,7 +35,7 @@
         }
       },
       "expires_at": "2026-08-20T20:00:00Z",
-      "governance_version": "governance-v2-pilot-v2.1.0",
+      "governance_version": "governance-v2-pilot-v2.3.0-telemedicine",
       "paths": [
         ".github/governance-v2-policy.json",
         ".github/scripts/governance_v2_release_binding.py",
@@ -46,12 +46,12 @@
         ".github/workflows/pr-qa.yml",
         ".github/workflows/uat-operations.yml"
       ],
-      "paths_digest": "0653162163ee0492feb48e1a09c5468a037530f65615f79b995c3bdb743fc0b4",
+      "paths_digest": "8fa2457a4d1874f1d8685b7975253e0e29ff25b4519e00312b44a77570810c88",
       "repository": "Synergie-ITCI/telemedicine-backend",
       "schema_version": 1,
-      "source_sha": "d20ce22a02b84db91e32b22abcbdded96455fb5e",
-      "staging_sha": "8fd31c22d9bb2daeba391e727d700ba6faa682bc",
-      "tree_sha": "bd8c02f24e990fc5b44772f2c9aa449518821844",
+      "source_sha": "6676aa65e24b28ff9c2948cc858fe4043d0adf7a",
+      "staging_sha": "32884b7470c4a7b4e5276b0a042befcd9a7250bd",
+      "tree_sha": "3ff352f77c6eeb52d583f7eef9e4f233458a5a17",
       "type": "governance_v2_repository_enrollment"
     }
   ]

@@ -385,7 +385,7 @@ def verify_repository_enrollment(
 ) -> dict[str, Any]:
     if not record:
         return {"status": "FAIL", "errors": ["repository enrollment record is unavailable"]}
-    settings = policy.get("repository_enrollment", {}) or {}
+    settings = repository_enrollment_settings(policy)
     errors: list[str] = []
     if record.get("schema_version") != 1:
         errors.append("unsupported enrollment schema")
@@ -489,6 +489,17 @@ def enrollment_identity(record: dict[str, Any]) -> dict[str, Any]:
         "expires_at": record.get("expires_at"),
         "evidence": record.get("evidence"),
     }
+
+
+def repository_enrollment_settings(policy: dict[str, Any]) -> dict[str, Any]:
+    settings = policy.get("repository_enrollment", {}) or {}
+    if settings:
+        return settings
+    try:
+        central_policy = load_json(DEFAULT_POLICY, "central policy")
+    except GovernanceError:
+        return {}
+    return central_policy.get("repository_enrollment", {}) or {}
 
 
 def build_enrollment_consumption(enrollment: dict[str, Any], head_sha: str) -> dict[str, Any]:
