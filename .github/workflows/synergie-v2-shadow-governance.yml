@@ -42,6 +42,11 @@ on:
         required: false
         default: ""
         type: string
+      repository-enrollment-registry:
+        description: Caller-relative or downloaded repository enrollment registry JSON; keep repository records outside immutable framework tags.
+        required: false
+        default: ""
+        type: string
       repository-enrollment-id:
         description: Optional central one-time V2 repository enrollment id.
         required: false
@@ -137,6 +142,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number || 0 }}
           PROVENANCE_DIR: ${{ inputs.provenance-dir }}
           REPOSITORY_ENROLLMENT: ${{ inputs.repository-enrollment }}
+          REPOSITORY_ENROLLMENT_REGISTRY: ${{ inputs.repository-enrollment-registry }}
           REPOSITORY_ENROLLMENT_ID: ${{ inputs.repository-enrollment-id }}
           CANDIDATE_JSON: ${{ inputs.candidate-json }}
           QA_RECORD: ${{ inputs.qa-record }}
@@ -160,7 +166,11 @@ jobs:
           if [ "$MODE" = "promotion" ]; then args+=(--provenance-dir governance-v2-provenance); fi
           if [ -n "$PROVENANCE_DIR" ]; then args+=(--provenance-dir "$PROVENANCE_DIR"); fi
           if [ "$MODE" = "promotion" ] || [ "$MODE" = "release" ]; then
-            args+=(--repository-enrollment-registry "${GOVERNANCE_V2_FRAMEWORK_PATH}/policy/governance-v2-authorizations.json")
+            if [ -n "$REPOSITORY_ENROLLMENT_REGISTRY" ]; then
+              args+=(--repository-enrollment-registry "$REPOSITORY_ENROLLMENT_REGISTRY")
+            else
+              args+=(--repository-enrollment-registry "${GOVERNANCE_V2_FRAMEWORK_PATH}/policy/governance-v2-authorizations.json")
+            fi
             args+=(--repository-enrollment-consumption-out governance-v2-repository-enrollment-consumption.json)
           fi
           if [ -n "$REPOSITORY_ENROLLMENT" ]; then

@@ -220,6 +220,51 @@ class GovernanceV2Tests(unittest.TestCase):
         result = GOV.verify_provenance(self.repo, "Synergie-ITCI/programme-management-platform", self.base, head, [], TEST_POLICY, resolved)
         self.assertEqual(result["status"], "PASS")
 
+    def test_repository_enrollment_registry_can_change_without_candidate_or_engine_release(self) -> None:
+        self.write(".github/workflows/synergie-v2-shadow-governance.yml", "name: Governance V2 Shadow\n")
+        self.commit("ci: enroll governance v2")
+        head = self.git("rev-parse", "HEAD")
+        candidate_before = self.candidate(head)
+        enrollment = self.enrollment_record(self.base, head)
+        registry = self.tmp / "dynamic-authorizations.json"
+        registry.write_text(json.dumps({
+            "schema_version": 1,
+            "engine_release": "governance-v2-pilot-v2.3.0",
+            "repository_enrollments": [enrollment],
+        }), encoding="utf-8")
+        args = type("Args", (), {
+            "repository_enrollment": "",
+            "repository_enrollment_registry": str(registry),
+            "repository_enrollment_id": enrollment["enrollment_id"],
+        })()
+        resolved = GOV.load_repository_enrollment(args, "Synergie-ITCI/programme-management-platform", self.base, head)
+        self.assertEqual(resolved["enrollment_id"], enrollment["enrollment_id"])
+        self.assertEqual(self.candidate(head)["candidate_id"], candidate_before["candidate_id"])
+
+    def test_repository_enrollment_registry_consumption_blocks_replay(self) -> None:
+        self.write(".github/workflows/synergie-v2-shadow-governance.yml", "name: Governance V2 Shadow\n")
+        self.commit("ci: enroll governance v2")
+        head = self.git("rev-parse", "HEAD")
+        enrollment = self.enrollment_record(self.base, head)
+        registry = self.tmp / "authorizations.json"
+        registry.write_text(json.dumps({
+            "schema_version": 1,
+            "repository_enrollments": [enrollment],
+            "repository_enrollment_consumptions": [{
+                "enrollment_id": enrollment["enrollment_id"],
+                "consumed_by": head,
+            }],
+        }), encoding="utf-8")
+        args = type("Args", (), {
+            "repository_enrollment": "",
+            "repository_enrollment_registry": str(registry),
+            "repository_enrollment_id": "",
+        })()
+        resolved = GOV.load_repository_enrollment(args, "Synergie-ITCI/programme-management-platform", self.base, head)
+        result = GOV.verify_repository_enrollment(self.repo, "Synergie-ITCI/programme-management-platform", self.base, head, resolved, TEST_POLICY)
+        self.assertEqual(result["status"], "FAIL")
+        self.assertIn("consumed", " ".join(result["errors"]))
+
     def test_repository_enrollment_accepts_release_control_bootstrap_paths(self) -> None:
         paths = [
             ".github/governance-v2-policy.json",
@@ -236,16 +281,6 @@ class GovernanceV2Tests(unittest.TestCase):
         result = GOV.verify_provenance(self.repo, "Synergie-ITCI/programme-management-platform", self.base, head, [], TEST_POLICY, enrollment)
         self.assertEqual(result["status"], "PASS")
         self.assertEqual(result["enrolled_paths"], len(paths))
-
-    def test_repository_enrollment_uses_central_policy_when_caller_is_bootstrapping(self) -> None:
-        self.write(".github/governance-v2-policy.json", "{}\n")
-        self.write(".github/workflows/pr-qa.yml", "name: PR QA\n")
-        self.commit("ci: enroll caller governance policy")
-        head = self.git("rev-parse", "HEAD")
-        caller_policy = {key: value for key, value in TEST_POLICY.items() if key != "repository_enrollment"}
-        enrollment = self.enrollment_record(self.base, head, paths=[".github/governance-v2-policy.json", ".github/workflows/pr-qa.yml"])
-        result = GOV.verify_provenance(self.repo, "Synergie-ITCI/programme-management-platform", self.base, head, [], caller_policy, enrollment)
-        self.assertEqual(result["status"], "PASS")
 
     def test_repository_enrollment_blocks_application_code(self) -> None:
         self.write(".github/workflows/synergie-v2-shadow-governance.yml", "name: Governance V2 Shadow\n")
@@ -414,10 +449,108 @@ class GovernanceV2Tests(unittest.TestCase):
     def test_reusable_workflow_exposes_standard_repository_enrollment_input(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "synergie-v2-shadow-governance.yml").read_text(encoding="utf-8")
         self.assertIn("repository-enrollment:", workflow)
+        self.assertIn("repository-enrollment-registry:", workflow)
         self.assertIn("repository-enrollment-id:", workflow)
         self.assertIn("--repository-enrollment", workflow)
         self.assertIn("--repository-enrollment-registry", workflow)
         self.assertIn("governance-v2-repository-enrollment-consumption.json", workflow)
+
+    def test_migration_preflight_reports_all_blockers_together(self) -> None:
+        report = GOV.build_migration_preflight_report({
+            "checks": {
+                "Architecture Governance": True,
+                "Pull Request Quality Assurance / Pull Request Quality Assurance": True,
+            },
+            "producers": {"Architecture Governance": "architecture-governance.yml"},
+            "workflows": {
+                "release_gate": {"arguments": ["--repository-enrollment-registry"]},
+                "independent_qa": False,
+                "architecture_governance": True,
+                "repository_enrollment": True,
+                "main_auto_deploys_production": True,
+            },
+            "permissions": {"can_merge_release_pr": False},
+            "rollback_ready": False,
+            "planned_steps": [{
+                "name": "fix wrapper",
+                "changes_candidate": True,
+                "invalidates_enrollment": True,
+                "invalidates_qa": True,
+                "requires_new_v2_release": False,
+                "creates_loop": True,
+            }],
+        })
+        self.assertEqual(report["status"], "BLOCKED")
+        joined = "\n".join(report["blockers"])
+        self.assertIn("missing workflow producer", joined)
+        self.assertIn("--repository-enrollment-consumption-out", joined)
+        self.assertIn("independent qa", joined)
+        self.assertIn("merge", joined)
+        self.assertIn("auto-deploy", joined)
+        self.assertIn("rollback", joined)
+        self.assertTrue(report["loop_detected"])
+
+    def test_migration_preflight_ready_repository_returns_ready(self) -> None:
+        report = GOV.build_migration_preflight_report({
+            "checks": {"Architecture Governance": True},
+            "producers": {"Architecture Governance": "architecture-governance.yml"},
+            "workflows": {
+                "release_gate": {"arguments": ["--repository-enrollment-registry", "--repository-enrollment-consumption-out"]},
+                "independent_qa": True,
+                "architecture_governance": True,
+                "repository_enrollment": True,
+                "main_auto_deploys_production": False,
+            },
+            "permissions": {"can_merge_release_pr": True},
+            "rollback_ready": True,
+            "planned_steps": [{"name": "bind enrollment", "changes_candidate": False}],
+        })
+        self.assertEqual(report["status"], "READY")
+        self.assertEqual(report["blockers"], [])
+
+    def test_qa_packet_is_candidate_bound_secret_safe_and_classifies_risk(self) -> None:
+        self.write("app/Auth/LoginService.php", "<?php\n")
+        self.write("database/migrations/2026_01_01_add_table.php", "<?php\n")
+        self.commit("feat: auth migration")
+        candidate = self.candidate(self.git("rev-parse", "HEAD"))
+        packet = GOV.build_qa_packet({
+            "repository": candidate["repository"],
+            "candidate": candidate,
+            "expected_candidate_id": candidate["candidate_id"],
+            "base_sha": self.base,
+            "changed_files": ["app/Auth/LoginService.php", "database/migrations/2026_01_01_add_table.php"],
+            "diff_summary": "Authorization migration",
+            "ci": {"status": "PASS", "token": "ghp_secret"},
+            "tests": {"status": "PASS", "count": 12},
+            "security": {"status": "PASS"},
+            "staging": {"status": "PASS"},
+        })
+        self.assertEqual(packet["status"], "PASS")
+        self.assertEqual(packet["candidate"]["candidate_id"], candidate["candidate_id"])
+        self.assertEqual(packet["risk"]["level"], "HIGH")
+        self.assertEqual(packet["ci"]["token"], "[REDACTED]")
+        self.assertIn("database/migrations/2026_01_01_add_table.php", packet["protected_path_changes"])
+
+    def test_qa_packet_rejects_stale_candidate_and_delta_packet_limits_scope(self) -> None:
+        self.write("docs/readme.md", "old\n")
+        self.commit("docs: old")
+        old_candidate = self.candidate(self.git("rev-parse", "HEAD"))
+        self.write("docs/readme.md", "new\n")
+        self.commit("docs: new")
+        new_candidate = self.candidate(self.git("rev-parse", "HEAD"))
+        stale = GOV.build_qa_packet({"candidate": new_candidate, "expected_candidate_id": old_candidate["candidate_id"]})
+        self.assertEqual(stale["status"], "FAIL")
+        previous = {"candidate": old_candidate, "changed_files": ["docs/readme.md"]}
+        current = {
+            "repository": new_candidate["repository"],
+            "candidate": new_candidate,
+            "expected_candidate_id": new_candidate["candidate_id"],
+            "changed_files": ["docs/readme.md", "tests/test_docs.py"],
+        }
+        delta = GOV.build_delta_qa_packet(previous, current)
+        self.assertEqual(delta["status"], "PASS")
+        self.assertEqual(delta["changed_files"], ["tests/test_docs.py"])
+        self.assertIn("fix_delta", delta["review_scope"])
 
 
 if __name__ == "__main__":

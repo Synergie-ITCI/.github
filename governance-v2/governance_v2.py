@@ -199,7 +199,22 @@ def load_repository_enrollment(args: argparse.Namespace, repository: str, base_s
         raise GovernanceError(f"repository enrollment was not found for id {args.repository_enrollment_id}")
     if len(matches) > 1:
         raise GovernanceError("repository enrollment registry matched multiple records")
-    return matches[0] if matches else {}
+    if not matches:
+        return {}
+    record = dict(matches[0])
+    consumptions = registry.get("repository_enrollment_consumptions", [])
+    if consumptions is None:
+        consumptions = []
+    if not isinstance(consumptions, list):
+        raise GovernanceError("repository enrollment registry consumption records must be a list")
+    consumed_by = [
+        item.get("consumed_by", "")
+        for item in consumptions
+        if isinstance(item, dict) and item.get("enrollment_id") == record.get("enrollment_id")
+    ]
+    if consumed_by and not record.get("consumed_by"):
+        record["consumed_by"] = consumed_by[-1]
+    return record
 
 
 def git(repo: Path, *args: str) -> str:
@@ -385,7 +400,7 @@ def verify_repository_enrollment(
 ) -> dict[str, Any]:
     if not record:
         return {"status": "FAIL", "errors": ["repository enrollment record is unavailable"]}
-    settings = repository_enrollment_settings(policy)
+    settings = policy.get("repository_enrollment", {}) or {}
     errors: list[str] = []
     if record.get("schema_version") != 1:
         errors.append("unsupported enrollment schema")
@@ -489,17 +504,6 @@ def enrollment_identity(record: dict[str, Any]) -> dict[str, Any]:
         "expires_at": record.get("expires_at"),
         "evidence": record.get("evidence"),
     }
-
-
-def repository_enrollment_settings(policy: dict[str, Any]) -> dict[str, Any]:
-    settings = policy.get("repository_enrollment", {}) or {}
-    if settings:
-        return settings
-    try:
-        central_policy = load_json(DEFAULT_POLICY, "central policy")
-    except GovernanceError:
-        return {}
-    return central_policy.get("repository_enrollment", {}) or {}
 
 
 def build_enrollment_consumption(enrollment: dict[str, Any], head_sha: str) -> dict[str, Any]:
@@ -618,6 +622,163 @@ def production_selection(candidate: dict[str, Any], approval: str, policy: dict[
         "selected_content_digest": candidate["content_digest"],
         "reason": "authorized dry-run selection" if approved else "explicit human production approval is required",
     }
+
+
+def build_migration_preflight_report(input_data: dict[str, Any]) -> dict[str, Any]:
+    blockers: list[str] = []
+    checks = input_data.get("checks", {}) if isinstance(input_data.get("checks", {}), dict) else {}
+    producers = input_data.get("producers", {}) if isinstance(input_data.get("producers", {}), dict) else {}
+    workflows = input_data.get("workflows", {}) if isinstance(input_data.get("workflows", {}), dict) else {}
+    permissions = input_data.get("permissions", {}) if isinstance(input_data.get("permissions", {}), dict) else {}
+    plan = input_data.get("planned_steps", []) if isinstance(input_data.get("planned_steps", []), list) else []
+
+    for name, required in sorted(checks.items()):
+        if required and not producers.get(name):
+            blockers.append(f"missing workflow producer for required check: {name}")
+    release_gate = workflows.get("release_gate", {}) if isinstance(workflows.get("release_gate", {}), dict) else {}
+    required_args = [
+        "--repository-enrollment-registry",
+        "--repository-enrollment-consumption-out",
+    ]
+    args = set(release_gate.get("arguments", []) or [])
+    for arg in required_args:
+        if arg not in args:
+            blockers.append(f"missing V2 wrapper argument: {arg}")
+    for capability in ["independent_qa", "architecture_governance", "repository_enrollment"]:
+        if not workflows.get(capability):
+            blockers.append(f"{capability.replace('_', ' ')} is unavailable")
+    if not permissions.get("can_merge_release_pr"):
+        blockers.append("authenticated actor cannot merge the release PR under current ruleset")
+    if workflows.get("main_auto_deploys_production"):
+        blockers.append("main branch push can auto-deploy production")
+    if not input_data.get("rollback_ready", False):
+        blockers.append("rollback readiness is unavailable")
+
+    step_reports: list[dict[str, Any]] = []
+    prior_evidence = False
+    loop = False
+    for index, step in enumerate(plan, start=1):
+        if not isinstance(step, dict):
+            continue
+        changes_candidate = bool(step.get("changes_candidate"))
+        invalidates_enrollment = bool(step.get("invalidates_enrollment"))
+        invalidates_qa = bool(step.get("invalidates_qa"))
+        requires_new_v2_release = bool(step.get("requires_new_v2_release"))
+        creates_loop = bool(step.get("creates_loop") or (changes_candidate and prior_evidence and invalidates_enrollment))
+        if creates_loop:
+            loop = True
+            blockers.append(f"candidate/enrollment loop detected at step {index}: {step.get('name', 'unnamed')}")
+        if requires_new_v2_release:
+            blockers.append(f"step {index} requires a new V2 release: {step.get('name', 'unnamed')}")
+        if changes_candidate and (invalidates_enrollment or invalidates_qa):
+            prior_evidence = True
+        step_reports.append({
+            "name": step.get("name", f"step {index}"),
+            "changes_candidate": changes_candidate,
+            "invalidates_enrollment": invalidates_enrollment,
+            "invalidates_qa": invalidates_qa,
+            "requires_new_v2_release": requires_new_v2_release,
+            "creates_loop": creates_loop,
+        })
+
+    return {
+        "schema_version": 1,
+        "status": "BLOCKED" if blockers else "READY",
+        "blockers": blockers,
+        "steps": step_reports,
+        "loop_detected": loop,
+    }
+
+
+def classify_qa_risk(changed_files: list[str], summary: str = "") -> dict[str, Any]:
+    text = " ".join(changed_files + [summary]).lower()
+    high_terms = [
+        "auth", "authorization", "tenant", "privacy", "finance", "payment",
+        "migration", "schema", "security", "crypto", "deploy", "production",
+        "recovery", "governance",
+    ]
+    reasons = sorted(term for term in high_terms if term in text)
+    if reasons:
+        return {"level": "HIGH", "reasons": reasons}
+    if len(changed_files) > 8 or any(path.startswith(("app/", "src/", "services/")) for path in changed_files):
+        return {"level": "MEDIUM", "reasons": ["business logic or multi-file delta"]}
+    return {"level": "LOW", "reasons": ["localized non-sensitive delta"]}
+
+
+def build_qa_packet(input_data: dict[str, Any]) -> dict[str, Any]:
+    candidate = input_data.get("candidate", {}) if isinstance(input_data.get("candidate", {}), dict) else {}
+    expected_candidate = input_data.get("expected_candidate_id")
+    if expected_candidate and candidate.get("candidate_id") != expected_candidate:
+        return {
+            "schema_version": 1,
+            "status": "FAIL",
+            "reason": "stale candidate rejected",
+            "candidate_id": candidate.get("candidate_id", ""),
+        }
+    changed_files = [str(path) for path in input_data.get("changed_files", []) if isinstance(path, str)]
+    summary = str(input_data.get("diff_summary", ""))
+    risk = classify_qa_risk(changed_files, summary)
+    protected_changes = [
+        path for path in changed_files
+        if path.startswith(".github/") or path in {"CODEOWNERS", "docs/CODEOWNERS"} or "/migrations/" in path or path.endswith(".sql")
+    ]
+    packet = {
+        "schema_version": 1,
+        "status": "PASS",
+        "repository": input_data.get("repository", ""),
+        "candidate": {
+            "candidate_id": candidate.get("candidate_id", ""),
+            "staging_sha": candidate.get("staging_sha", ""),
+            "tree_sha": candidate.get("tree_sha", ""),
+            "content_digest": candidate.get("content_digest", ""),
+        },
+        "base_sha": input_data.get("base_sha", ""),
+        "previous_approved_release": input_data.get("previous_approved_release", ""),
+        "changed_files": changed_files,
+        "diff_summary": summary,
+        "affected_modules": input_data.get("affected_modules", []),
+        "ci": input_data.get("ci", {}),
+        "tests": input_data.get("tests", {}),
+        "security": input_data.get("security", {}),
+        "migrations": input_data.get("migrations", {}),
+        "staging": input_data.get("staging", {}),
+        "protected_path_changes": protected_changes,
+        "unresolved_prior_findings": input_data.get("unresolved_prior_findings", []),
+        "evidence_references": input_data.get("evidence_references", []),
+        "risk": risk,
+        "qa_protocol": {
+            "read_only": ["qa_packet", "changed_code", "impacted_interfaces", "unresolved_prior_findings"],
+            "do_not": ["rerun_valid_ci", "manual_lint_reinspection", "repeated_polling", "fix_code"],
+            "operation": "trigger_once_wait_once",
+        },
+    }
+    return secret_safe(packet)
+
+
+def build_delta_qa_packet(previous: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
+    previous_files = set(previous.get("changed_files", []) or [])
+    current_files = set(current.get("changed_files", []) or [])
+    changed_files = sorted(current_files.symmetric_difference(previous_files) or current_files)
+    packet_input = dict(current)
+    packet_input["changed_files"] = changed_files
+    packet = build_qa_packet(packet_input)
+    packet["delta_from_candidate"] = (previous.get("candidate", {}) or {}).get("candidate_id", "")
+    packet["review_scope"] = ["fix_delta", "impacted_dependencies", "unresolved_findings", "new_risk_triggers"]
+    return packet
+
+
+def secret_safe(value: Any) -> Any:
+    secret_keys = {"secret", "token", "password", "private_key", "api_key"}
+    if isinstance(value, dict):
+        return {
+            key: ("[REDACTED]" if any(marker in str(key).lower() for marker in secret_keys) else secret_safe(item))
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [secret_safe(item) for item in value]
+    if isinstance(value, str) and any(marker in value.lower() for marker in ["ghp_", "github_pat_", "-----begin private key-----"]):
+        return "[REDACTED]"
+    return value
 
 
 def validate_status_registry(path: Path, workflow_root: Path) -> dict[str, Any]:
