@@ -153,6 +153,25 @@ jobs:
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           exit 0
 
+      - name: Compute technical baseline key
+        id: technical-baseline
+        run: |
+          profile_args=()
+          if [ "${GITHUB_REPOSITORY}" = "Synergie-ITCI/.github" ]; then
+            profile_args=(--repository-profile framework)
+          fi
+          python3 .pr-qa-framework/pr-qa/pr_qa.py \
+            --repo "$GITHUB_WORKSPACE" \
+            --technical-baseline-key-out "$GITHUB_OUTPUT" \
+            "${profile_args[@]}"
+
+      - name: Restore technical validation baseline
+        id: technical-baseline-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .pr-qa-technical-baseline
+          key: ${{ steps.technical-baseline.outputs.cache_key }}
+
       - name: Publish Phase 1 report
         if: always()
         run: |
@@ -279,6 +298,7 @@ jobs:
         run: |
           rm -rf pr-qa-results
           mkdir -p pr-qa-results
+          mkdir -p .pr-qa-technical-baseline
           profile_args=()
           if [ "${GITHUB_REPOSITORY}" = "Synergie-ITCI/.github" ]; then
             profile_args=(--repository-profile framework)
@@ -288,11 +308,21 @@ jobs:
             --repo "$GITHUB_WORKSPACE" \
             --out pr-qa-results/pr-quality-report.md \
             --json-out pr-qa-results/pr-quality-report.json \
+            --qa-packet-out pr-qa-results/qa-packet.json \
+            --technical-baseline-in .pr-qa-technical-baseline/technical-baseline.json \
+            --technical-baseline-out .pr-qa-technical-baseline/technical-baseline.json \
             --command-timeout-minutes "$PR_QA_COMMAND_TIMEOUT_MINUTES" \
             "${profile_args[@]}"
           code=$?
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           exit 0
+
+      - name: Save technical validation baseline
+        if: always() && steps.technical-baseline-cache.outputs.cache-hit != 'true' && hashFiles('.pr-qa-technical-baseline/technical-baseline.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: .pr-qa-technical-baseline
+          key: ${{ steps.technical-baseline.outputs.cache_key }}
 
       - name: Publish final PR QA report
         if: always()

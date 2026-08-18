@@ -40,6 +40,7 @@ MANDATORY_GATES = {
 EXCLUDED_DIRS = {
     ".git",
     ".pr-qa-framework",
+    ".pr-qa-technical-baseline",
     ".hg",
     ".svn",
     ".idea",

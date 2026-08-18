@@ -115,6 +115,7 @@ gates:
         event_labels: list[str] | None = None,
         body_override: str | None = None,
         pr_number: int = 123,
+        extra_args: list[str] | None = None,
     ) -> tuple[int, str, dict, Path]:
         event = repo / "event.json"
         labels = [{"name": label} for label in (event_labels or [])]
@@ -164,6 +165,8 @@ gates:
         if review_policy is not None:
             review_policy_input.write_text(json.dumps(review_policy), encoding="utf-8")
             args.extend(["--review-policy-input", str(review_policy_input)])
+        if extra_args:
+            args.extend(extra_args)
         env = dict(self.env)
         env["GITHUB_WORKSPACE"] = str(repo)
         if repository:
@@ -178,6 +181,143 @@ gates:
         report_text = report.read_text(encoding="utf-8") if report.exists() else completed.stdout
         parsed_json = json.loads(json_report.read_text(encoding="utf-8")) if json_report.exists() else {}
         return completed.returncode, report_text, parsed_json, audit
+
+    def test_technical_pass_persists_and_reuses_after_evidence_only_fix(self) -> None:
+        repo, base = self.init_repo("technical-baseline-reuse")
+        self.write(repo / "app.py", "def answer():\n    return 42\n")
+        self.write(repo / "tests" / "test_app.py", "from app import answer\n\n\ndef test_answer():\n    assert answer() == 42\n")
+        self.git(repo, "add", ".")
+        self.git(repo, "commit", "-q", "-m", "feat: add app code")
+
+        baseline = repo / ".pr-qa-technical-baseline" / "technical-baseline.json"
+        packet = repo / "qa-packet.json"
+        bad_body = (
+            "## Business Purpose\nRegression test.\n"
+            "## Testing Performed\nLocal automated regression.\n"
+            "## Rollback Strategy\nRevert this PR.\n"
+            "## Linked Issue\nTBD\n"
+        )
+        code, _, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            body_override=bad_body,
+            extra_args=[
+                "--no-command-runs",
+                "--technical-baseline-out",
+                str(baseline),
+                "--qa-packet-out",
+                str(packet),
+            ],
+        )
+        self.assertNotEqual(code, 0)
+        self.assertTrue(baseline.exists())
+        persisted = json.loads(baseline.read_text(encoding="utf-8"))
+        self.assertEqual(persisted["status"], "PASS")
+        self.assertEqual(report_json["summary"]["technical_baseline"]["status"], "CREATED")
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Evidence"], "FAIL")
+
+        packet_reuse = repo / "qa-packet-reuse.json"
+        code, _, reused_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            extra_args=[
+                "--no-command-runs",
+                "--technical-baseline-in",
+                str(baseline),
+                "--qa-packet-out",
+                str(packet_reuse),
+            ],
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(reused_json["summary"]["technical_baseline"]["status"], "REUSED")
+        commands = "\n".join(item["command"] for item in reused_json["commands"])
+        self.assertNotIn("compileall", commands)
+        self.assertNotIn("pytest", commands)
+        self.assertNotIn("pip_audit", commands)
+        self.assertTrue(packet_reuse.exists())
+        qa_packet = json.loads(packet_reuse.read_text(encoding="utf-8"))
+        self.assertTrue(qa_packet["technical_validation"]["reused"])
+        self.assertEqual(qa_packet["current_evidence"]["gate_statuses"]["Evidence"], "PASS")
+
+    def test_technical_baseline_invalidates_on_content_or_policy_change(self) -> None:
+        repo, base = self.init_repo("technical-baseline-invalidates")
+        self.write(repo / "app.py", "def answer():\n    return 42\n")
+        self.git(repo, "add", ".")
+        self.git(repo, "commit", "-q", "-m", "feat: add app code")
+        baseline = repo / ".pr-qa-technical-baseline" / "technical-baseline.json"
+        code, _, _, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            extra_args=["--no-command-runs", "--technical-baseline-out", str(baseline)],
+        )
+        self.assertEqual(code, 0)
+        original_head = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        self.write(repo / "app.py", "def answer():\n    return 43\n")
+        self.git(repo, "add", "app.py")
+        self.git(repo, "commit", "-q", "-m", "fix: change app code")
+        code, _, content_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            extra_args=["--no-command-runs", "--technical-baseline-in", str(baseline)],
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(content_json["summary"]["technical_baseline"]["status"], "NONE")
+        self.assertTrue(content_json["summary"]["technical_baseline"]["reuse_details"])
+
+        policy = json.loads((ROOT / "policy" / "pr-qa-policy.json").read_text(encoding="utf-8"))
+        policy["policy_id"] = "changed-policy-for-regression"
+        policy_path = repo / "policy.json"
+        policy_path.write_text(json.dumps(policy), encoding="utf-8")
+        self.git(repo, "checkout", "-q", "-B", "feature/regression", original_head)
+        code, _, policy_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            policy_path=policy_path,
+            extra_args=["--no-command-runs", "--technical-baseline-in", str(baseline)],
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(policy_json["summary"]["technical_baseline"]["status"], "NONE")
+        self.assertTrue(policy_json["summary"]["technical_baseline"]["reuse_details"])
+
+    def test_technical_fail_and_cross_repo_baselines_are_rejected(self) -> None:
+        repo, base = self.init_repo("technical-baseline-rejects")
+        self.write(repo / "app.py", "def answer():\n    return 42\n")
+        self.git(repo, "add", ".")
+        self.git(repo, "commit", "-q", "-m", "feat: add app code")
+        baseline = repo / ".pr-qa-technical-baseline" / "technical-baseline.json"
+        code, _, _, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            extra_args=["--no-command-runs", "--technical-baseline-out", str(baseline)],
+        )
+        self.assertEqual(code, 0)
+
+        failed_baseline = json.loads(baseline.read_text(encoding="utf-8"))
+        failed_baseline["status"] = "FAIL"
+        failed_path = repo / "failed-baseline.json"
+        failed_path.write_text(json.dumps(failed_baseline), encoding="utf-8")
+        code, _, failed_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            extra_args=["--no-command-runs", "--technical-baseline-in", str(failed_path)],
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(failed_json["summary"]["technical_baseline"]["status"], "NONE")
+        self.assertIn("PASS status", "\n".join(failed_json["summary"]["technical_baseline"]["reuse_details"]))
+
+        cross_repo = json.loads(baseline.read_text(encoding="utf-8"))
+        cross_repo["binding"]["repository"] = "Synergie-ITCI/other"
+        cross_repo_path = repo / "cross-repo-baseline.json"
+        cross_repo_path.write_text(json.dumps(cross_repo), encoding="utf-8")
+        code, _, cross_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            extra_args=["--no-command-runs", "--technical-baseline-in", str(cross_repo_path)],
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(cross_json["summary"]["technical_baseline"]["status"], "NONE")
+        self.assertIn("repository", "\n".join(cross_json["summary"]["technical_baseline"]["reuse_details"]))
 
     def baseline_policy_for(
         self,
