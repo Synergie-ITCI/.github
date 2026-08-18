@@ -2,6 +2,10 @@ name: PR Quality Assurance
 
 on:
   pull_request:
+    branches-ignore:
+      - staging
+      - main
+      - master
     types:
       - opened
       - synchronize

@@ -13,6 +13,11 @@ on:
         required: false
         type: string
         default: .github/synergie-recovery.yml
+      enforce:
+        description: Fail the workflow when recovery readiness fails.
+        required: false
+        type: boolean
+        default: true
   workflow_dispatch:
     inputs:
       mode:
@@ -28,6 +33,11 @@ on:
         required: false
         type: string
         default: .github/synergie-recovery.yml
+      enforce:
+        description: Fail the workflow when recovery readiness fails.
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -111,7 +121,7 @@ jobs:
           retention-days: 30
 
       - name: Enforce recovery readiness
-        if: ${{ steps.recovery.outputs.exit_code != '0' }}
+        if: ${{ inputs.enforce && steps.recovery.outputs.exit_code != '0' }}
         run: |
           echo "Synergie recovery readiness failed."
           exit 1

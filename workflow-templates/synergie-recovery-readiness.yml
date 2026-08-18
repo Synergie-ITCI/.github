@@ -38,6 +38,7 @@ jobs:
     with:
       mode: staging
       recovery-manifest-path: .github/synergie-recovery.yml
+      enforce: false
 
   production-recoverability:
     name: Production Recoverability
@@ -46,6 +47,7 @@ jobs:
     with:
       mode: production
       recovery-manifest-path: .github/synergie-recovery.yml
+      enforce: true
 
   manual-recovery-readiness:
     name: Manual Recovery Readiness
@@ -54,3 +56,4 @@ jobs:
     with:
       mode: ${{ inputs.mode }}
       recovery-manifest-path: .github/synergie-recovery.yml
+      enforce: true

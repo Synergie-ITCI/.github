@@ -12,12 +12,6 @@
       "production_approvers": ["SaurabhVermaIN"]
     }
   },
-  "bootstrap_baselines": {
-    "Synergie-ITCI/programme-management-platform": {
-      "commit_sha": "6f13da9410be6379598d041fef9f0bf74b0b2524",
-      "tree_sha": "1468697d78059d9f7d69a0e6f033fbdd90bf87b1"
-    }
-  },
   "repository_enrollment": {
     "authorized_actors": ["SaurabhVermaIN"],
     "max_hours": 72,
