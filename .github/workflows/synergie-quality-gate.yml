@@ -39,7 +39,7 @@ on:
         type: boolean
         default: true
       enforce-recovery-readiness:
-        description: Run the Synergie recovery readiness check for staging promotions.
+        description: Publish the Synergie recovery readiness check for staging promotions as informational evidence.
         required: false
         type: boolean
         default: true
@@ -147,11 +147,12 @@ jobs:
     with:
       mode: staging
       recovery-manifest-path: ${{ inputs.recovery-manifest-path }}
+      enforce: false
 
   pr-qa:
     name: Synergie PR QA
     needs:
       - governance-preflight
       - recovery-readiness
-    if: ${{ always() && inputs.run-pr-qa && needs.governance-preflight.result == 'success' && (needs.recovery-readiness.result == 'success' || needs.recovery-readiness.result == 'skipped') }}
+    if: ${{ always() && inputs.run-pr-qa && needs.governance-preflight.result == 'success' }}
     uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@main

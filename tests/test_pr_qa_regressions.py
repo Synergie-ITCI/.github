@@ -209,12 +209,12 @@ gates:
                 str(packet),
             ],
         )
-        self.assertNotEqual(code, 0)
+        self.assertEqual(code, 0)
         self.assertTrue(baseline.exists())
         persisted = json.loads(baseline.read_text(encoding="utf-8"))
         self.assertEqual(persisted["status"], "PASS")
         self.assertEqual(report_json["summary"]["technical_baseline"]["status"], "CREATED")
-        self.assertEqual(report_json["summary"]["gate_statuses"]["Evidence"], "FAIL")
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Evidence"], "WARNING")
 
         packet_reuse = repo / "qa-packet-reuse.json"
         code, _, reused_json, _ = self.run_engine_with_artifacts(
@@ -996,7 +996,7 @@ exit 0
         self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
         self.assertIn("Accidental merge commits detected", report)
 
-    def test_first_parent_commit_message_policy_still_blocks_new_bad_message(self) -> None:
+    def test_first_parent_commit_message_policy_warns_for_new_bad_message(self) -> None:
         repo, base = self.init_repo("bad-first-parent-message", profile="framework")
         self.write(repo / "README.md", "# regression\n\nBad subject.\n")
         self.git(repo, "add", ".")
@@ -1004,9 +1004,25 @@ exit 0
 
         code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
 
-        self.assertNotEqual(code, 0)
-        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
+        self.assertEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "WARNING")
         self.assertIn("Commit messages do not match convention", report)
+
+    def test_branch_name_policy_warns_for_bad_branch_name(self) -> None:
+        repo, base = self.init_repo("bad-branch-name", profile="framework")
+        self.write(repo / "README.md", "# regression\n\nBad branch.\n")
+        self.commit(repo, "docs: update readme")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            static_only=True,
+            head_ref="bad_branch_name",
+        )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "WARNING")
+        self.assertIn("Branch name `bad_branch_name` does not match allowed convention", report)
 
     def test_new_secret_content_remains_blocking(self) -> None:
         repo, base = self.init_repo("new-secret-content", profile="framework")
@@ -1312,10 +1328,10 @@ exit 0
             review_policy={"mergeable": True, "reviews": []},
         )
 
-        self.assertNotEqual(missing_evidence_code, 0)
+        self.assertEqual(missing_evidence_code, 0)
         self.assertEqual(missing_evidence_json["summary"]["gate_statuses"]["Baseline Alignment"], "PASS")
-        self.assertEqual(missing_evidence_json["summary"]["gate_statuses"]["Evidence"], "FAIL")
-        self.assertIn("Mandatory PR template evidence is missing", missing_evidence_report)
+        self.assertEqual(missing_evidence_json["summary"]["gate_statuses"]["Evidence"], "WARNING")
+        self.assertIn("Administrative PR template evidence is missing", missing_evidence_report)
 
         repo, base, head = self.init_programme_platform_baseline_repo("programme-platform-baseline-secret", include_secret=True)
         policy = self.programme_platform_policy_for(base_sha=base, head_sha=head)

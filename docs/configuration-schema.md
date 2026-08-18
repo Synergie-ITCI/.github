@@ -105,7 +105,7 @@ evidence:
   screenshots_required_for_ui_changes: true
 ```
 
-Evidence validation reads the pull request body. It fails if required sections are empty or still contain template placeholder text.
+Evidence validation reads the pull request body. Non-safety-critical administrative wording or placeholder issues are reported as warnings; safety-critical evidence remains enforced by the relevant security, migration, production, rollback, and review gates.
 
 ## Runtime
 

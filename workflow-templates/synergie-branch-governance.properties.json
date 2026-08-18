@@ -1,6 +1,6 @@
 {
   "name": "Synergie Branch Governance",
-  "description": "Company staging/main governance gate, including recovery readiness, production recoverability, PR QA, and phpMyAdmin production policy.",
+  "description": "Company staging/main governance gate, including informational staging recovery readiness, production recoverability, PR QA, and phpMyAdmin production policy.",
   "iconName": "octicon git-pull-request",
   "categories": [
     "Automation",

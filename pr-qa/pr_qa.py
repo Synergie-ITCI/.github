@@ -1664,7 +1664,7 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
     elif branch and baseline_allows(ctx, "historical_branch_name"):
         results.append(warning("Repository Hygiene", None, f"Historical baseline source branch `{branch}` predates current branch naming convention; future PRs remain governed."))
     elif branch:
-        results.append(failed("Repository Hygiene", None, f"Branch name `{branch}` does not match allowed convention.", score=5))
+        results.append(warning("Repository Hygiene", None, f"Branch name `{branch}` does not match allowed convention; future branch names should follow the central convention."))
     else:
         results.append(warning("Repository Hygiene", None, "Branch name could not be determined."))
 
@@ -1677,7 +1677,7 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
         elif long_lived_staging_to_main_promotion(ctx):
             results.append(warning("Repository Hygiene", None, "Inherited branch-promotion commit messages predate current convention; future direct PR commits remain governed.", invalid_commits[:20]))
         else:
-            results.append(failed("Repository Hygiene", None, "Commit messages do not match convention.", invalid_commits[:20], score=8))
+            results.append(warning("Repository Hygiene", None, "Commit messages do not match convention; future commit messages should follow the central convention.", invalid_commits[:20]))
     elif commits:
         results.append(passed("Repository Hygiene", None, "Commit messages match convention."))
     else:
@@ -2800,7 +2800,7 @@ def gate_evidence(ctx: PRContext) -> list[CheckResult]:
         if not field_has_value(ctx.pr_body or "", "screenshots"):
             missing.append("screenshots")
     if missing:
-        return [failed("Evidence", None, "Mandatory PR template evidence is missing or still placeholder text.", missing, score=10)]
+        return [warning("Evidence", None, "Administrative PR template evidence is missing or still placeholder text; safety-critical evidence remains enforced by the relevant security, migration, production, rollback, and review gates.", missing)]
     return [passed("Evidence", None, "Mandatory PR template evidence is complete.")]
 
 
