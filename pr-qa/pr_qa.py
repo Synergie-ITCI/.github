@@ -51,6 +51,37 @@ DEFAULT_POLICY_PATH = FRAMEWORK_ROOT / "policy" / "pr-qa-policy.json"
 CONFIG_PATH = ".github/pr-qa.yml"
 EMERGENCY_OVERRIDE_REASON_ENV = "PR_QA_EMERGENCY_OVERRIDE_REASON"
 CODEOWNERS_PATHS = {"CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"}
+TECHNICAL_BASELINE_SCHEMA_VERSION = 1
+TECHNICAL_BASELINE_TYPE = "pr_qa_technical_pass"
+TECHNICAL_BASELINE_DIR = ".pr-qa-technical-baseline"
+TECHNICAL_BASELINE_FILE = "technical-baseline.json"
+TECHNICAL_BASELINE_CACHE_PREFIX = "pr-qa-technical-v1"
+TECHNICAL_GATE_NAMES = {
+    "Baseline Alignment",
+    "Config Validation",
+    "Repository Integrity",
+    "Repository Hygiene",
+    "Git Validation",
+    "Secrets",
+    "Executable Classification",
+    "Protected Resources",
+    "Deployment Risk",
+    "Migration Risk",
+    "Formatting",
+    "Lint",
+    "Build",
+    "Tests",
+    "Dependencies",
+    "Licence",
+}
+REUSABLE_SANDBOXED_GATE_NAMES = {
+    "Formatting",
+    "Lint",
+    "Build",
+    "Tests",
+    "Dependencies",
+    "Licence",
+}
 
 GATE_ORDER = [
     ("baseline_alignment", "Baseline Alignment"),
@@ -205,6 +236,10 @@ def main() -> int:
         diff_error=git_context.get("diff_error", ""),
     )
 
+    if args.technical_baseline_key_out:
+        write_technical_baseline_key_output(args.technical_baseline_key_out, technical_baseline_binding(ctx, git_context, technologies, policy, Path(args.policy)))
+        return 0
+
     results: list[CheckResult] = []
     results.extend(run_static_preflight(ctx, git_context, technologies, args.out))
     static_failed = any(result.is_blocking_failure() for result in results)
@@ -217,7 +252,15 @@ def main() -> int:
         write_reports(args, summary, results, ctx)
         return 1 if summary["overall_result"] == FAIL else 0
 
-    results.extend(run_sandboxed_validation(ctx, technologies))
+    reused_baseline, baseline_details = load_reusable_technical_baseline(args.technical_baseline_in, ctx, git_context, technologies, policy, Path(args.policy))
+    if reused_baseline:
+        results.extend(reused_baseline)
+    else:
+        if args.technical_baseline_in:
+            context_cache(ctx)["technical_baseline_reuse_details"] = baseline_details
+        sandboxed_results = run_sandboxed_validation(ctx, technologies)
+        results.extend(sandboxed_results)
+        write_technical_baseline_if_passed(args.technical_baseline_out, ctx, git_context, technologies, policy, Path(args.policy), results)
     results.extend(run_governance(ctx, results, args))
     summary = summarize(results, technologies, ctx, git_context)
     write_emergency_override_audit(args, summary, results, ctx, git_context)
@@ -244,6 +287,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--emergency-override-reason", default=os.environ.get(EMERGENCY_OVERRIDE_REASON_ENV, ""), help="Governance-only emergency override reason.")
     parser.add_argument("--emergency-override-out", default="", help="Emergency override audit record path.")
     parser.add_argument("--review-policy-input", default="", help="Optional JSON file with pull request review and mergeability evidence.")
+    parser.add_argument("--technical-baseline-key-out", default="", help="GITHUB_OUTPUT path for exact-content technical baseline cache key.")
+    parser.add_argument("--technical-baseline-in", default="", help="Reusable exact-content technical PASS baseline JSON path.")
+    parser.add_argument("--technical-baseline-out", default="", help="Write exact-content technical PASS baseline JSON after technical validation succeeds.")
+    parser.add_argument("--qa-packet-out", default="", help="Write QA packet assembled from technical baseline state and current PR evidence.")
     return parser.parse_args()
 
 
@@ -2926,6 +2973,211 @@ def ui_changes_present(ctx: PRContext) -> bool:
     return any(match_any(path, ui_patterns) for path in ctx.changed_files)
 
 
+def technical_baseline_binding(
+    ctx: PRContext,
+    git_context: dict[str, Any],
+    technologies: dict[str, dict[str, Any]],
+    policy: dict[str, Any],
+    policy_path: Path,
+) -> dict[str, Any]:
+    repository = resolve_repository_name(ctx)
+    head_sha = resolve_head_sha(ctx.repo, git_context)
+    head_tree = run_git(ctx.repo, ["rev-parse", "HEAD^{tree}"]).strip() if git_context.get("is_git_repo") else ""
+    base_sha = str(git_context.get("base_sha") or "")
+    changed_digest = hashlib.sha256("\n".join(sorted(ctx.changed_files)).encode("utf-8")).hexdigest()
+    policy_digest = file_sha256(policy_path)
+    framework_digest = framework_technical_digest(policy_path)
+    payload = {
+        "repository": repository,
+        "head_sha": head_sha,
+        "head_tree_sha": head_tree,
+        "base_sha": base_sha,
+        "changed_files_digest": changed_digest,
+        "detected_technologies": sorted(value["name"] for value in technologies.values()),
+        "policy_id": policy.get("policy_id", "unknown"),
+        "policy_digest": policy_digest,
+        "framework_release": os.environ.get("PR_QA_FRAMEWORK_RELEASE", ""),
+        "framework_digest": framework_digest,
+    }
+    payload["technical_input_digest"] = stable_json_digest(payload)
+    payload["cache_key"] = technical_baseline_cache_key(repository, payload["technical_input_digest"])
+    return payload
+
+
+def technical_baseline_cache_key(repository: str, digest: str) -> str:
+    safe_repo = re.sub(r"[^A-Za-z0-9_.-]+", "-", repository).strip("-") or "repository"
+    return f"{TECHNICAL_BASELINE_CACHE_PREFIX}-{safe_repo}-{digest}"
+
+
+def stable_json_digest(payload: dict[str, Any]) -> str:
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def file_sha256(path: Path) -> str:
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return ""
+
+
+def framework_technical_digest(policy_path: Path) -> str:
+    paths: list[Path] = [policy_path]
+    for rel in [
+        "pr-qa/pr_qa.py",
+        ".github/workflows/pr-qa.yml",
+    ]:
+        candidate = FRAMEWORK_ROOT / rel
+        if candidate.exists():
+            paths.append(candidate)
+    adapters = FRAMEWORK_ROOT / "pr-qa" / "adapters"
+    if adapters.exists():
+        paths.extend(sorted(adapters.glob("*.py")))
+    hasher = hashlib.sha256()
+    for path in sorted(set(paths), key=lambda item: item.as_posix()):
+        if not path.is_file():
+            continue
+        try:
+            rel = path.resolve().relative_to(FRAMEWORK_ROOT.resolve()).as_posix()
+        except ValueError:
+            rel = path.as_posix()
+        hasher.update(rel.encode("utf-8"))
+        hasher.update(b"\0")
+        hasher.update(path.read_bytes())
+        hasher.update(b"\0")
+    return hasher.hexdigest()
+
+
+def write_technical_baseline_key_output(output_path: str, binding: dict[str, Any]) -> None:
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(f"cache_key={binding['cache_key']}\n")
+        handle.write(f"technical_input_digest={binding['technical_input_digest']}\n")
+        handle.write(f"baseline_path={TECHNICAL_BASELINE_DIR}/{TECHNICAL_BASELINE_FILE}\n")
+
+
+def write_technical_baseline_if_passed(
+    output_path: str,
+    ctx: PRContext,
+    git_context: dict[str, Any],
+    technologies: dict[str, dict[str, Any]],
+    policy: dict[str, Any],
+    policy_path: Path,
+    results: list[CheckResult],
+) -> None:
+    if not output_path:
+        return
+    technical_results = [result for result in results if result.gate in TECHNICAL_GATE_NAMES]
+    if not technical_results or any(result.is_blocking_failure() for result in technical_results):
+        return
+    binding = technical_baseline_binding(ctx, git_context, technologies, policy, policy_path)
+    record = {
+        "schema_version": TECHNICAL_BASELINE_SCHEMA_VERSION,
+        "type": TECHNICAL_BASELINE_TYPE,
+        "status": PASS,
+        "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "binding": binding,
+        "results": [serialize_check_result(result) for result in technical_results if result.gate in REUSABLE_SANDBOXED_GATE_NAMES],
+    }
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(record, indent=2, sort_keys=True), encoding="utf-8")
+    context_cache(ctx)["technical_baseline"] = {
+        "status": "CREATED",
+        "cache_key": binding["cache_key"],
+        "technical_input_digest": binding["technical_input_digest"],
+    }
+
+
+def load_reusable_technical_baseline(
+    input_path: str,
+    ctx: PRContext,
+    git_context: dict[str, Any],
+    technologies: dict[str, dict[str, Any]],
+    policy: dict[str, Any],
+    policy_path: Path,
+) -> tuple[list[CheckResult], list[str]]:
+    if not input_path:
+        return [], []
+    path = Path(input_path)
+    if not path.exists():
+        return [], [f"technical baseline `{input_path}` was not found."]
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [], [f"technical baseline `{input_path}` is unreadable or invalid JSON: {exc}"]
+    expected = technical_baseline_binding(ctx, git_context, technologies, policy, policy_path)
+    details = validate_technical_baseline_record(record, expected)
+    if details:
+        return [], details
+    results = [deserialize_check_result(item) for item in record.get("results", [])]
+    if not results:
+        return [], ["technical baseline has no reusable validation results."]
+    if any(result.is_blocking_failure() for result in results):
+        return [], ["technical baseline contains a blocking failure and cannot be reused."]
+    context_cache(ctx)["technical_baseline"] = {
+        "status": "REUSED",
+        "cache_key": expected["cache_key"],
+        "technical_input_digest": expected["technical_input_digest"],
+    }
+    return results, []
+
+
+def validate_technical_baseline_record(record: dict[str, Any], expected_binding: dict[str, Any]) -> list[str]:
+    details: list[str] = []
+    if record.get("schema_version") != TECHNICAL_BASELINE_SCHEMA_VERSION:
+        details.append("technical baseline schema version is unsupported.")
+    if record.get("type") != TECHNICAL_BASELINE_TYPE:
+        details.append("technical baseline type is unsupported.")
+    if record.get("status") != PASS:
+        details.append("technical baseline did not record a PASS status.")
+    binding = record.get("binding")
+    if not isinstance(binding, dict):
+        details.append("technical baseline binding is missing.")
+        return details
+    for key in [
+        "repository",
+        "head_sha",
+        "head_tree_sha",
+        "base_sha",
+        "changed_files_digest",
+        "detected_technologies",
+        "policy_id",
+        "policy_digest",
+        "framework_release",
+        "framework_digest",
+        "technical_input_digest",
+        "cache_key",
+    ]:
+        if binding.get(key) != expected_binding.get(key):
+            details.append(f"technical baseline `{key}` mismatch.")
+    return details
+
+
+def serialize_check_result(result: CheckResult) -> dict[str, Any]:
+    return {
+        "gate": result.gate,
+        "status": result.status,
+        "message": result.message,
+        "details": list(result.details),
+        "technology": result.technology,
+        "score": result.score,
+        "blocking": result.blocking,
+    }
+
+
+def deserialize_check_result(payload: dict[str, Any]) -> CheckResult:
+    return CheckResult(
+        gate=str(payload.get("gate") or ""),
+        status=str(payload.get("status") or SKIP),
+        message=str(payload.get("message") or "Reused exact-content technical validation baseline."),
+        details=[str(item) for item in payload.get("details", []) or []],
+        technology=str(payload.get("technology")) if payload.get("technology") is not None else None,
+        score=int(payload.get("score") or 0),
+        blocking=bool(payload.get("blocking", True)),
+    )
+
+
 def summarize(results: list[CheckResult], technologies: dict[str, dict[str, Any]], ctx: PRContext, git_context: dict[str, Any]) -> dict[str, Any]:
     gate_statuses = {}
     for _, display in GATE_ORDER:
@@ -2946,6 +3198,18 @@ def summarize(results: list[CheckResult], technologies: dict[str, dict[str, Any]
         "risk_score": extract_risk_score(risk_result.message if risk_result else ""),
         "policy_id": ctx.policy.get("policy_id", "unknown"),
         "baseline_alignment": build_baseline_summary(ctx, git_context, results),
+        "technical_baseline": build_technical_baseline_summary(ctx),
+    }
+
+
+def build_technical_baseline_summary(ctx: PRContext) -> dict[str, Any]:
+    baseline = dict(context_cache(ctx).get("technical_baseline") or {})
+    details = list(context_cache(ctx).get("technical_baseline_reuse_details") or [])
+    return {
+        "status": baseline.get("status", "NONE"),
+        "cache_key": baseline.get("cache_key", ""),
+        "technical_input_digest": baseline.get("technical_input_digest", ""),
+        "reuse_details": details,
     }
 
 
@@ -3041,13 +3305,66 @@ def extract_risk_score(message: str) -> int:
 def write_reports(args: argparse.Namespace, summary: dict[str, Any], results: list[CheckResult], ctx: PRContext) -> None:
     report = render_markdown_report(summary, results)
     json_report = render_json_report(summary, results, ctx)
+    qa_packet = build_pr_qa_packet(summary, results, ctx)
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.out).write_text(report, encoding="utf-8")
     if args.json_out:
         Path(args.json_out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.json_out).write_text(json.dumps(json_report, indent=2), encoding="utf-8")
+    if args.qa_packet_out:
+        Path(args.qa_packet_out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.qa_packet_out).write_text(json.dumps(qa_packet, indent=2, sort_keys=True), encoding="utf-8")
     print(report)
+
+
+def build_pr_qa_packet(summary: dict[str, Any], results: list[CheckResult], ctx: PRContext) -> dict[str, Any]:
+    technical_baseline = summary.get("technical_baseline") or {}
+    evidence_results = [result for result in results if result.gate in {"Evidence", "Review Policy", "Architecture", "Risk Engine", "Documentation"}]
+    return redact_secrets(
+        {
+            "schema_version": 1,
+            "type": "pr_qa_packet",
+            "repository": summary.get("repository", ""),
+            "base_ref": summary.get("base_ref", ""),
+            "head_ref": summary.get("head_ref", ""),
+            "technical_validation": {
+                "status": technical_baseline.get("status", "NONE"),
+                "cache_key": technical_baseline.get("cache_key", ""),
+                "technical_input_digest": technical_baseline.get("technical_input_digest", ""),
+                "reused": technical_baseline.get("status") == "REUSED",
+            },
+            "current_evidence": {
+                "overall_result": summary.get("overall_result", ""),
+                "gate_statuses": {
+                    result.gate: result.status
+                    for result in evidence_results
+                },
+                "findings": [
+                    {
+                        "gate": result.gate,
+                        "status": result.status,
+                        "message": result.message,
+                        "details": list(result.details),
+                    }
+                    for result in evidence_results
+                    if result.status in {FAIL, WARNING}
+                ],
+            },
+            "changed_files": summary.get("changed_files", 0),
+            "commands": ctx.command_log,
+        }
+    )
+
+
+def redact_secrets(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): redact_secrets(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [redact_secrets(item) for item in value]
+    if isinstance(value, str):
+        return redact(value)
+    return value
 
 
 def write_emergency_override_audit(
