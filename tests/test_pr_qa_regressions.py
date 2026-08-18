@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -2788,7 +2789,7 @@ jobs:
         self.assertIn("persist-credentials: false", workflow)
         self.assertIn("Fetch current pull request base branch", workflow)
         self.assertIn("refs/remotes/origin/${BASE_REF}", workflow)
-        self.assertIn('PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc40"', workflow)
+        self.assertIn('PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc41"', workflow)
         self.assertIn("@pr-qa-v1-rc2", caller)
         self.assertIn("resolve_node_version.py", workflow)
         self.assertIn("resolve_php_version.py", workflow)
@@ -2798,6 +2799,71 @@ jobs:
         self.assertIn("opentofu/setup-opentofu@v1", workflow)
         self.assertIn("tfsec_${TFSEC_VERSION}_linux_amd64.tar.gz", workflow)
         self.assertIn("name: Pull Request Quality Assurance", self_workflow)
+
+    def test_workflow_cli_contract_matches_pinned_framework_release(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "pr-qa.yml").read_text(encoding="utf-8")
+        release_match = re.search(r'PR_QA_FRAMEWORK_RELEASE:\s*"([^"]+)"', workflow)
+        self.assertIsNotNone(release_match)
+        release = release_match.group(1)
+
+        tag_sha = subprocess.run(
+            ["git", "rev-parse", f"{release}^{{commit}}"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(tag_sha.returncode, 0, tag_sha.stderr)
+        self.assertRegex(tag_sha.stdout.strip(), r"^[0-9a-f]{40}$")
+
+        pinned_parser = subprocess.run(
+            ["git", "show", f"{release}:pr-qa/pr_qa.py"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(pinned_parser.returncode, 0, pinned_parser.stderr)
+
+        workflow_options = self.pr_qa_workflow_options(workflow)
+        parser_options = set(
+            re.findall(r"add_argument\(\s*['\"](--[A-Za-z0-9][A-Za-z0-9_-]*)['\"]", pinned_parser.stdout)
+        )
+        missing = sorted(workflow_options - parser_options)
+        self.assertEqual(missing, [])
+
+        required_reuse_options = {
+            "--technical-baseline-key-out",
+            "--technical-baseline-in",
+            "--technical-baseline-out",
+            "--qa-packet-out",
+        }
+        self.assertTrue(required_reuse_options <= workflow_options)
+        self.assertTrue(required_reuse_options <= parser_options)
+        self.assertEqual(sorted((workflow_options | {"--future-unsupported-option"}) - parser_options), ["--future-unsupported-option"])
+
+    def pr_qa_workflow_options(self, workflow: str) -> set[str]:
+        lines = workflow.splitlines()
+        options: set[str] = set()
+        index = 0
+        while index < len(lines):
+            line = lines[index]
+            if "python3 .pr-qa-framework/pr-qa/pr_qa.py" not in line:
+                index += 1
+                continue
+            command = [line]
+            index += 1
+            while index < len(lines):
+                command.append(lines[index])
+                if not lines[index].rstrip().endswith("\\"):
+                    break
+                index += 1
+            command_text = "\n".join(command)
+            options.update(re.findall(r"(?<![\w-])(--[A-Za-z0-9][A-Za-z0-9_-]*)", command_text))
+            if '"${profile_args[@]}"' in command_text:
+                options.add("--repository-profile")
+            index += 1
+        return options
 
     def test_node_version_resolver_honors_supported_engine_major(self) -> None:
         repo = self.tmp / "node-version-24"
