@@ -1710,7 +1710,11 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
             ]
         elif merge_commits:
             unexpected_merge_commits = [
-                sha for sha in merge_commits if not governed_ancestry_alignment_merge_commit(ctx, sha)
+                sha for sha in merge_commits
+                if not (
+                    tree_neutral_ancestry_reconciliation_merge_commit(ctx.repo, sha)
+                    or governed_ancestry_alignment_merge_commit(ctx, sha)
+                )
             ]
         if unexpected_merge_commits and baseline_allows(ctx, "historical_commit_volume"):
             results.append(warning("Repository Hygiene", None, "Historical baseline merge commits predate current promotion policy; future PRs remain governed.", unexpected_merge_commits[:20]))
@@ -1720,6 +1724,8 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
             results.append(failed("Repository Hygiene", None, "Accidental merge commits detected.", unexpected_merge_commits[:20], score=8))
         elif merge_commits and canonical_branch_promotion(ctx):
             results.append(passed("Repository Hygiene", None, "Only governed branch-promotion merge commits detected."))
+        elif merge_commits and all(tree_neutral_ancestry_reconciliation_merge_commit(ctx.repo, sha) for sha in merge_commits):
+            results.append(passed("Repository Hygiene", None, "Only intentional tree-neutral ancestry reconciliation merge commits detected."))
         elif merge_commits:
             results.append(passed("Repository Hygiene", None, "Only governed ancestry-alignment merge commits detected."))
         else:
@@ -1752,6 +1758,16 @@ def merge_commit_matches_second_parent_tree(repo: Path, sha: str) -> bool:
     if len(parents[0].split()) != 2:
         return False
     completed = subprocess.run(["git", "diff", "--quiet", sha, f"{sha}^2"], cwd=repo, text=True, capture_output=True, check=False)
+    return completed.returncode == 0
+
+
+def tree_neutral_ancestry_reconciliation_merge_commit(repo: Path, sha: str) -> bool:
+    parents = git_lines(repo, ["show", "-s", "--format=%P", sha])
+    if not parents:
+        return False
+    if len(parents[0].split()) != 2:
+        return False
+    completed = subprocess.run(["git", "diff", "--quiet", f"{sha}^1", sha], cwd=repo, text=True, capture_output=True, check=False)
     return completed.returncode == 0
 
 
