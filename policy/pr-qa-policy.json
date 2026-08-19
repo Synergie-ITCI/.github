@@ -33,19 +33,20 @@
     "enabled": true,
     "gate": "deployment_safety",
     "repository": "Synergie-ITCI/telemedicine-backend",
-    "pr_number": "87",
-    "base_ref": "development",
-    "head_ref": "fix/telemedicine-phase2-closure",
-    "expected_base_sha": "a9ec89c658b93624d2da80ab630d478fab84a986",
-    "expected_head_sha": "71a799e157c437e1df1ceaf81a646d999229c3ef",
+    "pr_number": "82",
+    "base_ref": "staging",
+    "head_ref": "development",
+    "expected_base_sha": "a385e0df60a75cd01da9653ec0e93008a1090aa3",
+    "expected_head_sha": "410c9707abdd840bf6d34935ea4ac9f60967d3f8",
     "expected_head_tree_sha": "d1201f13abd10586e7b0e252fd19514684cdb96f",
     "expected_changed_paths": [
       ".github/workflows/deploy.yml",
-      ".github/workflows/governance-v2-pilot.yml"
+      ".github/workflows/governance-v2-pilot.yml",
+      ".github/workflows/pr-qa.yml"
     ],
-    "required_pr_body_marker": "DEPLOYMENT-RISK-AUTH: telemedicine-pr87-phase2-gate-d",
-    "expires_after": "2026-08-20T13:30:00Z",
-    "reason": "Explicit SaurabhVermaIN authorization for Telemedicine Phase 2 Gate D UAT SSM cutover; production deployment is not authorized."
+    "required_pr_body_marker": "DEPLOYMENT-RISK-AUTH: telemedicine-pr82-phase2-staging-promotion",
+    "expires_after": "2026-08-20T14:30:00Z",
+    "reason": "Explicit SaurabhVermaIN authorization for Telemedicine Phase 2 development-to-staging promotion after Gate D SSM cutover; production deployment is not authorized."
   },
   "governance": {
     "review_policy": {
