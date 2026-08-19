@@ -836,6 +836,8 @@ exit 0
         self.git(repo, "checkout", "-q", "-b", "staging", base)
         self.write(repo / "staging-lineage.txt", "historical staging lineage\n")
         self.commit(repo, "chore: preserve staging lineage")
+        staging_sha = self.git(repo, "rev-parse", "staging").stdout.strip()
+        self.attach_origin_with_staging(repo, "tree-neutral-origin.git")
         self.git(repo, "checkout", "-q", "-b", "development", base)
         development_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
         self.git(repo, "checkout", "-q", "-b", "chore/resolve-pr82-prqa-conflict", "development")
@@ -844,6 +846,7 @@ exit 0
 
         self.assertEqual(self.git(repo, "show", "-s", "--format=%P", merge_sha).stdout.count(" "), 1)
         self.assertEqual(self.git(repo, "diff", "--name-only", f"{merge_sha}^1..{merge_sha}").stdout.strip(), "")
+        self.assertEqual(self.git(repo, "show", "-s", "--format=%P", merge_sha).stdout.split()[1], staging_sha)
         code, report, report_json, _ = self.run_engine_with_artifacts(
             repo,
             development_sha,
@@ -861,6 +864,89 @@ exit 0
                 for result in report_json["results"]
             )
         )
+
+    def test_tree_neutral_ancestry_merge_blocks_arbitrary_second_parent(self) -> None:
+        repo, base = self.init_repo("tree-neutral-arbitrary-second-parent")
+        self.git(repo, "checkout", "-q", "-b", "staging", base)
+        self.write(repo / "staging-lineage.txt", "expected staging lineage\n")
+        self.commit(repo, "chore: preserve staging lineage")
+        self.attach_origin_with_staging(repo, "tree-neutral-arbitrary-origin.git")
+        self.git(repo, "checkout", "-q", "-b", "unrelated-lineage", base)
+        self.write(repo / "unrelated.txt", "unrelated second-parent lineage\n")
+        self.commit(repo, "chore: preserve unrelated lineage")
+        self.git(repo, "checkout", "-q", "-b", "development", base)
+        development_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.git(repo, "checkout", "-q", "-b", "chore/resolve-pr82-prqa-conflict", "development")
+        self.git(repo, "merge", "--no-ff", "-s", "ours", "-m", "chore: record unrelated ancestry", "unrelated-lineage")
+        merge_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        self.assertEqual(self.git(repo, "diff", "--name-only", f"{merge_sha}^1..{merge_sha}").stdout.strip(), "")
+        self.assertNotEqual(self.git(repo, "show", "-s", "--format=%P", merge_sha).stdout.split()[1], self.git(repo, "rev-parse", "origin/staging").stdout.strip())
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            development_sha,
+            static_only=True,
+            base_ref="development",
+            head_ref="chore/resolve-pr82-prqa-conflict",
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
+        self.assertIn("Accidental merge commits detected", report)
+
+    def test_tree_neutral_ancestry_merge_blocks_stale_staging_parent(self) -> None:
+        repo, base = self.init_repo("tree-neutral-stale-staging")
+        self.git(repo, "checkout", "-q", "-b", "staging", base)
+        self.write(repo / "staging-lineage.txt", "old staging lineage\n")
+        self.commit(repo, "chore: preserve old staging lineage")
+        old_staging_sha = self.git(repo, "rev-parse", "staging").stdout.strip()
+        self.attach_origin_with_staging(repo, "tree-neutral-stale-origin.git")
+        self.git(repo, "checkout", "-q", "-b", "development", base)
+        development_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.git(repo, "checkout", "-q", "-b", "chore/resolve-pr82-prqa-conflict", "development")
+        self.git(repo, "merge", "--no-ff", "-s", "ours", "-m", "chore: record stale staging ancestry", "staging")
+        merge_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.git(repo, "checkout", "-q", "staging")
+        self.write(repo / "new-staging-tip.txt", "new staging lineage\n")
+        self.commit(repo, "chore: advance staging lineage")
+        self.git(repo, "push", "-q", "origin", "staging")
+        self.git(repo, "checkout", "-q", "chore/resolve-pr82-prqa-conflict")
+
+        self.assertEqual(self.git(repo, "show", "-s", "--format=%P", merge_sha).stdout.split()[1], old_staging_sha)
+        self.assertNotEqual(old_staging_sha, self.git(repo, "rev-parse", "origin/staging").stdout.strip())
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            development_sha,
+            static_only=True,
+            base_ref="development",
+            head_ref="chore/resolve-pr82-prqa-conflict",
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
+        self.assertIn("Accidental merge commits detected", report)
+
+    def test_tree_neutral_ancestry_merge_fails_closed_without_staging_ref(self) -> None:
+        repo, base = self.init_repo("tree-neutral-no-staging-ref")
+        self.git(repo, "checkout", "-q", "-b", "staging", base)
+        self.write(repo / "staging-lineage.txt", "local staging lineage only\n")
+        self.commit(repo, "chore: preserve local staging lineage")
+        self.git(repo, "checkout", "-q", "-b", "development", base)
+        development_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.git(repo, "checkout", "-q", "-b", "chore/resolve-pr82-prqa-conflict", "development")
+        self.git(repo, "merge", "--no-ff", "-s", "ours", "-m", "chore: record local staging ancestry", "staging")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            development_sha,
+            static_only=True,
+            base_ref="development",
+            head_ref="chore/resolve-pr82-prqa-conflict",
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
+        self.assertIn("Accidental merge commits detected", report)
 
     def test_development_to_staging_allows_governed_noop_merge_commit(self) -> None:
         repo, base = self.init_repo("development-staging-promotion", profile="framework")
@@ -3195,6 +3281,13 @@ exit 0
 
     def git(self, repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(["git", *args], cwd=repo, text=True, capture_output=True, check=False)
+
+    def attach_origin_with_staging(self, repo: Path, name: str) -> None:
+        remote = self.tmp / name
+        self.git(repo, "init", "-q", "--bare", str(remote))
+        self.git(repo, "remote", "add", "origin", str(remote))
+        self.git(repo, "push", "-q", "origin", "staging")
+        self.git(repo, "fetch", "-q", "origin", "staging")
 
     def commit(self, repo: Path, message: str) -> None:
         self.git(repo, "add", ".")
