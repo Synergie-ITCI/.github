@@ -831,6 +831,37 @@ exit 0
         self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
         self.assertIn("Accidental merge commits detected", report)
 
+    def test_tree_neutral_ancestry_merge_commit_is_allowed(self) -> None:
+        repo, base = self.init_repo("tree-neutral-ancestry-merge")
+        self.git(repo, "checkout", "-q", "-b", "staging", base)
+        self.write(repo / "staging-lineage.txt", "historical staging lineage\n")
+        self.commit(repo, "chore: preserve staging lineage")
+        self.git(repo, "checkout", "-q", "-b", "development", base)
+        development_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.git(repo, "checkout", "-q", "-b", "chore/resolve-pr82-prqa-conflict", "development")
+        self.git(repo, "merge", "--no-ff", "-s", "ours", "-m", "chore: record staging ancestry", "staging")
+        merge_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        self.assertEqual(self.git(repo, "show", "-s", "--format=%P", merge_sha).stdout.count(" "), 1)
+        self.assertEqual(self.git(repo, "diff", "--name-only", f"{merge_sha}^1..{merge_sha}").stdout.strip(), "")
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            development_sha,
+            static_only=True,
+            base_ref="development",
+            head_ref="chore/resolve-pr82-prqa-conflict",
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "PASS")
+        self.assertTrue(
+            any(
+                result["gate"] == "Repository Hygiene"
+                and result["message"] == "Only intentional tree-neutral ancestry reconciliation merge commits detected."
+                for result in report_json["results"]
+            )
+        )
+
     def test_development_to_staging_allows_governed_noop_merge_commit(self) -> None:
         repo, base = self.init_repo("development-staging-promotion", profile="framework")
         self.write(repo / "README.md", "# regression\n\nGoverned promotion content.\n")
@@ -876,6 +907,29 @@ exit 0
 
         self.assertNotEqual(code, 0)
         self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
+
+    def test_tree_neutral_exception_blocks_moving_development_merge(self) -> None:
+        repo, base = self.init_repo("moving-development-merge", profile="framework")
+        self.git(repo, "checkout", "-q", "-b", "development", base)
+        self.write(repo / "app" / "ImportedFromDevelopment.php", "<?php\nreturn 'development';\n")
+        self.commit(repo, "feat(governance): add development content")
+        development_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.git(repo, "checkout", "-q", "-b", "feature/gate-d-delivery", base)
+        self.git(repo, "merge", "--no-ff", "-m", "chore: merge development into feature", "development")
+        merge_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        self.assertNotEqual(self.git(repo, "diff", "--name-only", f"{merge_sha}^1..{merge_sha}").stdout.strip(), "")
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            development_sha,
+            static_only=True,
+            base_ref="development",
+            head_ref="feature/gate-d-delivery",
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
+        self.assertIn("Accidental merge commits detected", report)
 
     def test_canonical_promotion_classifies_inherited_first_parent_history(self) -> None:
         repo, base = self.init_repo("canonical-promotion-inherited-history", profile="framework")
