@@ -1712,7 +1712,7 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
             unexpected_merge_commits = [
                 sha for sha in merge_commits
                 if not (
-                    tree_neutral_ancestry_reconciliation_merge_commit(ctx.repo, sha)
+                    tree_neutral_ancestry_reconciliation_merge_commit(ctx, sha)
                     or governed_ancestry_alignment_merge_commit(ctx, sha)
                 )
             ]
@@ -1724,7 +1724,7 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
             results.append(failed("Repository Hygiene", None, "Accidental merge commits detected.", unexpected_merge_commits[:20], score=8))
         elif merge_commits and canonical_branch_promotion(ctx):
             results.append(passed("Repository Hygiene", None, "Only governed branch-promotion merge commits detected."))
-        elif merge_commits and all(tree_neutral_ancestry_reconciliation_merge_commit(ctx.repo, sha) for sha in merge_commits):
+        elif merge_commits and all(tree_neutral_ancestry_reconciliation_merge_commit(ctx, sha) for sha in merge_commits):
             results.append(passed("Repository Hygiene", None, "Only intentional tree-neutral ancestry reconciliation merge commits detected."))
         elif merge_commits:
             results.append(passed("Repository Hygiene", None, "Only governed ancestry-alignment merge commits detected."))
@@ -1761,14 +1761,27 @@ def merge_commit_matches_second_parent_tree(repo: Path, sha: str) -> bool:
     return completed.returncode == 0
 
 
-def tree_neutral_ancestry_reconciliation_merge_commit(repo: Path, sha: str) -> bool:
-    parents = git_lines(repo, ["show", "-s", "--format=%P", sha])
+def tree_neutral_ancestry_reconciliation_merge_commit(ctx: PRContext, sha: str) -> bool:
+    if (ctx.base_ref or "").lower() != "development":
+        return False
+    parents = git_lines(ctx.repo, ["show", "-s", "--format=%P", sha])
     if not parents:
         return False
-    if len(parents[0].split()) != 2:
+    parent_values = parents[0].split()
+    if len(parent_values) != 2:
         return False
-    completed = subprocess.run(["git", "diff", "--quiet", f"{sha}^1", sha], cwd=repo, text=True, capture_output=True, check=False)
-    return completed.returncode == 0
+    completed = subprocess.run(["git", "diff", "--quiet", f"{sha}^1", sha], cwd=ctx.repo, text=True, capture_output=True, check=False)
+    if completed.returncode != 0:
+        return False
+    staging_tip = resolve_fresh_origin_staging_tip(ctx.repo)
+    return bool(staging_tip) and parent_values[1] == staging_tip
+
+
+def resolve_fresh_origin_staging_tip(repo: Path) -> str:
+    remote_ref = "refs/remotes/origin/staging"
+    subprocess.run(["git", "fetch", "--no-tags", "origin", f"+refs/heads/staging:{remote_ref}"], cwd=repo, text=True, capture_output=True, check=False)
+    resolved = run_git(repo, ["rev-parse", "--verify", f"{remote_ref}^{{commit}}"]).strip()
+    return resolved if resolved and commit_exists(repo, resolved) else ""
 
 
 def governed_ancestry_alignment_merge_commit(ctx: PRContext, sha: str) -> bool:
