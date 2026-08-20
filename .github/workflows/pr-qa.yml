@@ -5,6 +5,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
   pull-requests: read
 
 env:
@@ -13,7 +14,7 @@ env:
   GITLEAKS_VERSION: "8.30.1"
   OPENTOFU_VERSION: "1.12.5"
   TFSEC_VERSION: "1.28.14"
-  PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc47"
+  PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc48"
 
 jobs:
   detect:
@@ -193,6 +194,17 @@ jobs:
           path: pr-qa-results/
           retention-days: 30
 
+      - name: Publish PR status comment for Phase 1 failure
+        if: always() && steps.static.outputs.exit_code != '0' && github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 .pr-qa-framework/pr-qa/pr_qa.py \
+            --repo "$GITHUB_WORKSPACE" \
+            --publish-pr-status-comment \
+            --status-json-in pr-qa-results/pr-quality-report.json
+
       - name: Enforce Phase 1 static preflight
         if: steps.static.outputs.exit_code != '0'
         run: exit 1
@@ -346,6 +358,17 @@ jobs:
           name: pr-qa-results
           path: pr-qa-results/
           retention-days: 30
+
+      - name: Publish PR status comment
+        if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 .pr-qa-framework/pr-qa/pr_qa.py \
+            --repo "$GITHUB_WORKSPACE" \
+            --publish-pr-status-comment \
+            --status-json-in pr-qa-results/pr-quality-report.json
 
       - name: Enforce final PR QA result
         if: steps.full.outputs.exit_code != '0'
