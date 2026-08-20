@@ -3447,7 +3447,7 @@ jobs:
         self.assertIn("CREATE ROLE runner LOGIN", workflow)
         self.assertIn("opentofu/setup-opentofu@v1", workflow)
         self.assertIn("tfsec_${TFSEC_VERSION}_linux_amd64.tar.gz", workflow)
-        self.assertIn("name: Pull Request Quality Assurance", self_workflow)
+        self.assertIn("name: pr-qa", self_workflow)
 
     def test_workflow_cli_contract_matches_pinned_framework_release(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "pr-qa.yml").read_text(encoding="utf-8")
