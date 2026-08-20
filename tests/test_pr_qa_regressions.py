@@ -3159,7 +3159,7 @@ jobs:
         self.assertIn("persist-credentials: false", workflow)
         self.assertIn("Fetch current pull request base branch", workflow)
         self.assertIn("refs/remotes/origin/${BASE_REF}", workflow)
-        self.assertIn('PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc46"', workflow)
+        self.assertIn('PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc47"', workflow)
         self.assertEqual(workflow.count("GH_TOKEN: ${{ github.token }}"), 3)
         # The starter onboarding caller consumes the centrally maintained workflow
         # and initially covers all PR boundaries.
