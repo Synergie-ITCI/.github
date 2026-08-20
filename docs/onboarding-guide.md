@@ -52,6 +52,38 @@ Not allowed:
 - changing CODEOWNERS
 - adding secrets for PR QA without administrator approval
 
+## Release-Governance Transition
+
+The initial PR QA onboarding and the later release/deployment governance setup are separate activities.
+
+### Step 1 — Base PR QA onboarding
+
+The starter caller must use:
+
+`Synergie-ITCI/.github/.github/workflows/pr-qa.yml@main`
+
+The starter caller is intentionally unfiltered so PR QA covers all pull-request boundaries, including `staging` and `main`, until another approved workflow explicitly takes responsibility for those boundaries.
+
+### Step 2 — Repository rules and release wrappers
+
+After PR QA onboarding is proven:
+
+1. Configure repository rulesets / Branch Protection to require the exact status contexts actually emitted by that repository.
+2. If repository-specific quality-gate or production-gate wrapper workflows are introduced and those wrappers invoke PR QA for `staging` and/or `main`, scope the repo-local generic `.github/workflows/pr-qa.yml` caller to exclude the same boundaries.
+3. Never run both the unfiltered generic caller and a wrapper-provided PR QA job for the same pull request.
+4. Exactly one PR QA execution path must own each pull-request boundary.
+
+This means:
+
+- before wrappers exist: the generic PR QA caller covers all boundaries;
+- after wrappers own `staging` / `main`: the generic caller excludes those boundaries.
+
+### Step 3 — Gate D for deployable applications
+
+For deployable applications, configure Gate D separately using `docs/gate-d-deployment-standard.md`.
+
+Do not combine IAM, production deployment, CODEOWNERS, or infrastructure changes into the initial PR QA onboarding pull request.
+
 ## Expected First Run
 
 Legacy repositories may initially show warnings for:

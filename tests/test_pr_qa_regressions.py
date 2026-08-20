@@ -2808,7 +2808,10 @@ jobs:
         self.assertIn("Fetch current pull request base branch", workflow)
         self.assertIn("refs/remotes/origin/${BASE_REF}", workflow)
         self.assertIn('PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc45"', workflow)
-        self.assertIn("@pr-qa-v1-rc2", caller)
+        # The starter onboarding caller consumes the centrally maintained workflow
+        # and initially covers all PR boundaries.
+        self.assertIn("@main", caller)
+        self.assertNotIn("branches-ignore:", caller)
         self.assertIn("resolve_node_version.py", workflow)
         self.assertIn("resolve_php_version.py", workflow)
         self.assertIn("postgres:16", workflow)

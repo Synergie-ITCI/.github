@@ -2,10 +2,6 @@ name: PR Quality Assurance
 
 on:
   pull_request:
-    branches-ignore:
-      - staging
-      - main
-      - master
     types:
       - opened
       - synchronize
@@ -24,4 +20,4 @@ concurrency:
 jobs:
   pr-qa:
     if: github.event.pull_request.draft == false
-    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@pr-qa-v1-rc2
+    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@main
