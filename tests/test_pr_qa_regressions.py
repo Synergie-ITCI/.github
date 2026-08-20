@@ -2556,6 +2556,81 @@ exit 0
         self.assertIn("High-confidence secret indicators found", report)
         self.assertIn("tests/test_pr_qa_regressions.py: GitHub token", report)
 
+    def test_exact_inherited_fallback_secret_noise_warns_without_line_number_binding(self) -> None:
+        repo, base = self.init_repo("inherited-fallback-secret-noise")
+        self.write(
+            repo / "application" / "controllers" / "training.php",
+            "<?php\n$URL = base_url().'certificate.php?token='.urlencode($certificate['AccessToken']);\n",
+        )
+        self.commit(repo, "feat: historical runtime token link")
+        base = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        self.write(
+            repo / "application" / "controllers" / "training.php",
+            "<?php\n// line moved during unrelated edit\n$URL = base_url().'certificate.php?token='.urlencode($certificate['AccessToken']);\n",
+        )
+        self.commit(repo, "feat: unrelated controller change")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Secrets"], "WARNING")
+        self.assertIn("Historical inherited credential-shaped fallback findings", report)
+
+    def test_new_or_modified_fallback_secret_literal_still_fails(self) -> None:
+        repo, base = self.init_repo("new-fallback-secret-literal")
+        self.write(repo / "application" / "controllers" / "training.php", "<?php\n$password = 'new-secret-value';\n")
+        self.commit(repo, "feat: add literal credential")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Secrets"], "FAIL")
+        self.assertIn("High-confidence secret indicators found", report)
+
+    def test_modified_inherited_fallback_value_becomes_new_finding(self) -> None:
+        repo, base = self.init_repo("modified-fallback-secret")
+        self.write(repo / "application" / "controllers" / "training.php", "<?php\n$password = $runtime['AccessToken'];\n")
+        self.commit(repo, "feat: historical runtime token reference")
+        base = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        self.write(repo / "application" / "controllers" / "training.php", "<?php\n$password = 'changed-literal-secret';\n")
+        self.commit(repo, "feat: modify token handling")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Secrets"], "FAIL")
+
+    def test_fake_env_looking_literal_secret_still_fails(self) -> None:
+        repo, base = self.init_repo("fake-env-looking-secret")
+        self.write(repo / "application" / "controllers" / "training.php", "<?php\n$password = \"env(API_KEY_SECRET)\";\n")
+        self.commit(repo, "feat: fake env-looking literal")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Secrets"], "FAIL")
+
+    def test_runtime_env_reference_is_not_literal_secret_failure_when_inherited(self) -> None:
+        repo, base = self.init_repo("runtime-env-reference")
+        self.write(
+            repo / "application" / "controllers" / "driver.php",
+            "<?php\nCURLOPT_POSTFIELDS => \"userId=\".rawurlencode(env('SMS_GATEWAY_USER', '')).\"&password=\".rawurlencode(env('SMS_GATEWAY_PASSWORD', ''));\n",
+        )
+        self.commit(repo, "feat: historical runtime env sms gateway")
+        base = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.write(
+            repo / "application" / "controllers" / "driver.php",
+            "<?php\n// unrelated edit\nCURLOPT_POSTFIELDS => \"userId=\".rawurlencode(env('SMS_GATEWAY_USER', '')).\"&password=\".rawurlencode(env('SMS_GATEWAY_PASSWORD', ''));\n",
+        )
+        self.commit(repo, "feat: unrelated driver edit")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Secrets"], "WARNING")
+
     def test_obfuscated_destructive_migration_fails(self) -> None:
         repo, base = self.init_repo("migration")
         self.write(repo / "database" / "migrations" / "2026_01_01_000001_drop.php", "<?php\nDB::statement('DR' . 'OP TABLE users');\n")
@@ -2571,6 +2646,44 @@ exit 0
         code, report = self.run_engine(repo, base, static_only=True)
         self.assertNotEqual(code, 0)
         self.assertIn("Executable code changed without a supported technology adapter", report)
+
+    def test_bounded_static_browser_assets_do_not_require_node_manifest(self) -> None:
+        cases = [
+            "assets/js/site.js",
+            "public/js/app.js",
+            "static/js/site.js",
+            "resources/js/browser-only.js",
+        ]
+        for rel in cases:
+            with self.subTest(rel=rel):
+                repo, base = self.init_repo("static-browser-" + rel.replace("/", "-"))
+                self.write(repo / rel, "window.__asset = true;\n")
+                self.commit(repo, "feat: browser asset")
+
+                code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+                self.assertEqual(code, 0, report)
+                self.assertEqual(report_json["summary"]["gate_statuses"]["Executable Classification"], "WARNING")
+
+    def test_executable_javascript_outside_bounded_static_roots_still_fails(self) -> None:
+        cases = [
+            "scripts/deploy.js",
+            "tools/migrate.js",
+            "bin/task.js",
+            "server/index.js",
+            "my-assets/js/tool.js",
+        ]
+        for rel in cases:
+            with self.subTest(rel=rel):
+                repo, base = self.init_repo("exec-js-" + rel.replace("/", "-"))
+                self.write(repo / rel, "require('fs').writeFileSync('/tmp/out', 'x');\n")
+                self.commit(repo, "feat: executable js")
+
+                code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+                self.assertNotEqual(code, 0)
+                self.assertEqual(report_json["summary"]["gate_statuses"]["Executable Classification"], "FAIL")
+                self.assertIn("Executable code changed without a supported technology adapter", report)
 
     def test_malicious_install_hook_does_not_execute_when_static_fails(self) -> None:
         repo, base = self.init_repo("install-hook")
@@ -2670,16 +2783,152 @@ jobs:
 
         code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
 
-        self.assertEqual(code, 0, report)
+        self.assertNotEqual(code, 0, report)
         self.assertNotIn("Approved central governance workflow/template changes", report)
-        self.assertTrue(
-            any(
-                result["gate"] == "Deployment Risk"
-                and result["status"] == "WARNING"
-                and "Deployment-sensitive changes detected" in result["message"]
-                for result in report_json["results"]
-            )
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Deployment Risk"], "FAIL")
+
+    def controlled_gate_d_workflow(self, *, actor: bool = True, rollback: bool = True, push_main: bool = False, static_creds: bool = False, arbitrary_ref: bool = False) -> str:
+        push = "\n  push:\n    branches:\n      - main\n" if push_main else ""
+        actor_check = '          test "${GITHUB_ACTOR}" = "ReleaseAuthority"\n' if actor else ""
+        rollback_input = (
+            """      rollback_ref:
+        required: true
+        type: string
+"""
+            if rollback
+            else ""
         )
+        rollback_validation = (
+            """          [[ "${ROLLBACK_REF}" =~ ^[0-9a-f]{40}$ ]]
+          CURRENT_SHA="$(git rev-parse HEAD)"
+          test "$CURRENT_SHA" = "$ROLLBACK_REF"
+          git reset --hard "$ROLLBACK_REF"
+"""
+            if rollback
+            else ""
+        )
+        deploy_validation = "" if arbitrary_ref else '          [[ "${DEPLOY_REF}" =~ ^[0-9a-f]{40}$ ]]\n          MAIN_SHA="$(git rev-parse HEAD)"\n          test "${DEPLOY_REF}" = "${MAIN_SHA}"\n'
+        static_env = "          AWS_ACCESS_KEY_ID: ${{ secrets.PROD_AWS_ACCESS_KEY_ID }}\n" if static_creds else ""
+        return f"""name: Controlled Production Gate D
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        required: true
+        type: string
+      deploy_ref:
+        required: true
+        type: string
+{rollback_input}      approval_reference:
+        required: true
+        type: string
+{push}
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+{static_env}      APP_PATH: /srv/production-app
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate request
+        env:
+          DEPLOY_REF: ${{{{ inputs.deploy_ref }}}}
+          ROLLBACK_REF: ${{{{ inputs.rollback_ref }}}}
+          APPROVAL: ${{{{ inputs.approval_reference }}}}
+        run: |
+          set -euo pipefail
+{actor_check}          test -n "${{APPROVAL}}"
+{deploy_validation}{rollback_validation}      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/AppProductionDeployRole
+          aws-region: ap-south-1
+      - name: Gate D via SSM
+        run: |
+          aws ssm send-command --document-name AWS-RunShellScript --parameters commands='["sudo systemctl reload app"]'
+"""
+
+    def test_controlled_manual_gate_d_safe_shape_warns_without_phase1_failure(self) -> None:
+        repo, base = self.init_repo("controlled-gate-d")
+        self.write(repo / ".github" / "workflows" / "production-deploy.yml", self.controlled_gate_d_workflow())
+        self.commit(repo, "ci: add controlled gate d")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Deployment Risk"], "WARNING")
+        self.assertIn("CONTROLLED_PRODUCTION_GATE_D", report)
+
+    def test_controlled_gate_d_missing_mandatory_conditions_fails(self) -> None:
+        cases = {
+            "without-actor": {"actor": False},
+            "without-rollback": {"rollback": False},
+            "with-push-main": {"push_main": True},
+            "with-static-creds": {"static_creds": True},
+            "arbitrary-ref": {"arbitrary_ref": True},
+        }
+        for name, kwargs in cases.items():
+            with self.subTest(name=name):
+                repo, base = self.init_repo("unsafe-gate-d-" + name)
+                self.write(repo / ".github" / "workflows" / "production-deploy.yml", self.controlled_gate_d_workflow(**kwargs))
+                self.commit(repo, "ci: add unsafe gate d")
+
+                code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+                self.assertNotEqual(code, 0, report)
+                self.assertEqual(report_json["summary"]["gate_statuses"]["Deployment Risk"], "FAIL")
+
+    def test_staging_only_ssh_workflow_warns_without_production_block(self) -> None:
+        repo, base = self.init_repo("staging-only-ssh")
+        self.write(
+            repo / ".github" / "workflows" / "deploy.yml",
+            """name: Deploy Staging
+on:
+  push:
+    branches:
+      - staging
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: webfactory/ssh-agent@v0.10.0
+        with:
+          ssh-private-key: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
+      - run: ssh deployer@staging.example.invalid 'cd /srv/staging-app && git merge --ff-only FETCH_HEAD'
+""",
+        )
+        self.commit(repo, "ci: add staging deploy")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Deployment Risk"], "WARNING")
+        self.assertIn("STAGING_ONLY_DEPLOYMENT", report)
+
+    def test_staging_workflow_with_hidden_production_target_fails(self) -> None:
+        repo, base = self.init_repo("staging-hidden-production")
+        self.write(
+            repo / ".github" / "workflows" / "deploy.yml",
+            """name: Deploy Staging
+on:
+  push:
+    branches:
+      - staging
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - run: ssh deployer@staging.example.invalid 'if [ "$BRANCH" = main ]; then cd /srv/production-app; fi'
+""",
+        )
+        self.commit(repo, "ci: add staging deploy with hidden production")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertNotEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Deployment Risk"], "FAIL")
 
     def test_canonical_staging_to_main_deployment_risk_uses_final_tree_equivalence(self) -> None:
         repo, base = self.init_repo("canonical-promotion-final-tree-equivalent")
@@ -2793,7 +3042,7 @@ jobs:
             any(
                 result["gate"] == "Deployment Risk"
                 and result["status"] == "FAIL"
-                and "High-risk deployment change detected" in result["message"]
+                and "structurally unsafe" in result["message"]
                 for result in report_json["results"]
             ),
             report,
