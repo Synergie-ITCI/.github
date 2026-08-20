@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import urllib.error
 import urllib.request
@@ -56,6 +57,7 @@ TECHNICAL_BASELINE_TYPE = "pr_qa_technical_pass"
 TECHNICAL_BASELINE_DIR = ".pr-qa-technical-baseline"
 TECHNICAL_BASELINE_FILE = "technical-baseline.json"
 TECHNICAL_BASELINE_CACHE_PREFIX = "pr-qa-technical-v1"
+PR_STATUS_COMMENT_MARKER = "<!-- synergie-pr-status -->"
 TECHNICAL_GATE_NAMES = {
     "Baseline Alignment",
     "Config Validation",
@@ -215,6 +217,9 @@ def main() -> int:
     repo = Path(args.repo).resolve()
     policy = load_policy(Path(args.policy))
 
+    if args.publish_pr_status_comment:
+        return publish_pr_status_comment_cli(args, policy)
+
     if args.detect_only:
         write_detection_outputs(detect_technologies(repo), args.github_output)
         return 0
@@ -296,6 +301,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--technical-baseline-in", default="", help="Reusable exact-content technical PASS baseline JSON path.")
     parser.add_argument("--technical-baseline-out", default="", help="Write exact-content technical PASS baseline JSON after technical validation succeeds.")
     parser.add_argument("--qa-packet-out", default="", help="Write QA packet assembled from technical baseline state and current PR evidence.")
+    parser.add_argument("--publish-pr-status-comment", action="store_true", help="Publish or update the human-friendly PR status comment.")
+    parser.add_argument("--status-json-in", default="", help="Current-run PR QA JSON report used to render the status comment.")
     return parser.parse_args()
 
 
@@ -3230,21 +3237,224 @@ def fetch_github_review_policy_evidence(ctx: PRContext) -> dict[str, Any] | None
 
 
 def github_api_get(url: str, token: str, errors: list[str]) -> Any:
+    return github_api_request("GET", url, token, errors)
+
+
+def github_api_request(method: str, url: str, token: str, errors: list[str], payload: Any | None = None) -> Any:
+    data = None
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "synergie-pr-qa",
+    }
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+        headers["Content-Type"] = "application/json"
     request = urllib.request.Request(
         url,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {token}",
-            "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "synergie-pr-qa",
-        },
+        data=data,
+        headers=headers,
+        method=method,
     )
     try:
         with urllib.request.urlopen(request, timeout=20) as response:
-            return json.loads(response.read().decode("utf-8"))
+            body = response.read().decode("utf-8")
+            return json.loads(body) if body else {}
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
         errors.append(f"{url}: {exc}")
         return None
+
+
+def publish_pr_status_comment_cli(args: argparse.Namespace, policy: dict[str, Any]) -> int:
+    try:
+        event = load_event(args.event_path)
+        report_path = Path(args.status_json_in or args.json_out)
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        publish_pr_status_comment(event, policy, report)
+    except Exception as exc:
+        print(f"WARNING: PR status comment was not published: {redact(str(exc))}", file=sys.stderr)
+    return 0
+
+
+def publish_pr_status_comment(event: dict[str, Any], policy: dict[str, Any], report: dict[str, Any]) -> bool:
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    repository = os.environ.get("GITHUB_REPOSITORY")
+    pr_number = extract_pr_number(event)
+    if not token or not repository or not pr_number:
+        return False
+    base_url = f"https://api.github.com/repos/{repository}"
+    errors: list[str] = []
+    pr_payload = github_api_get(f"{base_url}/pulls/{pr_number}", token, errors)
+    reviews_payload = github_api_get(f"{base_url}/pulls/{pr_number}/reviews", token, errors)
+    comments_payload = github_api_get(f"{base_url}/issues/{pr_number}/comments", token, errors)
+    if errors:
+        return False
+    evidence = {
+        "pull_request": pr_payload if isinstance(pr_payload, dict) else {},
+        "reviews": reviews_payload if isinstance(reviews_payload, list) else [],
+    }
+    body = render_pr_status_comment(report, event, policy, evidence)
+    comments = comments_payload if isinstance(comments_payload, list) else []
+    canonical, duplicates = select_status_comment(comments)
+    if canonical:
+        github_api_request("PATCH", str(canonical.get("url", "")), token, errors, {"body": body})
+        for duplicate in duplicates:
+            github_api_request("DELETE", str(duplicate.get("url", "")), token, errors)
+    else:
+        github_api_request("POST", f"{base_url}/issues/{pr_number}/comments", token, errors, {"body": body})
+    if errors:
+        refreshed = github_api_get(f"{base_url}/issues/{pr_number}/comments", token, [])
+        if isinstance(refreshed, list):
+            canonical, duplicates = select_status_comment(refreshed)
+            retry_errors: list[str] = []
+            if canonical:
+                github_api_request("PATCH", str(canonical.get("url", "")), token, retry_errors, {"body": body})
+                for duplicate in duplicates:
+                    github_api_request("DELETE", str(duplicate.get("url", "")), token, retry_errors)
+            return not retry_errors
+        return False
+    return True
+
+
+def select_status_comment(comments: list[Any]) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    marker_comments = [comment for comment in comments if isinstance(comment, dict) and PR_STATUS_COMMENT_MARKER in str(comment.get("body", ""))]
+    marker_comments.sort(key=lambda item: (str(item.get("created_at", "")), int(item.get("id") or 0)))
+    if not marker_comments:
+        return None, []
+    return marker_comments[0], marker_comments[1:]
+
+
+def apply_status_comment_update(comments: list[dict[str, Any]], body: str) -> list[dict[str, Any]]:
+    canonical, duplicates = select_status_comment(comments)
+    remaining_ids = {int(item.get("id") or 0) for item in duplicates}
+    if canonical:
+        canonical_id = int(canonical.get("id") or 0)
+        return [
+            {**comment, "body": body} if int(comment.get("id") or 0) == canonical_id else comment
+            for comment in comments
+            if int(comment.get("id") or 0) not in remaining_ids
+        ]
+    next_id = max([int(comment.get("id") or 0) for comment in comments] + [0]) + 1
+    return comments + [{"id": next_id, "body": body, "created_at": "9999-12-31T23:59:59Z"}]
+
+
+def render_pr_status_comment(report: dict[str, Any], event: dict[str, Any], policy: dict[str, Any], evidence: dict[str, Any] | None = None) -> str:
+    status = build_pr_status_model(report, event, policy, evidence or {})
+    lines = [
+        PR_STATUS_COMMENT_MARKER,
+        "SYNERGIE PR STATUS",
+        "",
+        f"STATUS: {status['status']}",
+    ]
+    if status["why"]:
+        lines.extend(["", "WHY:"])
+        lines.extend(f"- {reason}" for reason in status["why"])
+    if status["approved_by"]:
+        lines.extend(["", f"APPROVED BY: {status['approved_by']}"])
+    else:
+        label = "SAURABH GATE C APPROVAL REQUIRED" if status["gate_c"] else "SAURABH APPROVAL REQUIRED"
+        lines.extend(["", f"{label}: {'YES' if status['saurabh_required'] else 'NO'}"])
+    lines.extend(["", "DEVELOPER ACTION:", status["developer_action"]])
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def build_pr_status_model(report: dict[str, Any], event: dict[str, Any], policy: dict[str, Any], evidence: dict[str, Any]) -> dict[str, Any]:
+    summary = report.get("summary", {}) or {}
+    results = report.get("results", []) or []
+    base_ref = str(summary.get("base_ref") or ((event.get("pull_request", {}) or {}).get("base", {}) or {}).get("ref", ""))
+    head_ref = str(summary.get("head_ref") or ((event.get("pull_request", {}) or {}).get("head", {}) or {}).get("ref", ""))
+    owner_login = status_owner_login(policy)
+    pr_author = extract_pr_author(event)
+    gate_c = head_ref.lower() == "staging" and base_ref.lower() == "main"
+    owner_approved = pr_author == owner_login or owner_latest_review_approved(evidence.get("reviews", []), owner_login)
+    blocking_failures = [result for result in results if result_failed(result)]
+    review_only_blocked = gate_c and blocking_failures and all(str(result.get("gate", "")) == "Review Policy" for result in blocking_failures)
+    behind = pr_is_behind(evidence, base_ref)
+    missing_contexts = exact_missing_required_contexts(evidence.get("required_contexts", []), evidence.get("live_contexts", []))
+
+    if summary.get("overall_result") == PASS and not behind and not missing_contexts:
+        if gate_c:
+            if owner_approved:
+                return status_model("READY FOR GATE C MERGE", [], False, "No action required.", gate_c=True, approved_by=owner_login)
+            return status_model("TECHNICALLY READY", [], True, "No code action required. Await Saurabh release approval.", gate_c=True)
+        return status_model("READY TO MERGE", [], False, "No action required.", gate_c=False)
+
+    if review_only_blocked and not behind and not missing_contexts and not owner_approved:
+        return status_model("TECHNICALLY READY", [], True, "No code action required. Await Saurabh release approval.", gate_c=True)
+
+    why = pr_status_failure_reasons(results, behind, base_ref, missing_contexts)
+    return status_model("BLOCKED", why, False, developer_action_for(why, base_ref), gate_c=gate_c)
+
+
+def status_model(status: str, why: list[str], saurabh_required: bool, developer_action: str, *, gate_c: bool, approved_by: str = "") -> dict[str, Any]:
+    return {
+        "status": status,
+        "why": why,
+        "saurabh_required": saurabh_required,
+        "developer_action": developer_action,
+        "gate_c": gate_c,
+        "approved_by": approved_by,
+    }
+
+
+def status_owner_login(policy: dict[str, Any]) -> str:
+    governance = policy.get("governance", {}) or {}
+    review_policy = governance.get("review_policy", {}) or {}
+    return str((review_policy.get("owner_review_exception", {}) or {}).get("github_login", "SaurabhVermaIN"))
+
+
+def result_failed(result: Any) -> bool:
+    if not isinstance(result, dict):
+        return False
+    return result.get("status") == FAIL and bool(result.get("blocking", True))
+
+
+def pr_is_behind(evidence: dict[str, Any], base_ref: str) -> bool:
+    pull_request = evidence.get("pull_request", {}) if isinstance(evidence.get("pull_request", {}), dict) else {}
+    return pull_request.get("mergeable_state") == "behind" or int(pull_request.get("behind_by") or 0) > 0
+
+
+def exact_missing_required_contexts(required: Any, live: Any) -> list[str]:
+    if not isinstance(required, list) or not isinstance(live, list):
+        return []
+    live_set = {str(item) for item in live}
+    return [str(item) for item in required if str(item) not in live_set]
+
+
+def pr_status_failure_reasons(results: list[Any], behind: bool, base_ref: str, missing_contexts: list[str]) -> list[str]:
+    reasons: list[str] = []
+    failed_gates = {str(result.get("gate", "")) for result in results if result_failed(result)}
+    if {"Build", "Tests"} & failed_gates:
+        reasons.append("Automated tests failed")
+    if "Formatting" in failed_gates or "Lint" in failed_gates:
+        reasons.append("Code quality checks failed")
+    if "Secrets" in failed_gates:
+        reasons.append("Secret scanning failed")
+    if "Repository Hygiene" in failed_gates:
+        reasons.append("Repository hygiene failed")
+    if "Deployment Risk" in failed_gates:
+        reasons.append("Deployment risk review failed")
+    if "Migration Risk" in failed_gates:
+        reasons.append("Migration safety review failed")
+    if "Review Policy" in failed_gates:
+        reasons.append("Required review policy is not satisfied")
+    if behind:
+        reasons.append(f"Your branch is behind {base_ref or 'the base branch'}")
+    reasons.extend(f"Required check is missing or stale: {context}" for context in missing_contexts)
+    if not reasons and failed_gates:
+        reasons.append("PR-QA failed")
+    return list(dict.fromkeys(reasons))
+
+
+def developer_action_for(why: list[str], base_ref: str) -> str:
+    tests = "Automated tests failed" in why
+    behind = any(reason.startswith("Your branch is behind ") for reason in why)
+    if tests and behind:
+        return f"Fix the failed tests, align locally with the latest {base_ref or 'base'} branch, and push again."
+    if behind:
+        return f"Align your branch locally with the latest {base_ref or 'base'} branch, then push again."
+    return "Fix the failed checks and push again."
 
 
 def independent_approved_reviewers(reviews: Any, pr_author: str) -> list[str]:

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -16,6 +18,16 @@ ROOT = Path(__file__).resolve().parents[1]
 ENGINE = ROOT / "pr-qa" / "pr_qa.py"
 NODE_RESOLVER = ROOT / "pr-qa" / "resolve_node_version.py"
 PHP_RESOLVER = ROOT / "pr-qa" / "resolve_php_version.py"
+
+
+def load_engine_module():
+    spec = importlib.util.spec_from_file_location("pr_qa_engine", ENGINE)
+    module = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    sys.path.insert(0, str(ENGINE.parent))
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 class PrQaRegressionTests(unittest.TestCase):
@@ -3508,6 +3520,164 @@ exit 0
         self.assertEqual(audit["pr_author"], "another-author")
         self.assertEqual(audit["qa_summary"]["gate_statuses"], report_json["summary"]["gate_statuses"])
 
+    def test_pr_status_comment_blocks_developer_failures_with_actionable_guidance(self) -> None:
+        engine = load_engine_module()
+        body = engine.render_pr_status_comment(
+            self.status_report(
+                "FAIL",
+                "staging",
+                "feature/work",
+                [
+                    {"gate": "Tests", "status": "FAIL", "blocking": True, "message": "Tests failed."},
+                    {"gate": "Repository Hygiene", "status": "FAIL", "blocking": True, "message": "Branch is behind."},
+                ],
+            ),
+            self.status_event("developer"),
+            self.status_policy(),
+            {"pull_request": {"mergeable_state": "behind"}, "reviews": []},
+        )
+
+        self.assertIn("STATUS: BLOCKED", body)
+        self.assertIn("- Automated tests failed", body)
+        self.assertIn("- Your branch is behind staging", body)
+        self.assertIn("SAURABH APPROVAL REQUIRED: NO", body)
+        self.assertIn("align locally with the latest staging branch", body)
+        self.assertNotIn("Update branch", body)
+
+    def test_pr_status_comment_ready_without_review_for_non_gate_c_transitions(self) -> None:
+        engine = load_engine_module()
+        feature_body = engine.render_pr_status_comment(
+            self.status_report("PASS", "development", "feature/work", []),
+            self.status_event("developer", base_ref="development", head_ref="feature/work"),
+            self.status_policy(),
+            {"pull_request": {"mergeable_state": "clean"}, "reviews": []},
+        )
+        staging_body = engine.render_pr_status_comment(
+            self.status_report("PASS", "staging", "development", []),
+            self.status_event("developer", base_ref="staging", head_ref="development"),
+            self.status_policy(),
+            {"pull_request": {"mergeable_state": "clean"}, "reviews": []},
+        )
+
+        self.assertIn("STATUS: READY TO MERGE", feature_body)
+        self.assertIn("SAURABH APPROVAL REQUIRED: NO", feature_body)
+        self.assertIn("STATUS: READY TO MERGE", staging_body)
+        self.assertIn("SAURABH APPROVAL REQUIRED: NO", staging_body)
+
+    def test_pr_status_comment_gate_c_uses_owner_login_only(self) -> None:
+        engine = load_engine_module()
+        report = self.status_report(
+            "FAIL",
+            "main",
+            "staging",
+            [{"gate": "Review Policy", "status": "FAIL", "blocking": True, "message": "Owner approval required."}],
+        )
+        awaiting = engine.render_pr_status_comment(
+            report,
+            self.status_event("developer", base_ref="main", head_ref="staging"),
+            self.status_policy(owner="SaurabhVermaIN"),
+            {"pull_request": {"mergeable_state": "clean"}, "reviews": []},
+        )
+        other_reviewer = engine.render_pr_status_comment(
+            report,
+            self.status_event("developer", base_ref="main", head_ref="staging"),
+            self.status_policy(owner="SaurabhVermaIN"),
+            {
+                "pull_request": {"mergeable_state": "clean"},
+                "reviews": [{"user": {"login": "other-reviewer"}, "state": "APPROVED"}],
+            },
+        )
+        approved = engine.render_pr_status_comment(
+            self.status_report("PASS", "main", "staging", []),
+            self.status_event("developer", base_ref="main", head_ref="staging"),
+            self.status_policy(owner="SaurabhVermaIN"),
+            {
+                "pull_request": {"mergeable_state": "clean"},
+                "reviews": [{"user": {"login": "SaurabhVermaIN"}, "state": "APPROVED"}],
+            },
+        )
+
+        self.assertIn("STATUS: TECHNICALLY READY", awaiting)
+        self.assertIn("SAURABH GATE C APPROVAL REQUIRED: YES", awaiting)
+        self.assertIn("STATUS: TECHNICALLY READY", other_reviewer)
+        self.assertNotIn("APPROVED BY:", other_reviewer)
+        self.assertIn("STATUS: READY FOR GATE C MERGE", approved)
+        self.assertIn("APPROVED BY: SaurabhVermaIN", approved)
+
+    def test_pr_status_comment_uses_current_run_json_and_never_renders_ready_for_failed_qa(self) -> None:
+        engine = load_engine_module()
+        event = self.status_event("developer")
+        evidence = {"pull_request": {"mergeable_state": "clean"}, "reviews": []}
+        failed = engine.render_pr_status_comment(
+            self.status_report("FAIL", "development", "feature/work", [{"gate": "Tests", "status": "FAIL", "blocking": True}]),
+            event,
+            self.status_policy(),
+            evidence,
+        )
+        passed = engine.render_pr_status_comment(
+            self.status_report("PASS", "development", "feature/work", []),
+            event,
+            self.status_policy(),
+            evidence,
+        )
+
+        self.assertIn("STATUS: BLOCKED", failed)
+        self.assertNotIn("STATUS: READY TO MERGE", failed)
+        self.assertIn("STATUS: READY TO MERGE", passed)
+        self.assertNotIn("Automated tests failed", passed)
+
+    def test_pr_status_comment_uses_exact_check_context_matching(self) -> None:
+        engine = load_engine_module()
+        self.assertEqual(
+            engine.exact_missing_required_contexts(["pr-qa / Pull Request Quality Assurance"], ["pr-qa / Pull Request Quality Assurance"]),
+            [],
+        )
+        self.assertEqual(
+            engine.exact_missing_required_contexts(["pr-qa / Pull Request Quality Assurance"], ["Pull Request Quality Assurance"]),
+            ["pr-qa / Pull Request Quality Assurance"],
+        )
+
+    def test_pr_status_comment_updates_one_marker_comment_and_collapses_races(self) -> None:
+        engine = load_engine_module()
+        old = f"{engine.PR_STATUS_COMMENT_MARKER}\nSYNERGIE PR STATUS\n\nSTATUS: BLOCKED\n"
+        new = f"{engine.PR_STATUS_COMMENT_MARKER}\nSYNERGIE PR STATUS\n\nSTATUS: READY TO MERGE\n"
+        comments = [
+            {"id": 10, "created_at": "2026-01-01T00:00:00Z", "body": old},
+            {"id": 11, "created_at": "2026-01-01T00:00:01Z", "body": old},
+            {"id": 12, "created_at": "2026-01-01T00:00:02Z", "body": "unrelated"},
+        ]
+
+        updated = engine.apply_status_comment_update(comments, new)
+
+        marker_comments = [comment for comment in updated if engine.PR_STATUS_COMMENT_MARKER in comment["body"]]
+        self.assertEqual(len(marker_comments), 1)
+        self.assertEqual(marker_comments[0]["id"], 10)
+        self.assertIn("STATUS: READY TO MERGE", marker_comments[0]["body"])
+
+    def test_pr_status_comment_publish_failure_does_not_change_qa_result(self) -> None:
+        engine = load_engine_module()
+        code = engine.publish_pr_status_comment_cli(
+            argparse.Namespace(repo=str(self.tmp), policy=str(ROOT / "policy" / "pr-qa-policy.json"), event_path="", status_json_in="", json_out=""),
+            self.status_policy(),
+        )
+        self.assertEqual(code, 0)
+
+    def test_pr_status_comment_redacts_secret_like_output(self) -> None:
+        engine = load_engine_module()
+        body = engine.render_pr_status_comment(
+            self.status_report(
+                "FAIL",
+                "development",
+                "feature/work",
+                [{"gate": "Secrets", "status": "FAIL", "blocking": True, "message": "ghp_abcdefghijklmnopqrstuvwxyz123456"}],
+            ),
+            self.status_event("developer"),
+            self.status_policy(),
+            {"pull_request": {"mergeable_state": "clean"}, "reviews": []},
+        )
+        self.assertIn("Secret scanning failed", body)
+        self.assertNotIn("ghp_abcdefghijklmnopqrstuvwxyz123456", body)
+
     def override_digest(self, record: dict) -> str:
         payload = {key: value for key, value in record.items() if key != "record_sha256"}
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -3534,6 +3704,40 @@ exit 0
     def write_bytes(self, path: Path, data: bytes) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
+
+    def status_report(self, result: str, base_ref: str, head_ref: str, results: list[dict]) -> dict:
+        return {
+            "summary": {
+                "overall_result": result,
+                "base_ref": base_ref,
+                "head_ref": head_ref,
+                "gate_statuses": {},
+            },
+            "results": results,
+        }
+
+    def status_event(self, author: str, *, base_ref: str = "development", head_ref: str = "feature/work") -> dict:
+        return {
+            "pull_request": {
+                "number": 123,
+                "user": {"login": author},
+                "base": {"ref": base_ref},
+                "head": {"ref": head_ref},
+            }
+        }
+
+    def status_policy(self, *, owner: str = "SaurabhVermaIN") -> dict:
+        return {
+            "version": 1,
+            "defaults": {},
+            "governance": {
+                "review_policy": {
+                    "owner_review_exception": {
+                        "github_login": owner,
+                    }
+                }
+            },
+        }
 
     def base_config(self, *, profile: str = "application") -> str:
         return f"""version: 1
