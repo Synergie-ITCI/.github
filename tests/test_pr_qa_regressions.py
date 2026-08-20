@@ -996,6 +996,34 @@ exit 0
             )
         )
 
+    def test_temp_branch_to_staging_alignment_allows_current_main_gate_c_merge(self) -> None:
+        repo, base = self.init_repo("temp-main-staging-gate-c-alignment")
+        self.git(repo, "checkout", "-q", "-b", "staging", base)
+        self.write(repo / "release.txt", "reviewed staging content\n")
+        self.commit(repo, "feat: add reviewed staging content")
+        staging_sha = self.git(repo, "rev-parse", "staging").stdout.strip()
+        self.git(repo, "checkout", "-q", "-B", "main", base)
+        self.git(repo, "merge", "--no-ff", "-m", "chore: merge reviewed staging Gate C", "staging")
+        main_sha = self.git(repo, "rev-parse", "main").stdout.strip()
+        self.attach_origin_with_main_and_staging(repo, "temp-main-staging-gate-c-origin.git")
+        self.git(repo, "checkout", "-q", "-b", "chore/align-main-into-staging", "staging")
+        self.git(repo, "merge", "--no-ff", "-m", "chore: align main into staging", "main")
+        alignment_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        self.assertEqual(self.git(repo, "show", "-s", "--format=%P", alignment_sha).stdout.split()[1], main_sha)
+        self.assertEqual(self.git(repo, "diff", "--name-only", f"{alignment_sha}^1..{alignment_sha}").stdout.strip(), "")
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            staging_sha,
+            static_only=True,
+            base_ref="staging",
+            head_ref="chore/align-main-into-staging",
+            head_sha=alignment_sha,
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "PASS")
+
     def test_main_to_staging_alignment_blocks_content_changing_gate_c_merge(self) -> None:
         repo, base = self.init_repo("main-staging-content-changing-gate-c")
         self.git(repo, "checkout", "-q", "-b", "staging", base)
@@ -1017,6 +1045,36 @@ exit 0
             base_ref="staging",
             head_ref="main",
             head_sha=gate_c_sha,
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
+        self.assertIn("Accidental merge commits detected", report)
+
+    def test_temp_branch_to_staging_alignment_blocks_content_change(self) -> None:
+        repo, base = self.init_repo("temp-main-staging-content-change")
+        self.git(repo, "checkout", "-q", "-b", "staging", base)
+        self.write(repo / "release.txt", "reviewed staging content\n")
+        self.commit(repo, "feat: add reviewed staging content")
+        staging_sha = self.git(repo, "rev-parse", "staging").stdout.strip()
+        self.git(repo, "checkout", "-q", "-B", "main", base)
+        self.git(repo, "merge", "--no-ff", "-m", "chore: merge reviewed staging Gate C", "staging")
+        self.attach_origin_with_main_and_staging(repo, "temp-main-staging-content-change-origin.git")
+        self.git(repo, "checkout", "-q", "-b", "chore/align-main-into-staging", "staging")
+        self.git(repo, "merge", "--no-ff", "--no-commit", "main")
+        self.write(repo / "unexpected.txt", "unexpected alignment content\n")
+        self.git(repo, "add", ".")
+        self.git(repo, "commit", "-q", "-m", "chore: align main into staging")
+        alignment_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        self.assertNotEqual(self.git(repo, "diff", "--name-only", f"{alignment_sha}^1..{alignment_sha}").stdout.strip(), "")
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            staging_sha,
+            static_only=True,
+            base_ref="staging",
+            head_ref="chore/align-main-into-staging",
+            head_sha=alignment_sha,
         )
 
         self.assertNotEqual(code, 0)
@@ -1051,6 +1109,35 @@ exit 0
         self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
         self.assertIn("Accidental merge commits detected", report)
 
+    def test_temp_branch_to_staging_alignment_blocks_unrelated_second_parent(self) -> None:
+        repo, base = self.init_repo("temp-main-staging-unrelated-second-parent")
+        self.git(repo, "checkout", "-q", "-b", "staging", base)
+        self.write(repo / "release.txt", "reviewed staging content\n")
+        self.commit(repo, "feat: add reviewed staging content")
+        staging_sha = self.git(repo, "rev-parse", "staging").stdout.strip()
+        self.git(repo, "checkout", "-q", "-B", "main", base)
+        self.git(repo, "merge", "--no-ff", "-m", "chore: merge reviewed staging Gate C", "staging")
+        self.attach_origin_with_main_and_staging(repo, "temp-main-staging-unrelated-origin.git")
+        self.git(repo, "checkout", "-q", "-b", "unrelated", base)
+        self.write(repo / "release.txt", "reviewed staging content\n")
+        self.commit(repo, "feat: add unrelated matching content")
+        self.git(repo, "checkout", "-q", "-b", "chore/align-main-into-staging", "staging")
+        self.git(repo, "merge", "--no-ff", "-m", "chore: align unrelated into staging", "unrelated")
+        alignment_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            staging_sha,
+            static_only=True,
+            base_ref="staging",
+            head_ref="chore/align-main-into-staging",
+            head_sha=alignment_sha,
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
+        self.assertIn("Accidental merge commits detected", report)
+
     def test_main_to_staging_alignment_blocks_stale_gate_c_merge(self) -> None:
         repo, base = self.init_repo("main-staging-stale-gate-c")
         self.git(repo, "checkout", "-q", "-b", "staging", base)
@@ -1073,6 +1160,65 @@ exit 0
             base_ref="staging",
             head_ref="main",
             head_sha=stale_gate_c_sha,
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
+        self.assertIn("Accidental merge commits detected", report)
+
+    def test_temp_branch_to_staging_alignment_blocks_stale_main_second_parent(self) -> None:
+        repo, base = self.init_repo("temp-main-staging-stale-main")
+        self.git(repo, "checkout", "-q", "-b", "staging", base)
+        self.write(repo / "release.txt", "reviewed staging content\n")
+        self.commit(repo, "feat: add reviewed staging content")
+        staging_sha = self.git(repo, "rev-parse", "staging").stdout.strip()
+        self.git(repo, "checkout", "-q", "-B", "main", base)
+        self.git(repo, "merge", "--no-ff", "-m", "chore: merge reviewed staging Gate C", "staging")
+        self.attach_origin_with_main_and_staging(repo, "temp-main-staging-stale-main-origin.git")
+        self.git(repo, "checkout", "-q", "-b", "chore/align-main-into-staging", "staging")
+        self.git(repo, "merge", "--no-ff", "-m", "chore: align main into staging", "main")
+        alignment_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.git(repo, "checkout", "-q", "main")
+        self.write(repo / "main-advanced.txt", "main advanced\n")
+        self.commit(repo, "chore: advance main after alignment")
+        self.git(repo, "push", "-q", "origin", "main")
+        self.git(repo, "checkout", "-q", "chore/align-main-into-staging")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            staging_sha,
+            static_only=True,
+            base_ref="staging",
+            head_ref="chore/align-main-into-staging",
+            head_sha=alignment_sha,
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
+        self.assertIn("Accidental merge commits detected", report)
+
+    def test_temp_branch_to_staging_alignment_blocks_non_staging_first_parent(self) -> None:
+        repo, base = self.init_repo("temp-main-staging-wrong-first-parent")
+        self.git(repo, "checkout", "-q", "-b", "staging", base)
+        self.write(repo / "release.txt", "reviewed staging content\n")
+        self.commit(repo, "feat: add reviewed staging content")
+        staging_sha = self.git(repo, "rev-parse", "staging").stdout.strip()
+        self.git(repo, "checkout", "-q", "-B", "main", base)
+        self.git(repo, "merge", "--no-ff", "-m", "chore: merge reviewed staging Gate C", "staging")
+        self.attach_origin_with_main_and_staging(repo, "temp-main-staging-wrong-first-origin.git")
+        self.git(repo, "checkout", "-q", "-b", "chore/align-main-into-staging", base)
+        self.write(repo / "release.txt", "reviewed staging content\n")
+        self.commit(repo, "feat: add same content outside staging lineage")
+        self.git(repo, "merge", "--no-ff", "-m", "chore: align main into staging", "main")
+        alignment_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            staging_sha,
+            static_only=True,
+            base_ref="staging",
+            head_ref="chore/align-main-into-staging",
+            head_sha=alignment_sha,
         )
 
         self.assertNotEqual(code, 0)

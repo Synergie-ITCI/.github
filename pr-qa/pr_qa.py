@@ -1814,10 +1814,13 @@ def resolve_fresh_origin_staging_tip(repo: Path) -> str:
 
 
 def main_to_staging_gate_c_alignment_merge_commit(ctx: PRContext, sha: str) -> bool:
-    if ((ctx.head_ref or "").lower(), (ctx.base_ref or "").lower()) != ("main", "staging"):
+    if (ctx.base_ref or "").lower() != "staging":
         return False
     current_main_tip = resolve_fresh_origin_main_tip(ctx.repo)
-    if not current_main_tip or sha != current_main_tip:
+    staging_tip = resolve_fresh_origin_staging_tip(ctx.repo)
+    if not current_main_tip or not staging_tip:
+        return False
+    if not current_main_tip_is_gate_c_merge_for_staging(ctx.repo, current_main_tip, staging_tip):
         return False
     parents = git_lines(ctx.repo, ["show", "-s", "--format=%P", sha])
     if not parents:
@@ -1825,13 +1828,25 @@ def main_to_staging_gate_c_alignment_merge_commit(ctx: PRContext, sha: str) -> b
     parent_values = parents[0].split()
     if len(parent_values) != 2:
         return False
-    staging_tip = resolve_fresh_origin_staging_tip(ctx.repo)
-    if not staging_tip:
+    if sha == current_main_tip:
+        return merge_commit_matches_second_parent_tree(ctx.repo, sha)
+    if parent_values[0] == staging_tip and parent_values[1] == current_main_tip:
+        tree_neutral = subprocess.run(["git", "diff", "--quiet", f"{sha}^1", sha], cwd=ctx.repo, text=True, capture_output=True, check=False)
+        return tree_neutral.returncode == 0
+    return False
+
+
+def current_main_tip_is_gate_c_merge_for_staging(repo: Path, current_main_tip: str, staging_tip: str) -> bool:
+    parents = git_lines(repo, ["show", "-s", "--format=%P", current_main_tip])
+    if not parents:
         return False
-    staging_lineage = subprocess.run(["git", "merge-base", "--is-ancestor", parent_values[1], staging_tip], cwd=ctx.repo, text=True, capture_output=True, check=False)
+    parent_values = parents[0].split()
+    if len(parent_values) != 2:
+        return False
+    staging_lineage = subprocess.run(["git", "merge-base", "--is-ancestor", parent_values[1], staging_tip], cwd=repo, text=True, capture_output=True, check=False)
     if staging_lineage.returncode != 0:
         return False
-    return merge_commit_matches_second_parent_tree(ctx.repo, sha)
+    return merge_commit_matches_second_parent_tree(repo, current_main_tip)
 
 
 def resolve_fresh_origin_main_tip(repo: Path) -> str:
