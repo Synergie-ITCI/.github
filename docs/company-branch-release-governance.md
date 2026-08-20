@@ -1,262 +1,89 @@
-# Synergie Branch And Release Governance Standard
+# Synergie Branch and Release Governance
 
-This standard defines the reusable Synergie branch flow:
+## Permanent Model
 
-```text
-feature/*
-  -> development
-  -> staging
-  -> main
-  -> production
-```
+Synergie repositories use four simple gates:
 
-The standard is additive and non-destructive. Existing repository security controls, CODEOWNERS requirements, environment approvals, deployment mechanisms, secret scanning, and stronger branch protections must be preserved.
+### Gate A — Code / CI
 
-## Branch Purposes
+Normal engineering work moves through:
 
-| Branch or pattern | Purpose | Company baseline |
-| --- | --- | --- |
-| `feature/*` | Developer implementation and work in progress | No company-wide required PR gate, reviewer, status check, merge queue, or deployment approval. Existing repo-specific protections remain. |
-| `development` | Shared integration branch | No new company-wide blocking QA gate. CI may run as informational. Existing required checks/reviews remain. |
-| `staging` | Staging/UAT landing branch | PR required from `development` for deployable applications. Recovery readiness, manifest validation, and existing repository checks run here. Staging phpMyAdmin is allowed only with security controls and database isolation. |
-| `main` | Company QA and production release gate | PR required from `staging`. Production/release validation, recoverability certification, reviewer approval, PR QA, and production safety checks are required. |
+`feature → development`
 
-## Promotion Rules
+Developers may create, test, review, and merge normal feature work without Saurabh involvement, subject to repository CI and branch rules.
 
-Normal promotion path:
+Permanent automated controls include:
 
-```text
-feature/* -> development
-development -> staging
-staging -> main
-main -> production
-```
+- Architecture Governance
+- Pull Request Quality Assurance
+- security and secret checks
+- migration safety
+- repository integrity
+- technical risk detection
+- QA/risk/delta evidence
 
-Disallowed as a normal path:
+### Gate B — Staging
 
-```text
-feature/* -> staging
-feature/* -> main
-development -> main
-```
+Validated development moves through:
 
-Emergency/hotfix paths must not be invented globally. If a repository already has an approved emergency flow, preserve and document it. If no emergency flow exists, the recommended pattern is:
+`development → staging`
 
-```text
-hotfix/* -> staging or main under emergency approval
-then back-merge/reconcile into development and staging
-```
+This is a developer/self-service engineering promotion.
 
-## Reusable Workflows
+Saurabh approval is not required merely to place validated work on staging.
 
-The company reusable workflows are:
+Staging must remain representative of the release candidate and must use controlled deployment with health verification.
 
-| Workflow | Purpose |
-| --- | --- |
-| `.github/workflows/synergie-quality-gate.yml` | Staging-boundary governance for deployable applications, including recovery readiness and central PR QA. |
-| `.github/workflows/synergie-production-gate.yml` | Main/production boundary governance, production recoverability check, central PR QA, and phpMyAdmin production policy enforcement. |
-| `.github/workflows/recovery-readiness.yml` | Reusable application recoverability scanner for staging and production release readiness. |
-| `.github/workflows/phpmyadmin-environment-policy.yml` | Reusable phpMyAdmin policy scanner for production PRs and manual/opt-in non-production validation. |
+### Gate C — Release QA to Main
 
-Repository adapters should call these workflows from a repository-local workflow, usually copied from:
+Promotion from:
 
-```text
-examples/synergie-branch-governance.yml
-```
+`staging → main`
 
-The central workflows reuse the existing Synergie PR QA framework instead of duplicating CI. They do not deploy, approve, merge, disable repository rules, change CODEOWNERS, or alter environments.
+requires explicit Saurabh release QA/authorization.
 
-## Governance Config
+The authorization is for the exact release being promoted.
 
-Repositories may add:
+Saurabh may authorize a release he authored; GitHub native self-review limitations must not create a governance deadlock.
 
-```text
-.github/synergie-governance.yml
-```
+Main represents the approved release baseline.
 
-Use `examples/synergie-governance.yml` as the starting point. The schema is:
+### Gate D — Production
 
-```text
-.github/synergie-governance.schema.json
-```
+Production is separate from Gate C.
 
-The config is documentation and lightweight workflow input. It must never contain credentials, access keys, passwords, tokens, database secrets, cookies, or environment secret values.
+Moving code to `main` MUST NOT automatically deploy production.
 
-Deployable repositories must add:
+Production deployment requires a separate explicit Saurabh approval.
 
-```text
-.github/synergie-recovery.yml
-```
+The deployment must use the exact approved SHA/artifact and preserve a verified rollback/recovery path.
 
-The recovery manifest classifies source, assets, dependencies, external
-artifacts, secret references, database backups, persistent runtime data,
-deployment traceability, health checks, rollback, and recovery ownership. Its
-schema is:
+## Permanent Principles
 
-```text
-.github/synergie-recovery.schema.json
-```
+- No routine governance bootstrap process.
+- No enrollment/provenance/candidate-ID machinery.
+- No one-time deployment-risk authorization registry.
+- No generic administrator bypass as the normal release path.
+- Automated technical QA remains mandatory where configured.
+- Saurabh approval is required only at Gate C and Gate D.
+- Production deployment is never implied by merge to main.
+- Recovery capability is mandatory for production.
+- Historical Governance V2 records may remain archived for audit history only; they are not active policy.
 
-## Repository Adoption Checklist
+## Required Status Checks
 
-Before modifying any repository, inventory:
+The canonical permanent status checks are:
 
-| Area | Required evidence |
-| --- | --- |
-| Branches | Existing `main`, `master`, `development`, `staging`, release, and hotfix branches. |
-| Branch protection | Classic branch protection and required checks. |
-| Rulesets | Repository and organization rulesets affecting branches or tags. |
-| Required checks | Existing CI, security, build, deployment, and custom status checks. |
-| CODEOWNERS | Existing owners and whether code-owner review is required. |
-| Environments | GitHub environments, reviewers, secrets, and deployment branches. |
-| Workflows | CI, deployment, release, rollback, security, dependency, and secret-scan workflows. |
-| Deployment process | Existing staging, UAT, production, manual, SSM, SSH, rsync, or pipeline process. |
-| Security | Secret scanning, dependency scanning, protected secrets, and compliance rules. |
-| Release history | Previous production source branch and emergency process. |
+- `Architecture Governance`
+- `Pull Request Quality Assurance / Pull Request Quality Assurance`
 
-Classify each proposed change:
+Repository-specific callers may render the PR-QA job context according to the caller workflow name; repository rulesets must require the exact context actually emitted by that repository.
 
-| Classification | Meaning | Action |
-| --- | --- | --- |
-| `ADD` | Company baseline is missing and can be added safely. | Add the least invasive control. |
-| `PRESERVE` | Existing rule is equal or stronger than the company baseline. | Keep it unchanged. |
-| `CONFLICT` | Company baseline would break a legitimate existing workflow. | Do not modify automatically; document the conflict. |
+## Pilot Validation
 
-## Initial Branch Bootstrap
+This model was live-proven using:
 
-For adopting repositories, canonical branches should exist:
+- Programme Management Platform
+- Telemedicine Backend
 
-```text
-development
-staging
-main
-```
-
-Do not blindly create branches. Determine the correct source commit first.
-
-Normally, for an initial bootstrap when no legitimate `development` or `staging` history exists:
-
-```text
-main -> development
-main -> staging
-```
-
-If `development` or `staging` already exists with legitimate history, preserve it. Never reset, force-push, or rewrite branch history.
-
-## Recommended Ruleset Baseline
-
-Use GitHub rulesets where they add clean governance without overlapping or weakening existing protection.
-
-For `staging`:
-
-- Require successful Synergie quality gate for deployable applications.
-- Require successful recovery readiness check.
-- Preserve any existing repository-specific protections unless separately approved for removal.
-- Staging/UAT phpMyAdmin is allowed only when authentication, database isolation, and secret handling controls are documented and validated by the owning team.
-- Staging/UAT phpMyAdmin must not point to production database hosts, names, or credentials.
-
-For `main`:
-
-- Require pull request.
-- Require successful Synergie production gate.
-- Require successful staging/release QA evidence.
-- Require `phpmyadmin-production-check`; production must not introduce or expose phpMyAdmin.
-- Require production recoverability check; production must not have recovery-critical server-only files, missing backups, missing lockfiles, unresolved secret references, unclassified ignored assets, or unknown deployed commit.
-- Require at least one reviewer.
-- Require conversation resolution.
-- Preserve CODEOWNERS where already configured or required.
-- Preserve existing environment reviewers and deployment approvals.
-- Prevent direct pushes unless an approved break-glass process already exists.
-- Prevent branch deletion and non-fast-forward updates.
-
-For `development` and `feature/*`:
-
-- Do not add new company-wide blocking rules.
-- Preserve any existing repository-specific protections.
-
-## Staging And Production Deployment
-
-Staging deployment may be triggered after code reaches `staging`, but only if the repository already has a staging or UAT target and the recovery readiness check passed. If no staging target exists, report:
-
-```text
-STAGING ENVIRONMENT NOT CONFIGURED
-```
-
-Do not point staging deployment at production.
-
-Production deployment must originate only from an approved production source already defined by the repository. Preserve existing GitHub environments, manual approvals, deployment secrets, AWS deployment mechanisms, and rollback controls.
-
-## Application Recoverability Policy
-
-Application recoverability is a production safety control. A repository is not
-recoverable merely because a live server currently works or a backup job exists.
-The company must be able to restore from company-controlled systems if the
-production server, staging server, developer laptops, original developer, local
-folders, and manual ZIP files are all unavailable.
-
-Every deployable repository must classify recovery-critical components in
-`.github/synergie-recovery.yml`.
-
-The governing principle is:
-
-```text
-Ignored from Git must never mean not backed up anywhere.
-```
-
-The recovery readiness gate fails if required source or asset paths are excluded
-by `.gitignore`, `.git/info/exclude`, packaging ignore files, or artifact ignore
-files without a Git LFS mapping or an approved external artifact entry with URI,
-SHA-256 checksum, and immutable/versioned storage.
-
-Staging readiness failures include:
-
-- `RECOVERY MANIFEST MISSING`
-- `RECOVERY REQUIRED PATH MISSING`
-- `RECOVERY-CRITICAL FILE EXCLUDED FROM SOURCE OF TRUTH`
-- `DANGEROUS RECOVERY IGNORE RULE`
-- `RECOVERY DEPENDENCY LOCKFILE MISSING`
-- `RECOVERY MANIFEST CONTAINS SECRET VALUE`
-- `PERSON-DEPENDENT RECOVERY ASSET`
-- `RECOVERY LFS ATTRIBUTES MISSING`
-- `RECOVERY ARTIFACT CHECKSUM MISSING`
-
-Production certification additionally fails on:
-
-- `RECOVERY-CRITICAL SERVER-ONLY FILE`
-- `RECOVERY SERVER FILE AUDIT MISSING`
-- `DEPLOYED COMMIT UNKNOWN`
-- `DEPLOYMENT NOT REPRODUCIBLE`
-
-The target state for every active production application is:
-
-```text
-DEVELOPER LAPTOP REQUIRED FOR RECOVERY = ZERO
-RECOVERY-CRITICAL SERVER-ONLY FILES = ZERO
-```
-
-## phpMyAdmin Environment Policy
-
-phpMyAdmin is a runtime/infrastructure service, not merely a Git artifact. The company policy is:
-
-| Environment | Policy |
-| --- | --- |
-| Local/feature | Allowed. |
-| Development | Allowed. |
-| Staging/UAT | Allowed with authentication, HTTPS, staging/UAT database isolation, no hardcoded credentials, and restricted access where practical. |
-| Production/main | Prohibited. The production gate fails if a staging-to-main PR introduces runtime/deployment configuration that exposes phpMyAdmin. |
-
-The reusable production gate runs `phpmyadmin-production-check` through `tools/phpmyadmin_policy.py`. It ignores documentation-only mentions and staging-only phpMyAdmin configuration, but blocks production runtime exposure through Docker, Docker Compose, Apache, Nginx, Caddy, Kubernetes, Terraform, CloudFormation, deployment scripts, package manifests, or production routes such as `/phpmyadmin`, `/phpMyAdmin`, and `/pma`.
-
-Before runtime phpMyAdmin is enabled for development, staging, or UAT, the repository must declare an application-scoped mapping in `.github/synergie-governance.yml`:
-
-```text
-repository -> branch -> actual environment -> actual server -> actual database
-```
-
-The reusable scanner fails non-production validation with `PHPMYADMIN ENVIRONMENT MAPPING MISSING` when phpMyAdmin runtime configuration exists but this map is absent. It also fails with `SHARED PHPMYADMIN ADMIN ACCOUNT PROHIBITED` when a repository declares a company-wide shared administrator model.
-
-If existing production runtime already exposes phpMyAdmin outside the current PR diff, the scanner reports `PRE-EXISTING PRODUCTION PHPMYADMIN VIOLATION` without automatically uninstalling or disabling it. New production exposure fails with `PRODUCTION PHPMYADMIN POLICY VIOLATION`.
-
-## Existing Synergie-ITCI/.github Protection
-
-At publication time, the shared `.github` repository already has active rulesets that protect `main` with pull-request review, last-push approval, review-thread resolution, required PR QA, non-fast-forward protection, and deletion protection. Those stronger controls are preserved by this standard.
+Both pilots validated controlled CI, staging promotion, release governance, and secure AWS deployment without retaining Governance V2 machinery.

@@ -12,36 +12,6 @@
       "workflow": "pr-qa.yml",
       "job": "qa",
       "state": "authoritative-v1"
-    },
-    {
-      "context": "Governance V2 Shadow / Evaluate current PR",
-      "workflow": "synergie-v2-shadow-governance.yml",
-      "job": "evaluate",
-      "state": "shadow-v2"
-    },
-    {
-      "context": "Governance V2 Candidate / Build staging candidate",
-      "workflow": "synergie-v2-shadow-governance.yml",
-      "job": "candidate",
-      "state": "shadow-v2"
-    },
-    {
-      "context": "Governance V2 / Feature Provenance",
-      "workflow": "synergie-v2-shadow-governance.yml",
-      "job": "evaluate",
-      "state": "authoritative-v2-pilot"
-    },
-    {
-      "context": "Governance V2 / Staging Promotion",
-      "workflow": "synergie-v2-shadow-governance.yml",
-      "job": "evaluate",
-      "state": "authoritative-v2-pilot"
-    },
-    {
-      "context": "Governance V2 / Release Gate",
-      "workflow": "synergie-v2-shadow-governance.yml",
-      "job": "evaluate",
-      "state": "authoritative-v2-pilot"
     }
   ]
 }
