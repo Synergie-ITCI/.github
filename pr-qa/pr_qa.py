@@ -1739,6 +1739,7 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
                 sha for sha in merge_commits
                 if not (
                     tree_neutral_ancestry_reconciliation_merge_commit(ctx, sha)
+                    or main_to_staging_gate_c_alignment_merge_commit(ctx, sha)
                     or governed_ancestry_alignment_merge_commit(ctx, sha)
                 )
             ]
@@ -1752,6 +1753,8 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
             results.append(passed("Repository Hygiene", None, "Only governed branch-promotion merge commits detected."))
         elif merge_commits and all(tree_neutral_ancestry_reconciliation_merge_commit(ctx, sha) for sha in merge_commits):
             results.append(passed("Repository Hygiene", None, "Only intentional tree-neutral ancestry reconciliation merge commits detected."))
+        elif merge_commits and all(main_to_staging_gate_c_alignment_merge_commit(ctx, sha) for sha in merge_commits):
+            results.append(passed("Repository Hygiene", None, "Only expected Gate C main-to-staging alignment merge commits detected."))
         elif merge_commits:
             results.append(passed("Repository Hygiene", None, "Only governed ancestry-alignment merge commits detected."))
         else:
@@ -1806,6 +1809,34 @@ def tree_neutral_ancestry_reconciliation_merge_commit(ctx: PRContext, sha: str) 
 def resolve_fresh_origin_staging_tip(repo: Path) -> str:
     remote_ref = "refs/remotes/origin/staging"
     subprocess.run(["git", "fetch", "--no-tags", "origin", f"+refs/heads/staging:{remote_ref}"], cwd=repo, text=True, capture_output=True, check=False)
+    resolved = run_git(repo, ["rev-parse", "--verify", f"{remote_ref}^{{commit}}"]).strip()
+    return resolved if resolved and commit_exists(repo, resolved) else ""
+
+
+def main_to_staging_gate_c_alignment_merge_commit(ctx: PRContext, sha: str) -> bool:
+    if ((ctx.head_ref or "").lower(), (ctx.base_ref or "").lower()) != ("main", "staging"):
+        return False
+    current_main_tip = resolve_fresh_origin_main_tip(ctx.repo)
+    if not current_main_tip or sha != current_main_tip:
+        return False
+    parents = git_lines(ctx.repo, ["show", "-s", "--format=%P", sha])
+    if not parents:
+        return False
+    parent_values = parents[0].split()
+    if len(parent_values) != 2:
+        return False
+    staging_tip = resolve_fresh_origin_staging_tip(ctx.repo)
+    if not staging_tip:
+        return False
+    staging_lineage = subprocess.run(["git", "merge-base", "--is-ancestor", parent_values[1], staging_tip], cwd=ctx.repo, text=True, capture_output=True, check=False)
+    if staging_lineage.returncode != 0:
+        return False
+    return merge_commit_matches_second_parent_tree(ctx.repo, sha)
+
+
+def resolve_fresh_origin_main_tip(repo: Path) -> str:
+    remote_ref = "refs/remotes/origin/main"
+    subprocess.run(["git", "fetch", "--no-tags", "origin", f"+refs/heads/main:{remote_ref}"], cwd=repo, text=True, capture_output=True, check=False)
     resolved = run_git(repo, ["rev-parse", "--verify", f"{remote_ref}^{{commit}}"]).strip()
     return resolved if resolved and commit_exists(repo, resolved) else ""
 
