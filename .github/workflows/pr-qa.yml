@@ -295,6 +295,8 @@ jobs:
 
       - name: Phase 2 and Phase 3 validation
         id: full
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           rm -rf pr-qa-results
           mkdir -p pr-qa-results

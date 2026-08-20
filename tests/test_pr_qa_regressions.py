@@ -725,13 +725,15 @@ exit 0
         code, report, report_json, _ = self.run_engine_with_artifacts(
             repo,
             base,
+            base_ref="main",
+            head_ref="staging",
             pr_author="SaurabhVermaIN",
             review_policy={"mergeable": True, "reviews": []},
         )
 
         self.assertEqual(code, 0, report)
         self.assertEqual(report_json["summary"]["gate_statuses"]["Review Policy"], "PASS")
-        self.assertTrue(any("SaurabhVermaIN is exempt from independent human review" in result["message"] for result in report_json["results"]))
+        self.assertTrue(any("SaurabhVermaIN is exempt from independent human review for Gate C" in result["message"] for result in report_json["results"]))
 
     def test_saurabh_authored_pr_remains_blocked_when_qa_fails(self) -> None:
         repo, base = self.init_repo("saurabh-qa-fail")
@@ -770,6 +772,8 @@ exit 0
         code, report, report_json, _ = self.run_engine_with_artifacts(
             repo,
             base,
+            base_ref="main",
+            head_ref="staging",
             pr_author="SaurabhVermaIN",
             review_policy={"mergeable": False, "merge_conflict": True, "reviews": []},
         )
@@ -777,6 +781,40 @@ exit 0
         self.assertNotEqual(code, 0)
         self.assertEqual(report_json["summary"]["gate_statuses"]["Review Policy"], "FAIL")
         self.assertIn("Pull request has merge conflicts", report)
+
+    def test_feature_to_development_requires_no_human_review(self) -> None:
+        repo, base = self.init_repo("feature-development-no-review")
+        self.write(repo / "README.md", "# regression\n\nFeature to development.\n")
+        self.commit(repo, "docs: update feature fixture")
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            base_ref="development",
+            head_ref="feature/regression",
+            pr_author="dev.raveesh.yadav",
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Review Policy"], "PASS")
+        self.assertTrue(any("Human review is not required for this branch transition" in result["message"] for result in report_json["results"]))
+
+    def test_development_to_staging_requires_no_human_review(self) -> None:
+        repo, base = self.init_repo("development-staging-no-review")
+        self.write(repo / "README.md", "# regression\n\nDevelopment to staging.\n")
+        self.commit(repo, "docs: update staging fixture")
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            base_ref="staging",
+            head_ref="development",
+            pr_author="dev.raveesh.yadav",
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Review Policy"], "PASS")
+        self.assertTrue(any("Human review is not required for this branch transition" in result["message"] for result in report_json["results"]))
 
     def test_feature_pr_still_blocks_accidental_merge_commit(self) -> None:
         repo, base = self.init_repo("feature-merge-commit")
@@ -2235,12 +2273,14 @@ exit 0
                 code, report, report_json, _ = self.run_engine_with_artifacts(
                     repo,
                     base,
+                    base_ref="main",
+                    head_ref="staging",
                     pr_author=author,
                     review_policy={"mergeable": True, "reviews": []},
                 )
                 self.assertNotEqual(code, 0)
                 self.assertEqual(report_json["summary"]["gate_statuses"]["Review Policy"], "FAIL")
-                self.assertIn("Independent human approval is required", report)
+                self.assertIn("Executive Release Authority approval is required", report)
 
     def test_non_saurabh_authored_pr_allows_green_with_independent_review(self) -> None:
         repo, base = self.init_repo("developer-reviewed-green")
@@ -2249,6 +2289,8 @@ exit 0
         code, report, report_json, _ = self.run_engine_with_artifacts(
             repo,
             base,
+            base_ref="main",
+            head_ref="staging",
             pr_author="dev.raveesh.yadav",
             review_policy={
                 "mergeable": True,
@@ -2260,7 +2302,68 @@ exit 0
 
         self.assertEqual(code, 0, report)
         self.assertEqual(report_json["summary"]["gate_statuses"]["Review Policy"], "PASS")
-        self.assertTrue(any("Independent human review requirement is satisfied" in result["message"] for result in report_json["results"]))
+        self.assertTrue(any("Executive Release Authority review requirement is satisfied" in result["message"] for result in report_json["results"]))
+
+    def test_gate_c_approval_from_other_reviewer_fails(self) -> None:
+        repo, base = self.init_repo("developer-reviewed-by-other")
+        self.write(repo / "README.md", "# regression\n\nWrong reviewer.\n")
+        self.commit(repo, "docs: update wrong reviewer fixture")
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            base_ref="main",
+            head_ref="staging",
+            pr_author="dev.raveesh.yadav",
+            review_policy={
+                "mergeable": True,
+                "reviews": [
+                    {"user": {"login": "another.reviewer"}, "state": "APPROVED"},
+                ],
+            },
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Review Policy"], "FAIL")
+        self.assertIn("required_approver=SaurabhVermaIN", report)
+
+    def test_gate_c_owner_latest_review_must_be_approved(self) -> None:
+        repo, base = self.init_repo("owner-review-not-latest-approved")
+        self.write(repo / "README.md", "# regression\n\nStale owner approval.\n")
+        self.commit(repo, "docs: update stale owner review fixture")
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            base_ref="main",
+            head_ref="staging",
+            pr_author="dev.raveesh.yadav",
+            review_policy={
+                "mergeable": True,
+                "reviews": [
+                    {"user": {"login": "SaurabhVermaIN"}, "state": "APPROVED"},
+                    {"user": {"login": "SaurabhVermaIN"}, "state": "CHANGES_REQUESTED"},
+                ],
+            },
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Review Policy"], "FAIL")
+        self.assertIn("Executive Release Authority approval is required", report)
+
+    def test_gate_c_review_evidence_unavailable_fails_closed(self) -> None:
+        repo, base = self.init_repo("gate-c-review-evidence-unavailable")
+        self.write(repo / "README.md", "# regression\n\nUnavailable review evidence.\n")
+        self.commit(repo, "docs: update unavailable evidence fixture")
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            base_ref="main",
+            head_ref="staging",
+            pr_author="dev.raveesh.yadav",
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Review Policy"], "FAIL")
+        self.assertIn("Independent review evidence is unavailable", report)
 
     def test_pr_cannot_disable_mandatory_gates(self) -> None:
         repo, base = self.init_repo("config-disable")
@@ -3057,6 +3160,7 @@ jobs:
         self.assertIn("Fetch current pull request base branch", workflow)
         self.assertIn("refs/remotes/origin/${BASE_REF}", workflow)
         self.assertIn('PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc46"', workflow)
+        self.assertEqual(workflow.count("GH_TOKEN: ${{ github.token }}"), 3)
         # The starter onboarding caller consumes the centrally maintained workflow
         # and initially covers all PR boundaries.
         self.assertIn("@main", caller)
