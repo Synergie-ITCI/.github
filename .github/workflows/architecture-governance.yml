@@ -5,9 +5,8 @@ on:
     branches: [main]
     paths:
       - '.github/**'
-      - 'governance-v2/**'
       - 'policy/**'
-      - 'schemas/**'
+      - 'pr-qa/**'
       - 'tests/**'
   workflow_dispatch:
 
@@ -24,13 +23,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Validate Governance V2 policy and schema JSON
+      - name: Validate permanent governance policy JSON
         run: |
-          python3 -m json.tool policy/governance-v2-policy.json >/dev/null
-          python3 -m json.tool policy/governance-v2-authorizations.json >/dev/null
+          python3 -m json.tool policy/pr-qa-policy.json >/dev/null
           python3 -m json.tool policy/status-check-registry.json >/dev/null
-          python3 -m json.tool schemas/governance-v2-evidence.schema.json >/dev/null
-          python3 -m json.tool schemas/governance-v2-qa-record.schema.json >/dev/null
 
-      - name: Run Governance V2 adversarial tests
-        run: python3 -m unittest tests/test_governance_v2.py -q
+      - name: Run PR QA regression tests
+        run: python3 -m unittest tests/test_pr_qa_regressions.py -q
