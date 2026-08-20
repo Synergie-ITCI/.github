@@ -132,6 +132,11 @@ BASELINE_STATIC_ASSET_PATTERNS = [
     "**/*.min.css",
     "**/*.map",
 ]
+STATIC_BROWSER_ASSET_ROOTS = {"assets", "public", "static"}
+STATIC_BROWSER_RESOURCE_ROOTS = {"js", "css", "assets"}
+STATIC_BROWSER_ASSET_DIRS = {"js", "javascript", "css", "styles", "stylesheets"}
+STATIC_BROWSER_ASSET_SUFFIXES = {".js", ".css"}
+EXECUTABLE_SCRIPT_ROOTS = {".github", "bin", "ci", "deploy", "scripts", "server", "tools"}
 
 ADAPTER_EXTENSIONS = {
     "php": {".php"},
@@ -545,6 +550,20 @@ def write_detection_outputs(technologies: dict[str, dict[str, Any]], github_outp
             handle.write("\n".join(lines) + "\n")
     else:
         print("\n".join(lines))
+
+
+def is_bounded_static_browser_asset(rel: str) -> bool:
+    path = Path(rel)
+    parts = path.parts
+    if not parts or path.suffix.lower() not in STATIC_BROWSER_ASSET_SUFFIXES:
+        return False
+    if parts[0] in EXECUTABLE_SCRIPT_ROOTS:
+        return False
+    if parts[0] in STATIC_BROWSER_ASSET_ROOTS:
+        return any(part.lower() in STATIC_BROWSER_ASSET_DIRS for part in parts[1:-1])
+    if parts[0] == "resources" and len(parts) > 2:
+        return parts[1].lower() in STATIC_BROWSER_RESOURCE_ROOTS
+    return False
 
 
 def gather_git_context(repo: Path, event: dict[str, Any], base_ref: str, head_ref: str) -> dict[str, Any]:
@@ -1843,11 +1862,13 @@ def gate_git_validation(ctx: PRContext, git_context: dict[str, Any]) -> list[Che
 
 def gate_secrets(ctx: PRContext, git_context: dict[str, Any], report_path: str) -> list[CheckResult]:
     results: list[CheckResult] = [run_gitleaks(ctx, git_context, report_path)]
-    findings, fixture_findings = fallback_secret_scan(ctx)
+    findings, fixture_findings, inherited_findings = fallback_secret_scan(ctx, git_context)
     if findings:
         results.append(failed("Secrets", None, "High-confidence secret indicators found in changed files.", findings[:60], score=40))
     elif results[0].status == PASS:
         results.append(passed("Secrets", None, "Fallback and encoded secret scans found no high-confidence issues."))
+    if inherited_findings and not findings and results[0].status == PASS:
+        results.append(warning("Secrets", None, "Historical inherited credential-shaped fallback findings remain visible; cleanup remains required.", inherited_findings[:60]))
     if fixture_findings and not findings and results[0].status == PASS:
         if baseline_active(ctx):
             results.append(warning("Secrets", None, "Inherited baseline secret-like false positives were classified; future findings remain blocking.", fixture_findings[:60]))
@@ -2029,9 +2050,10 @@ def gitleaks_finding_summary(item: dict[str, Any]) -> str:
     )
 
 
-def fallback_secret_scan(ctx: PRContext) -> tuple[list[str], list[str]]:
+def fallback_secret_scan(ctx: PRContext, git_context: dict[str, Any]) -> tuple[list[str], list[str], list[str]]:
     findings: list[str] = []
     fixture_findings: list[str] = []
+    inherited_findings: list[str] = []
     env_patterns = [".env", ".env.*"]
     allowed_env = {".env.example", ".env.sample", ".env.template", ".env.local.example"}
     regexes = {
@@ -2075,13 +2097,107 @@ def fallback_secret_scan(ctx: PRContext) -> tuple[list[str], list[str]]:
                     decoded_label = f"base64-encoded {label}"
                     if decoded_label not in line_labels_found and re.search(pattern, decoded):
                         rel_findings.append(f"{rel}: {decoded_label}.")
+        inherited, remaining = classify_inherited_fallback_secret_findings(ctx, git_context, rel, rel_findings)
+        inherited_findings.extend(inherited)
+        rel_findings = remaining
         if baseline_allowed_fallback_secret_findings(ctx, rel, rel_findings, texts):
             fixture_findings.extend(rel_findings)
         elif is_approved_regression_fixture(ctx, rel):
             fixture_findings.extend(rel_findings)
         else:
             findings.extend(rel_findings)
-    return sorted(set(findings)), sorted(set(fixture_findings))
+    return sorted(set(findings)), sorted(set(fixture_findings)), sorted(set(inherited_findings))
+
+
+def classify_inherited_fallback_secret_findings(
+    ctx: PRContext,
+    git_context: dict[str, Any],
+    rel: str,
+    rel_findings: list[str],
+) -> tuple[list[str], list[str]]:
+    inherited: list[str] = []
+    remaining: list[str] = []
+    for finding in rel_findings:
+        if inherited_fallback_finding_is_exact_low_confidence_noise(ctx, git_context, rel, finding):
+            inherited.append(f"{finding} inherited_exact=true")
+        else:
+            remaining.append(finding)
+    return inherited, remaining
+
+
+def inherited_fallback_finding_is_exact_low_confidence_noise(
+    ctx: PRContext,
+    git_context: dict[str, Any],
+    rel: str,
+    finding: str,
+) -> bool:
+    if not git_context.get("is_git_repo"):
+        return False
+    if not finding.startswith(f"{rel}: generic credential assignment. "):
+        return False
+    head_line = fallback_finding_line_from_texts(decoded_text_variants(ctx.repo / rel), finding)
+    if not head_line or not fallback_line_is_low_confidence_noise(head_line):
+        return False
+    base_text = read_base_file(ctx.repo, git_context, rel)
+    if not base_text:
+        return False
+    base_line = fallback_finding_line_from_texts([base_text], finding)
+    return bool(base_line) and base_line.strip() == head_line.strip()
+
+
+def fallback_finding_line_from_texts(texts: list[str], finding: str) -> str:
+    match = re.search(r"line_sha256=([0-9a-f]{64})", finding)
+    if not match:
+        return ""
+    target_hash = match.group(1)
+    for text in texts:
+        for line in text.splitlines():
+            if hashlib.sha256(line.strip().encode("utf-8")).hexdigest() == target_hash:
+                return line
+    return ""
+
+
+def fallback_line_is_low_confidence_noise(line: str) -> bool:
+    normalized = normalize_secret_text(line)
+    if re.search(r"\b(AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]+)\b", normalized):
+        return False
+    if re.search(r"-----BEGIN [A-Z ]+PRIVATE KEY-----", normalized):
+        return False
+    if structural_runtime_env_lookup_present(line):
+        return True
+    if re.search(r"\$[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]+\])+", line) and re.search(r"\b(password|secret|token|api[_-]?(?:key|token)|access[_-]?token)\b", normalized, re.IGNORECASE):
+        return True
+    if re.search(r"\$result\s*\[", normalized):
+        return True
+    if re.search(r"['\"][A-Za-z0-9_.-]+['\"]\s*=>\s*['\"][A-Za-z0-9_.-]+['\"]", normalized):
+        return True
+    return False
+
+
+def structural_runtime_env_lookup_present(line: str) -> bool:
+    for match in re.finditer(r"(?<!['\"A-Za-z0-9_])(?:env|config)\s*\(\s*(['\"])([A-Z0-9_.-]+)\1(?:\s*,\s*([^)]+))?\)", line):
+        default = (match.group(3) or "").strip()
+        if not default:
+            return True
+        if runtime_lookup_default_is_safe(default):
+            return True
+    return False
+
+
+def runtime_lookup_default_is_safe(default: str) -> bool:
+    if default in {"''", '""', "null", "NULL", "false", "FALSE", "true", "TRUE", "0", "1"}:
+        return True
+    quoted = re.fullmatch(r"(['\"])(.*)\1", default)
+    if not quoted:
+        return True
+    value = quoted.group(2)
+    if value == "":
+        return True
+    if re.match(r"^https?://", value):
+        return True
+    if re.fullmatch(r"[A-Za-z0-9_.:/ -]{1,32}", value) and not re.search(r"(secret|token|password|passwd|api[_-]?key|access[_-]?token)", value, re.IGNORECASE):
+        return True
+    return False
 
 
 def fallback_secret_finding(rel: str, label: str, line: str) -> str:
@@ -2235,17 +2351,22 @@ def gate_executable_classification(ctx: PRContext, technologies: dict[str, dict[
         covered.update(ADAPTER_EXTENSIONS.get(key, set()))
     unknown = []
     inherited = []
+    static_assets = []
     for rel in ctx.changed_files:
         suffix = Path(rel).suffix
         if suffix in executable_extensions and suffix not in covered:
             if baseline_inherited_path(ctx, rel, "executable_static_asset") and match_any(rel, BASELINE_STATIC_ASSET_PATTERNS):
                 inherited.append(f"{rel}: INHERITED_BASELINE static executable asset.")
+            elif is_bounded_static_browser_asset(rel):
+                static_assets.append(f"{rel}: STATIC_BROWSER_ASSET.")
             else:
                 unknown.append(rel)
     if unknown:
         return [failed("Executable Classification", None, "Executable code changed without a supported technology adapter.", unknown[:50], score=18)]
     if inherited:
         return [warning("Executable Classification", None, "Inherited baseline static executable assets are classified; future modifications remain blocking.", inherited[:50])]
+    if static_assets:
+        return [warning("Executable Classification", None, "Bounded static browser assets changed without requiring a Node project manifest.", static_assets[:50])]
     return [passed("Executable Classification", None, "All changed executable code is covered by detected technology adapters.")]
 
 
@@ -2497,6 +2618,18 @@ def gate_deployment_safety(ctx: PRContext, git_context: dict[str, Any]) -> list[
                 (inherited + overlay)[:60],
             )
         ]
+    safe_workflow_details, safe_workflow_paths = classify_safe_deployment_workflows(ctx, changed)
+    if safe_workflow_paths:
+        changed = [path for path in changed if path not in safe_workflow_paths]
+        if not changed:
+            return [
+                warning(
+                    "Deployment Risk",
+                    None,
+                    "Controlled deployment-sensitive workflow shape detected; human review remains required.",
+                    safe_workflow_details[:60],
+                )
+            ]
     framework_approved = [path for path in changed if is_approved_deployment_sensitive_asset(ctx, path)]
     if framework_approved and len(framework_approved) == len(changed):
         dangerous_tokens = []
@@ -2515,6 +2648,17 @@ def gate_deployment_safety(ctx: PRContext, git_context: dict[str, Any]) -> list[
                     framework_approved[:40],
                 )
             ]
+    unsafe_workflows = unsafe_deployment_workflow_details(ctx, changed)
+    if unsafe_workflows:
+        return [
+            failed(
+                "Deployment Risk",
+                None,
+                "Deployment workflow is structurally unsafe or missing required controlled-release safeguards.",
+                safe_workflow_details[:20] + unsafe_workflows[:60],
+                score=20,
+            )
+        ]
     details = []
     score = 0
     risky_tokens = []
@@ -2532,8 +2676,229 @@ def gate_deployment_safety(ctx: PRContext, git_context: dict[str, Any]) -> list[
         details.append(f"{path}: +{item_score}")
     level = risk_class(min(score, 100))
     if risky_tokens and level in {"HIGH", "CRITICAL"}:
-        return [failed("Deployment Risk", None, f"High-risk deployment change detected. Risk: {level}.", details[:30] + risky_tokens[:20], score=20)]
-    return [warning("Deployment Risk", None, f"Deployment-sensitive changes detected. Risk: {level}.", details[:40])]
+        return [failed("Deployment Risk", None, f"High-risk deployment change detected. Risk: {level}.", safe_workflow_details[:20] + details[:30] + risky_tokens[:20], score=20)]
+    return [warning("Deployment Risk", None, f"Deployment-sensitive changes detected. Risk: {level}.", safe_workflow_details[:20] + details[:40])]
+
+
+def classify_safe_deployment_workflows(ctx: PRContext, changed: list[str]) -> tuple[list[str], set[str]]:
+    details: list[str] = []
+    safe_paths: set[str] = set()
+    for path in changed:
+        if not path.startswith(".github/workflows/"):
+            continue
+        if is_approved_deployment_sensitive_asset(ctx, path):
+            continue
+        workflow_path = ctx.repo / path
+        if not workflow_path.is_file():
+            continue
+        text = read_text(workflow_path)
+        gate_d = controlled_gate_d_workflow_details(path, text)
+        if gate_d:
+            details.extend(gate_d)
+            safe_paths.add(path)
+            continue
+        staging = staging_only_workflow_details(path, text)
+        if staging:
+            details.extend(staging)
+            safe_paths.add(path)
+    return details, safe_paths
+
+
+def controlled_gate_d_workflow_details(path: str, text: str) -> list[str]:
+    parsed = parse_workflow_yaml(text)
+    checks = {
+        "manual_only": workflow_dispatch_only(parsed, text),
+        "actor_restricted": workflow_has_actor_restriction(text),
+        "deploy_ref_validated": workflow_has_exact_deploy_ref_validation(parsed, text),
+        "rollback_ref_validated": workflow_has_rollback_ref_validation(parsed, text),
+        "approval_evidence": workflow_has_approval_evidence(parsed, text),
+        "oidc": workflow_uses_oidc(parsed, text),
+        "controlled_remote": workflow_uses_controlled_remote_execution(text),
+        "no_static_credentials": not workflow_has_embedded_or_static_deployment_credentials(text),
+        "no_main_push": not workflow_pushes_to_main_or_master(parsed, text),
+    }
+    if not all(checks.values()):
+        return []
+    return [
+        f"{path}: CONTROLLED_PRODUCTION_GATE_D manual workflow_dispatch, exact deploy_ref, rollback_ref, actor restriction, OIDC, and controlled remote execution verified."
+    ]
+
+
+def staging_only_workflow_details(path: str, text: str) -> list[str]:
+    parsed = parse_workflow_yaml(text)
+    lower = text.lower()
+    checks = {
+        "push_staging_only": workflow_pushes_only_to_staging(parsed, text),
+        "staging_scoped": "staging" in lower or "uat" in lower,
+        "no_production_target": not re.search(r"\bprod(?:uction)?\b|PROD_|production", text),
+        "no_main_push": not workflow_pushes_to_main_or_master(parsed, text),
+        "no_production_branch_logic": not re.search(r"refs/heads/(main|master)|BRANCH=main|branch:\s*main", text),
+        "no_static_production_key": not re.search(r"PROD_[A-Z0-9_]*(KEY|TOKEN|SECRET|PASSWORD|HOST|USER)", text),
+    }
+    if not all(checks.values()):
+        return []
+    return [f"{path}: STAGING_ONLY_DEPLOYMENT trigger and destination are staging-scoped; legacy SSH staging transport remains review-visible."]
+
+
+def unsafe_deployment_workflow_details(ctx: PRContext, changed: list[str]) -> list[str]:
+    details: list[str] = []
+    for path in changed:
+        if not path.startswith(".github/workflows/"):
+            continue
+        workflow_path = ctx.repo / path
+        if not workflow_path.is_file():
+            continue
+        text = read_text(workflow_path)
+        parsed = parse_workflow_yaml(text)
+        if workflow_has_production_intent(parsed, text):
+            details.append(f"{path}: production/live deployment-sensitive workflow does not match the controlled Gate D safe shape.")
+        elif workflow_pushes_to_main_or_master(parsed, text) and workflow_contains_remote_deploy(text):
+            details.append(f"{path}: push to main/master can execute remote deployment commands.")
+        elif workflow_has_embedded_or_static_deployment_credentials(text):
+            details.append(f"{path}: static deployment credential reference detected.")
+    return details
+
+
+def workflow_has_production_intent(parsed: dict[str, Any], text: str) -> bool:
+    lower = text.lower()
+    return bool(
+        re.search(r"\bprod(?:uction)?\b", lower)
+        or re.search(r"PROD_[A-Z0-9_]+", text)
+        or workflow_pushes_to_main_or_master(parsed, text)
+        or "refs/heads/main" in text
+        or "refs/heads/master" in text
+    )
+
+
+def workflow_contains_remote_deploy(text: str) -> bool:
+    return bool(re.search(r"\bssh\b|\brsync\b|\baws\s+ssm\s+send-command\b|kubectl apply|terraform apply|tofu apply", text, re.IGNORECASE))
+
+
+def parse_workflow_yaml(text: str) -> dict[str, Any]:
+    parsed = parse_yaml_or_json(text)
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def workflow_on_section(parsed: dict[str, Any]) -> Any:
+    return parsed.get("on", parsed.get(True, {}))
+
+
+def workflow_dispatch_only(parsed: dict[str, Any], text: str) -> bool:
+    on_section = workflow_on_section(parsed)
+    if isinstance(on_section, dict):
+        keys = {str(key) for key in on_section}
+        if keys != {"workflow_dispatch"}:
+            return False
+    elif isinstance(on_section, list):
+        if {str(item) for item in on_section} != {"workflow_dispatch"}:
+            return False
+    elif str(on_section) != "workflow_dispatch":
+        return False
+    return "push:" not in text and not workflow_pushes_to_main_or_master(parsed, text)
+
+
+def workflow_push_branches(parsed: dict[str, Any], text: str) -> set[str]:
+    branches: set[str] = set()
+    on_section = workflow_on_section(parsed)
+    push = on_section.get("push") if isinstance(on_section, dict) else None
+    if isinstance(push, dict):
+        raw = push.get("branches", [])
+        if isinstance(raw, str):
+            branches.add(raw)
+        elif isinstance(raw, list):
+            branches.update(str(item) for item in raw)
+    if re.search(r"(?m)^\s*push\s*:", text):
+        push_block = re.search(r"(?ms)^\s*push\s*:(.*?)(?:^\S|\Z)", text)
+        block = push_block.group(1) if push_block else text
+        branches.update(match.group(1) for match in re.finditer(r"(?m)^\s*-\s*([A-Za-z0-9_./-]+)\s*$", block))
+        inline = re.search(r"branches\s*:\s*\[([^\]]+)\]", block)
+        if inline:
+            branches.update(item.strip().strip("'\"") for item in inline.group(1).split(",") if item.strip())
+    return {branch for branch in branches if branch}
+
+
+def workflow_pushes_to_main_or_master(parsed: dict[str, Any], text: str) -> bool:
+    branches = workflow_push_branches(parsed, text)
+    return bool({"main", "master", "refs/heads/main", "refs/heads/master"} & branches)
+
+
+def workflow_pushes_only_to_staging(parsed: dict[str, Any], text: str) -> bool:
+    on_section = workflow_on_section(parsed)
+    has_push = (isinstance(on_section, dict) and "push" in {str(key) for key in on_section}) or bool(re.search(r"(?m)^\s*push\s*:", text))
+    if not has_push:
+        return False
+    branches = workflow_push_branches(parsed, text)
+    return branches == {"staging"}
+
+
+def workflow_has_actor_restriction(text: str) -> bool:
+    actor_reference = r"(?:GITHUB_ACTOR|github\.actor)"
+    return bool(
+        re.search(actor_reference + r".{0,120}(?:==|=|!=|contains|test)", text, re.DOTALL)
+        or re.search(r"(?:==|=|!=|contains|test).{0,120}" + actor_reference, text, re.DOTALL)
+    )
+
+
+def workflow_inputs(parsed: dict[str, Any]) -> dict[str, Any]:
+    on_section = workflow_on_section(parsed)
+    dispatch = on_section.get("workflow_dispatch") if isinstance(on_section, dict) else {}
+    if isinstance(dispatch, dict) and isinstance(dispatch.get("inputs"), dict):
+        return dispatch.get("inputs", {})
+    return {}
+
+
+def workflow_has_exact_deploy_ref_validation(parsed: dict[str, Any], text: str) -> bool:
+    inputs = workflow_inputs(parsed)
+    return (
+        "deploy_ref" in inputs
+        and "DEPLOY_REF" in text
+        and workflow_contains_sha40_validation(text)
+        and "git rev-parse HEAD" in text
+        and bool(re.search(r"DEPLOY_REF.{0,80}(MAIN_SHA|HEAD)|(?:MAIN_SHA|HEAD).{0,80}DEPLOY_REF", text, re.DOTALL))
+    )
+
+
+def workflow_has_rollback_ref_validation(parsed: dict[str, Any], text: str) -> bool:
+    inputs = workflow_inputs(parsed)
+    return (
+        "rollback_ref" in inputs
+        and "ROLLBACK_REF" in text
+        and workflow_contains_sha40_validation(text)
+        and bool(re.search(r"ROLLBACK_REF.{0,120}(CURRENT_SHA|reset --hard)|(?:CURRENT_SHA|reset --hard).{0,120}ROLLBACK_REF", text, re.DOTALL))
+    )
+
+
+def workflow_contains_sha40_validation(text: str) -> bool:
+    return bool(re.search(r"\[0-9a-f\]\{40\}", text) or re.search(r"\[0-9a-f\]\{40\}", text.replace("\\{", "{").replace("\\}", "}")))
+
+
+def workflow_has_approval_evidence(parsed: dict[str, Any], text: str) -> bool:
+    inputs = workflow_inputs(parsed)
+    return "approval_reference" in inputs and bool(re.search(r"APPROVAL|approval_reference", text)) and re.search(r"test\s+-n\s+.*APPROVAL", text) is not None
+
+
+def workflow_uses_oidc(parsed: dict[str, Any], text: str) -> bool:
+    permissions = parsed.get("permissions", {}) if isinstance(parsed.get("permissions"), dict) else {}
+    id_token = str(permissions.get("id-token", permissions.get("id_token", ""))).lower()
+    return id_token == "write" and "aws-actions/configure-aws-credentials" in text and "role-to-assume" in text
+
+
+def workflow_uses_controlled_remote_execution(text: str) -> bool:
+    return bool(re.search(r"\baws\s+ssm\s+send-command\b|AWS-RunShellScript|ssm:SendCommand", text))
+
+
+def workflow_has_embedded_or_static_deployment_credentials(text: str) -> bool:
+    patterns = [
+        r"AWS_ACCESS_KEY_ID",
+        r"AWS_SECRET_ACCESS_KEY",
+        r"AWS_SESSION_TOKEN",
+        r"PROD_[A-Z0-9_]*(PRIVATE_KEY|TOKEN|SECRET|PASSWORD)",
+        r"-----BEGIN [A-Z ]+PRIVATE KEY-----",
+        r"gh[pousr]_[A-Za-z0-9_]{20,}",
+        r"github_pat_[A-Za-z0-9_]+",
+        r"AKIA[0-9A-Z]{16}",
+    ]
+    return any(re.search(pattern, text) for pattern in patterns)
 
 
 def is_canonical_staging_to_main_promotion(ctx: PRContext) -> bool:
