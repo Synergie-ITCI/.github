@@ -2,6 +2,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 from pathlib import Path
@@ -158,6 +159,34 @@ class StatelessnessTests(unittest.TestCase):
 
 
 class ModernizedRecoveryTests(unittest.TestCase):
+    def repo_with_origin_branch(self, files_by_branch: dict[str, dict[str, str]]) -> tuple[tempfile.TemporaryDirectory, Path]:
+        tmp = tempfile.TemporaryDirectory(prefix="onboard-audit-")
+        repo = Path(tmp.name)
+        subprocess.run(["git", "init", "-q", repo], check=True)
+        subprocess.run(["git", "config", "user.email", "qa@example.invalid"], cwd=repo, check=True)
+        subprocess.run(["git", "config", "user.name", "QA"], cwd=repo, check=True)
+        for branch, files in files_by_branch.items():
+            subprocess.run(["git", "checkout", "-q", "--orphan", branch], cwd=repo, check=True)
+            subprocess.run(["git", "rm", "-qrf", "."], cwd=repo, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            for rel, content in files.items():
+                path = repo / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", f"seed {branch}"], cwd=repo, check=True)
+            sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+            subprocess.run(["git", "update-ref", f"refs/remotes/origin/{branch}", sha], cwd=repo, check=True)
+        return tmp, repo
+
+    def prqa_ruleset(self, context: str = mod.GENERIC_CALLER_CONTEXT) -> dict[str, Any]:
+        return {
+            "conditions": {"ref_name": {"include": ["refs/heads/*"], "exclude": []}},
+            "rules": [
+                {"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": context}]}},
+                {"type": "pull_request", "parameters": {"required_approving_review_count": 0, "require_last_push_approval": False}},
+            ],
+        }
+
     def test_dynamic_topology_detection(self):
         self.assertEqual(mod.classify_topology({"development", "staging", "main"}, "main"), "STANDARD_SYNERGIE_FLOW")
         self.assertEqual(mod.classify_topology({"main"}, "main"), "TRUNK_ONLY")
@@ -169,6 +198,17 @@ class ModernizedRecoveryTests(unittest.TestCase):
         self.assertEqual(mod.release_topology_branches({"development", "main"}, "main"), ["development", "main"])
         self.assertEqual(mod.release_topology_branches({"staging", "main"}, "main"), ["staging", "main"])
         self.assertEqual(mod.release_topology_branches({"development", "staging", "main"}, "main"), ["development", "staging", "main"])
+
+    def test_false_prqa_branch_names_are_not_release_branches(self):
+        branches = {"main", "fix/pr-qa-v1-rc3", "rollout/pr-qa-v1-rc2", "feature/qa-fix", "chore/update-production-docs"}
+        self.assertEqual(mod.classify_topology(branches, "main"), "TOPOLOGY_REVIEW_REQUIRED")
+        self.assertEqual(mod.release_topology_branches(branches, "main"), ["main"])
+
+    def test_genuine_release_environment_branches_are_detected(self):
+        for branch in ("release/1.2.0", "release-2026-08", "production", "prod", "uat", "qa", "qa/release", "uat/app", "prod/hotfix", "production/cutover"):
+            self.assertTrue(mod.is_release_environment_branch(branch), branch)
+        for branch in ("fix/pr-qa-v1-rc3", "rollout/pr-qa-v1-rc2", "feature/qa-fix", "chore/update-production-docs"):
+            self.assertFalse(mod.is_release_environment_branch(branch), branch)
 
     def test_gate_c_exists_only_for_staging_to_main(self):
         self.assertFalse(mod.has_gate_c_path({"main"}))
@@ -204,6 +244,61 @@ class ModernizedRecoveryTests(unittest.TestCase):
         with patch.object(mod, "workflow_files", side_effect=fake_workflow_files):
             mod.deployment_audit(Path("."), "SaurabhVermaIN", {"development", "staging", "main"}, "main")
         self.assertEqual(calls, ["origin/development", "origin/staging", "origin/main"])
+
+    def test_fresh_repo_without_caller_allows_bootstrap_context(self):
+        tmp, repo = self.repo_with_origin_branch({"development": {"README.md": "fresh\n"}})
+        self.addCleanup(tmp.cleanup)
+        with patch.object(mod, "observed_check_names", return_value=set()):
+            self.assertEqual(
+                mod.expected_prqa_context("Synergie-ITCI/example", repo, "development"),
+                (mod.GENERIC_CALLER_CONTEXT, "fresh bootstrap fallback; no PR-QA caller workflow exists yet"),
+            )
+
+    def test_no_observed_check_history_does_not_block_genuinely_fresh_repo(self):
+        tmp, repo = self.repo_with_origin_branch({"development": {"README.md": "fresh\n"}})
+        self.addCleanup(tmp.cleanup)
+        with patch.object(mod, "active_ruleset_details", return_value=[self.prqa_ruleset()]), \
+             patch.object(mod, "observed_check_names", return_value=set()):
+            findings = mod.ruleset_audit("Synergie-ITCI/example", repo, "main", {"development"})
+        self.assertTrue(any(f.key == "RULESET_DEVELOPMENT_PRQA" and f.status == "PASS" for f in findings))
+
+    def test_existing_caller_context_mismatch_remains_blocked(self):
+        caller = "name: pr-qa\non: pull_request\njobs:\n  pr-qa:\n    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@main\n"
+        tmp, repo = self.repo_with_origin_branch({"main": {".github/workflows/pr-qa.yml": caller}})
+        self.addCleanup(tmp.cleanup)
+        with patch.object(mod, "active_ruleset_details", return_value=[self.prqa_ruleset("Pull Request Quality Assurance / Pull Request Quality Assurance")]), \
+             patch.object(mod, "observed_check_names", return_value=set()):
+            findings = mod.ruleset_audit("Synergie-ITCI/example", repo, "main", {"main"})
+        prqa = [f for f in findings if f.key == "RULESET_MAIN_PRQA"][0]
+        self.assertEqual(prqa.status, "BLOCKED")
+        self.assertIn("Mismatched PR-QA-like contexts", prqa.detail)
+
+    def test_castrol_style_context_mismatch_is_not_onboarding_needed(self):
+        caller = "name: pr-qa\non: pull_request\njobs:\n  pr-qa:\n    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@main\n"
+        tmp, repo = self.repo_with_origin_branch({"main": {".github/workflows/pr-qa.yml": caller}})
+        self.addCleanup(tmp.cleanup)
+        with patch.object(mod, "observed_check_names", return_value=set()):
+            expected, source = mod.expected_prqa_context("Synergie-ITCI/Castrol", repo, "main")
+        self.assertEqual(expected, mod.GENERIC_CALLER_CONTEXT)
+        self.assertNotIn("fresh bootstrap", source)
+
+    def test_custom_caller_requires_review(self):
+        custom = "name: custom qa\non: pull_request\njobs:\n  quality:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo custom\n"
+        tmp, repo = self.repo_with_origin_branch({"development": {".github/workflows/pr-qa.yml": custom}})
+        self.addCleanup(tmp.cleanup)
+        with patch.object(mod, "observed_check_names", return_value=set()):
+            expected, source = mod.expected_prqa_context("Synergie-ITCI/example", repo, "development")
+        self.assertIsNone(expected)
+        self.assertIn("CUSTOM_CALLER_REQUIRES_REVIEW", source)
+
+    def test_already_onboarded_valid_repo_retains_strict_audit(self):
+        caller = "name: pr-qa\non: pull_request\njobs:\n  pr-qa:\n    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@main\n"
+        tmp, repo = self.repo_with_origin_branch({"staging": {".github/workflows/pr-qa.yml": caller}})
+        self.addCleanup(tmp.cleanup)
+        with patch.object(mod, "active_ruleset_details", return_value=[self.prqa_ruleset()]), \
+             patch.object(mod, "observed_check_names", return_value=set()):
+            findings = mod.ruleset_audit("Synergie-ITCI/example", repo, "main", {"staging"})
+        self.assertTrue(any(f.key == "RULESET_STAGING_PRQA" and f.status == "PASS" and "generic caller" in f.detail for f in findings))
 
     def test_technology_profile_and_criticality_detection(self):
         paths = [
