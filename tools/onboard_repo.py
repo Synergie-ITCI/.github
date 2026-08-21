@@ -119,7 +119,7 @@ def classify_topology(branches: set[str], default_branch: str) -> str:
         return "TWO_STAGE"
     if has_master and (has_development or has_staging):
         return "LEGACY_MAIN_NAMING"
-    release_like = [b for b in branches if re.search(r"release|prod|uat|qa", b, re.IGNORECASE)]
+    release_like = [b for b in branches if is_release_environment_branch(b)]
     if release_like:
         return "CUSTOM_RELEASE_TOPOLOGY"
     return "TOPOLOGY_REVIEW_REQUIRED"
@@ -139,11 +139,18 @@ def release_topology_branches(branches: set[str], default_branch: str) -> list[s
         if branch in branches and branch not in ordered:
             ordered.append(branch)
     for branch in sorted(branches):
-        if branch not in ordered and re.search(r"release|prod|uat|qa", branch, re.IGNORECASE):
+        if branch not in ordered and is_release_environment_branch(branch):
             ordered.append(branch)
     if not ordered and default_branch in branches:
         ordered.append(default_branch)
     return ordered
+
+
+def is_release_environment_branch(branch: str) -> bool:
+    name = branch.lower()
+    if name in {"production", "prod", "uat", "qa"}:
+        return True
+    return name.startswith(("release/", "release-", "production/", "prod/", "uat/", "qa/"))
 
 
 def has_gate_c_path(branches: set[str]) -> bool:
@@ -480,23 +487,46 @@ def observed_check_names(repo: str, base: str) -> set[str]:
     return names
 
 
-def generic_caller_present(repo_dir: Path, branch: str) -> bool:
-    proc = run(["git", "show", f"origin/{branch}:.github/workflows/pr-qa.yml"], cwd=repo_dir, check=False)
+def caller_workflow_text(repo_dir: Path, branch: str) -> tuple[str, str | None]:
+    ref = f"origin/{branch}"
+    ref_check = run(["git", "rev-parse", "--verify", f"{ref}^{{commit}}"], cwd=repo_dir, check=False)
+    if ref_check.returncode != 0:
+        return "ERROR", None
+    tree = run(["git", "ls-tree", "-z", "--name-only", ref, ".github/workflows/pr-qa.yml"], cwd=repo_dir, check=False)
+    if tree.returncode != 0:
+        return "ERROR", None
+    if tree.stdout == "":
+        return "ABSENT", None
+    proc = run(["git", "show", f"{ref}:.github/workflows/pr-qa.yml"], cwd=repo_dir, check=False)
     if proc.returncode != 0:
+        return "ERROR", None
+    return "PRESENT", proc.stdout
+
+
+def generic_caller_present(repo_dir: Path, branch: str) -> bool:
+    state, text = caller_workflow_text(repo_dir, branch)
+    if state != "PRESENT" or text is None:
         return False
-    text = proc.stdout
     return "uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@main" in text and re.search(r"(?m)^\s*pr-qa\s*:\s*$", text) is not None
 
 
 def expected_prqa_context(repo: str, repo_dir: Path, branch: str) -> tuple[str | None, str]:
+    state, caller = caller_workflow_text(repo_dir, branch)
+    if state == "ERROR":
+        return None, "Unable to prove PR-QA caller workflow state; failing closed."
+    if state == "PRESENT" and caller is not None:
+        if "uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@main" not in caller or re.search(r"(?m)^\s*pr-qa\s*:\s*$", caller) is None:
+            return None, "CUSTOM_CALLER_REQUIRES_REVIEW: existing PR-QA caller is not the supported generic caller shape"
+        observed = sorted(name for name in observed_check_names(repo, branch) if "Pull Request Quality Assurance" in name)
+        if len(observed) > 1:
+            return None, "multiple PR-QA check contexts observed: " + ", ".join(observed)
+        if len(observed) == 1 and observed[0] != GENERIC_CALLER_CONTEXT:
+            return None, f"observed PR-QA context `{observed[0]}` conflicts with exact generic caller context `{GENERIC_CALLER_CONTEXT}`"
+        return GENERIC_CALLER_CONTEXT, "derived from exact generic caller shape"
     observed = sorted(name for name in observed_check_names(repo, branch) if "Pull Request Quality Assurance" in name)
-    if len(observed) == 1:
-        return observed[0], "observed from live PR check-runs"
     if len(observed) > 1:
         return None, "multiple PR-QA check contexts observed: " + ", ".join(observed)
-    if generic_caller_present(repo_dir, branch):
-        return GENERIC_CALLER_CONTEXT, "derived from exact generic caller shape"
-    return None, "no live PR-QA context observed and no exact generic caller fallback"
+    return GENERIC_CALLER_CONTEXT, "fresh bootstrap fallback; no PR-QA caller workflow exists yet"
 
 
 def ruleset_audit(repo: str, repo_dir: Path, default_branch: str, branches: set[str]) -> list[Finding]:
