@@ -3526,6 +3526,43 @@ exit 0
         self.assertNotEqual(code, 0)
         self.assertIn("CRITICAL migration risk", report)
 
+    def test_laravel_down_only_destructive_migration_does_not_fail_forward_risk(self) -> None:
+        repo, base = self.init_repo("laravel-down-only-migration")
+        self.write(
+            repo / "database" / "migrations" / "2026_01_01_000001_create_widgets.php",
+            "<?php\n"
+            "return new class {\n"
+            "    public function up() { Schema::create('widgets', function ($table) {}); }\n"
+            "    public function down() { Schema::dropIfExists('widgets'); }\n"
+            "};\n",
+        )
+        self.commit(repo, "feat: add widget migration")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Migration Risk"], "WARNING")
+        self.assertIn("LOW migration risk", report)
+        self.assertNotIn("CRITICAL migration risk", report)
+
+    def test_laravel_up_destructive_migration_still_fails(self) -> None:
+        repo, base = self.init_repo("laravel-up-destructive-migration")
+        self.write(
+            repo / "database" / "migrations" / "2026_01_01_000001_drop_widgets.php",
+            "<?php\n"
+            "return new class {\n"
+            "    public function up() { Schema::dropIfExists('widgets'); }\n"
+            "    public function down() { Schema::create('widgets', function ($table) {}); }\n"
+            "};\n",
+        )
+        self.commit(repo, "feat: add destructive migration")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Migration Risk"], "FAIL")
+        self.assertIn("CRITICAL migration risk", report)
+
     def test_unknown_executable_language_fails(self) -> None:
         repo, base = self.init_repo("unknown-exec")
         self.write(repo / "src" / "server.js", "module.exports = () => 1\n")

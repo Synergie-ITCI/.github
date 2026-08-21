@@ -3118,7 +3118,13 @@ def migration_risk_text(ctx: PRContext, text: str) -> str:
     if baseline_allows(ctx, "historical_migration_count"):
         parts = re.split(r"(?i)\bfunction\s+down\s*\(", text, maxsplit=1)
         return parts[0]
-    return text
+    up_match = re.search(r"(?i)\bfunction\s+up\s*\(", text)
+    if not up_match:
+        return text
+    down_match = re.search(r"(?i)\bfunction\s+down\s*\(", text[up_match.start():])
+    if down_match:
+        return text[up_match.start():up_match.start() + down_match.start()]
+    return text[up_match.start():]
 
 
 def baseline_rollback_destructive_migrations(ctx: PRContext, migrations: list[str]) -> list[str]:
