@@ -1832,11 +1832,23 @@ def resolve_fresh_origin_branch_tip(repo: Path, branch: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9._/-]+", branch or ""):
         return ""
     remote_ref = f"refs/remotes/origin/{branch}"
-    fetched = subprocess.run(["git", "fetch", "--no-tags", "origin", f"+refs/heads/{branch}:{remote_ref}"], cwd=repo, text=True, capture_output=True, check=False)
+    fetch_args = ["git", "fetch", "--no-tags", "origin", f"+refs/heads/{branch}:{remote_ref}"]
+    if origin_is_github_https(repo):
+        token = os.environ.get("GH_TOKEN", "")
+        if not token:
+            return ""
+        encoded = base64.b64encode(f"x-access-token:{token}".encode("utf-8")).decode("ascii")
+        fetch_args = ["git", "-c", f"http.https://github.com/.extraheader=AUTHORIZATION: basic {encoded}", "fetch", "--no-tags", "origin", f"+refs/heads/{branch}:{remote_ref}"]
+    fetched = subprocess.run(fetch_args, cwd=repo, text=True, capture_output=True, check=False)
     if fetched.returncode != 0:
         return ""
     resolved = run_git(repo, ["rev-parse", "--verify", f"{remote_ref}^{{commit}}"]).strip()
     return resolved if resolved and commit_exists(repo, resolved) else ""
+
+
+def origin_is_github_https(repo: Path) -> bool:
+    origin_url = run_git(repo, ["remote", "get-url", "origin"]).strip().lower()
+    return origin_url.startswith("https://github.com/") or origin_url.startswith("https://www.github.com/")
 
 
 def main_to_staging_gate_c_alignment_merge_commit(ctx: PRContext, sha: str) -> bool:
