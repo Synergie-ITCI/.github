@@ -50,6 +50,8 @@ from adapters.base import (
 FRAMEWORK_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_POLICY_PATH = FRAMEWORK_ROOT / "policy" / "pr-qa-policy.json"
 CONFIG_PATH = ".github/pr-qa.yml"
+CANONICAL_CALLER_TEMPLATE_PATH = FRAMEWORK_ROOT / "examples" / "caller-workflow.yml"
+CANONICAL_PR_TEMPLATE_PATH = FRAMEWORK_ROOT / "examples" / "pull_request_template.md"
 EMERGENCY_OVERRIDE_REASON_ENV = "PR_QA_EMERGENCY_OVERRIDE_REASON"
 CODEOWNERS_PATHS = {"CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"}
 TECHNICAL_BASELINE_SCHEMA_VERSION = 1
@@ -660,6 +662,15 @@ def commit_exists(repo: Path, sha: str) -> bool:
 
 def tree_entry_exists(repo: Path, ref: str, rel: str) -> bool:
     return subprocess.run(["git", "cat-file", "-e", f"{ref}:{rel}"], cwd=repo, capture_output=True).returncode == 0
+
+
+def tree_path_state(repo: Path, ref: str, rel: str) -> str:
+    if not ref or not is_git_repo(repo) or not commit_exists(repo, ref):
+        return "ERROR"
+    completed = subprocess.run(["git", "ls-tree", "-z", "--name-only", ref, rel], cwd=repo, capture_output=True, text=True, check=False)
+    if completed.returncode != 0:
+        return "ERROR"
+    return "PRESENT" if completed.stdout else "ABSENT"
 
 
 def run_git(repo: Path, args: list[str]) -> str:
@@ -2465,6 +2476,8 @@ def gate_protected_resources(ctx: PRContext, git_context: dict[str, Any]) -> lis
             return [warning("Protected Resources", None, "Inherited baseline protected resources match the exact approved source; future changes require normal CODEOWNERS coverage.", inherited_protected[:30])]
         return [passed("Protected Resources", None, "No protected resources changed.")]
     if not codeowners:
+        if is_canonical_fresh_pr_qa_onboarding(ctx, git_context, changed_for_standard_policy):
+            return [warning("Protected Resources", None, "Canonical fresh PR-QA onboarding matched the authoritative central templates while base CODEOWNERS is absent. Required status checks and Review Policy remain mandatory. Future protected-resource modifications remain subject to normal CODEOWNERS enforcement.", sorted(ctx.changed_files))]
         return [failed("Protected Resources", None, "Protected resources changed but base-branch CODEOWNERS was not found.", changed_for_standard_policy[:30], score=14)]
     uncovered = [path for path in changed_for_standard_policy if not codeowners_covers(path, codeowners)]
     if uncovered:
@@ -2482,6 +2495,36 @@ def is_codeowners_bootstrap_pr(ctx: PRContext) -> bool:
     allowed = {"CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS", ".github/workflows/pr-qa.yml"}
     changed = set(ctx.changed_files)
     return bool(changed) and changed <= allowed and any(path in changed for path in CODEOWNERS_PATHS)
+
+
+def is_canonical_fresh_pr_qa_onboarding(ctx: PRContext, git_context: dict[str, Any], protected_changed: list[str]) -> bool:
+    allowed = {".github/workflows/pr-qa.yml", ".github/pull_request_template.md"}
+    changed = set(ctx.changed_files)
+    if not changed or not changed <= allowed or ".github/workflows/pr-qa.yml" not in changed:
+        return False
+    if set(protected_changed) != changed:
+        return False
+    base_sha = str(git_context.get("base_sha") or "")
+    if not base_sha or not commit_exists(ctx.repo, base_sha):
+        return False
+    for rel in CODEOWNERS_PATHS:
+        if tree_path_state(ctx.repo, base_sha, rel) != "ABSENT":
+            return False
+    expected = {
+        ".github/workflows/pr-qa.yml": CANONICAL_CALLER_TEMPLATE_PATH,
+        ".github/pull_request_template.md": CANONICAL_PR_TEMPLATE_PATH,
+    }
+    for rel in changed:
+        if tree_path_state(ctx.repo, base_sha, rel) != "ABSENT":
+            return False
+        if tree_path_state(ctx.repo, "HEAD", rel) != "PRESENT":
+            return False
+        template_path = expected[rel]
+        if not template_path.is_file():
+            return False
+        if read_tree_file(ctx.repo, "HEAD", rel) != read_text(template_path):
+            return False
+    return True
 
 
 @dataclass(frozen=True)

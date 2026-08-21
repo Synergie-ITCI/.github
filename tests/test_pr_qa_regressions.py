@@ -2887,6 +2887,177 @@ exit 0
         self.assertEqual(code, 0)
         self.assertIn("Base CODEOWNERS bootstrap detected", report)
 
+    def init_fresh_onboarding_repo(self, name: str, base_files: dict[str, str] | None = None) -> tuple[Path, str]:
+        repo = self.tmp / name
+        repo.mkdir()
+        self.git(repo, "init", "-q")
+        self.git(repo, "config", "user.email", "qa@example.invalid")
+        self.git(repo, "config", "user.name", "QA Regression")
+        self.write(repo / "README.md", "# fresh onboarding\n")
+        for rel, text in (base_files or {}).items():
+            self.write(repo / rel, text)
+        self.git(repo, "add", ".")
+        self.git(repo, "commit", "-q", "-m", "chore: baseline")
+        base = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.git(repo, "checkout", "-q", "-b", "chore/governance-onboarding")
+        return repo, base
+
+    def canonical_caller_template(self) -> str:
+        return (ROOT / "examples" / "caller-workflow.yml").read_text(encoding="utf-8")
+
+    def canonical_pr_template(self) -> str:
+        return (ROOT / "examples" / "pull_request_template.md").read_text(encoding="utf-8")
+
+    def assert_fresh_onboarding_warning(self, report_json: dict, report: str) -> None:
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Protected Resources"], "WARNING")
+        self.assertIn("Canonical fresh PR-QA onboarding matched the authoritative central templates", report)
+
+    def test_canonical_fresh_onboarding_adds_both_bootstrap_files_warning(self) -> None:
+        repo, base = self.init_fresh_onboarding_repo("fresh-onboarding-both")
+        self.write(repo / ".github" / "workflows" / "pr-qa.yml", self.canonical_caller_template())
+        self.write(repo / ".github" / "pull_request_template.md", self.canonical_pr_template())
+        self.commit(repo, "chore: onboard central pr qa")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True, base_ref="development", head_ref="chore/governance-onboarding")
+
+        self.assertEqual(code, 0, report)
+        self.assert_fresh_onboarding_warning(report_json, report)
+
+    def test_canonical_fresh_onboarding_only_caller_new_template_already_base_warning(self) -> None:
+        repo, base = self.init_fresh_onboarding_repo("fresh-onboarding-caller-only", {".github/pull_request_template.md": self.canonical_pr_template()})
+        self.write(repo / ".github" / "workflows" / "pr-qa.yml", self.canonical_caller_template())
+        self.commit(repo, "chore: onboard central pr qa")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True, base_ref="development", head_ref="chore/governance-onboarding")
+
+        self.assertEqual(code, 0, report)
+        self.assert_fresh_onboarding_warning(report_json, report)
+
+    def test_template_only_new_with_existing_caller_is_not_fresh_onboarding(self) -> None:
+        repo, base = self.init_fresh_onboarding_repo("fresh-onboarding-template-only", {".github/workflows/pr-qa.yml": self.canonical_caller_template()})
+        self.write(repo / ".github" / "pull_request_template.md", self.canonical_pr_template())
+        self.commit(repo, "chore: add pull request template")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True, base_ref="development", head_ref="chore/governance-onboarding")
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Protected Resources"], "FAIL")
+        self.assertNotIn("Canonical fresh PR-QA onboarding", report)
+
+    def test_fresh_onboarding_with_application_file_still_blocks(self) -> None:
+        repo, base = self.init_fresh_onboarding_repo("fresh-onboarding-app-file")
+        self.write(repo / ".github" / "workflows" / "pr-qa.yml", self.canonical_caller_template())
+        self.write(repo / "app" / "Http" / "Controller.php", "<?php\n")
+        self.commit(repo, "chore: onboard with app file")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True, base_ref="development", head_ref="chore/governance-onboarding")
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Protected Resources"], "FAIL")
+        self.assertNotIn("Canonical fresh PR-QA onboarding", report)
+
+    def test_fresh_onboarding_with_arbitrary_third_file_still_blocks(self) -> None:
+        repo, base = self.init_fresh_onboarding_repo("fresh-onboarding-third-file")
+        self.write(repo / ".github" / "workflows" / "pr-qa.yml", self.canonical_caller_template())
+        self.write(repo / ".github" / "README.md", "extra governance file\n")
+        self.commit(repo, "chore: onboard with extra file")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True, base_ref="development", head_ref="chore/governance-onboarding")
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Protected Resources"], "FAIL")
+        self.assertNotIn("Canonical fresh PR-QA onboarding", report)
+
+    def test_fresh_onboarding_with_repo_local_pr_qa_config_still_blocks(self) -> None:
+        repo, base = self.init_fresh_onboarding_repo("fresh-onboarding-repo-config")
+        self.write(repo / ".github" / "workflows" / "pr-qa.yml", self.canonical_caller_template())
+        self.write(repo / ".github" / "pr-qa.yml", "version: 1\n")
+        self.commit(repo, "chore: onboard with repo config")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True, base_ref="development", head_ref="chore/governance-onboarding")
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Protected Resources"], "FAIL")
+        self.assertNotIn("Canonical fresh PR-QA onboarding", report)
+
+    def test_codeowners_file_is_not_accepted_by_fresh_onboarding_exception(self) -> None:
+        repo, base = self.init_fresh_onboarding_repo("fresh-onboarding-codeowners")
+        self.write(repo / ".github" / "workflows" / "pr-qa.yml", self.canonical_caller_template())
+        self.write(repo / ".github" / "CODEOWNERS", ".github/** @Synergie-ITCI/saurabh-pr-review-bypass\n")
+        self.commit(repo, "chore: onboard with codeowners")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True, base_ref="development", head_ref="chore/governance-onboarding")
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Protected Resources"], "WARNING")
+        self.assertIn("Base CODEOWNERS bootstrap detected", report)
+        self.assertNotIn("Canonical fresh PR-QA onboarding", report)
+
+    def test_fresh_onboarding_modified_caller_still_blocks(self) -> None:
+        repo, base = self.init_fresh_onboarding_repo("fresh-onboarding-modified-caller")
+        self.write(repo / ".github" / "workflows" / "pr-qa.yml", self.canonical_caller_template().replace("issues: write", "issues: read", 1))
+        self.write(repo / ".github" / "pull_request_template.md", self.canonical_pr_template())
+        self.commit(repo, "chore: onboard modified caller")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True, base_ref="development", head_ref="chore/governance-onboarding")
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Protected Resources"], "FAIL")
+        self.assertNotIn("Canonical fresh PR-QA onboarding", report)
+
+    def test_fresh_onboarding_modified_pr_template_still_blocks(self) -> None:
+        repo, base = self.init_fresh_onboarding_repo("fresh-onboarding-modified-template")
+        self.write(repo / ".github" / "workflows" / "pr-qa.yml", self.canonical_caller_template())
+        self.write(repo / ".github" / "pull_request_template.md", self.canonical_pr_template() + "\nExtra local section\n")
+        self.commit(repo, "chore: onboard modified template")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True, base_ref="development", head_ref="chore/governance-onboarding")
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Protected Resources"], "FAIL")
+        self.assertNotIn("Canonical fresh PR-QA onboarding", report)
+
+    def test_existing_bootstrap_path_modification_still_blocks(self) -> None:
+        repo, base = self.init_fresh_onboarding_repo("fresh-onboarding-existing-path", {".github/workflows/pr-qa.yml": self.canonical_caller_template()})
+        self.write(repo / ".github" / "workflows" / "pr-qa.yml", self.canonical_caller_template() + "\n")
+        self.commit(repo, "chore: modify existing caller")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True, base_ref="development", head_ref="chore/governance-onboarding")
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Protected Resources"], "FAIL")
+        self.assertNotIn("Canonical fresh PR-QA onboarding", report)
+
+    def test_fresh_onboarding_base_evidence_error_fails_closed(self) -> None:
+        engine = load_engine_module()
+        repo, _ = self.init_fresh_onboarding_repo("fresh-onboarding-base-error")
+        self.write(repo / ".github" / "workflows" / "pr-qa.yml", self.canonical_caller_template())
+        self.commit(repo, "chore: onboard central pr qa")
+        ctx = engine.PRContext(
+            repo=repo,
+            config={"repository": {"protected_paths": [".github/**"]}},
+            policy={},
+            changed_files=[".github/workflows/pr-qa.yml"],
+            base_ref="development",
+            head_ref="chore/governance-onboarding",
+        )
+
+        results = engine.gate_protected_resources(ctx, {"base_sha": "0" * 40, "is_git_repo": True})
+
+        self.assertEqual(results[0].status, "FAIL")
+        self.assertIn("base-branch CODEOWNERS was not found", results[0].message)
+
+    def test_non_bootstrap_protected_resource_without_codeowners_still_blocks(self) -> None:
+        repo, base = self.init_fresh_onboarding_repo("fresh-onboarding-other-protected")
+        self.write(repo / ".github" / "workflows" / "maintenance.yml", "name: maintenance\non: workflow_dispatch\njobs:\n  noop:\n    runs-on: ubuntu-latest\n    steps:\n      - run: true\n")
+        self.commit(repo, "chore: add protected workflow")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True, base_ref="development", head_ref="chore/governance-onboarding")
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Protected Resources"], "FAIL")
+        self.assertIn("Protected resources changed but base-branch CODEOWNERS was not found", report)
+
     def test_framework_profile_classifies_approved_regression_fixture(self) -> None:
         repo, base = self.init_repo("framework-fixture", profile="framework")
         self.write(repo / "tests" / "test_pr_qa_regressions.py", "TOKEN = 'ghp_abcdefghijklmnopqrstuvwxyz123456'\n")
