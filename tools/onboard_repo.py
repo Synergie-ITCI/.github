@@ -553,12 +553,20 @@ def ruleset_audit(repo: str, repo_dir: Path, default_branch: str, branches: set[
         if not expected:
             findings.append(Finding(f"RULESET_{branch.upper()}_PRQA", "BLOCKED", source))
             continue
+        lookalikes = sorted(c for c in contexts if "Pull Request Quality Assurance" in c)
         if expected not in contexts:
-            lookalikes = sorted(c for c in contexts if "Pull Request Quality Assurance" in c)
             detail = f"Expected exact context `{expected}` ({source}) is not required."
             if lookalikes:
                 detail += " Mismatched PR-QA-like contexts: " + ", ".join(lookalikes)
-            findings.append(Finding(f"RULESET_{branch.upper()}_PRQA", "BLOCKED", detail))
+                findings.append(Finding(f"RULESET_{branch.upper()}_PRQA", "BLOCKED", detail))
+            elif "fresh bootstrap fallback" in source:
+                findings.append(Finding(
+                    f"RULESET_{branch.upper()}_PRQA",
+                    "WARNING",
+                    f"Onboarding can proceed; `{expected}` is not required yet because no PR-QA caller workflow exists. Align rulesets after bootstrap.",
+                ))
+            else:
+                findings.append(Finding(f"RULESET_{branch.upper()}_PRQA", "BLOCKED", detail))
         else:
             findings.append(Finding(f"RULESET_{branch.upper()}_PRQA", "PASS", f"Exact required context `{expected}` ({source})."))
 
@@ -862,15 +870,19 @@ def onboard(args: argparse.Namespace) -> int:
             print_report(args.repo, findings, [], json_mode=args.json)
             return 2
 
-        if args.apply:
-            findings.extend(bootstrap_apply(args.repo, repo_dir, args.wait, bootstrap_base))
-            run(["git", "fetch", "origin", "--prune"], cwd=repo_dir)
-
         findings.extend(ruleset_audit(args.repo, repo_dir, default_branch, branches))
         deploy_findings, workflow_rows = deployment_audit(repo_dir, owner_login, branches, default_branch)
         findings.extend(deploy_findings)
 
         blockers = [f for f in findings if f.status == "BLOCKED"]
+        if args.apply and blockers:
+            print_report(args.repo, findings, workflow_rows, json_mode=args.json)
+            return 3
+
+        if args.apply:
+            findings.extend(bootstrap_apply(args.repo, repo_dir, args.wait, bootstrap_base))
+            run(["git", "fetch", "origin", "--prune"], cwd=repo_dir)
+
         if args.apply and args.wait and not blockers:
             findings.append(gate_c_status(args.repo, owner_login, create=True, branches=branches))
             findings.append(Finding("PRODUCTION", "PASS", "Untouched; CLI has no AWS/SSH/workflow-dispatch production action."))

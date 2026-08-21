@@ -1,3 +1,4 @@
+import argparse
 import importlib.util
 import json
 import subprocess
@@ -163,6 +164,7 @@ class ModernizedRecoveryTests(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory(prefix="onboard-audit-")
         repo = Path(tmp.name)
         subprocess.run(["git", "init", "-q", repo], check=True)
+        subprocess.run(["git", "remote", "add", "origin", str(repo)], cwd=repo, check=True)
         subprocess.run(["git", "config", "user.email", "qa@example.invalid"], cwd=repo, check=True)
         subprocess.run(["git", "config", "user.name", "QA"], cwd=repo, check=True)
         for branch, files in files_by_branch.items():
@@ -186,6 +188,17 @@ class ModernizedRecoveryTests(unittest.TestCase):
                 {"type": "pull_request", "parameters": {"required_approving_review_count": 0, "require_last_push_approval": False}},
             ],
         }
+
+    def ruleset_without_prqa_context(self) -> dict[str, Any]:
+        return {
+            "conditions": {"ref_name": {"include": ["refs/heads/*"], "exclude": []}},
+            "rules": [
+                {"type": "pull_request", "parameters": {"required_approving_review_count": 0, "require_last_push_approval": False}},
+            ],
+        }
+
+    def onboard_args(self, *, apply: bool = True) -> argparse.Namespace:
+        return argparse.Namespace(repo="Synergie-ITCI/example", json=True, profile="auto", criticality="auto", apply=apply, wait=False)
 
     def test_dynamic_topology_detection(self):
         self.assertEqual(mod.classify_topology({"development", "staging", "main"}, "main"), "STANDARD_SYNERGIE_FLOW")
@@ -262,6 +275,44 @@ class ModernizedRecoveryTests(unittest.TestCase):
             findings = mod.ruleset_audit("Synergie-ITCI/example", repo, "main", {"development"})
         self.assertTrue(any(f.key == "RULESET_DEVELOPMENT_PRQA" and f.status == "PASS" for f in findings))
 
+    def test_absent_caller_without_prqa_context_warns_and_is_bootstrap_safe(self):
+        tmp, repo = self.repo_with_origin_branch({"development": {"README.md": "fresh\n"}})
+        self.addCleanup(tmp.cleanup)
+        with patch.object(mod, "active_ruleset_details", return_value=[self.ruleset_without_prqa_context()]), \
+             patch.object(mod, "observed_check_names", return_value=set()):
+            findings = mod.ruleset_audit("Synergie-ITCI/example", repo, "main", {"development"})
+        prqa = [f for f in findings if f.key == "RULESET_DEVELOPMENT_PRQA"][0]
+        self.assertEqual(prqa.status, "WARNING")
+        self.assertIn("Onboarding can proceed", prqa.detail)
+
+    def test_absent_caller_with_exact_generic_context_passes(self):
+        tmp, repo = self.repo_with_origin_branch({"development": {"README.md": "fresh\n"}})
+        self.addCleanup(tmp.cleanup)
+        with patch.object(mod, "active_ruleset_details", return_value=[self.prqa_ruleset()]), \
+             patch.object(mod, "observed_check_names", return_value=set()):
+            findings = mod.ruleset_audit("Synergie-ITCI/example", repo, "main", {"development"})
+        self.assertTrue(any(f.key == "RULESET_DEVELOPMENT_PRQA" and f.status == "PASS" for f in findings))
+
+    def test_absent_caller_with_wrong_prqa_like_context_blocks(self):
+        tmp, repo = self.repo_with_origin_branch({"development": {"README.md": "fresh\n"}})
+        self.addCleanup(tmp.cleanup)
+        with patch.object(mod, "active_ruleset_details", return_value=[self.prqa_ruleset("Pull Request Quality Assurance / Pull Request Quality Assurance")]), \
+             patch.object(mod, "observed_check_names", return_value=set()):
+            findings = mod.ruleset_audit("Synergie-ITCI/example", repo, "main", {"development"})
+        prqa = [f for f in findings if f.key == "RULESET_DEVELOPMENT_PRQA"][0]
+        self.assertEqual(prqa.status, "BLOCKED")
+        self.assertIn("Mismatched PR-QA-like contexts", prqa.detail)
+
+    def test_existing_exact_caller_with_context_missing_blocks(self):
+        caller = "name: pr-qa\non: pull_request\njobs:\n  pr-qa:\n    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@main\n"
+        tmp, repo = self.repo_with_origin_branch({"development": {".github/workflows/pr-qa.yml": caller}})
+        self.addCleanup(tmp.cleanup)
+        with patch.object(mod, "active_ruleset_details", return_value=[self.ruleset_without_prqa_context()]), \
+             patch.object(mod, "observed_check_names", return_value=set()):
+            findings = mod.ruleset_audit("Synergie-ITCI/example", repo, "main", {"development"})
+        prqa = [f for f in findings if f.key == "RULESET_DEVELOPMENT_PRQA"][0]
+        self.assertEqual(prqa.status, "BLOCKED")
+
     def test_existing_caller_context_mismatch_remains_blocked(self):
         caller = "name: pr-qa\non: pull_request\njobs:\n  pr-qa:\n    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@main\n"
         tmp, repo = self.repo_with_origin_branch({"main": {".github/workflows/pr-qa.yml": caller}})
@@ -290,6 +341,17 @@ class ModernizedRecoveryTests(unittest.TestCase):
             expected, source = mod.expected_prqa_context("Synergie-ITCI/example", repo, "development")
         self.assertIsNone(expected)
         self.assertIn("CUSTOM_CALLER_REQUIRES_REVIEW", source)
+
+    def test_custom_caller_ruleset_audit_blocks_review_path(self):
+        custom = "name: custom qa\non: pull_request\njobs:\n  quality:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo custom\n"
+        tmp, repo = self.repo_with_origin_branch({"development": {".github/workflows/pr-qa.yml": custom}})
+        self.addCleanup(tmp.cleanup)
+        with patch.object(mod, "active_ruleset_details", return_value=[self.prqa_ruleset()]), \
+             patch.object(mod, "observed_check_names", return_value=set()):
+            findings = mod.ruleset_audit("Synergie-ITCI/example", repo, "main", {"development"})
+        prqa = [f for f in findings if f.key == "RULESET_DEVELOPMENT_PRQA"][0]
+        self.assertEqual(prqa.status, "BLOCKED")
+        self.assertIn("CUSTOM_CALLER_REQUIRES_REVIEW", prqa.detail)
 
     def test_custom_caller_with_valid_history_still_requires_review(self):
         custom = "name: custom qa\non: pull_request\njobs:\n  quality:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo custom\n"
@@ -338,6 +400,25 @@ class ModernizedRecoveryTests(unittest.TestCase):
         self.assertIn("Unable to prove PR-QA caller workflow state", source)
         self.assertNotIn("fresh bootstrap", source)
 
+    def test_ambiguous_caller_state_ruleset_audit_blocks(self):
+        with patch.object(mod, "caller_workflow_text", return_value=("ERROR", None)), \
+             patch.object(mod, "active_ruleset_details", return_value=[self.prqa_ruleset()]):
+            findings = mod.ruleset_audit("Synergie-ITCI/example", Path("."), "main", {"development"})
+        prqa = [f for f in findings if f.key == "RULESET_DEVELOPMENT_PRQA"][0]
+        self.assertEqual(prqa.status, "BLOCKED")
+        self.assertIn("Unable to prove", prqa.detail)
+
+    def test_native_review_deadlock_blocks(self):
+        tmp, repo = self.repo_with_origin_branch({"main": {"README.md": "fresh\n"}})
+        self.addCleanup(tmp.cleanup)
+        ruleset = self.prqa_ruleset()
+        ruleset["rules"][1]["parameters"]["required_approving_review_count"] = 1
+        with patch.object(mod, "active_ruleset_details", return_value=[ruleset]), \
+             patch.object(mod, "observed_check_names", return_value=set()):
+            findings = mod.ruleset_audit("Synergie-ITCI/example", repo, "main", {"main"})
+        reviews = [f for f in findings if f.key == "RULESET_MAIN_REVIEWS"][0]
+        self.assertEqual(reviews.status, "BLOCKED")
+
     def test_resolved_ref_with_absent_caller_still_bootstraps(self):
         tmp, repo = self.repo_with_origin_branch({"development": {"README.md": "fresh\n"}})
         self.addCleanup(tmp.cleanup)
@@ -364,6 +445,45 @@ class ModernizedRecoveryTests(unittest.TestCase):
              patch.object(mod, "observed_check_names", return_value=set()):
             findings = mod.ruleset_audit("Synergie-ITCI/example", repo, "main", {"staging"})
         self.assertTrue(any(f.key == "RULESET_STAGING_PRQA" and f.status == "PASS" and "generic caller" in f.detail for f in findings))
+
+    def test_onboard_apply_ruleset_blocker_prevents_bootstrap(self):
+        tmp, repo = self.repo_with_origin_branch({"development": {"README.md": "fresh\n"}, "main": {"README.md": "fresh\n"}})
+        with patch.object(mod, "require_tools"), \
+             patch.object(mod, "repo_metadata", return_value={"defaultBranchRef": {"name": "main"}}), \
+             patch.object(mod, "central_owner_login", return_value="SaurabhVermaIN"), \
+             patch.object(mod, "clone_repo", return_value=tmp), \
+             patch.object(mod, "active_ruleset_details", return_value=[self.prqa_ruleset("Pull Request Quality Assurance / Pull Request Quality Assurance")]), \
+             patch.object(mod, "observed_check_names", return_value=set()), \
+             patch.object(mod, "deployment_audit", return_value=([], [])), \
+             patch.object(mod, "bootstrap_apply") as bootstrap:
+            self.assertEqual(mod.onboard(self.onboard_args(apply=True)), 3)
+        bootstrap.assert_not_called()
+
+    def test_onboard_apply_deployment_blocker_prevents_bootstrap(self):
+        tmp, repo = self.repo_with_origin_branch({"development": {"README.md": "fresh\n"}, "main": {"README.md": "fresh\n"}})
+        with patch.object(mod, "require_tools"), \
+             patch.object(mod, "repo_metadata", return_value={"defaultBranchRef": {"name": "main"}}), \
+             patch.object(mod, "central_owner_login", return_value="SaurabhVermaIN"), \
+             patch.object(mod, "clone_repo", return_value=tmp), \
+             patch.object(mod, "active_ruleset_details", return_value=[self.ruleset_without_prqa_context()]), \
+             patch.object(mod, "observed_check_names", return_value=set()), \
+             patch.object(mod, "deployment_audit", return_value=([mod.Finding("PRODUCTION_AUTO_DEPLOY", "BLOCKED", "unsafe")], [])), \
+             patch.object(mod, "bootstrap_apply") as bootstrap:
+            self.assertEqual(mod.onboard(self.onboard_args(apply=True)), 3)
+        bootstrap.assert_not_called()
+
+    def test_onboard_apply_safe_fresh_warning_calls_bootstrap_once(self):
+        tmp, repo = self.repo_with_origin_branch({"development": {"README.md": "fresh\n"}, "main": {"README.md": "fresh\n"}})
+        with patch.object(mod, "require_tools"), \
+             patch.object(mod, "repo_metadata", return_value={"defaultBranchRef": {"name": "main"}}), \
+             patch.object(mod, "central_owner_login", return_value="SaurabhVermaIN"), \
+             patch.object(mod, "clone_repo", return_value=tmp), \
+             patch.object(mod, "active_ruleset_details", return_value=[self.ruleset_without_prqa_context()]), \
+             patch.object(mod, "observed_check_names", return_value=set()), \
+             patch.object(mod, "deployment_audit", return_value=([], [])), \
+             patch.object(mod, "bootstrap_apply", return_value=[mod.Finding("GATE_A_PR", "READY", "#1")]) as bootstrap:
+            self.assertEqual(mod.onboard(self.onboard_args(apply=True)), 0)
+        bootstrap.assert_called_once()
 
     def test_technology_profile_and_criticality_detection(self):
         paths = [
@@ -527,6 +647,13 @@ jobs:
         self.assertIn('".github/workflows/pr-qa.yml"', source)
         self.assertIn('".github/pull_request_template.md"', source)
         self.assertNotIn('".github/pr-qa.yml":', source)
+
+    def test_onboarding_decision_table_is_documented(self):
+        doc = (MODULE.parents[1] / "docs" / "onboarding-guide.md").read_text(encoding="utf-8")
+        self.assertIn("Fresh-Onboarding PR-QA Decision Table", doc)
+        self.assertIn("Caller workflow proven absent | No PR-QA-like context required | WARNING", doc)
+        self.assertIn("Custom caller exists | Any ruleset state | BLOCKED", doc)
+        self.assertIn("Caller/ref state ambiguous or unreadable | Any ruleset state | BLOCKED", doc)
 
     def test_apply_path_has_no_auto_merge_call(self):
         source = MODULE.read_text()

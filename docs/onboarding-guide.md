@@ -12,15 +12,30 @@ Copy these files into the repository:
 
 ```text
 .github/workflows/pr-qa.yml
-.github/pr-qa.yml
 .github/pull_request_template.md
 ```
 
 Use:
 
 - `examples/caller-workflow.yml` as `.github/workflows/pr-qa.yml`
-- `examples/pr-qa.yml` as `.github/pr-qa.yml`
 - `examples/pull_request_template.md` as `.github/pull_request_template.md`
+
+Do not introduce `.github/pr-qa.yml` for fresh onboarding. Central immutable defaults are authoritative unless a trusted base already contains a legacy repo-local configuration.
+
+## Fresh-Onboarding PR-QA Decision Table
+
+The onboarding CLI must prove the PR-QA caller state before interpreting missing check history or ruleset gaps.
+
+| Caller state | Ruleset PR-QA state | CLI result |
+| --- | --- | --- |
+| Caller workflow proven absent | Exact `pr-qa / Pull Request Quality Assurance` required | PASS |
+| Caller workflow proven absent | No PR-QA-like context required | WARNING; bootstrap may proceed, then ruleset alignment remains required |
+| Caller workflow proven absent | Different PR-QA-like context required | BLOCKED |
+| Exact generic caller exists | Exact `pr-qa / Pull Request Quality Assurance` required | PASS |
+| Exact generic caller exists | Required context missing | BLOCKED |
+| Exact generic caller exists | Wrong PR-QA-like context required | BLOCKED |
+| Custom caller exists | Any ruleset state | BLOCKED; `CUSTOM_CALLER_REQUIRES_REVIEW` |
+| Caller/ref state ambiguous or unreadable | Any ruleset state | BLOCKED; fail closed |
 
 ## Onboarding Steps
 
