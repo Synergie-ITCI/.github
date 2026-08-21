@@ -247,6 +247,7 @@ def main() -> int:
         config_violations=config_violations,
         diff_error=git_context.get("diff_error", ""),
     )
+    context_cache(ctx)["numstat"] = dict(git_context.get("numstat") or {})
 
     if args.technical_baseline_key_out:
         write_technical_baseline_key_output(args.technical_baseline_key_out, technical_baseline_binding(ctx, git_context, technologies, policy, Path(args.policy)))
@@ -610,6 +611,7 @@ def gather_git_context(repo: Path, event: dict[str, Any], base_ref: str, head_re
 
     changed = git_lines(repo, ["diff", "--name-only", "--diff-filter=ACMRTUXB", diff_range])
     additions, deletions = git_numstat(repo, diff_range)
+    numstat = git_numstat_by_path(repo, diff_range)
     if base_sha:
         pr_commit_range = f"{base_sha}..HEAD"
         commits = git_lines(repo, ["log", "--first-parent", "--format=%s", pr_commit_range])
@@ -625,6 +627,7 @@ def gather_git_context(repo: Path, event: dict[str, Any], base_ref: str, head_re
         "pr_commit_range": pr_commit_range,
         "additions": additions,
         "deletions": deletions,
+        "numstat": numstat,
         "diff_range": diff_range,
     })
     return context
@@ -694,6 +697,20 @@ def git_numstat(repo: Path, diff_range: str) -> tuple[int, int]:
             except ValueError:
                 pass
     return additions, deletions
+
+
+def git_numstat_by_path(repo: Path, diff_range: str) -> dict[str, tuple[int, int]]:
+    stats: dict[str, tuple[int, int]] = {}
+    for line in git_lines(repo, ["diff", "--numstat", diff_range]):
+        parts = line.split("\t")
+        if len(parts) >= 3:
+            try:
+                additions = int(parts[0]) if parts[0] != "-" else 0
+                deletions = int(parts[1]) if parts[1] != "-" else 0
+            except ValueError:
+                continue
+            stats[parts[-1]] = (additions, deletions)
+    return stats
 
 
 def read_base_file(repo: Path, git_context: dict[str, Any], rel: str) -> str:
@@ -3181,13 +3198,59 @@ def detect_duplicate_lines(ctx: PRContext, paths: list[str]) -> list[str]:
     return sorted(f"Repeated logic-like line appears {count} times: `{redact(line[:120])}`" for line, count in counts.items() if count >= 4)[:10]
 
 
+def is_generated_npm_lockfile(ctx: PRContext, rel: str) -> bool:
+    path = Path(rel)
+    if path.name not in {"package-lock.json", "npm-shrinkwrap.json"}:
+        return False
+    lockfile = ctx.repo / rel
+    package_json = lockfile.parent / "package.json"
+    if not lockfile.is_file() or not package_json.is_file():
+        return False
+    try:
+        payload = json.loads(lockfile.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    version = payload.get("lockfileVersion")
+    return isinstance(version, int) and not isinstance(version, bool) and version in {1, 2, 3}
+
+
+def risk_size_accounting(ctx: PRContext) -> dict[str, int]:
+    cache = context_cache(ctx)
+    if "risk_size_accounting" in cache:
+        return dict(cache["risk_size_accounting"])
+    numstat = dict(cache.get("numstat") or {})
+    excluded_additions = 0
+    excluded_deletions = 0
+    for rel in ctx.changed_files:
+        if not is_generated_npm_lockfile(ctx, rel):
+            continue
+        additions, deletions = numstat.get(rel, (0, 0))
+        excluded_additions += additions
+        excluded_deletions += deletions
+    accounting = {
+        "raw_additions": ctx.additions,
+        "raw_deletions": ctx.deletions,
+        "generated_lockfile_additions_excluded": excluded_additions,
+        "generated_lockfile_deletions_excluded": excluded_deletions,
+        "effective_additions": max(ctx.additions - excluded_additions, 0),
+        "effective_deletions": max(ctx.deletions - excluded_deletions, 0),
+    }
+    cache["risk_size_accounting"] = accounting
+    return dict(accounting)
+
+
 def gate_risk(ctx: PRContext, existing_results: list[CheckResult]) -> list[CheckResult]:
     score = calculate_risk_score(ctx, existing_results)
     level = risk_class(score)
+    size = risk_size_accounting(ctx)
     details = [
         f"Changed files: {len(ctx.changed_files)}",
-        f"Additions: {ctx.additions}",
-        f"Deletions: {ctx.deletions}",
+        f"RAW_ADDITIONS: {size['raw_additions']}",
+        f"RAW_DELETIONS: {size['raw_deletions']}",
+        f"GENERATED_LOCKFILE_ADDITIONS_EXCLUDED: {size['generated_lockfile_additions_excluded']}",
+        f"GENERATED_LOCKFILE_DELETIONS_EXCLUDED: {size['generated_lockfile_deletions_excluded']}",
+        f"EFFECTIVE_ADDITIONS: {size['effective_additions']}",
+        f"EFFECTIVE_DELETIONS: {size['effective_deletions']}",
         f"Repository criticality: {ctx.config.get('repository', {}).get('criticality', 'medium')}",
     ]
     threshold_findings = risk_threshold_findings(ctx)
@@ -3205,24 +3268,26 @@ def gate_risk(ctx: PRContext, existing_results: list[CheckResult]) -> list[Check
 
 def risk_threshold_findings(ctx: PRContext) -> list[str]:
     findings: list[str] = []
+    size = risk_size_accounting(ctx)
     max_changed = ctx.threshold("max_changed_files", 200)
     if not baseline_allows(ctx, "changed_file_count") and len(ctx.changed_files) > max_changed:
         findings.append(f"changed_files={len(ctx.changed_files)} exceeds max_changed_files={max_changed}")
     max_additions = ctx.threshold("max_additions", 5000)
-    if not baseline_allows(ctx, "diff_size") and ctx.additions > max_additions:
-        findings.append(f"additions={ctx.additions} exceeds max_additions={max_additions}")
+    if not baseline_allows(ctx, "diff_size") and size["effective_additions"] > max_additions:
+        findings.append(f"effective_additions={size['effective_additions']} exceeds max_additions={max_additions}")
     return findings
 
 
 def calculate_risk_score(ctx: PRContext, results: list[CheckResult]) -> int:
     score = {"low": 0, "medium": 5, "high": 12, "critical": 20}.get(str(ctx.config.get("repository", {}).get("criticality", "medium")).lower(), 5)
+    size = risk_size_accounting(ctx)
     if not baseline_allows(ctx, "changed_file_count") and len(ctx.changed_files) > ctx.threshold("max_changed_files", 200):
         score += 15
     elif not baseline_allows(ctx, "changed_file_count") and len(ctx.changed_files) > 50:
         score += 8
-    if not baseline_allows(ctx, "diff_size") and ctx.additions > ctx.threshold("max_additions", 5000):
+    if not baseline_allows(ctx, "diff_size") and size["effective_additions"] > ctx.threshold("max_additions", 5000):
         score += 15
-    elif not baseline_allows(ctx, "diff_size") and ctx.additions > 1000:
+    elif not baseline_allows(ctx, "diff_size") and size["effective_additions"] > 1000:
         score += 8
     if any(match_any(path, ctx.config.get("repository", {}).get("protected_paths", [])) for path in ctx.changed_files):
         score += 12
@@ -3869,6 +3934,7 @@ def summarize(results: list[CheckResult], technologies: dict[str, dict[str, Any]
         gate_statuses[display] = aggregate_status([result for result in results if result.gate == display])
     overall = FAIL if any(result.is_blocking_failure() for result in results) else PASS
     risk_result = next((result for result in results if result.gate == "Risk Engine"), None)
+    size = risk_size_accounting(ctx)
     return {
         "repository": resolve_repository_name(ctx),
         "base_ref": git_context.get("base_ref") or "",
@@ -3877,6 +3943,12 @@ def summarize(results: list[CheckResult], technologies: dict[str, dict[str, Any]
         "changed_files": len(ctx.changed_files),
         "additions": ctx.additions,
         "deletions": ctx.deletions,
+        "raw_additions": size["raw_additions"],
+        "raw_deletions": size["raw_deletions"],
+        "generated_lockfile_additions_excluded": size["generated_lockfile_additions_excluded"],
+        "generated_lockfile_deletions_excluded": size["generated_lockfile_deletions_excluded"],
+        "effective_additions": size["effective_additions"],
+        "effective_deletions": size["effective_deletions"],
         "gate_statuses": gate_statuses,
         "overall_result": overall,
         "merge_readiness": "READY FOR HUMAN REVIEW" if overall == PASS else "NOT READY FOR HUMAN REVIEW",

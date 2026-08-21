@@ -1925,6 +1925,185 @@ exit 0
         self.assertEqual(report_json["summary"]["gate_statuses"]["Risk Engine"], "FAIL")
         self.assertIn("PR exceeds central size thresholds", report)
 
+    def test_generated_npm_lockfile_bulk_does_not_fail_additions_threshold(self) -> None:
+        repo, base = self.init_repo("npm-lockfile-bulk")
+        self.write(repo / "package.json", json.dumps({"scripts": {"production": "echo build"}, "dependencies": {}}))
+        self.write(repo / "package-lock.json", self.large_package_lock())
+        self.commit(repo, "fix: add reproducible npm lockfile")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            extra_args=["--no-command-runs"],
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertNotEqual(report_json["summary"]["gate_statuses"]["Risk Engine"], "FAIL")
+        self.assertGreater(report_json["summary"]["raw_additions"], 5000)
+        self.assertGreater(report_json["summary"]["generated_lockfile_additions_excluded"], 5000)
+        self.assertLess(report_json["summary"]["effective_additions"], 5000)
+        risk_result = next(result for result in report_json["results"] if result["gate"] == "Risk Engine")
+        self.assertIn("RAW_ADDITIONS", "\n".join(risk_result["details"]))
+        self.assertIn("EFFECTIVE_ADDITIONS", "\n".join(risk_result["details"]))
+
+    def test_authored_source_bulk_still_fails_with_generated_npm_lockfile(self) -> None:
+        repo, base = self.init_repo("npm-lockfile-plus-source-bulk")
+        self.write(repo / "package.json", json.dumps({"scripts": {"production": "echo build"}, "dependencies": {}}))
+        self.write(repo / "package-lock.json", self.large_package_lock())
+        self.write(repo / "src" / "bulk.js", "console.log('line');\n" * 6000)
+        self.commit(repo, "feat: add oversized authored source")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            extra_args=["--no-command-runs"],
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Risk Engine"], "FAIL")
+        self.assertIn("EFFECTIVE_ADDITIONS", report)
+
+    def test_large_arbitrary_json_counts_normally_for_risk_size(self) -> None:
+        repo, base = self.init_repo("arbitrary-json-bulk")
+        self.write(repo / "data" / "bulk.json", "{\n" + "\n".join(f'  \"k{index}\": {index},' for index in range(10000)) + "\n  \"done\": true\n}\n")
+        self.commit(repo, "feat: add large json fixture")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            extra_args=["--no-command-runs"],
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["generated_lockfile_additions_excluded"], 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Risk Engine"], "FAIL")
+        self.assertIn("EFFECTIVE_ADDITIONS", report)
+
+    def test_package_lock_without_package_json_counts_normally_for_risk_size(self) -> None:
+        repo, base = self.init_repo("lockfile-without-package-json")
+        self.write(repo / "package-lock.json", self.large_package_lock())
+        self.commit(repo, "chore: add orphan npm lockfile")
+
+        code, _, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            extra_args=["--no-command-runs"],
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["generated_lockfile_additions_excluded"], 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Risk Engine"], "FAIL")
+
+    def test_malformed_package_lock_counts_normally_for_risk_size(self) -> None:
+        repo, base = self.init_repo("malformed-lockfile")
+        self.write(repo / "package.json", json.dumps({"dependencies": {}}))
+        self.write(repo / "package-lock.json", "{\n" + ("not json\n" * 10000))
+        self.commit(repo, "chore: add malformed npm lockfile")
+
+        code, _, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            extra_args=["--no-command-runs"],
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["generated_lockfile_additions_excluded"], 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Risk Engine"], "FAIL")
+
+    def test_valid_npm_lockfile_remains_in_changed_file_count(self) -> None:
+        repo, base = self.init_repo("lockfile-changed-file-count")
+        self.write(repo / "package.json", json.dumps({"dependencies": {}}))
+        self.write(repo / "package-lock.json", self.large_package_lock())
+        self.commit(repo, "fix: add npm package metadata")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            extra_args=["--no-command-runs"],
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["changed_files"], 2)
+        self.assertGreater(report_json["summary"]["generated_lockfile_additions_excluded"], 0)
+
+    def test_npm_lockfile_version_three_is_excluded_from_risk_size(self) -> None:
+        repo, base = self.init_repo("lockfile-version-three")
+        self.write(repo / "package.json", json.dumps({"dependencies": {}}))
+        self.write(repo / "package-lock.json", self.large_package_lock(lockfile_version=3))
+        self.commit(repo, "fix: add npm lockfile")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            extra_args=["--no-command-runs"],
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertGreater(report_json["summary"]["generated_lockfile_additions_excluded"], 0)
+
+    def test_invalid_npm_lockfile_versions_are_not_excluded_from_risk_size(self) -> None:
+        cases = [
+            ("zero", 0),
+            ("float", 1.5),
+            ("string", "3"),
+            ("unknown", 999),
+        ]
+        for name, version in cases:
+            with self.subTest(name=name):
+                repo, base = self.init_repo(f"lockfile-version-{name}")
+                self.write(repo / "package.json", json.dumps({"dependencies": {}}))
+                self.write(repo / "package-lock.json", self.large_package_lock(lockfile_version=version))
+                self.commit(repo, "fix: add npm lockfile")
+
+                code, _, report_json, _ = self.run_engine_with_artifacts(
+                    repo,
+                    base,
+                    extra_args=["--no-command-runs"],
+                    review_policy={"mergeable": True, "reviews": []},
+                )
+
+                self.assertNotEqual(code, 0)
+                self.assertEqual(report_json["summary"]["generated_lockfile_additions_excluded"], 0)
+                self.assertEqual(report_json["summary"]["gate_statuses"]["Risk Engine"], "FAIL")
+
+    def test_generated_npm_lockfile_does_not_bypass_dependency_gate(self) -> None:
+        npm_log = self.tmp / "npm-lockfile-risk.log"
+        fake_npm = self.bin / "npm"
+        fake_npm.write_text(
+            f"""#!/usr/bin/env bash
+printf '%s\\n' "$*" >> {npm_log}
+if [ "$1" = "audit" ]; then
+  printf '{{"metadata":{{"vulnerabilities":{{"high":0,"critical":0}}}}}}\\n'
+fi
+exit 0
+""",
+            encoding="utf-8",
+        )
+        fake_npm.chmod(0o755)
+        repo, base = self.init_repo("lockfile-dependency-gate")
+        self.write(repo / "package.json", json.dumps({"scripts": {"production": "echo build"}, "dependencies": {}}))
+        self.write(repo / "package-lock.json", json.dumps({"lockfileVersion": 3, "packages": {}}))
+        self.commit(repo, "fix: add npm lockfile")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertEqual(code, 0, report)
+        npm_commands = npm_log.read_text(encoding="utf-8")
+        self.assertIn("ci", npm_commands)
+        self.assertIn("audit --audit-level=high --json", npm_commands)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Dependencies"], "PASS")
+
     def test_canonical_development_to_staging_branch_name_is_allowed(self) -> None:
         repo, base = self.init_repo("canonical-development-to-staging")
         self.write(repo / "README.md", "# canonical promotion\n")
@@ -4552,6 +4731,16 @@ exit 0
     def commit(self, repo: Path, message: str) -> None:
         self.git(repo, "add", ".")
         self.git(repo, "commit", "-q", "-m", message)
+
+    def large_package_lock(self, entries: int = 1200, lockfile_version: object = 3) -> str:
+        packages = {"": {"name": "fixture", "version": "1.0.0"}}
+        for index in range(entries):
+            packages[f"node_modules/pkg-{index:04d}"] = {
+                "version": "1.0.0",
+                "resolved": f"https://registry.npmjs.org/pkg-{index:04d}/-/pkg-{index:04d}-1.0.0.tgz",
+                "integrity": "sha512-test",
+            }
+        return json.dumps({"lockfileVersion": lockfile_version, "packages": packages}, indent=2) + "\n"
 
     def write(self, path: Path, text: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
