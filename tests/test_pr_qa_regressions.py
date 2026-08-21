@@ -1470,6 +1470,50 @@ exit 0
             "",
         )
 
+    def test_development_to_staging_alignment_fetch_failure_rejects_stale_staging_ref(self) -> None:
+        repo, staging_sha, _, _, alignment_sha = self.development_staging_alignment_repo(
+            "development-staging-stale-cached-staging-ref"
+        )
+        engine = load_engine_module()
+        self.assertEqual(engine.resolve_fresh_origin_staging_tip(repo), staging_sha)
+        self.git(repo, "push", "-q", "origin", ":staging")
+
+        self.assertEqual(engine.resolve_fresh_origin_staging_tip(repo), "")
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            staging_sha,
+            static_only=True,
+            base_ref="staging",
+            head_ref="chore/align-development-into-staging",
+            head_sha=alignment_sha,
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
+        self.assertIn("Accidental merge commits detected", report)
+
+    def test_development_to_staging_alignment_fetch_failure_rejects_stale_development_ref(self) -> None:
+        repo, staging_sha, development_sha, _, alignment_sha = self.development_staging_alignment_repo(
+            "development-staging-stale-cached-development-ref"
+        )
+        engine = load_engine_module()
+        self.assertEqual(engine.resolve_fresh_origin_development_tip(repo), development_sha)
+        self.git(repo, "push", "-q", "origin", ":development")
+
+        self.assertEqual(engine.resolve_fresh_origin_development_tip(repo), "")
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            staging_sha,
+            static_only=True,
+            base_ref="staging",
+            head_ref="chore/align-development-into-staging",
+            head_sha=alignment_sha,
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
+        self.assertIn("Accidental merge commits detected", report)
+
     def test_development_to_staging_alignment_blocks_content_changes_and_stale_tips(self) -> None:
         repo, base = self.init_repo("development-staging-alignment-blockers", profile="framework")
         self.git(repo, "checkout", "-q", "-b", "development", base)

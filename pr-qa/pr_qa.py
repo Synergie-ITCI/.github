@@ -1832,7 +1832,9 @@ def resolve_fresh_origin_branch_tip(repo: Path, branch: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9._/-]+", branch or ""):
         return ""
     remote_ref = f"refs/remotes/origin/{branch}"
-    subprocess.run(["git", "fetch", "--no-tags", "origin", f"+refs/heads/{branch}:{remote_ref}"], cwd=repo, text=True, capture_output=True, check=False)
+    fetched = subprocess.run(["git", "fetch", "--no-tags", "origin", f"+refs/heads/{branch}:{remote_ref}"], cwd=repo, text=True, capture_output=True, check=False)
+    if fetched.returncode != 0:
+        return ""
     resolved = run_git(repo, ["rev-parse", "--verify", f"{remote_ref}^{{commit}}"]).strip()
     return resolved if resolved and commit_exists(repo, resolved) else ""
 
