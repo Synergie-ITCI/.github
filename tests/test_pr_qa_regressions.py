@@ -1414,6 +1414,212 @@ exit 0
         self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
         self.assertIn("Accidental merge commits detected", report)
 
+    def test_development_to_staging_tree_neutral_alignment_allows_inherited_history(self) -> None:
+        repo, staging_sha, development_sha, historical_merge, alignment_sha = self.development_staging_alignment_repo(
+            "development-staging-tree-neutral-alignment"
+        )
+
+        self.assertEqual(self.git(repo, "show", "-s", "--format=%P", alignment_sha).stdout.split(), [staging_sha, development_sha])
+        self.assertEqual(self.git(repo, "diff", "--name-only", f"{alignment_sha}^1..{alignment_sha}").stdout.strip(), "")
+        self.assertNotEqual(self.git(repo, "diff", "--name-only", f"{historical_merge}^1..{historical_merge}").stdout.strip(), "")
+        self.assertNotEqual(self.git(repo, "diff", "--name-only", f"{historical_merge}^2..{historical_merge}").stdout.strip(), "")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            staging_sha,
+            static_only=True,
+            base_ref="staging",
+            head_ref="chore/align-development-into-staging",
+            head_sha=alignment_sha,
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "PASS")
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Protected Resources"], "PASS")
+        self.assertTrue(
+            any(
+                result["gate"] == "Repository Hygiene"
+                and result["message"] == "Only current development-to-staging tree-neutral alignment merge commits detected."
+                for result in report_json["results"]
+            )
+        )
+
+        # The historical content-changing merge remains auditable and still fails if proposed directly.
+        self.git(repo, "checkout", "-q", historical_merge)
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            self.git(repo, "rev-parse", f"{historical_merge}^1").stdout.strip(),
+            static_only=True,
+            base_ref="staging",
+            head_ref="chore/align-development-into-staging",
+            head_sha=historical_merge,
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
+        self.assertIn("Accidental merge commits detected", report)
+
+        # After the tree-neutral alignment is merged, the same production first-parent range has no new merge commits.
+        self.git(repo, "checkout", "-q", "staging")
+        self.git(repo, "merge", "--ff-only", alignment_sha)
+        self.git(repo, "push", "-q", "origin", "staging")
+        self.git(repo, "checkout", "-q", "development")
+        self.assertEqual(self.git(repo, "merge-base", "development", "origin/staging").stdout.strip(), development_sha)
+        self.assertEqual(
+            self.git(repo, "rev-list", "--first-parent", "--merges", "origin/staging..development").stdout.strip(),
+            "",
+        )
+
+    def test_development_to_staging_alignment_blocks_content_changes_and_stale_tips(self) -> None:
+        repo, base = self.init_repo("development-staging-alignment-blockers", profile="framework")
+        self.git(repo, "checkout", "-q", "-b", "development", base)
+        self.write(repo / "app" / "Feature.php", "<?php\nreturn 'development';\n")
+        self.commit(repo, "feat: add development-only content")
+        development_sha = self.git(repo, "rev-parse", "development").stdout.strip()
+        self.git(repo, "checkout", "-q", "-b", "staging", base)
+        staging_sha = self.git(repo, "rev-parse", "staging").stdout.strip()
+        self.attach_origin_with_development_and_staging(repo, "development-staging-alignment-blockers-origin.git")
+
+        self.git(repo, "checkout", "-q", "-b", "chore/align-development-into-staging", "staging")
+        self.git(repo, "merge", "--no-ff", "-m", "chore: align development into staging", "development")
+        content_changing_alignment = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        self.assertNotEqual(self.git(repo, "diff", "--name-only", f"{content_changing_alignment}^1..{content_changing_alignment}").stdout.strip(), "")
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            staging_sha,
+            static_only=True,
+            base_ref="staging",
+            head_ref="chore/align-development-into-staging",
+            head_sha=content_changing_alignment,
+        )
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
+        self.assertIn("Accidental merge commits detected", report)
+
+        repo, staging_sha, development_sha, _, alignment_sha = self.development_staging_alignment_repo(
+            "development-staging-stale-tip-blockers"
+        )
+        self.git(repo, "checkout", "-q", "development")
+        self.write(repo / "app" / "CurrentDevelopment.php", "<?php\nreturn 'current';\n")
+        self.commit(repo, "feat: advance current development")
+        self.git(repo, "push", "-q", "origin", "development")
+        self.git(repo, "checkout", "-q", alignment_sha)
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            staging_sha,
+            static_only=True,
+            base_ref="staging",
+            head_ref="chore/align-development-into-staging",
+            head_sha=alignment_sha,
+        )
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
+        self.assertIn("Accidental merge commits detected", report)
+
+        repo, staging_sha, _, _, alignment_sha = self.development_staging_alignment_repo(
+            "development-staging-stale-staging-blocker"
+        )
+        self.git(repo, "checkout", "-q", "staging")
+        self.git(repo, "commit", "-q", "--allow-empty", "-m", "chore: advance current staging")
+        self.git(repo, "push", "-q", "origin", "staging")
+        self.git(repo, "checkout", "-q", alignment_sha)
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            staging_sha,
+            static_only=True,
+            base_ref="staging",
+            head_ref="chore/align-development-into-staging",
+            head_sha=alignment_sha,
+        )
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
+
+    def test_development_to_staging_alignment_blocks_wrong_parent_shape(self) -> None:
+        repo, staging_sha, development_sha, _, alignment_sha = self.development_staging_alignment_repo(
+            "development-staging-wrong-parent-shape"
+        )
+        self.git(repo, "checkout", "-q", "-b", "unrelated", staging_sha)
+        self.git(repo, "commit", "-q", "--allow-empty", "-m", "chore: unrelated lineage")
+        self.git(repo, "checkout", "-q", "-B", "chore/align-unrelated-into-staging", "staging")
+        self.git(repo, "merge", "--no-ff", "-s", "ours", "-m", "chore: align unrelated into staging", "unrelated")
+        unrelated_alignment = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            staging_sha,
+            static_only=True,
+            base_ref="staging",
+            head_ref="chore/align-unrelated-into-staging",
+            head_sha=unrelated_alignment,
+        )
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
+
+        self.git(repo, "checkout", "-q", "-B", "chore/reversed-development-staging-alignment", development_sha)
+        self.git(repo, "merge", "--no-ff", "-s", "ours", "-m", "chore: reversed alignment", "staging")
+        reversed_alignment = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            staging_sha,
+            static_only=True,
+            base_ref="staging",
+            head_ref="chore/reversed-development-staging-alignment",
+            head_sha=reversed_alignment,
+        )
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
+
+        self.git(repo, "checkout", "-q", alignment_sha)
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            staging_sha,
+            static_only=True,
+            base_ref="development",
+            head_ref="chore/align-development-into-staging",
+            head_sha=alignment_sha,
+        )
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
+
+        self.git(repo, "checkout", "-q", "-B", "chore/align-development-into-staging-extra", alignment_sha)
+        self.git(repo, "commit", "-q", "--allow-empty", "-m", "chore: extra commit after alignment")
+        extra_head = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            staging_sha,
+            static_only=True,
+            base_ref="staging",
+            head_ref="chore/align-development-into-staging-extra",
+            head_sha=extra_head,
+        )
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
+
+    def test_normal_development_to_staging_merge_hygiene_still_blocks_contentful_merge(self) -> None:
+        repo, base = self.init_repo("normal-development-staging-contentful-merge", profile="framework")
+        self.git(repo, "checkout", "-q", "-b", "development", base)
+        self.write(repo / "app" / "ExistingDevelopment.php", "<?php\nreturn 'first';\n")
+        self.commit(repo, "feat: add first development content")
+        self.git(repo, "checkout", "-q", "-b", "feature/history", base)
+        self.write(repo / "app" / "MergedFeature.php", "<?php\nreturn 'second';\n")
+        self.commit(repo, "feat: add merged feature")
+        self.git(repo, "checkout", "-q", "development")
+        self.git(repo, "merge", "--no-ff", "-m", "feat: merge historical feature", "feature/history")
+        self.git(repo, "checkout", "-q", "-b", "staging", base)
+        self.attach_origin_with_development_and_staging(repo, "normal-development-staging-contentful-origin.git")
+        self.git(repo, "checkout", "-q", "development")
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            static_only=True,
+            base_ref="staging",
+            head_ref="development",
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
+        self.assertIn("Accidental merge commits detected", report)
+
     def test_first_parent_commit_message_policy_warns_for_new_bad_message(self) -> None:
         repo, base = self.init_repo("bad-first-parent-message", profile="framework")
         self.write(repo / "README.md", "# regression\n\nBad subject.\n")
@@ -4136,6 +4342,40 @@ exit 0
         self.git(repo, "push", "-q", "origin", "main")
         self.git(repo, "push", "-q", "origin", "staging")
         self.git(repo, "fetch", "-q", "origin", "main", "staging")
+
+    def attach_origin_with_development_and_staging(self, repo: Path, name: str) -> None:
+        remote = self.tmp / name
+        self.git(repo, "init", "-q", "--bare", str(remote))
+        self.git(repo, "remote", "add", "origin", str(remote))
+        self.git(repo, "push", "-q", "origin", "development")
+        self.git(repo, "push", "-q", "origin", "staging")
+        self.git(repo, "fetch", "-q", "origin", "development", "staging")
+
+    def development_staging_alignment_repo(self, name: str) -> tuple[Path, str, str, str, str]:
+        repo, base = self.init_repo(name, profile="framework")
+        self.git(repo, "checkout", "-q", "-b", "development", base)
+        self.write(repo / "app" / "ExistingDevelopment.php", "<?php\nreturn 'first';\n")
+        self.commit(repo, "feat: add first development content")
+        self.git(repo, "checkout", "-q", "-b", "feature/historical-merge", base)
+        self.write(repo / "app" / "MergedFeature.php", "<?php\nreturn 'second';\n")
+        self.commit(repo, "feat: add historically merged feature")
+        self.git(repo, "checkout", "-q", "development")
+        self.git(repo, "merge", "--no-ff", "-m", "feat: merge historical feature", "feature/historical-merge")
+        historical_merge = self.git(repo, "rev-parse", "development").stdout.strip()
+        development_sha = historical_merge
+
+        self.git(repo, "checkout", "-q", "-b", "staging", base)
+        self.write(repo / "app" / "ExistingDevelopment.php", "<?php\nreturn 'first';\n")
+        self.write(repo / "app" / "MergedFeature.php", "<?php\nreturn 'second';\n")
+        self.commit(repo, "feat: add equivalent staged application content")
+        staging_sha = self.git(repo, "rev-parse", "staging").stdout.strip()
+        self.assertEqual(self.git(repo, "rev-parse", "development^{tree}").stdout.strip(), self.git(repo, "rev-parse", "staging^{tree}").stdout.strip())
+
+        self.attach_origin_with_development_and_staging(repo, f"{name}-origin.git")
+        self.git(repo, "checkout", "-q", "-b", "chore/align-development-into-staging", "staging")
+        self.git(repo, "merge", "--no-ff", "-m", "chore: align development into staging", "development")
+        alignment_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        return repo, staging_sha, development_sha, historical_merge, alignment_sha
 
     def commit(self, repo: Path, message: str) -> None:
         self.git(repo, "add", ".")
