@@ -6,9 +6,20 @@ Use this guide to onboard one Synergie repository to the central PR QA framework
 
 Do not change application code, deployment workflows, CODEOWNERS, Branch Protection, repository permissions, or infrastructure as part of onboarding.
 
-## Files To Add
+## Authoritative Tool
 
-Copy these files into the repository:
+Fresh onboarding is driven by the central CLI:
+
+```bash
+python tools/onboard_repo.py audit OWNER/REPO --json
+python tools/onboard_repo.py onboard OWNER/REPO --apply
+```
+
+Do not manually recreate the onboarding logic, branch selection, preflight checks, or bootstrap PR creation.
+
+## Bootstrap Files
+
+The deterministic fresh-bootstrap scope is limited to:
 
 ```text
 .github/workflows/pr-qa.yml
@@ -39,18 +50,19 @@ The onboarding CLI must prove the PR-QA caller state before interpreting missing
 
 ## Onboarding Steps
 
-1. Create a branch named `chore/onboard-pr-qa`.
-2. Add the three files above.
-3. Set `repository.criticality` in `.github/pr-qa.yml`.
-4. Tune thresholds only when the repository has a documented reason.
-5. Open a pull request.
-6. Review the `PR QUALITY REPORT`.
-7. Fix only onboarding-file mistakes in the onboarding PR.
-8. Leave existing application quality findings for separate application PRs.
+1. Run `tools/onboard_repo.py audit OWNER/REPO --json`.
+2. Proceed only when the CLI reports no genuine onboarding blocker.
+3. Run `tools/onboard_repo.py onboard OWNER/REPO --apply`.
+4. Let the CLI select the audited bootstrap base and create or reuse the onboarding PR.
+5. Review the `PR QUALITY REPORT`.
+6. Fix only onboarding-file mistakes in the onboarding PR.
+7. Leave existing application quality findings for separate application PRs.
 
 ## Configuration Rules
 
-Allowed repository-specific changes:
+Legacy trusted-base repo-local configuration may be audited and preserved. Fresh onboarding must not introduce repo-local PR-QA policy/configuration files or threshold tuning.
+
+Allowed repository-specific changes outside fresh onboarding:
 
 - enable or disable a gate with justification
 - tune size and risk thresholds

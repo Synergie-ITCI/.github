@@ -194,6 +194,13 @@ def repo_metadata(repo: str) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def default_branch_name(meta: dict[str, Any]) -> str:
+    name = str(((meta.get("defaultBranchRef") or {}).get("name")) or "")
+    if not name:
+        raise CmdError("Unable to prove repository default branch; failing closed.")
+    return name
+
+
 def central_owner_login() -> str:
     data = gh_json(["api", f"repos/{CENTRAL_REPO}/contents/{CENTRAL_POLICY_PATH}?ref=main"])
     if not isinstance(data, dict) or not data.get("content"):
@@ -224,7 +231,7 @@ def workflow_files(repo_dir: Path, ref: str) -> dict[str, str]:
 def repository_files(repo_dir: Path, ref: str) -> list[str]:
     proc = run(["git", "ls-tree", "-r", "--name-only", ref], cwd=repo_dir, check=False)
     if proc.returncode != 0:
-        return []
+        raise CmdError(f"Unable to inspect repository tree for {ref}; failing closed.")
     return [line for line in proc.stdout.splitlines() if line]
 
 
@@ -547,7 +554,7 @@ def generic_caller_present(repo_dir: Path, branch: str) -> bool:
     state, text = caller_workflow_text(repo_dir, branch)
     if state != "PRESENT" or text is None:
         return False
-    return "uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@main" in text and re.search(r"(?m)^\s*pr-qa\s*:\s*$", text) is not None
+    return text == PR_QA_TEMPLATE.read_text(encoding="utf-8")
 
 
 def prqa_context_expectation(repo: str, repo_dir: Path, branch: str) -> PrqaContextExpectation:
@@ -555,7 +562,7 @@ def prqa_context_expectation(repo: str, repo_dir: Path, branch: str) -> PrqaCont
     if state == "ERROR":
         return PrqaContextExpectation(None, "Unable to prove PR-QA caller workflow state; failing closed.", state)
     if state == "PRESENT" and caller is not None:
-        if "uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@main" not in caller or re.search(r"(?m)^\s*pr-qa\s*:\s*$", caller) is None:
+        if caller != PR_QA_TEMPLATE.read_text(encoding="utf-8"):
             return PrqaContextExpectation(None, "CUSTOM_CALLER_REQUIRES_REVIEW: existing PR-QA caller is not the supported generic caller shape", "CUSTOM")
         observed = sorted(name for name in observed_check_names(repo, branch) if "Pull Request Quality Assurance" in name)
         if len(observed) > 1:
@@ -675,6 +682,9 @@ def bootstrap_apply(repo: str, repo_dir: Path, wait: bool, base_branch: str, aud
     branch = "chore/governance-onboarding"
     run(["git", "checkout", "-B", branch, audited_base_sha], cwd=repo_dir)
     changed = install_bootstrap_files(repo_dir, base_branch)
+    if not changed:
+        findings.append(Finding("BOOTSTRAP", "PASS", f"PR-QA caller and PR template already present on {base_branch}."))
+        return findings
     if changed:
         run(["git", "add", *changed], cwd=repo_dir)
         run(["git", "commit", "-m", "chore(governance): onboard central PR QA"], cwd=repo_dir)
@@ -683,10 +693,6 @@ def bootstrap_apply(repo: str, repo_dir: Path, wait: bool, base_branch: str, aud
             raise CmdError("Remote onboarding branch already diverged; refusing to force-push.")
         if push.returncode != 0:
             raise CmdError(push.stderr.strip())
-    elif run(["git", "ls-remote", "--exit-code", "--heads", "origin", branch], cwd=repo_dir, check=False).returncode != 0:
-        findings.append(Finding("BOOTSTRAP", "PASS", f"PR-QA caller and PR template already present on {base_branch}."))
-        return findings
-
     body = """## Business Purpose\n\nOnboard this repository to the central Synergie PR-QA caller.\n\n## Testing Performed\n\nCentral PR-QA will validate this PR.\n\n## Rollback Strategy\n\nRevert the onboarding commit.\n\n## Linked Issue\n\nhttps://github.com/Synergie-ITCI/.github\n\n## Screenshots\n\nN/A\n\n## Operational Notes\n\nNo application or production deployment changes.\n"""
     pr = open_or_find_pr(repo, branch, base_branch, "chore(governance): onboard central PR QA", body)
     findings.append(Finding("GATE_A_PR", "READY", f"#{pr}"))
@@ -909,7 +915,7 @@ def onboard(args: argparse.Namespace) -> int:
     require_tools()
     validate_repo_slug(args.repo)
     meta = repo_metadata(args.repo)
-    default_branch = str(((meta.get("defaultBranchRef") or {}).get("name")) or "main")
+    default_branch = default_branch_name(meta)
     owner_login = central_owner_login()
     tmp = clone_repo(args.repo)
     repo_dir = Path(tmp.name)
@@ -920,8 +926,11 @@ def onboard(args: argparse.Namespace) -> int:
         topology = classify_topology(branches, default_branch)
         bootstrap_base = branch_for_bootstrap(branches, default_branch)
         audited_bootstrap_sha = local_branch_sha(repo_dir, bootstrap_base)
-        source_ref = f"origin/{default_branch}" if default_branch in branches else f"origin/{bootstrap_base}"
-        paths = repository_files(repo_dir, source_ref)
+        try:
+            paths = repository_files(repo_dir, audited_bootstrap_sha)
+        except CmdError as exc:
+            print_report(args.repo, findings + [Finding("SOURCE_INSPECTION", "BLOCKED", str(exc))], [], json_mode=args.json)
+            return 2
         technologies = detect_technologies(paths)
         profile = classify_profile(paths, technologies, args.profile)
         criticality = classify_criticality(profile, technologies, args.criticality, paths)
