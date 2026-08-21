@@ -67,6 +67,21 @@
     "risk_warning": 40,
     "risk_fail": 85
   },
+  "one_time_baseline_alignment": {
+    "enabled": true,
+    "repository": "Synergie-ITCI/dhansamvaad-new.synergieinsights.in",
+    "base_ref": "main",
+    "head_ref": "staging",
+    "expected_base_sha": "3e2404bb53874fa5e46f249eba55914193eeef1c",
+    "expected_head_sha": "1919ba8edd6de50cccc9a2ed09f731ccbac28ed5",
+    "expires_after": "2026-08-24T00:00:00Z",
+    "minimum_changed_files": 300,
+    "required_pr_body_marker": "ONE-TIME DHANSAMVAAD STAGING TO MAIN BASELINE AUTHORIZATION PR-15",
+    "relaxations": [
+      "diff_size",
+      "changed_file_count"
+    ]
+  },
   "defaults": {
     "version": 1,
     "repository": {
