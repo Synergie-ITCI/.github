@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import importlib.util
 import json
@@ -11,6 +12,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 from pathlib import Path
 
 
@@ -1513,6 +1517,93 @@ exit 0
         self.assertNotEqual(code, 0)
         self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
         self.assertIn("Accidental merge commits detected", report)
+
+    def test_github_https_tip_fetch_uses_ephemeral_auth_and_does_not_persist_token(self) -> None:
+        repo, base = self.init_repo("github-https-auth-fetch")
+        self.git(repo, "remote", "add", "origin", "https://github.com/Synergie-ITCI/example.git")
+        self.git(repo, "update-ref", "refs/remotes/origin/staging", base)
+        engine = load_engine_module()
+        original_run = engine.subprocess.run
+        fetch_commands: list[list[str]] = []
+        old_token = os.environ.get("GH_TOKEN")
+        os.environ["GH_TOKEN"] = "ghs_example_secret_token"
+
+        def fake_run(args, *popenargs, **kwargs):
+            if isinstance(args, list) and "fetch" in args:
+                fetch_commands.append(args)
+                return subprocess.CompletedProcess(args, 0, "", "")
+            return original_run(args, *popenargs, **kwargs)
+
+        try:
+            with mock.patch.object(engine.subprocess, "run", side_effect=fake_run):
+                self.assertEqual(engine.resolve_fresh_origin_staging_tip(repo), base)
+        finally:
+            if old_token is None:
+                os.environ.pop("GH_TOKEN", None)
+            else:
+                os.environ["GH_TOKEN"] = old_token
+
+        self.assertEqual(len(fetch_commands), 1)
+        fetch_command = fetch_commands[0]
+        self.assertIn("-c", fetch_command)
+        self.assertTrue(any("http.https://github.com/.extraheader=AUTHORIZATION: basic " in arg for arg in fetch_command))
+        self.assertFalse(any("ghs_example_secret_token" in arg for arg in fetch_command))
+        self.assertNotIn("extraheader", self.git(repo, "config", "--get-regexp", "extraheader").stdout.lower())
+
+    def test_github_https_tip_fetch_missing_or_failed_auth_rejects_stale_refs_without_token_leak(self) -> None:
+        repo, base = self.init_repo("github-https-auth-fetch-fail-closed")
+        self.git(repo, "remote", "add", "origin", "https://github.com/Synergie-ITCI/example.git")
+        for branch in ("main", "staging", "development"):
+            self.git(repo, "update-ref", f"refs/remotes/origin/{branch}", base)
+        engine = load_engine_module()
+        old_token = os.environ.pop("GH_TOKEN", None)
+        try:
+            self.assertEqual(engine.resolve_fresh_origin_main_tip(repo), "")
+            self.assertEqual(engine.resolve_fresh_origin_staging_tip(repo), "")
+            self.assertEqual(engine.resolve_fresh_origin_development_tip(repo), "")
+        finally:
+            if old_token is not None:
+                os.environ["GH_TOKEN"] = old_token
+
+        secret = "ghs_failed_secret_token"
+        encoded = base64.b64encode(f"x-access-token:{secret}".encode("utf-8")).decode("ascii")
+        os.environ["GH_TOKEN"] = secret
+        original_run = engine.subprocess.run
+
+        def fake_failed_fetch(args, *popenargs, **kwargs):
+            if isinstance(args, list) and "fetch" in args:
+                return subprocess.CompletedProcess(args, 1, f"stdout {secret}", f"stderr {encoded}")
+            return original_run(args, *popenargs, **kwargs)
+
+        stdout = StringIO()
+        stderr = StringIO()
+        try:
+            with mock.patch.object(engine.subprocess, "run", side_effect=fake_failed_fetch):
+                with redirect_stdout(stdout), redirect_stderr(stderr):
+                    self.assertEqual(engine.resolve_fresh_origin_staging_tip(repo), "")
+        finally:
+            if old_token is None:
+                os.environ.pop("GH_TOKEN", None)
+            else:
+                os.environ["GH_TOKEN"] = old_token
+
+        leaked = stdout.getvalue() + stderr.getvalue()
+        self.assertNotIn(secret, leaked)
+        self.assertNotIn(encoded, leaked)
+        self.assertNotIn("extraheader", self.git(repo, "config", "--get-regexp", "extraheader").stdout.lower())
+
+    def test_local_tip_fetch_still_works_without_github_token(self) -> None:
+        repo, staging_sha, development_sha, _, _ = self.development_staging_alignment_repo(
+            "local-tip-fetch-without-github-token"
+        )
+        old_token = os.environ.pop("GH_TOKEN", None)
+        try:
+            engine = load_engine_module()
+            self.assertEqual(engine.resolve_fresh_origin_staging_tip(repo), staging_sha)
+            self.assertEqual(engine.resolve_fresh_origin_development_tip(repo), development_sha)
+        finally:
+            if old_token is not None:
+                os.environ["GH_TOKEN"] = old_token
 
     def test_development_to_staging_alignment_blocks_content_changes_and_stale_tips(self) -> None:
         repo, base = self.init_repo("development-staging-alignment-blockers", profile="framework")
@@ -3856,7 +3947,7 @@ jobs:
         self.assertIn("issues: write", workflow)
         self.assertIn("issues: write", self_workflow)
         self.assertIn("issues: write", caller)
-        self.assertEqual(workflow.count("GH_TOKEN: ${{ github.token }}"), 5)
+        self.assertEqual(workflow.count("GH_TOKEN: ${{ github.token }}"), 6)
         # The starter onboarding caller consumes the centrally maintained workflow
         # and initially covers all PR boundaries.
         self.assertIn("@main", caller)
