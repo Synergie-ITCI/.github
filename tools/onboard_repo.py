@@ -40,6 +40,13 @@ class Finding:
     detail: str
 
 
+@dataclass
+class PrqaContextExpectation:
+    expected: str | None
+    detail: str
+    caller_state: str
+
+
 class CmdError(RuntimeError):
     pass
 
@@ -162,6 +169,21 @@ def checkout_branch(repo_dir: Path, branch: str) -> None:
     run(["git", "checkout", "-B", branch, f"origin/{branch}"], cwd=repo_dir)
 
 
+def local_branch_sha(repo_dir: Path, branch: str) -> str:
+    proc = run(["git", "rev-parse", f"origin/{branch}^{{commit}}"], cwd=repo_dir)
+    return proc.stdout.strip()
+
+
+def remote_branch_sha(repo_dir: Path, branch: str) -> str:
+    proc = run(["git", "ls-remote", "--heads", "origin", branch], cwd=repo_dir, check=False)
+    if proc.returncode != 0:
+        raise CmdError(f"Unable to verify remote {branch} SHA before bootstrap; failing closed.")
+    rows = [line.split()[0] for line in proc.stdout.splitlines() if line.split()]
+    if len(rows) != 1:
+        raise CmdError(f"Unable to resolve exactly one remote {branch} SHA before bootstrap; failing closed.")
+    return rows[0]
+
+
 def ensure_branch_clean(repo_dir: Path) -> None:
     if run(["git", "status", "--porcelain"], cwd=repo_dir).stdout.strip():
         raise CmdError("Target clone unexpectedly has local changes before onboarding.")
@@ -170,6 +192,13 @@ def ensure_branch_clean(repo_dir: Path) -> None:
 def repo_metadata(repo: str) -> dict[str, Any]:
     data = gh_json(["repo", "view", repo, "--json", "defaultBranchRef,nameWithOwner"])
     return data if isinstance(data, dict) else {}
+
+
+def default_branch_name(meta: dict[str, Any]) -> str:
+    name = str(((meta.get("defaultBranchRef") or {}).get("name")) or "")
+    if not name:
+        raise CmdError("Unable to prove repository default branch; failing closed.")
+    return name
 
 
 def central_owner_login() -> str:
@@ -188,20 +217,21 @@ def workflow_files(repo_dir: Path, ref: str) -> dict[str, str]:
     files: dict[str, str] = {}
     proc = run(["git", "ls-tree", "-r", "--name-only", ref, ".github/workflows"], cwd=repo_dir, check=False)
     if proc.returncode != 0:
-        return files
+        raise CmdError(f"Unable to inspect workflow tree for {ref}; failing closed.")
     for rel in proc.stdout.splitlines():
         if not rel.endswith((".yml", ".yaml")):
             continue
         blob = run(["git", "show", f"{ref}:{rel}"], cwd=repo_dir, check=False)
-        if blob.returncode == 0:
-            files[rel] = blob.stdout
+        if blob.returncode != 0:
+            raise CmdError(f"Unable to read workflow file {rel} at {ref}; failing closed.")
+        files[rel] = blob.stdout
     return files
 
 
 def repository_files(repo_dir: Path, ref: str) -> list[str]:
     proc = run(["git", "ls-tree", "-r", "--name-only", ref], cwd=repo_dir, check=False)
     if proc.returncode != 0:
-        return []
+        raise CmdError(f"Unable to inspect repository tree for {ref}; failing closed.")
     return [line for line in proc.stdout.splitlines() if line]
 
 
@@ -357,7 +387,11 @@ def deployment_audit(repo_dir: Path, owner_login: str, branches: set[str], defau
     rows: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
     for branch in release_topology_branches(branches, default_branch):
-        for path, text in sorted(workflow_files(repo_dir, f"origin/{branch}").items()):
+        try:
+            workflows = workflow_files(repo_dir, f"origin/{branch}")
+        except CmdError as exc:
+            return [Finding("DEPLOYMENT_WORKFLOWS", "BLOCKED", str(exc))], rows
+        for path, text in sorted(workflows.items()):
             key = (path, text)
             if key in seen:
                 continue
@@ -382,30 +416,39 @@ def deployment_audit(repo_dir: Path, owner_login: str, branches: set[str], defau
 def rulesets(repo: str) -> list[dict[str, Any]]:
     proc = run(["gh", "api", "--paginate", "--slurp", f"repos/{repo}/rulesets?includes_parents=true"], check=False)
     if proc.returncode != 0:
-        return []
+        raise CmdError("Unable to read repository rulesets through GitHub API; failing closed.")
     try:
         data = json.loads(proc.stdout)
     except json.JSONDecodeError:
-        return []
+        raise CmdError("Repository rulesets response was malformed; failing closed.")
     if isinstance(data, list) and data and all(isinstance(page, list) for page in data):
-        return [item for page in data for item in page]
-    return data if isinstance(data, list) else []
+        flattened = [item for page in data for item in page]
+    elif isinstance(data, list):
+        flattened = data
+    else:
+        raise CmdError("Repository rulesets response was not a list; failing closed.")
+    if not all(isinstance(item, dict) for item in flattened):
+        raise CmdError("Repository rulesets response contained malformed entries; failing closed.")
+    return flattened
 
 
-def ruleset_detail(repo: str, item: dict[str, Any]) -> dict[str, Any] | None:
+def ruleset_detail(repo: str, item: dict[str, Any]) -> dict[str, Any]:
     rid = item.get("id")
     if not rid:
-        return None
+        raise CmdError("Active ruleset entry lacks an id; failing closed.")
     source_type = str(item.get("source_type") or "Repository")
     owner = repo.split("/", 1)[0]
     endpoint = f"orgs/{owner}/rulesets/{rid}" if source_type.lower() == "organization" else f"repos/{repo}/rulesets/{rid}"
     proc = run(["gh", "api", endpoint], check=False)
     if proc.returncode != 0:
-        return None
+        raise CmdError(f"Unable to read active ruleset detail {rid}; failing closed.")
     try:
-        return json.loads(proc.stdout)
+        data = json.loads(proc.stdout)
     except json.JSONDecodeError:
-        return None
+        raise CmdError(f"Active ruleset detail {rid} was malformed; failing closed.")
+    if not isinstance(data, dict):
+        raise CmdError(f"Active ruleset detail {rid} was not an object; failing closed.")
+    return data
 
 
 def branch_pattern_matches(pattern: str, branch: str, default_branch: str) -> bool:
@@ -452,9 +495,8 @@ def active_ruleset_details(repo: str) -> list[dict[str, Any]]:
         if str(item.get("enforcement")) != "active":
             continue
         detail = ruleset_detail(repo, item)
-        if detail:
-            detail["_source_type"] = item.get("source_type", "Repository")
-            out.append(detail)
+        detail["_source_type"] = item.get("source_type", "Repository")
+        out.append(detail)
     return out
 
 
@@ -463,15 +505,17 @@ def recent_prs(repo: str, base: str, limit: int = 5) -> list[dict[str, Any]]:
     return data if isinstance(data, list) else []
 
 
-def check_runs_for_sha(repo: str, sha: str) -> list[dict[str, Any]]:
+def check_runs_for_sha(repo: str, sha: str) -> list[dict[str, Any]] | None:
     proc = run(["gh", "api", f"repos/{repo}/commits/{sha}/check-runs?per_page=100"], check=False)
     if proc.returncode != 0:
-        return []
+        return None
     try:
         data = json.loads(proc.stdout)
     except json.JSONDecodeError:
-        return []
-    return list(data.get("check_runs") or []) if isinstance(data, dict) else []
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("check_runs"), list):
+        return None
+    return list(data.get("check_runs") or [])
 
 
 def observed_check_names(repo: str, base: str) -> set[str]:
@@ -480,7 +524,10 @@ def observed_check_names(repo: str, base: str) -> set[str]:
         sha = str(pr.get("headRefOid") or "")
         if not sha:
             continue
-        for check in check_runs_for_sha(repo, sha):
+        checks = check_runs_for_sha(repo, sha)
+        if checks is None:
+            continue
+        for check in checks:
             name = str(check.get("name") or "")
             if name:
                 names.add(name)
@@ -507,35 +554,44 @@ def generic_caller_present(repo_dir: Path, branch: str) -> bool:
     state, text = caller_workflow_text(repo_dir, branch)
     if state != "PRESENT" or text is None:
         return False
-    return "uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@main" in text and re.search(r"(?m)^\s*pr-qa\s*:\s*$", text) is not None
+    return text == PR_QA_TEMPLATE.read_text(encoding="utf-8")
+
+
+def prqa_context_expectation(repo: str, repo_dir: Path, branch: str) -> PrqaContextExpectation:
+    state, caller = caller_workflow_text(repo_dir, branch)
+    if state == "ERROR":
+        return PrqaContextExpectation(None, "Unable to prove PR-QA caller workflow state; failing closed.", state)
+    if state == "PRESENT" and caller is not None:
+        if caller != PR_QA_TEMPLATE.read_text(encoding="utf-8"):
+            return PrqaContextExpectation(None, "CUSTOM_CALLER_REQUIRES_REVIEW: existing PR-QA caller is not the supported generic caller shape", "CUSTOM")
+        observed = sorted(name for name in observed_check_names(repo, branch) if "Pull Request Quality Assurance" in name)
+        if len(observed) > 1:
+            return PrqaContextExpectation(None, "multiple PR-QA check contexts observed: " + ", ".join(observed), "GENERIC")
+        if len(observed) == 1 and observed[0] != GENERIC_CALLER_CONTEXT:
+            return PrqaContextExpectation(None, f"observed PR-QA context `{observed[0]}` conflicts with exact generic caller context `{GENERIC_CALLER_CONTEXT}`", "GENERIC")
+        return PrqaContextExpectation(GENERIC_CALLER_CONTEXT, "derived from exact generic caller shape", "GENERIC")
+    observed = sorted(name for name in observed_check_names(repo, branch) if "Pull Request Quality Assurance" in name)
+    if len(observed) > 1:
+        return PrqaContextExpectation(None, "multiple PR-QA check contexts observed: " + ", ".join(observed), "ABSENT")
+    return PrqaContextExpectation(GENERIC_CALLER_CONTEXT, "fresh bootstrap fallback; no PR-QA caller workflow exists yet", "ABSENT")
 
 
 def expected_prqa_context(repo: str, repo_dir: Path, branch: str) -> tuple[str | None, str]:
-    state, caller = caller_workflow_text(repo_dir, branch)
-    if state == "ERROR":
-        return None, "Unable to prove PR-QA caller workflow state; failing closed."
-    if state == "PRESENT" and caller is not None:
-        if "uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@main" not in caller or re.search(r"(?m)^\s*pr-qa\s*:\s*$", caller) is None:
-            return None, "CUSTOM_CALLER_REQUIRES_REVIEW: existing PR-QA caller is not the supported generic caller shape"
-        observed = sorted(name for name in observed_check_names(repo, branch) if "Pull Request Quality Assurance" in name)
-        if len(observed) > 1:
-            return None, "multiple PR-QA check contexts observed: " + ", ".join(observed)
-        if len(observed) == 1 and observed[0] != GENERIC_CALLER_CONTEXT:
-            return None, f"observed PR-QA context `{observed[0]}` conflicts with exact generic caller context `{GENERIC_CALLER_CONTEXT}`"
-        return GENERIC_CALLER_CONTEXT, "derived from exact generic caller shape"
-    observed = sorted(name for name in observed_check_names(repo, branch) if "Pull Request Quality Assurance" in name)
-    if len(observed) > 1:
-        return None, "multiple PR-QA check contexts observed: " + ", ".join(observed)
-    return GENERIC_CALLER_CONTEXT, "fresh bootstrap fallback; no PR-QA caller workflow exists yet"
+    result = prqa_context_expectation(repo, repo_dir, branch)
+    return result.expected, result.detail
 
 
 def ruleset_audit(repo: str, repo_dir: Path, default_branch: str, branches: set[str]) -> list[Finding]:
-    details = active_ruleset_details(repo)
+    try:
+        details = active_ruleset_details(repo)
+    except CmdError as exc:
+        return [Finding("RULESETS", "BLOCKED", str(exc))]
     if not details:
         return [Finding("RULESETS", "WARNING", "No active rulesets visible through GitHub API.")]
     findings: list[Finding] = []
     for branch in release_topology_branches(branches, default_branch):
-        expected, source = expected_prqa_context(repo, repo_dir, branch)
+        expectation = prqa_context_expectation(repo, repo_dir, branch)
+        expected, source = expectation.expected, expectation.detail
         applicable = [d for d in details if ruleset_applies_to_branch(d, branch, default_branch)]
         contexts = [c for d in applicable for c in required_check_contexts(d)]
         native = [pull_request_rule(d) for d in applicable]
@@ -553,12 +609,20 @@ def ruleset_audit(repo: str, repo_dir: Path, default_branch: str, branches: set[
         if not expected:
             findings.append(Finding(f"RULESET_{branch.upper()}_PRQA", "BLOCKED", source))
             continue
+        lookalikes = sorted(c for c in contexts if "Pull Request Quality Assurance" in c)
         if expected not in contexts:
-            lookalikes = sorted(c for c in contexts if "Pull Request Quality Assurance" in c)
             detail = f"Expected exact context `{expected}` ({source}) is not required."
             if lookalikes:
                 detail += " Mismatched PR-QA-like contexts: " + ", ".join(lookalikes)
-            findings.append(Finding(f"RULESET_{branch.upper()}_PRQA", "BLOCKED", detail))
+                findings.append(Finding(f"RULESET_{branch.upper()}_PRQA", "BLOCKED", detail))
+            elif expectation.caller_state == "ABSENT":
+                findings.append(Finding(
+                    f"RULESET_{branch.upper()}_PRQA",
+                    "WARNING",
+                    f"Onboarding can proceed; `{expected}` is not required yet because no PR-QA caller workflow exists. Align rulesets after bootstrap.",
+                ))
+            else:
+                findings.append(Finding(f"RULESET_{branch.upper()}_PRQA", "BLOCKED", detail))
         else:
             findings.append(Finding(f"RULESET_{branch.upper()}_PRQA", "PASS", f"Exact required context `{expected}` ({source})."))
 
@@ -608,13 +672,19 @@ def merge_pr(repo: str, pr: int, method: str) -> None:
     run(["gh", "pr", "merge", str(pr), "--repo", repo, f"--{method}", "--match-head-commit", sha])
 
 
-def bootstrap_apply(repo: str, repo_dir: Path, wait: bool, base_branch: str) -> list[Finding]:
+def bootstrap_apply(repo: str, repo_dir: Path, wait: bool, base_branch: str, audited_base_sha: str) -> list[Finding]:
     findings: list[Finding] = []
-    checkout_branch(repo_dir, base_branch)
+    current_base_sha = remote_branch_sha(repo_dir, base_branch)
+    if current_base_sha != audited_base_sha:
+        raise CmdError(f"Remote {base_branch} moved after preflight; rerun audit before onboarding.")
+    run(["git", "checkout", "-B", base_branch, audited_base_sha], cwd=repo_dir)
     ensure_branch_clean(repo_dir)
     branch = "chore/governance-onboarding"
-    run(["git", "checkout", "-B", branch, f"origin/{base_branch}"], cwd=repo_dir)
+    run(["git", "checkout", "-B", branch, audited_base_sha], cwd=repo_dir)
     changed = install_bootstrap_files(repo_dir, base_branch)
+    if not changed:
+        findings.append(Finding("BOOTSTRAP", "PASS", f"PR-QA caller and PR template already present on {base_branch}."))
+        return findings
     if changed:
         run(["git", "add", *changed], cwd=repo_dir)
         run(["git", "commit", "-m", "chore(governance): onboard central PR QA"], cwd=repo_dir)
@@ -623,10 +693,6 @@ def bootstrap_apply(repo: str, repo_dir: Path, wait: bool, base_branch: str) -> 
             raise CmdError("Remote onboarding branch already diverged; refusing to force-push.")
         if push.returncode != 0:
             raise CmdError(push.stderr.strip())
-    elif run(["git", "ls-remote", "--exit-code", "--heads", "origin", branch], cwd=repo_dir, check=False).returncode != 0:
-        findings.append(Finding("BOOTSTRAP", "PASS", f"PR-QA caller and PR template already present on {base_branch}."))
-        return findings
-
     body = """## Business Purpose\n\nOnboard this repository to the central Synergie PR-QA caller.\n\n## Testing Performed\n\nCentral PR-QA will validate this PR.\n\n## Rollback Strategy\n\nRevert the onboarding commit.\n\n## Linked Issue\n\nhttps://github.com/Synergie-ITCI/.github\n\n## Screenshots\n\nN/A\n\n## Operational Notes\n\nNo application or production deployment changes.\n"""
     pr = open_or_find_pr(repo, branch, base_branch, "chore(governance): onboard central PR QA", body)
     findings.append(Finding("GATE_A_PR", "READY", f"#{pr}"))
@@ -673,6 +739,8 @@ def gate_c_status(repo: str, owner_login: str, create: bool, branches: set[str])
     reviews = latest_reviews(repo, pr)
     approved = author == owner_login or reviews.get(owner_login) == "APPROVED"
     checks = check_runs_for_sha(repo, str(pr_info.get("headRefOid") or ""))
+    if checks is None:
+        return Finding("GATE_C", "BLOCKED", f"PR #{pr} check evidence could not be read.")
     failures = sorted(str(c.get("name")) for c in checks if c.get("conclusion") in {"failure", "cancelled", "timed_out", "action_required"})
     pending = sorted(str(c.get("name")) for c in checks if c.get("status") != "completed")
     if not approved:
@@ -702,6 +770,8 @@ def pr_files(repo: str, pr: int) -> list[dict[str, Any]]:
 
 def latest_prqa_report(repo: str, sha: str) -> dict[str, Any] | None:
     checks = check_runs_for_sha(repo, sha)
+    if checks is None:
+        return None
     prqa = [c for c in checks if str(c.get("name") or "") == GENERIC_CALLER_CONTEXT]
     if not prqa:
         return None
@@ -789,13 +859,23 @@ def pr_status(repo: str, pr: int, owner_login: str) -> str:
     data = gh_json(["pr", "view", str(pr), "--repo", repo, "--json", "author,baseRefName,headRefName,headRefOid,mergeable"])
     if not isinstance(data, dict):
         return "BLOCKED_UNKNOWN"
+    if data.get("mergeable") != "MERGEABLE":
+        return "BLOCKED_UNKNOWN"
     files = [str(item.get("path")) for item in pr_files(repo, pr) if item.get("path")]
     checks = check_runs_for_sha(repo, str(data.get("headRefOid") or ""))
+    if checks is None:
+        return "BLOCKED_UNKNOWN"
+    exact_prqa = [c for c in checks if str(c.get("name") or "") == GENERIC_CALLER_CONTEXT]
+    if not exact_prqa:
+        return "BLOCKED_UNKNOWN"
+    prqa_check = exact_prqa[0]
+    if prqa_check.get("status") != "completed":
+        return "BLOCKED_UNKNOWN"
+    if prqa_check.get("conclusion") != "success":
+        return classify_prqa_failure_attribution(latest_prqa_report(repo, str(data.get("headRefOid") or "")), files)
     failures = [c for c in checks if c.get("conclusion") in {"failure", "cancelled", "timed_out", "action_required"}]
     pending = [c for c in checks if c.get("status") != "completed"]
-    if failures:
-        return classify_prqa_failure_attribution(latest_prqa_report(repo, str(data.get("headRefOid") or "")), files)
-    if pending:
+    if failures or pending:
         return "BLOCKED_UNKNOWN"
     gate_c = str(data.get("headRefName") or "").lower() == "staging" and str(data.get("baseRefName") or "").lower() == "main"
     if gate_c:
@@ -835,7 +915,7 @@ def onboard(args: argparse.Namespace) -> int:
     require_tools()
     validate_repo_slug(args.repo)
     meta = repo_metadata(args.repo)
-    default_branch = str(((meta.get("defaultBranchRef") or {}).get("name")) or "main")
+    default_branch = default_branch_name(meta)
     owner_login = central_owner_login()
     tmp = clone_repo(args.repo)
     repo_dir = Path(tmp.name)
@@ -845,8 +925,12 @@ def onboard(args: argparse.Namespace) -> int:
         branches = list_remote_branches(repo_dir)
         topology = classify_topology(branches, default_branch)
         bootstrap_base = branch_for_bootstrap(branches, default_branch)
-        source_ref = f"origin/{default_branch}" if default_branch in branches else f"origin/{bootstrap_base}"
-        paths = repository_files(repo_dir, source_ref)
+        audited_bootstrap_sha = local_branch_sha(repo_dir, bootstrap_base)
+        try:
+            paths = repository_files(repo_dir, audited_bootstrap_sha)
+        except CmdError as exc:
+            print_report(args.repo, findings + [Finding("SOURCE_INSPECTION", "BLOCKED", str(exc))], [], json_mode=args.json)
+            return 2
         technologies = detect_technologies(paths)
         profile = classify_profile(paths, technologies, args.profile)
         criticality = classify_criticality(profile, technologies, args.criticality, paths)
@@ -862,17 +946,20 @@ def onboard(args: argparse.Namespace) -> int:
             print_report(args.repo, findings, [], json_mode=args.json)
             return 2
 
-        if args.apply:
-            findings.extend(bootstrap_apply(args.repo, repo_dir, args.wait, bootstrap_base))
-            run(["git", "fetch", "origin", "--prune"], cwd=repo_dir)
-
         findings.extend(ruleset_audit(args.repo, repo_dir, default_branch, branches))
         deploy_findings, workflow_rows = deployment_audit(repo_dir, owner_login, branches, default_branch)
         findings.extend(deploy_findings)
 
         blockers = [f for f in findings if f.status == "BLOCKED"]
+        if args.apply and blockers:
+            print_report(args.repo, findings, workflow_rows, json_mode=args.json)
+            return 3
+
+        if args.apply:
+            findings.extend(bootstrap_apply(args.repo, repo_dir, args.wait, bootstrap_base, audited_bootstrap_sha))
+            run(["git", "fetch", "origin", "--prune"], cwd=repo_dir)
+
         if args.apply and args.wait and not blockers:
-            findings.append(gate_c_status(args.repo, owner_login, create=True, branches=branches))
             findings.append(Finding("PRODUCTION", "PASS", "Untouched; CLI has no AWS/SSH/workflow-dispatch production action."))
         elif not args.apply:
             findings.append(gate_c_status(args.repo, owner_login, create=False, branches=branches))

@@ -1,3 +1,4 @@
+import argparse
 import importlib.util
 import json
 import subprocess
@@ -163,6 +164,7 @@ class ModernizedRecoveryTests(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory(prefix="onboard-audit-")
         repo = Path(tmp.name)
         subprocess.run(["git", "init", "-q", repo], check=True)
+        subprocess.run(["git", "remote", "add", "origin", str(repo)], cwd=repo, check=True)
         subprocess.run(["git", "config", "user.email", "qa@example.invalid"], cwd=repo, check=True)
         subprocess.run(["git", "config", "user.name", "QA"], cwd=repo, check=True)
         for branch, files in files_by_branch.items():
@@ -186,6 +188,20 @@ class ModernizedRecoveryTests(unittest.TestCase):
                 {"type": "pull_request", "parameters": {"required_approving_review_count": 0, "require_last_push_approval": False}},
             ],
         }
+
+    def ruleset_without_prqa_context(self) -> dict[str, Any]:
+        return {
+            "conditions": {"ref_name": {"include": ["refs/heads/*"], "exclude": []}},
+            "rules": [
+                {"type": "pull_request", "parameters": {"required_approving_review_count": 0, "require_last_push_approval": False}},
+            ],
+        }
+
+    def onboard_args(self, *, apply: bool = True) -> argparse.Namespace:
+        return argparse.Namespace(repo="Synergie-ITCI/example", json=True, profile="auto", criticality="auto", apply=apply, wait=False)
+
+    def canonical_caller(self) -> str:
+        return mod.PR_QA_TEMPLATE.read_text(encoding="utf-8")
 
     def test_dynamic_topology_detection(self):
         self.assertEqual(mod.classify_topology({"development", "staging", "main"}, "main"), "STANDARD_SYNERGIE_FLOW")
@@ -223,10 +239,34 @@ class ModernizedRecoveryTests(unittest.TestCase):
     def test_ruleset_audit_uses_only_discovered_branches(self):
         detail = {"conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}}, "rules": []}
         with patch.object(mod, "active_ruleset_details", return_value=[detail]), \
-             patch.object(mod, "expected_prqa_context", return_value=(mod.GENERIC_CALLER_CONTEXT, "test")) as expected:
+             patch.object(mod, "prqa_context_expectation", return_value=mod.PrqaContextExpectation(mod.GENERIC_CALLER_CONTEXT, "test", "GENERIC")) as expected:
             findings = mod.ruleset_audit("Synergie-ITCI/example", Path("."), "main", {"main"})
         expected.assert_called_once_with("Synergie-ITCI/example", Path("."), "main")
         self.assertTrue(all("DEVELOPMENT" not in finding.key and "STAGING" not in finding.key for finding in findings))
+
+    def test_ruleset_zero_active_rulesets_warns(self):
+        with patch.object(mod, "active_ruleset_details", return_value=[]):
+            findings = mod.ruleset_audit("Synergie-ITCI/example", Path("."), "main", {"main"})
+        self.assertEqual(findings[0].status, "WARNING")
+
+    def test_ruleset_list_api_failure_fails_closed(self):
+        with patch.object(mod, "rulesets", side_effect=mod.CmdError("Unable to read repository rulesets through GitHub API; failing closed.")):
+            findings = mod.ruleset_audit("Synergie-ITCI/example", Path("."), "main", {"main"})
+        self.assertEqual(findings[0].status, "BLOCKED")
+
+    def test_malformed_ruleset_response_fails_closed(self):
+        def fake_run(cmd, **_kwargs):
+            return subprocess.CompletedProcess(cmd, 0, "{not-json", "")
+
+        with patch.object(mod, "run", side_effect=fake_run):
+            findings = mod.ruleset_audit("Synergie-ITCI/example", Path("."), "main", {"main"})
+        self.assertEqual(findings[0].status, "BLOCKED")
+
+    def test_partial_ruleset_detail_failure_fails_closed(self):
+        with patch.object(mod, "rulesets", return_value=[{"id": 1, "enforcement": "active"}]), \
+             patch.object(mod, "ruleset_detail", side_effect=mod.CmdError("Unable to read active ruleset detail 1; failing closed.")):
+            findings = mod.ruleset_audit("Synergie-ITCI/example", Path("."), "main", {"main"})
+        self.assertEqual(findings[0].status, "BLOCKED")
 
     def test_deployment_audit_uses_discovered_branches_and_warns_without_gate_d(self):
         with patch.object(mod, "workflow_files", side_effect=lambda _repo, ref: {".github/workflows/ci.yml": "on: pull_request\n"} if ref == "origin/main" else {}) as workflow_files:
@@ -235,6 +275,40 @@ class ModernizedRecoveryTests(unittest.TestCase):
         gate_d = [finding for finding in findings if finding.key == "GATE_D_SHAPE"][0]
         self.assertEqual(gate_d.status, "WARNING")
         self.assertEqual([row["observed_on"] for row in rows], ["main"])
+
+    def test_workflow_tree_read_failure_blocks_deployment_audit(self):
+        with patch.object(mod, "workflow_files", side_effect=mod.CmdError("Unable to inspect workflow tree for origin/main; failing closed.")):
+            findings, rows = mod.deployment_audit(Path("."), "SaurabhVermaIN", {"main"}, "main")
+        self.assertEqual(rows, [])
+        self.assertEqual(findings[0].status, "BLOCKED")
+
+    def test_workflow_blob_read_failure_blocks_deployment_audit(self):
+        with patch.object(mod, "workflow_files", side_effect=mod.CmdError("Unable to read workflow file .github/workflows/deploy.yml at origin/main; failing closed.")):
+            findings, rows = mod.deployment_audit(Path("."), "SaurabhVermaIN", {"main"}, "main")
+        self.assertEqual(rows, [])
+        self.assertEqual(findings[0].status, "BLOCKED")
+
+    def test_workflow_files_tree_read_failure_raises(self):
+        def fake_run(cmd, **_kwargs):
+            if cmd[:4] == ["git", "ls-tree", "-r", "--name-only"]:
+                return subprocess.CompletedProcess(cmd, 1, "", "")
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        with patch.object(mod, "run", side_effect=fake_run):
+            with self.assertRaises(mod.CmdError):
+                mod.workflow_files(Path("."), "origin/main")
+
+    def test_workflow_files_blob_read_failure_raises(self):
+        def fake_run(cmd, **_kwargs):
+            if cmd[:4] == ["git", "ls-tree", "-r", "--name-only"]:
+                return subprocess.CompletedProcess(cmd, 0, ".github/workflows/deploy.yml\n", "")
+            if cmd[:2] == ["git", "show"]:
+                return subprocess.CompletedProcess(cmd, 1, "", "")
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        with patch.object(mod, "run", side_effect=fake_run):
+            with self.assertRaises(mod.CmdError):
+                mod.workflow_files(Path("."), "origin/main")
 
     def test_standard_topology_non_regression(self):
         calls = []
@@ -262,8 +336,54 @@ class ModernizedRecoveryTests(unittest.TestCase):
             findings = mod.ruleset_audit("Synergie-ITCI/example", repo, "main", {"development"})
         self.assertTrue(any(f.key == "RULESET_DEVELOPMENT_PRQA" and f.status == "PASS" for f in findings))
 
+    def test_absent_caller_without_prqa_context_warns_and_is_bootstrap_safe(self):
+        tmp, repo = self.repo_with_origin_branch({"development": {"README.md": "fresh\n"}})
+        self.addCleanup(tmp.cleanup)
+        with patch.object(mod, "active_ruleset_details", return_value=[self.ruleset_without_prqa_context()]), \
+             patch.object(mod, "observed_check_names", return_value=set()):
+            findings = mod.ruleset_audit("Synergie-ITCI/example", repo, "main", {"development"})
+        prqa = [f for f in findings if f.key == "RULESET_DEVELOPMENT_PRQA"][0]
+        self.assertEqual(prqa.status, "WARNING")
+        self.assertIn("Onboarding can proceed", prqa.detail)
+
+    def test_fresh_warning_uses_structured_state_not_detail_text(self):
+        result = mod.PrqaContextExpectation(mod.GENERIC_CALLER_CONTEXT, "wording changed completely", "ABSENT")
+        with patch.object(mod, "active_ruleset_details", return_value=[self.ruleset_without_prqa_context()]), \
+             patch.object(mod, "prqa_context_expectation", return_value=result):
+            findings = mod.ruleset_audit("Synergie-ITCI/example", Path("."), "main", {"development"})
+        prqa = [f for f in findings if f.key == "RULESET_DEVELOPMENT_PRQA"][0]
+        self.assertEqual(prqa.status, "WARNING")
+
+    def test_absent_caller_with_exact_generic_context_passes(self):
+        tmp, repo = self.repo_with_origin_branch({"development": {"README.md": "fresh\n"}})
+        self.addCleanup(tmp.cleanup)
+        with patch.object(mod, "active_ruleset_details", return_value=[self.prqa_ruleset()]), \
+             patch.object(mod, "observed_check_names", return_value=set()):
+            findings = mod.ruleset_audit("Synergie-ITCI/example", repo, "main", {"development"})
+        self.assertTrue(any(f.key == "RULESET_DEVELOPMENT_PRQA" and f.status == "PASS" for f in findings))
+
+    def test_absent_caller_with_wrong_prqa_like_context_blocks(self):
+        tmp, repo = self.repo_with_origin_branch({"development": {"README.md": "fresh\n"}})
+        self.addCleanup(tmp.cleanup)
+        with patch.object(mod, "active_ruleset_details", return_value=[self.prqa_ruleset("Pull Request Quality Assurance / Pull Request Quality Assurance")]), \
+             patch.object(mod, "observed_check_names", return_value=set()):
+            findings = mod.ruleset_audit("Synergie-ITCI/example", repo, "main", {"development"})
+        prqa = [f for f in findings if f.key == "RULESET_DEVELOPMENT_PRQA"][0]
+        self.assertEqual(prqa.status, "BLOCKED")
+        self.assertIn("Mismatched PR-QA-like contexts", prqa.detail)
+
+    def test_existing_exact_caller_with_context_missing_blocks(self):
+        caller = self.canonical_caller()
+        tmp, repo = self.repo_with_origin_branch({"development": {".github/workflows/pr-qa.yml": caller}})
+        self.addCleanup(tmp.cleanup)
+        with patch.object(mod, "active_ruleset_details", return_value=[self.ruleset_without_prqa_context()]), \
+             patch.object(mod, "observed_check_names", return_value=set()):
+            findings = mod.ruleset_audit("Synergie-ITCI/example", repo, "main", {"development"})
+        prqa = [f for f in findings if f.key == "RULESET_DEVELOPMENT_PRQA"][0]
+        self.assertEqual(prqa.status, "BLOCKED")
+
     def test_existing_caller_context_mismatch_remains_blocked(self):
-        caller = "name: pr-qa\non: pull_request\njobs:\n  pr-qa:\n    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@main\n"
+        caller = self.canonical_caller()
         tmp, repo = self.repo_with_origin_branch({"main": {".github/workflows/pr-qa.yml": caller}})
         self.addCleanup(tmp.cleanup)
         with patch.object(mod, "active_ruleset_details", return_value=[self.prqa_ruleset("Pull Request Quality Assurance / Pull Request Quality Assurance")]), \
@@ -274,13 +394,42 @@ class ModernizedRecoveryTests(unittest.TestCase):
         self.assertIn("Mismatched PR-QA-like contexts", prqa.detail)
 
     def test_castrol_style_context_mismatch_is_not_onboarding_needed(self):
-        caller = "name: pr-qa\non: pull_request\njobs:\n  pr-qa:\n    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@main\n"
+        caller = self.canonical_caller()
         tmp, repo = self.repo_with_origin_branch({"main": {".github/workflows/pr-qa.yml": caller}})
         self.addCleanup(tmp.cleanup)
         with patch.object(mod, "observed_check_names", return_value=set()):
             expected, source = mod.expected_prqa_context("Synergie-ITCI/Castrol", repo, "main")
         self.assertEqual(expected, mod.GENERIC_CALLER_CONTEXT)
         self.assertNotIn("fresh bootstrap", source)
+
+    def test_canonical_template_classifies_as_generic(self):
+        tmp, repo = self.repo_with_origin_branch({"development": {".github/workflows/pr-qa.yml": self.canonical_caller()}})
+        self.addCleanup(tmp.cleanup)
+        state, text = mod.caller_workflow_text(repo, "development")
+        self.assertEqual(state, "PRESENT")
+        self.assertEqual(text, self.canonical_caller())
+        with patch.object(mod, "observed_check_names", return_value=set()):
+            expectation = mod.prqa_context_expectation("Synergie-ITCI/example", repo, "development")
+        self.assertEqual(expectation.caller_state, "GENERIC")
+        self.assertEqual(expectation.expected, mod.GENERIC_CALLER_CONTEXT)
+
+    def test_modified_trigger_with_same_job_and_uses_is_custom(self):
+        caller = self.canonical_caller().replace("pull_request:", "workflow_dispatch:", 1)
+        tmp, repo = self.repo_with_origin_branch({"development": {".github/workflows/pr-qa.yml": caller}})
+        self.addCleanup(tmp.cleanup)
+        with patch.object(mod, "observed_check_names", return_value={mod.GENERIC_CALLER_CONTEXT}):
+            expectation = mod.prqa_context_expectation("Synergie-ITCI/example", repo, "development")
+        self.assertEqual(expectation.caller_state, "CUSTOM")
+        self.assertIsNone(expectation.expected)
+
+    def test_modified_permissions_with_same_job_and_uses_is_custom(self):
+        caller = self.canonical_caller().replace("issues: write", "issues: read", 1)
+        tmp, repo = self.repo_with_origin_branch({"development": {".github/workflows/pr-qa.yml": caller}})
+        self.addCleanup(tmp.cleanup)
+        with patch.object(mod, "observed_check_names", return_value={mod.GENERIC_CALLER_CONTEXT}):
+            expectation = mod.prqa_context_expectation("Synergie-ITCI/example", repo, "development")
+        self.assertEqual(expectation.caller_state, "CUSTOM")
+        self.assertIsNone(expectation.expected)
 
     def test_custom_caller_requires_review(self):
         custom = "name: custom qa\non: pull_request\njobs:\n  quality:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo custom\n"
@@ -290,6 +439,17 @@ class ModernizedRecoveryTests(unittest.TestCase):
             expected, source = mod.expected_prqa_context("Synergie-ITCI/example", repo, "development")
         self.assertIsNone(expected)
         self.assertIn("CUSTOM_CALLER_REQUIRES_REVIEW", source)
+
+    def test_custom_caller_ruleset_audit_blocks_review_path(self):
+        custom = "name: custom qa\non: pull_request\njobs:\n  quality:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo custom\n"
+        tmp, repo = self.repo_with_origin_branch({"development": {".github/workflows/pr-qa.yml": custom}})
+        self.addCleanup(tmp.cleanup)
+        with patch.object(mod, "active_ruleset_details", return_value=[self.prqa_ruleset()]), \
+             patch.object(mod, "observed_check_names", return_value=set()):
+            findings = mod.ruleset_audit("Synergie-ITCI/example", repo, "main", {"development"})
+        prqa = [f for f in findings if f.key == "RULESET_DEVELOPMENT_PRQA"][0]
+        self.assertEqual(prqa.status, "BLOCKED")
+        self.assertIn("CUSTOM_CALLER_REQUIRES_REVIEW", prqa.detail)
 
     def test_custom_caller_with_valid_history_still_requires_review(self):
         custom = "name: custom qa\non: pull_request\njobs:\n  quality:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo custom\n"
@@ -301,7 +461,7 @@ class ModernizedRecoveryTests(unittest.TestCase):
         self.assertIn("CUSTOM_CALLER_REQUIRES_REVIEW", source)
 
     def test_generic_caller_with_multiple_observed_contexts_remains_blocked(self):
-        caller = "name: pr-qa\non: pull_request\njobs:\n  pr-qa:\n    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@main\n"
+        caller = self.canonical_caller()
         tmp, repo = self.repo_with_origin_branch({"main": {".github/workflows/pr-qa.yml": caller}})
         self.addCleanup(tmp.cleanup)
         with patch.object(mod, "observed_check_names", return_value={mod.GENERIC_CALLER_CONTEXT, "Pull Request Quality Assurance / Pull Request Quality Assurance"}):
@@ -338,6 +498,25 @@ class ModernizedRecoveryTests(unittest.TestCase):
         self.assertIn("Unable to prove PR-QA caller workflow state", source)
         self.assertNotIn("fresh bootstrap", source)
 
+    def test_ambiguous_caller_state_ruleset_audit_blocks(self):
+        with patch.object(mod, "caller_workflow_text", return_value=("ERROR", None)), \
+             patch.object(mod, "active_ruleset_details", return_value=[self.prqa_ruleset()]):
+            findings = mod.ruleset_audit("Synergie-ITCI/example", Path("."), "main", {"development"})
+        prqa = [f for f in findings if f.key == "RULESET_DEVELOPMENT_PRQA"][0]
+        self.assertEqual(prqa.status, "BLOCKED")
+        self.assertIn("Unable to prove", prqa.detail)
+
+    def test_native_review_deadlock_blocks(self):
+        tmp, repo = self.repo_with_origin_branch({"main": {"README.md": "fresh\n"}})
+        self.addCleanup(tmp.cleanup)
+        ruleset = self.prqa_ruleset()
+        ruleset["rules"][1]["parameters"]["required_approving_review_count"] = 1
+        with patch.object(mod, "active_ruleset_details", return_value=[ruleset]), \
+             patch.object(mod, "observed_check_names", return_value=set()):
+            findings = mod.ruleset_audit("Synergie-ITCI/example", repo, "main", {"main"})
+        reviews = [f for f in findings if f.key == "RULESET_MAIN_REVIEWS"][0]
+        self.assertEqual(reviews.status, "BLOCKED")
+
     def test_resolved_ref_with_absent_caller_still_bootstraps(self):
         tmp, repo = self.repo_with_origin_branch({"development": {"README.md": "fresh\n"}})
         self.addCleanup(tmp.cleanup)
@@ -357,13 +536,163 @@ class ModernizedRecoveryTests(unittest.TestCase):
         self.assertIn("git\", \"ls-tree\", \"-z\"", caller_source)
 
     def test_already_onboarded_valid_repo_retains_strict_audit(self):
-        caller = "name: pr-qa\non: pull_request\njobs:\n  pr-qa:\n    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@main\n"
+        caller = self.canonical_caller()
         tmp, repo = self.repo_with_origin_branch({"staging": {".github/workflows/pr-qa.yml": caller}})
         self.addCleanup(tmp.cleanup)
         with patch.object(mod, "active_ruleset_details", return_value=[self.prqa_ruleset()]), \
              patch.object(mod, "observed_check_names", return_value=set()):
             findings = mod.ruleset_audit("Synergie-ITCI/example", repo, "main", {"staging"})
         self.assertTrue(any(f.key == "RULESET_STAGING_PRQA" and f.status == "PASS" and "generic caller" in f.detail for f in findings))
+
+    def test_repository_tree_read_failure_prevents_apply(self):
+        tmp, repo = self.repo_with_origin_branch({"development": {"README.md": "fresh\n"}, "main": {"README.md": "fresh\n"}})
+        with patch.object(mod, "require_tools"), \
+             patch.object(mod, "repo_metadata", return_value={"defaultBranchRef": {"name": "main"}}), \
+             patch.object(mod, "central_owner_login", return_value="SaurabhVermaIN"), \
+             patch.object(mod, "clone_repo", return_value=tmp), \
+             patch.object(mod, "repository_files", side_effect=mod.CmdError("tree read failed")), \
+             patch.object(mod, "bootstrap_apply") as bootstrap:
+            self.assertEqual(mod.onboard(self.onboard_args(apply=True)), 2)
+        bootstrap.assert_not_called()
+
+    def test_profile_uses_audited_bootstrap_base_not_default_main(self):
+        tmp, repo = self.repo_with_origin_branch({
+            "main": {"README.md": "docs only\n"},
+            "development": {"README.md": "app\n", "composer.json": "{}", "artisan": "#!/usr/bin/env php\n"},
+        })
+        seen_refs = []
+        development_sha = mod.local_branch_sha(repo, "development")
+        real_repository_files = mod.repository_files
+
+        def tracking_repository_files(repo_dir: Path, ref: str) -> list[str]:
+            seen_refs.append(ref)
+            return real_repository_files(repo_dir, ref)
+
+        with patch.object(mod, "require_tools"), \
+             patch.object(mod, "repo_metadata", return_value={"defaultBranchRef": {"name": "main"}}), \
+             patch.object(mod, "central_owner_login", return_value="SaurabhVermaIN"), \
+             patch.object(mod, "clone_repo", return_value=tmp), \
+             patch.object(mod, "repository_files", side_effect=tracking_repository_files), \
+             patch.object(mod, "active_ruleset_details", return_value=[self.ruleset_without_prqa_context()]), \
+             patch.object(mod, "observed_check_names", return_value=set()), \
+             patch.object(mod, "deployment_audit", return_value=([], [])), \
+             patch.object(mod, "bootstrap_apply", return_value=[mod.Finding("GATE_A_PR", "READY", "#1")]):
+            self.assertEqual(mod.onboard(self.onboard_args(apply=True)), 0)
+        self.assertEqual(seen_refs, [development_sha])
+
+    def test_missing_default_branch_metadata_fails_closed_before_apply(self):
+        with patch.object(mod, "require_tools"), \
+             patch.object(mod, "repo_metadata", return_value={"defaultBranchRef": None}), \
+             patch.object(mod, "bootstrap_apply") as bootstrap:
+            with self.assertRaises(mod.CmdError):
+                mod.onboard(self.onboard_args(apply=True))
+        bootstrap.assert_not_called()
+
+    def test_onboard_apply_ruleset_blocker_prevents_bootstrap(self):
+        tmp, repo = self.repo_with_origin_branch({"development": {"README.md": "fresh\n"}, "main": {"README.md": "fresh\n"}})
+        with patch.object(mod, "require_tools"), \
+             patch.object(mod, "repo_metadata", return_value={"defaultBranchRef": {"name": "main"}}), \
+             patch.object(mod, "central_owner_login", return_value="SaurabhVermaIN"), \
+             patch.object(mod, "clone_repo", return_value=tmp), \
+             patch.object(mod, "active_ruleset_details", return_value=[self.prqa_ruleset("Pull Request Quality Assurance / Pull Request Quality Assurance")]), \
+             patch.object(mod, "observed_check_names", return_value=set()), \
+             patch.object(mod, "deployment_audit", return_value=([], [])), \
+             patch.object(mod, "bootstrap_apply") as bootstrap:
+            self.assertEqual(mod.onboard(self.onboard_args(apply=True)), 3)
+        bootstrap.assert_not_called()
+
+    def test_onboard_apply_ruleset_evidence_failure_prevents_bootstrap(self):
+        tmp, repo = self.repo_with_origin_branch({"development": {"README.md": "fresh\n"}, "main": {"README.md": "fresh\n"}})
+        with patch.object(mod, "require_tools"), \
+             patch.object(mod, "repo_metadata", return_value={"defaultBranchRef": {"name": "main"}}), \
+             patch.object(mod, "central_owner_login", return_value="SaurabhVermaIN"), \
+             patch.object(mod, "clone_repo", return_value=tmp), \
+             patch.object(mod, "active_ruleset_details", side_effect=mod.CmdError("ruleset evidence missing")), \
+             patch.object(mod, "deployment_audit", return_value=([], [])), \
+             patch.object(mod, "bootstrap_apply") as bootstrap:
+            self.assertEqual(mod.onboard(self.onboard_args(apply=True)), 3)
+        bootstrap.assert_not_called()
+
+    def test_onboard_apply_deployment_blocker_prevents_bootstrap(self):
+        tmp, repo = self.repo_with_origin_branch({"development": {"README.md": "fresh\n"}, "main": {"README.md": "fresh\n"}})
+        with patch.object(mod, "require_tools"), \
+             patch.object(mod, "repo_metadata", return_value={"defaultBranchRef": {"name": "main"}}), \
+             patch.object(mod, "central_owner_login", return_value="SaurabhVermaIN"), \
+             patch.object(mod, "clone_repo", return_value=tmp), \
+             patch.object(mod, "active_ruleset_details", return_value=[self.ruleset_without_prqa_context()]), \
+             patch.object(mod, "observed_check_names", return_value=set()), \
+             patch.object(mod, "deployment_audit", return_value=([mod.Finding("PRODUCTION_AUTO_DEPLOY", "BLOCKED", "unsafe")], [])), \
+             patch.object(mod, "bootstrap_apply") as bootstrap:
+            self.assertEqual(mod.onboard(self.onboard_args(apply=True)), 3)
+        bootstrap.assert_not_called()
+
+    def test_onboard_apply_safe_fresh_warning_calls_bootstrap_once(self):
+        tmp, repo = self.repo_with_origin_branch({"development": {"README.md": "fresh\n"}, "main": {"README.md": "fresh\n"}})
+        with patch.object(mod, "require_tools"), \
+             patch.object(mod, "repo_metadata", return_value={"defaultBranchRef": {"name": "main"}}), \
+             patch.object(mod, "central_owner_login", return_value="SaurabhVermaIN"), \
+             patch.object(mod, "clone_repo", return_value=tmp), \
+             patch.object(mod, "active_ruleset_details", return_value=[self.ruleset_without_prqa_context()]), \
+             patch.object(mod, "observed_check_names", return_value=set()), \
+             patch.object(mod, "deployment_audit", return_value=([], [])), \
+            patch.object(mod, "bootstrap_apply", return_value=[mod.Finding("GATE_A_PR", "READY", "#1")]) as bootstrap:
+            self.assertEqual(mod.onboard(self.onboard_args(apply=True)), 0)
+        bootstrap.assert_called_once()
+
+    def test_onboard_apply_wait_does_not_create_gate_c(self):
+        args = self.onboard_args(apply=True)
+        args.wait = True
+        tmp, repo = self.repo_with_origin_branch({"development": {"README.md": "fresh\n"}, "staging": {"README.md": "fresh\n"}, "main": {"README.md": "fresh\n"}})
+        with patch.object(mod, "require_tools"), \
+             patch.object(mod, "repo_metadata", return_value={"defaultBranchRef": {"name": "main"}}), \
+             patch.object(mod, "central_owner_login", return_value="SaurabhVermaIN"), \
+             patch.object(mod, "clone_repo", return_value=tmp), \
+             patch.object(mod, "active_ruleset_details", return_value=[self.ruleset_without_prqa_context()]), \
+             patch.object(mod, "observed_check_names", return_value=set()), \
+             patch.object(mod, "deployment_audit", return_value=([], [])), \
+             patch.object(mod, "bootstrap_apply", return_value=[mod.Finding("GATE_A_PR", "READY", "#1")]), \
+             patch.object(mod, "gate_c_status") as gate_c:
+            self.assertEqual(mod.onboard(args), 0)
+        gate_c.assert_not_called()
+
+    def test_bootstrap_apply_allows_unchanged_audited_base(self):
+        tmp, repo = self.repo_with_origin_branch({"development": {"README.md": "fresh\n"}})
+        self.addCleanup(tmp.cleanup)
+        audited = mod.local_branch_sha(repo, "development")
+        with patch.object(mod, "install_bootstrap_files", return_value=[]), \
+             patch.object(mod, "run", wraps=mod.run), \
+             patch.object(mod, "open_or_find_pr") as open_pr:
+            findings = mod.bootstrap_apply("Synergie-ITCI/example", repo, False, "development", audited)
+        open_pr.assert_not_called()
+        self.assertEqual(findings[0].key, "BOOTSTRAP")
+        self.assertEqual(findings[0].status, "PASS")
+        self.assertIn("already present", findings[0].detail)
+
+    def test_already_onboarded_with_stale_remote_branch_returns_without_pr(self):
+        tmp, repo = self.repo_with_origin_branch({
+            "development": {
+                ".github/workflows/pr-qa.yml": self.canonical_caller(),
+                ".github/pull_request_template.md": mod.PR_TEMPLATE.read_text(encoding="utf-8"),
+            },
+            "chore/governance-onboarding": {"README.md": "stale\n"},
+        })
+        self.addCleanup(tmp.cleanup)
+        audited = mod.local_branch_sha(repo, "development")
+        with patch.object(mod, "open_or_find_pr") as open_pr:
+            findings = mod.bootstrap_apply("Synergie-ITCI/example", repo, False, "development", audited)
+        open_pr.assert_not_called()
+        self.assertEqual(findings[0].status, "PASS")
+        self.assertIn("already present", findings[0].detail)
+
+    def test_bootstrap_apply_blocks_moved_base_before_mutation(self):
+        tmp, repo = self.repo_with_origin_branch({"development": {"README.md": "fresh\n"}})
+        self.addCleanup(tmp.cleanup)
+        audited = mod.local_branch_sha(repo, "development")
+        with patch.object(mod, "remote_branch_sha", return_value="0" * 40), \
+             patch.object(mod, "install_bootstrap_files") as install:
+            with self.assertRaises(mod.CmdError):
+                mod.bootstrap_apply("Synergie-ITCI/example", repo, False, "development", audited)
+        install.assert_not_called()
 
     def test_technology_profile_and_criticality_detection(self):
         paths = [
@@ -528,6 +857,13 @@ jobs:
         self.assertIn('".github/pull_request_template.md"', source)
         self.assertNotIn('".github/pr-qa.yml":', source)
 
+    def test_onboarding_decision_table_is_documented(self):
+        doc = (MODULE.parents[1] / "docs" / "onboarding-guide.md").read_text(encoding="utf-8")
+        self.assertIn("Fresh-Onboarding PR-QA Decision Table", doc)
+        self.assertIn("Caller workflow proven absent | No PR-QA-like context required | WARNING", doc)
+        self.assertIn("Custom caller exists | Any ruleset state | BLOCKED", doc)
+        self.assertIn("Caller/ref state ambiguous or unreadable | Any ruleset state | BLOCKED", doc)
+
     def test_apply_path_has_no_auto_merge_call(self):
         source = MODULE.read_text()
         bootstrap = source.split("def bootstrap_apply", 1)[1].split("def latest_reviews", 1)[0]
@@ -539,6 +875,46 @@ jobs:
              patch.object(mod, "pr_files", return_value=[{"path": "app/Http/Controller.php"}]), \
              patch.object(mod, "check_runs_for_sha", return_value=[{"name": "pr-qa / Pull Request Quality Assurance", "status": "completed", "conclusion": "success"}]):
             self.assertEqual(mod.pr_status("Synergie-ITCI/example", 1, "SaurabhVermaIN"), "PASS")
+
+    def test_verify_no_checks_is_not_pass(self):
+        with patch.object(mod, "gh_json", return_value={"author": {"login": "dev"}, "baseRefName": "development", "headRefName": "feature/x", "headRefOid": "abc", "mergeable": "MERGEABLE"}), \
+             patch.object(mod, "pr_files", return_value=[]), \
+             patch.object(mod, "check_runs_for_sha", return_value=[]):
+            self.assertEqual(mod.pr_status("Synergie-ITCI/example", 1, "SaurabhVermaIN"), "BLOCKED_UNKNOWN")
+
+    def test_verify_check_api_failure_is_not_pass(self):
+        with patch.object(mod, "gh_json", return_value={"author": {"login": "dev"}, "baseRefName": "development", "headRefName": "feature/x", "headRefOid": "abc", "mergeable": "MERGEABLE"}), \
+             patch.object(mod, "pr_files", return_value=[]), \
+             patch.object(mod, "check_runs_for_sha", return_value=None):
+            self.assertEqual(mod.pr_status("Synergie-ITCI/example", 1, "SaurabhVermaIN"), "BLOCKED_UNKNOWN")
+
+    def test_verify_missing_exact_prqa_is_not_pass(self):
+        with patch.object(mod, "gh_json", return_value={"author": {"login": "dev"}, "baseRefName": "development", "headRefName": "feature/x", "headRefOid": "abc", "mergeable": "MERGEABLE"}), \
+             patch.object(mod, "pr_files", return_value=[]), \
+             patch.object(mod, "check_runs_for_sha", return_value=[{"name": "Pull Request Quality Assurance", "status": "completed", "conclusion": "success"}]):
+            self.assertEqual(mod.pr_status("Synergie-ITCI/example", 1, "SaurabhVermaIN"), "BLOCKED_UNKNOWN")
+
+    def test_verify_pending_exact_prqa_is_not_pass(self):
+        with patch.object(mod, "gh_json", return_value={"author": {"login": "dev"}, "baseRefName": "development", "headRefName": "feature/x", "headRefOid": "abc", "mergeable": "MERGEABLE"}), \
+             patch.object(mod, "pr_files", return_value=[]), \
+             patch.object(mod, "check_runs_for_sha", return_value=[{"name": mod.GENERIC_CALLER_CONTEXT, "status": "in_progress", "conclusion": None}]):
+            self.assertEqual(mod.pr_status("Synergie-ITCI/example", 1, "SaurabhVermaIN"), "BLOCKED_UNKNOWN")
+
+    def test_verify_merge_conflict_is_not_pass(self):
+        with patch.object(mod, "gh_json", return_value={"author": {"login": "dev"}, "baseRefName": "development", "headRefName": "feature/x", "headRefOid": "abc", "mergeable": "CONFLICTING"}), \
+             patch.object(mod, "pr_files", return_value=[]), \
+             patch.object(mod, "check_runs_for_sha", return_value=[{"name": mod.GENERIC_CALLER_CONTEXT, "status": "completed", "conclusion": "success"}]):
+            self.assertEqual(mod.pr_status("Synergie-ITCI/example", 1, "SaurabhVermaIN"), "BLOCKED_UNKNOWN")
+
+    def test_verify_unrelated_pending_or_failing_check_is_not_pass(self):
+        checks = [
+            {"name": mod.GENERIC_CALLER_CONTEXT, "status": "completed", "conclusion": "success"},
+            {"name": "Architecture Governance", "status": "completed", "conclusion": "failure"},
+        ]
+        with patch.object(mod, "gh_json", return_value={"author": {"login": "dev"}, "baseRefName": "development", "headRefName": "feature/x", "headRefOid": "abc", "mergeable": "MERGEABLE"}), \
+             patch.object(mod, "pr_files", return_value=[]), \
+             patch.object(mod, "check_runs_for_sha", return_value=checks):
+            self.assertEqual(mod.pr_status("Synergie-ITCI/example", 1, "SaurabhVermaIN"), "BLOCKED_UNKNOWN")
 
     def test_verify_onboarding_file_failure_requires_report_evidence(self):
         report = {"results": [{"gate": "Protected Resources", "status": "FAIL", "message": ".github/workflows/pr-qa.yml changed", "details": [], "blocking": True}]}
