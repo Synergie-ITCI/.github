@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass, asdict
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,7 @@ PR_TEMPLATE = ROOT / "examples" / "pull_request_template.md"
 CENTRAL_REPO = "Synergie-ITCI/.github"
 CENTRAL_POLICY_PATH = "policy/pr-qa-policy.json"
 GENERIC_CALLER_CONTEXT = "pr-qa / Pull Request Quality Assurance"
+CHECK_FAILURE_CONCLUSIONS = {"failure", "cancelled", "timed_out", "action_required"}
 PROFILE_CHOICES = ("auto", "application", "framework", "infrastructure", "library", "documentation")
 CRITICALITY_CHOICES = ("auto", "low", "medium", "high", "critical")
 VERIFY_STATUSES = {
@@ -518,6 +520,48 @@ def check_runs_for_sha(repo: str, sha: str) -> list[dict[str, Any]] | None:
     return list(data.get("check_runs") or [])
 
 
+def parse_check_timestamp(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def check_run_sort_key(check: dict[str, Any]) -> tuple[datetime, int] | None:
+    timestamp = parse_check_timestamp(check.get("started_at") or check.get("created_at"))
+    if timestamp is None:
+        return None
+    try:
+        check_id = int(check.get("id"))
+    except (TypeError, ValueError):
+        return None
+    return timestamp, check_id
+
+
+def latest_check_runs_by_name(checks: list[dict[str, Any]]) -> dict[str, dict[str, Any]] | None:
+    latest: dict[str, dict[str, Any]] = {}
+    latest_keys: dict[str, tuple[datetime, int]] = {}
+    for check in checks:
+        if not isinstance(check, dict):
+            return None
+        name = str(check.get("name") or "")
+        status = str(check.get("status") or "")
+        if not name or not status:
+            return None
+        sort_key = check_run_sort_key(check)
+        if sort_key is None:
+            return None
+        if name not in latest_keys or sort_key > latest_keys[name]:
+            latest[name] = check
+            latest_keys[name] = sort_key
+    return latest
+
+
 def observed_check_names(repo: str, base: str) -> set[str]:
     names: set[str] = set()
     for pr in recent_prs(repo, base):
@@ -772,10 +816,13 @@ def latest_prqa_report(repo: str, sha: str) -> dict[str, Any] | None:
     checks = check_runs_for_sha(repo, sha)
     if checks is None:
         return None
-    prqa = [c for c in checks if str(c.get("name") or "") == GENERIC_CALLER_CONTEXT]
+    latest = latest_check_runs_by_name(checks)
+    if latest is None:
+        return None
+    prqa = latest.get(GENERIC_CALLER_CONTEXT)
     if not prqa:
         return None
-    run_url = str(prqa[0].get("details_url") or "")
+    run_url = str(prqa.get("details_url") or "")
     match = re.search(r"/actions/runs/(\d+)", run_url)
     if not match:
         return None
@@ -865,16 +912,18 @@ def pr_status(repo: str, pr: int, owner_login: str) -> str:
     checks = check_runs_for_sha(repo, str(data.get("headRefOid") or ""))
     if checks is None:
         return "BLOCKED_UNKNOWN"
-    exact_prqa = [c for c in checks if str(c.get("name") or "") == GENERIC_CALLER_CONTEXT]
-    if not exact_prqa:
+    latest = latest_check_runs_by_name(checks)
+    if latest is None:
         return "BLOCKED_UNKNOWN"
-    prqa_check = exact_prqa[0]
+    prqa_check = latest.get(GENERIC_CALLER_CONTEXT)
+    if not prqa_check:
+        return "BLOCKED_UNKNOWN"
     if prqa_check.get("status") != "completed":
         return "BLOCKED_UNKNOWN"
     if prqa_check.get("conclusion") != "success":
         return classify_prqa_failure_attribution(latest_prqa_report(repo, str(data.get("headRefOid") or "")), files)
-    failures = [c for c in checks if c.get("conclusion") in {"failure", "cancelled", "timed_out", "action_required"}]
-    pending = [c for c in checks if c.get("status") != "completed"]
+    failures = [c for c in latest.values() if c.get("conclusion") in CHECK_FAILURE_CONCLUSIONS]
+    pending = [c for c in latest.values() if c.get("status") != "completed"]
     if failures or pending:
         return "BLOCKED_UNKNOWN"
     gate_c = str(data.get("headRefName") or "").lower() == "staging" and str(data.get("baseRefName") or "").lower() == "main"

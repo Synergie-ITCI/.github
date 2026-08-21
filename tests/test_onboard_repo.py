@@ -203,6 +203,25 @@ class ModernizedRecoveryTests(unittest.TestCase):
     def canonical_caller(self) -> str:
         return mod.PR_QA_TEMPLATE.read_text(encoding="utf-8")
 
+    def check_run(
+        self,
+        name: str = mod.GENERIC_CALLER_CONTEXT,
+        *,
+        status: str = "completed",
+        conclusion: str | None = "success",
+        started_at: str = "2026-08-21T10:00:00Z",
+        check_id: int = 1,
+        run_id: int = 100,
+    ) -> dict[str, Any]:
+        return {
+            "id": check_id,
+            "name": name,
+            "status": status,
+            "conclusion": conclusion,
+            "started_at": started_at,
+            "details_url": f"https://github.com/o/r/actions/runs/{run_id}/job/{check_id}",
+        }
+
     def test_dynamic_topology_detection(self):
         self.assertEqual(mod.classify_topology({"development", "staging", "main"}, "main"), "STANDARD_SYNERGIE_FLOW")
         self.assertEqual(mod.classify_topology({"main"}, "main"), "TRUNK_ONLY")
@@ -873,7 +892,7 @@ jobs:
     def test_verify_pass(self):
         with patch.object(mod, "gh_json", return_value={"author": {"login": "dev"}, "baseRefName": "development", "headRefName": "feature/x", "headRefOid": "abc", "mergeable": "MERGEABLE"}), \
              patch.object(mod, "pr_files", return_value=[{"path": "app/Http/Controller.php"}]), \
-             patch.object(mod, "check_runs_for_sha", return_value=[{"name": "pr-qa / Pull Request Quality Assurance", "status": "completed", "conclusion": "success"}]):
+             patch.object(mod, "check_runs_for_sha", return_value=[self.check_run()]):
             self.assertEqual(mod.pr_status("Synergie-ITCI/example", 1, "SaurabhVermaIN"), "PASS")
 
     def test_verify_no_checks_is_not_pass(self):
@@ -891,36 +910,118 @@ jobs:
     def test_verify_missing_exact_prqa_is_not_pass(self):
         with patch.object(mod, "gh_json", return_value={"author": {"login": "dev"}, "baseRefName": "development", "headRefName": "feature/x", "headRefOid": "abc", "mergeable": "MERGEABLE"}), \
              patch.object(mod, "pr_files", return_value=[]), \
-             patch.object(mod, "check_runs_for_sha", return_value=[{"name": "Pull Request Quality Assurance", "status": "completed", "conclusion": "success"}]):
+             patch.object(mod, "check_runs_for_sha", return_value=[self.check_run("Pull Request Quality Assurance")]):
             self.assertEqual(mod.pr_status("Synergie-ITCI/example", 1, "SaurabhVermaIN"), "BLOCKED_UNKNOWN")
 
     def test_verify_pending_exact_prqa_is_not_pass(self):
         with patch.object(mod, "gh_json", return_value={"author": {"login": "dev"}, "baseRefName": "development", "headRefName": "feature/x", "headRefOid": "abc", "mergeable": "MERGEABLE"}), \
              patch.object(mod, "pr_files", return_value=[]), \
-             patch.object(mod, "check_runs_for_sha", return_value=[{"name": mod.GENERIC_CALLER_CONTEXT, "status": "in_progress", "conclusion": None}]):
+             patch.object(mod, "check_runs_for_sha", return_value=[self.check_run(status="in_progress", conclusion=None)]):
             self.assertEqual(mod.pr_status("Synergie-ITCI/example", 1, "SaurabhVermaIN"), "BLOCKED_UNKNOWN")
 
     def test_verify_merge_conflict_is_not_pass(self):
         with patch.object(mod, "gh_json", return_value={"author": {"login": "dev"}, "baseRefName": "development", "headRefName": "feature/x", "headRefOid": "abc", "mergeable": "CONFLICTING"}), \
              patch.object(mod, "pr_files", return_value=[]), \
-             patch.object(mod, "check_runs_for_sha", return_value=[{"name": mod.GENERIC_CALLER_CONTEXT, "status": "completed", "conclusion": "success"}]):
+             patch.object(mod, "check_runs_for_sha", return_value=[self.check_run()]):
             self.assertEqual(mod.pr_status("Synergie-ITCI/example", 1, "SaurabhVermaIN"), "BLOCKED_UNKNOWN")
 
     def test_verify_unrelated_pending_or_failing_check_is_not_pass(self):
         checks = [
-            {"name": mod.GENERIC_CALLER_CONTEXT, "status": "completed", "conclusion": "success"},
-            {"name": "Architecture Governance", "status": "completed", "conclusion": "failure"},
+            self.check_run(check_id=1),
+            self.check_run("Architecture Governance", conclusion="failure", check_id=2),
         ]
         with patch.object(mod, "gh_json", return_value={"author": {"login": "dev"}, "baseRefName": "development", "headRefName": "feature/x", "headRefOid": "abc", "mergeable": "MERGEABLE"}), \
              patch.object(mod, "pr_files", return_value=[]), \
              patch.object(mod, "check_runs_for_sha", return_value=checks):
             self.assertEqual(mod.pr_status("Synergie-ITCI/example", 1, "SaurabhVermaIN"), "BLOCKED_UNKNOWN")
 
+    def status_for_checks(self, checks: list[dict[str, Any]]) -> str:
+        with patch.object(mod, "gh_json", return_value={"author": {"login": "dev"}, "baseRefName": "development", "headRefName": "feature/x", "headRefOid": "abc", "mergeable": "MERGEABLE"}), \
+             patch.object(mod, "pr_files", return_value=[]), \
+             patch.object(mod, "check_runs_for_sha", return_value=checks):
+            return mod.pr_status("Synergie-ITCI/example", 1, "SaurabhVermaIN")
+
+    def test_verify_prqa_old_fail_new_success_passes(self):
+        checks = [
+            self.check_run(conclusion="failure", started_at="2026-08-21T10:00:00Z", check_id=1, run_id=101),
+            self.check_run(conclusion="success", started_at="2026-08-21T11:00:00Z", check_id=2, run_id=102),
+        ]
+        self.assertEqual(self.status_for_checks(checks), "PASS")
+
+    def test_verify_prqa_old_success_new_fail_blocks(self):
+        checks = [
+            self.check_run(conclusion="success", started_at="2026-08-21T10:00:00Z", check_id=1, run_id=101),
+            self.check_run(conclusion="failure", started_at="2026-08-21T11:00:00Z", check_id=2, run_id=102),
+        ]
+        with patch.object(mod, "latest_prqa_report", return_value={"results": [{"gate": "Tests", "status": "FAIL", "message": "Tests failed", "details": [], "blocking": True}]}):
+            self.assertEqual(self.status_for_checks(checks), "BLOCKED_UNKNOWN")
+
+    def test_verify_prqa_old_success_new_pending_blocks_unknown(self):
+        checks = [
+            self.check_run(conclusion="success", started_at="2026-08-21T10:00:00Z", check_id=1, run_id=101),
+            self.check_run(status="in_progress", conclusion=None, started_at="2026-08-21T11:00:00Z", check_id=2, run_id=102),
+        ]
+        self.assertEqual(self.status_for_checks(checks), "BLOCKED_UNKNOWN")
+
+    def test_verify_prqa_old_fail_new_pending_blocks_unknown(self):
+        checks = [
+            self.check_run(conclusion="failure", started_at="2026-08-21T10:00:00Z", check_id=1, run_id=101),
+            self.check_run(status="in_progress", conclusion=None, started_at="2026-08-21T11:00:00Z", check_id=2, run_id=102),
+        ]
+        self.assertEqual(self.status_for_checks(checks), "BLOCKED_UNKNOWN")
+
+    def test_historical_unrelated_failure_superseded_by_success_does_not_block(self):
+        checks = [
+            self.check_run(check_id=1),
+            self.check_run("Architecture Governance", conclusion="failure", started_at="2026-08-21T10:00:00Z", check_id=2),
+            self.check_run("Architecture Governance", conclusion="success", started_at="2026-08-21T11:00:00Z", check_id=3),
+        ]
+        self.assertEqual(self.status_for_checks(list(reversed(checks))), "PASS")
+
+    def test_latest_unrelated_failure_blocks(self):
+        checks = [
+            self.check_run(check_id=1),
+            self.check_run("Architecture Governance", conclusion="success", started_at="2026-08-21T10:00:00Z", check_id=2),
+            self.check_run("Architecture Governance", conclusion="failure", started_at="2026-08-21T11:00:00Z", check_id=3),
+        ]
+        self.assertEqual(self.status_for_checks(checks), "BLOCKED_UNKNOWN")
+
+    def test_latest_unrelated_pending_blocks(self):
+        checks = [
+            self.check_run(check_id=1),
+            self.check_run("Architecture Governance", conclusion="success", started_at="2026-08-21T10:00:00Z", check_id=2),
+            self.check_run("Architecture Governance", status="queued", conclusion=None, started_at="2026-08-21T11:00:00Z", check_id=3),
+        ]
+        self.assertEqual(self.status_for_checks(checks), "BLOCKED_UNKNOWN")
+
+    def test_check_run_ordering_uses_timestamp_not_api_order(self):
+        checks = [
+            self.check_run(conclusion="success", started_at="2026-08-21T11:00:00Z", check_id=2),
+            self.check_run(conclusion="failure", started_at="2026-08-21T10:00:00Z", check_id=1),
+        ]
+        self.assertEqual(self.status_for_checks(list(reversed(checks))), "PASS")
+        self.assertEqual(self.status_for_checks(checks), "PASS")
+
+    def test_check_run_equal_timestamp_uses_id_tiebreak(self):
+        checks = [
+            self.check_run(conclusion="failure", started_at="2026-08-21T10:00:00Z", check_id=1),
+            self.check_run(conclusion="success", started_at="2026-08-21T10:00:00Z", check_id=2),
+        ]
+        self.assertEqual(self.status_for_checks(checks), "PASS")
+
+    def test_malformed_timestamp_fails_closed(self):
+        checks = [self.check_run(started_at="not-a-time")]
+        self.assertEqual(self.status_for_checks(checks), "BLOCKED_UNKNOWN")
+
+    def test_malformed_check_evidence_fails_closed(self):
+        checks = [self.check_run(), {"status": "completed", "conclusion": "success", "started_at": "2026-08-21T10:00:00Z", "id": 2}]
+        self.assertEqual(self.status_for_checks(checks), "BLOCKED_UNKNOWN")
+
     def test_verify_onboarding_file_failure_requires_report_evidence(self):
         report = {"results": [{"gate": "Protected Resources", "status": "FAIL", "message": ".github/workflows/pr-qa.yml changed", "details": [], "blocking": True}]}
         with patch.object(mod, "gh_json", return_value={"author": {"login": "dev"}, "baseRefName": "development", "headRefName": "feature/x", "headRefOid": "abc", "mergeable": "MERGEABLE"}), \
              patch.object(mod, "pr_files", return_value=[{"path": ".github/workflows/pr-qa.yml"}]), \
-             patch.object(mod, "check_runs_for_sha", return_value=[{"name": "pr-qa / Pull Request Quality Assurance", "status": "completed", "conclusion": "failure"}]), \
+             patch.object(mod, "check_runs_for_sha", return_value=[self.check_run(conclusion="failure")]), \
              patch.object(mod, "latest_prqa_report", return_value=report):
             self.assertEqual(mod.pr_status("Synergie-ITCI/example", 1, "SaurabhVermaIN"), "BLOCKED_ON_ONBOARDING_FILE")
 
@@ -928,7 +1029,7 @@ jobs:
         report = {"results": [{"gate": "Secrets", "status": "FAIL", "message": "legacy/config.php contains inherited secret-like content", "details": [], "blocking": True}]}
         with patch.object(mod, "gh_json", return_value={"author": {"login": "dev"}, "baseRefName": "development", "headRefName": "feature/x", "headRefOid": "abc", "mergeable": "MERGEABLE"}), \
              patch.object(mod, "pr_files", return_value=[{"path": "app/file.php"}]), \
-             patch.object(mod, "check_runs_for_sha", return_value=[{"name": "pr-qa / Pull Request Quality Assurance", "status": "completed", "conclusion": "failure"}]), \
+             patch.object(mod, "check_runs_for_sha", return_value=[self.check_run(conclusion="failure")]), \
              patch.object(mod, "latest_prqa_report", return_value=report):
             self.assertEqual(mod.pr_status("Synergie-ITCI/example", 1, "SaurabhVermaIN"), "BLOCKED_ON_EXISTING_LEGACY_FINDING")
 
@@ -936,7 +1037,7 @@ jobs:
         report = {"results": [{"gate": "Tests", "status": "FAIL", "message": "Tests failed", "details": [], "blocking": True}]}
         with patch.object(mod, "gh_json", return_value={"author": {"login": "dev"}, "baseRefName": "development", "headRefName": "feature/x", "headRefOid": "abc", "mergeable": "MERGEABLE"}), \
              patch.object(mod, "pr_files", return_value=[{"path": ".github/workflows/pr-qa.yml"}]), \
-             patch.object(mod, "check_runs_for_sha", return_value=[{"name": "pr-qa / Pull Request Quality Assurance", "status": "completed", "conclusion": "failure"}]), \
+             patch.object(mod, "check_runs_for_sha", return_value=[self.check_run(conclusion="failure")]), \
              patch.object(mod, "latest_prqa_report", return_value=report):
             self.assertEqual(mod.pr_status("Synergie-ITCI/example", 1, "SaurabhVermaIN"), "BLOCKED_UNKNOWN")
 
@@ -951,9 +1052,58 @@ jobs:
                 return subprocess.CompletedProcess(cmd, 0, "", "")
             return subprocess.CompletedProcess(cmd, 0, "", "")
 
-        with patch.object(mod, "check_runs_for_sha", return_value=[{"name": mod.GENERIC_CALLER_CONTEXT, "details_url": "https://github.com/o/r/actions/runs/123"}]), \
+        with patch.object(mod, "check_runs_for_sha", return_value=[self.check_run(run_id=123)]), \
              patch.object(mod, "run", side_effect=fake_run):
             return mod.latest_prqa_report("Synergie-ITCI/example", "abc")
+
+    def test_latest_prqa_report_uses_authoritative_latest_prqa_run(self):
+        checks = [
+            self.check_run(conclusion="failure", started_at="2026-08-21T10:00:00Z", check_id=1, run_id=111),
+            self.check_run(conclusion="success", started_at="2026-08-21T11:00:00Z", check_id=2, run_id=222),
+        ]
+        selected = mod.latest_check_runs_by_name(list(reversed(checks)))
+        self.assertIsNotNone(selected)
+        self.assertIn("/actions/runs/222/", selected[mod.GENERIC_CALLER_CONTEXT]["details_url"])
+        downloaded_runs = []
+
+        def fake_run(cmd, **_kwargs):
+            if cmd[:3] == ["gh", "run", "download"]:
+                downloaded_runs.append(cmd[3])
+                out = Path(cmd[cmd.index("--dir") + 1])
+                (out / "pr-quality-report.json").write_text(json.dumps({"run": cmd[3]}), encoding="utf-8")
+                return subprocess.CompletedProcess(cmd, 0, "", "")
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        with patch.object(mod, "check_runs_for_sha", return_value=list(reversed(checks))), \
+             patch.object(mod, "run", side_effect=fake_run):
+            self.assertEqual(mod.latest_prqa_report("Synergie-ITCI/example", "abc"), {"run": "222"})
+        self.assertEqual(downloaded_runs, ["222"])
+
+    def test_verify_paths_call_shared_latest_run_selector(self):
+        checks = [self.check_run()]
+
+        def fake_run(cmd, **_kwargs):
+            if cmd[:3] == ["gh", "run", "download"]:
+                out = Path(cmd[cmd.index("--dir") + 1])
+                (out / "pr-quality-report.json").write_text(json.dumps({"results": []}), encoding="utf-8")
+                return subprocess.CompletedProcess(cmd, 0, "", "")
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        with patch.object(mod, "latest_check_runs_by_name", wraps=mod.latest_check_runs_by_name) as selector, \
+             patch.object(mod, "gh_json", return_value={"author": {"login": "dev"}, "baseRefName": "development", "headRefName": "feature/x", "headRefOid": "abc", "mergeable": "MERGEABLE"}), \
+             patch.object(mod, "pr_files", return_value=[]), \
+             patch.object(mod, "check_runs_for_sha", return_value=checks), \
+             patch.object(mod, "run", side_effect=fake_run):
+            self.assertEqual(mod.pr_status("Synergie-ITCI/example", 1, "SaurabhVermaIN"), "PASS")
+            self.assertEqual(mod.latest_prqa_report("Synergie-ITCI/example", "abc"), {"results": []})
+        self.assertEqual(selector.call_count, 2)
+
+    def test_no_second_independent_latest_run_implementation_exists(self):
+        source = MODULE.read_text(encoding="utf-8")
+        self.assertIn("def latest_check_runs_by_name", source)
+        self.assertIn("latest = latest_check_runs_by_name(checks)", source.split("def pr_status", 1)[1].split("def verify", 1)[0])
+        self.assertIn("latest = latest_check_runs_by_name(checks)", source.split("def latest_prqa_report", 1)[1].split("def failed_report_entries", 1)[0])
+        self.assertNotIn("exact_prqa = [", source)
 
     def test_latest_prqa_report_prefers_final_artifact(self):
         final = {"results": [{"gate": "Tests", "status": "FAIL", "message": "final failure"}]}
@@ -968,14 +1118,14 @@ jobs:
         self.assertIsNone(self.artifact_run({}))
         with patch.object(mod, "gh_json", return_value={"author": {"login": "dev"}, "baseRefName": "development", "headRefName": "feature/x", "headRefOid": "abc", "mergeable": "MERGEABLE"}), \
              patch.object(mod, "pr_files", return_value=[{"path": ".github/workflows/pr-qa.yml"}]), \
-             patch.object(mod, "check_runs_for_sha", return_value=[{"name": "pr-qa / Pull Request Quality Assurance", "status": "completed", "conclusion": "failure"}]), \
+             patch.object(mod, "check_runs_for_sha", return_value=[self.check_run(conclusion="failure")]), \
              patch.object(mod, "latest_prqa_report", return_value=None):
             self.assertEqual(mod.pr_status("Synergie-ITCI/example", 1, "SaurabhVermaIN"), "BLOCKED_UNKNOWN")
 
     def test_gate_c_wait(self):
         with patch.object(mod, "gh_json", return_value={"author": {"login": "dev"}, "baseRefName": "main", "headRefName": "staging", "headRefOid": "abc", "mergeable": "MERGEABLE"}), \
              patch.object(mod, "pr_files", return_value=[{"path": "app/file.php"}]), \
-             patch.object(mod, "check_runs_for_sha", return_value=[{"name": "pr-qa / Pull Request Quality Assurance", "status": "completed", "conclusion": "success"}]), \
+             patch.object(mod, "check_runs_for_sha", return_value=[self.check_run()]), \
              patch.object(mod, "latest_reviews", return_value={"other": "APPROVED"}):
             self.assertEqual(mod.pr_status("Synergie-ITCI/example", 2, "SaurabhVermaIN"), "WAITING_FOR_HUMAN_APPROVAL")
 
