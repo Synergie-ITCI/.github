@@ -291,6 +291,71 @@ class ModernizedRecoveryTests(unittest.TestCase):
         self.assertIsNone(expected)
         self.assertIn("CUSTOM_CALLER_REQUIRES_REVIEW", source)
 
+    def test_custom_caller_with_valid_history_still_requires_review(self):
+        custom = "name: custom qa\non: pull_request\njobs:\n  quality:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo custom\n"
+        tmp, repo = self.repo_with_origin_branch({"development": {".github/workflows/pr-qa.yml": custom}})
+        self.addCleanup(tmp.cleanup)
+        with patch.object(mod, "observed_check_names", return_value={mod.GENERIC_CALLER_CONTEXT}):
+            expected, source = mod.expected_prqa_context("Synergie-ITCI/example", repo, "development")
+        self.assertIsNone(expected)
+        self.assertIn("CUSTOM_CALLER_REQUIRES_REVIEW", source)
+
+    def test_generic_caller_with_multiple_observed_contexts_remains_blocked(self):
+        caller = "name: pr-qa\non: pull_request\njobs:\n  pr-qa:\n    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@main\n"
+        tmp, repo = self.repo_with_origin_branch({"main": {".github/workflows/pr-qa.yml": caller}})
+        self.addCleanup(tmp.cleanup)
+        with patch.object(mod, "observed_check_names", return_value={mod.GENERIC_CALLER_CONTEXT, "Pull Request Quality Assurance / Pull Request Quality Assurance"}):
+            expected, source = mod.expected_prqa_context("Synergie-ITCI/example", repo, "main")
+        self.assertIsNone(expected)
+        self.assertIn("multiple PR-QA check contexts observed", source)
+
+    def test_unresolved_ref_fails_closed_without_fresh_bootstrap_fallback(self):
+        tmp, repo = self.repo_with_origin_branch({"main": {"README.md": "fresh\n"}})
+        self.addCleanup(tmp.cleanup)
+        with patch.object(mod, "observed_check_names", return_value=set()):
+            expected, source = mod.expected_prqa_context("Synergie-ITCI/example", repo, "development")
+        self.assertIsNone(expected)
+        self.assertIn("Unable to prove PR-QA caller workflow state", source)
+        self.assertNotIn("fresh bootstrap", source)
+
+    def test_caller_read_error_fails_closed_without_fresh_bootstrap_fallback(self):
+        calls = []
+
+        def fake_run(cmd, **_kwargs):
+            calls.append(cmd)
+            if cmd[:3] == ["git", "rev-parse", "--verify"]:
+                return subprocess.CompletedProcess(cmd, 0, "abc\n", "")
+            if cmd[:3] == ["git", "ls-tree", "-z"]:
+                return subprocess.CompletedProcess(cmd, 0, ".github/workflows/pr-qa.yml\0", "")
+            if cmd[:2] == ["git", "show"]:
+                return subprocess.CompletedProcess(cmd, 1, "", "")
+            return subprocess.CompletedProcess(cmd, 1, "", "")
+
+        with patch.object(mod, "run", side_effect=fake_run), \
+             patch.object(mod, "observed_check_names", return_value=set()):
+            expected, source = mod.expected_prqa_context("Synergie-ITCI/example", Path("."), "development")
+        self.assertIsNone(expected)
+        self.assertIn("Unable to prove PR-QA caller workflow state", source)
+        self.assertNotIn("fresh bootstrap", source)
+
+    def test_resolved_ref_with_absent_caller_still_bootstraps(self):
+        tmp, repo = self.repo_with_origin_branch({"development": {"README.md": "fresh\n"}})
+        self.addCleanup(tmp.cleanup)
+        state, text = mod.caller_workflow_text(repo, "development")
+        self.assertEqual(state, "ABSENT")
+        self.assertIsNone(text)
+        with patch.object(mod, "observed_check_names", return_value=set()):
+            expected, source = mod.expected_prqa_context("Synergie-ITCI/example", repo, "development")
+        self.assertEqual(expected, mod.GENERIC_CALLER_CONTEXT)
+        self.assertIn("fresh bootstrap fallback", source)
+
+    def test_caller_absence_detection_does_not_parse_git_stderr(self):
+        source = MODULE.read_text(encoding="utf-8")
+        caller_source = source.split("def caller_workflow_text", 1)[1].split("def generic_caller_present", 1)[0]
+        self.assertNotIn(".stderr", caller_source)
+        self.assertIn("git\", \"rev-parse\", \"--verify\"", caller_source)
+        self.assertIn("git\", \"ls-tree\", \"-z\"", caller_source)
+
     def test_already_onboarded_valid_repo_retains_strict_audit(self):
         caller = "name: pr-qa\non: pull_request\njobs:\n  pr-qa:\n    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@main\n"
         tmp, repo = self.repo_with_origin_branch({"staging": {".github/workflows/pr-qa.yml": caller}})

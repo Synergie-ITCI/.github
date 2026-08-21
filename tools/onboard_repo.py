@@ -487,32 +487,46 @@ def observed_check_names(repo: str, base: str) -> set[str]:
     return names
 
 
-def caller_workflow_text(repo_dir: Path, branch: str) -> str | None:
-    proc = run(["git", "show", f"origin/{branch}:.github/workflows/pr-qa.yml"], cwd=repo_dir, check=False)
+def caller_workflow_text(repo_dir: Path, branch: str) -> tuple[str, str | None]:
+    ref = f"origin/{branch}"
+    ref_check = run(["git", "rev-parse", "--verify", f"{ref}^{{commit}}"], cwd=repo_dir, check=False)
+    if ref_check.returncode != 0:
+        return "ERROR", None
+    tree = run(["git", "ls-tree", "-z", "--name-only", ref, ".github/workflows/pr-qa.yml"], cwd=repo_dir, check=False)
+    if tree.returncode != 0:
+        return "ERROR", None
+    if tree.stdout == "":
+        return "ABSENT", None
+    proc = run(["git", "show", f"{ref}:.github/workflows/pr-qa.yml"], cwd=repo_dir, check=False)
     if proc.returncode != 0:
-        return None
-    return proc.stdout
+        return "ERROR", None
+    return "PRESENT", proc.stdout
 
 
 def generic_caller_present(repo_dir: Path, branch: str) -> bool:
-    text = caller_workflow_text(repo_dir, branch)
-    if text is None:
+    state, text = caller_workflow_text(repo_dir, branch)
+    if state != "PRESENT" or text is None:
         return False
     return "uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@main" in text and re.search(r"(?m)^\s*pr-qa\s*:\s*$", text) is not None
 
 
 def expected_prqa_context(repo: str, repo_dir: Path, branch: str) -> tuple[str | None, str]:
+    state, caller = caller_workflow_text(repo_dir, branch)
+    if state == "ERROR":
+        return None, "Unable to prove PR-QA caller workflow state; failing closed."
+    if state == "PRESENT" and caller is not None:
+        if "uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@main" not in caller or re.search(r"(?m)^\s*pr-qa\s*:\s*$", caller) is None:
+            return None, "CUSTOM_CALLER_REQUIRES_REVIEW: existing PR-QA caller is not the supported generic caller shape"
+        observed = sorted(name for name in observed_check_names(repo, branch) if "Pull Request Quality Assurance" in name)
+        if len(observed) > 1:
+            return None, "multiple PR-QA check contexts observed: " + ", ".join(observed)
+        if len(observed) == 1 and observed[0] != GENERIC_CALLER_CONTEXT:
+            return None, f"observed PR-QA context `{observed[0]}` conflicts with exact generic caller context `{GENERIC_CALLER_CONTEXT}`"
+        return GENERIC_CALLER_CONTEXT, "derived from exact generic caller shape"
     observed = sorted(name for name in observed_check_names(repo, branch) if "Pull Request Quality Assurance" in name)
-    if len(observed) == 1:
-        return observed[0], "observed from live PR check-runs"
     if len(observed) > 1:
         return None, "multiple PR-QA check contexts observed: " + ", ".join(observed)
-    caller = caller_workflow_text(repo_dir, branch)
-    if caller is None:
-        return GENERIC_CALLER_CONTEXT, "fresh bootstrap fallback; no PR-QA caller workflow exists yet"
-    if "uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@main" in caller and re.search(r"(?m)^\s*pr-qa\s*:\s*$", caller) is not None:
-        return GENERIC_CALLER_CONTEXT, "derived from exact generic caller shape"
-    return None, "CUSTOM_CALLER_REQUIRES_REVIEW: existing PR-QA caller is not the supported generic caller shape"
+    return GENERIC_CALLER_CONTEXT, "fresh bootstrap fallback; no PR-QA caller workflow exists yet"
 
 
 def ruleset_audit(repo: str, repo_dir: Path, default_branch: str, branches: set[str]) -> list[Finding]:
