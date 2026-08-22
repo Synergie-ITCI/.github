@@ -1,0 +1,1190 @@
+{
+  "generated_at": "2026-08-09T11:00:47Z",
+  "instance_id": "i-060e4ec1fd5345c30",
+  "records": [
+    {
+      "db_names": [
+        "bayer_db"
+      ],
+      "deployed_commit": "",
+      "docroots": [
+        "/var/www/bayer.synergieinsights.in/public_html/public"
+      ],
+      "env_key_count": 53,
+      "env_templates": [],
+      "environment": "production",
+      "framework": "laravel",
+      "git_head": "e10dd02b323253cbc8dd5df6cec6ca5569fbf0d7",
+      "git_remote": "https://github.com/Synergie-ITCI/bayer.synergieinsights.in.git",
+      "has_git": true,
+      "host": "bayer.synergieinsights.in",
+      "lockfiles": [
+        "composer.lock"
+      ],
+      "manifests": [
+        "composer.json",
+        "package.json"
+      ],
+      "persistent_dirs": [
+        {
+          "bytes": 77876358,
+          "files": 1087,
+          "rel": "storage"
+        },
+        {
+          "bytes": 636333,
+          "files": 2,
+          "rel": "storage/app/public"
+        }
+      ],
+      "persistent_total_bytes": 78512691,
+      "persistent_total_files": 1089,
+      "root": "/var/www/bayer.synergieinsights.in/public_html",
+      "secret_categories": [
+        "app",
+        "aws",
+        "db",
+        "mail",
+        "pusher",
+        "sms"
+      ],
+      "vhost_hosts": [
+        "bayer.synergieinsights.in"
+      ]
+    },
+    {
+      "db_names": [
+        "bridgestone_db"
+      ],
+      "deployed_commit": "",
+      "docroots": [
+        "/var/www/bridgestone.synergieinsights.in/public_html/public"
+      ],
+      "env_key_count": 50,
+      "env_templates": [
+        ".env.example"
+      ],
+      "environment": "production",
+      "framework": "laravel",
+      "git_head": "",
+      "git_remote": "",
+      "has_git": false,
+      "host": "bridgestone.synergieinsights.in",
+      "lockfiles": [
+        "composer.lock",
+        "package-lock.json"
+      ],
+      "manifests": [
+        "composer.json",
+        "package.json"
+      ],
+      "persistent_dirs": [
+        {
+          "bytes": 21456578,
+          "files": 550,
+          "rel": "storage"
+        },
+        {
+          "bytes": 13019289,
+          "files": 97,
+          "rel": "storage/app/public"
+        },
+        {
+          "bytes": 16184717045,
+          "files": 7091,
+          "rel": "public/uploads"
+        },
+        {
+          "bytes": 410778236,
+          "files": 256,
+          "rel": "public/useruploads"
+        },
+        {
+          "bytes": 247,
+          "files": 9,
+          "rel": "bridgestone/storage"
+        }
+      ],
+      "persistent_total_bytes": 16629971395,
+      "persistent_total_files": 8003,
+      "root": "/var/www/bridgestone.synergieinsights.in/public_html",
+      "secret_categories": [
+        "app",
+        "aws",
+        "db",
+        "mail",
+        "pusher"
+      ],
+      "vhost_hosts": [
+        "bridgestone.synergieinsights.in"
+      ]
+    },
+    {
+      "db_names": [
+        "datamatics_lms"
+      ],
+      "deployed_commit": "",
+      "docroots": [
+        "/var/www/datamatics.synergielms.com/public_html"
+      ],
+      "env_key_count": 60,
+      "env_templates": [
+        ".env.example"
+      ],
+      "environment": "production",
+      "framework": "laravel",
+      "git_head": "f9efaefcf021136ac69204860d9569dd0ffd4ec5",
+      "git_remote": "https://github.com/Synergie-ITCI/datamatics.synergielms.com.git",
+      "has_git": true,
+      "host": "datamatics.synergielms.com",
+      "lockfiles": [
+        "composer.lock"
+      ],
+      "manifests": [
+        "composer.json",
+        "package.json"
+      ],
+      "persistent_dirs": [
+        {
+          "bytes": 883678,
+          "files": 128,
+          "rel": "storage"
+        },
+        {
+          "bytes": 47497,
+          "files": 2,
+          "rel": "storage/app/public"
+        }
+      ],
+      "persistent_total_bytes": 931175,
+      "persistent_total_files": 130,
+      "root": "/var/www/datamatics.synergielms.com/public_html",
+      "secret_categories": [
+        "app",
+        "aws",
+        "db",
+        "google",
+        "mail",
+        "openai",
+        "pusher",
+        "sms",
+        "vimeo",
+        "whatsapp",
+        "zoom"
+      ],
+      "vhost_hosts": [
+        "datamatics.synergielms.com"
+      ]
+    },
+    {
+      "db_names": [
+        "dhansamvaad_db"
+      ],
+      "deployed_commit": "",
+      "docroots": [
+        "/var/www/dhansamvaad.synergieinsights.in/public_html/public"
+      ],
+      "env_key_count": 48,
+      "env_templates": [],
+      "environment": "production",
+      "framework": "laravel",
+      "git_head": "3e2404bb53874fa5e46f249eba55914193eeef1c",
+      "git_remote": "https://github.com/Synergie-ITCI/dhansamvaad-new.synergieinsights.in.git",
+      "has_git": true,
+      "host": "dhansamvaad.synergieinsights.in",
+      "lockfiles": [
+        "composer.lock"
+      ],
+      "manifests": [
+        "composer.json",
+        "package.json"
+      ],
+      "persistent_dirs": [
+        {
+          "bytes": 789374628,
+          "files": 2029,
+          "rel": "storage"
+        },
+        {
+          "bytes": 196,
+          "files": 2,
+          "rel": "storage/app/public"
+        }
+      ],
+      "persistent_total_bytes": 789374824,
+      "persistent_total_files": 2031,
+      "root": "/var/www/dhansamvaad.synergieinsights.in/public_html",
+      "secret_categories": [
+        "app",
+        "aws",
+        "db",
+        "google",
+        "mail",
+        "pusher"
+      ],
+      "vhost_hosts": [
+        "dhansamvaad.synergieinsights.in"
+      ]
+    },
+    {
+      "db_names": [
+        "fis_db"
+      ],
+      "deployed_commit": "",
+      "docroots": [
+        "/var/www/fis.synergielms.com/public_html"
+      ],
+      "env_key_count": 53,
+      "env_templates": [
+        ".env.example"
+      ],
+      "environment": "production",
+      "framework": "laravel",
+      "git_head": "157646e45b87ab4fbfd248a4b209d4f79efbd48e",
+      "git_remote": "https://github.com/Synergie-ITCI/fis.synergielms.com.git",
+      "has_git": true,
+      "host": "fis.synergielms.com",
+      "lockfiles": [
+        "composer.lock",
+        "package-lock.json"
+      ],
+      "manifests": [
+        "composer.json",
+        "package.json"
+      ],
+      "persistent_dirs": [
+        {
+          "bytes": 48594450,
+          "files": 465,
+          "rel": "storage"
+        },
+        {
+          "bytes": 47967360,
+          "files": 125,
+          "rel": "storage/app/public"
+        }
+      ],
+      "persistent_total_bytes": 96561810,
+      "persistent_total_files": 590,
+      "root": "/var/www/fis.synergielms.com/public_html",
+      "secret_categories": [
+        "app",
+        "aws",
+        "db",
+        "google",
+        "mail",
+        "openai",
+        "pusher",
+        "vimeo",
+        "zoom"
+      ],
+      "vhost_hosts": [
+        "fis.synergielms.com"
+      ]
+    },
+    {
+      "db_names": [
+        "icicir2s_db"
+      ],
+      "deployed_commit": "",
+      "docroots": [
+        "/var/www/icicir2s.synergieinsights.in/public_html/public"
+      ],
+      "env_key_count": 43,
+      "env_templates": [
+        ".env.example"
+      ],
+      "environment": "production",
+      "framework": "laravel",
+      "git_head": "",
+      "git_remote": "",
+      "has_git": false,
+      "host": "icicir2s.synergieinsights.in",
+      "lockfiles": [
+        "composer.lock",
+        "package-lock.json"
+      ],
+      "manifests": [
+        "composer.json",
+        "package.json"
+      ],
+      "persistent_dirs": [
+        {
+          "bytes": 39347461,
+          "files": 181,
+          "rel": "storage"
+        },
+        {
+          "bytes": 14,
+          "files": 1,
+          "rel": "storage/app/public"
+        }
+      ],
+      "persistent_total_bytes": 39347475,
+      "persistent_total_files": 182,
+      "root": "/var/www/icicir2s.synergieinsights.in/public_html",
+      "secret_categories": [
+        "app",
+        "aws",
+        "db",
+        "mail",
+        "pusher"
+      ],
+      "vhost_hosts": [
+        "icicir2s.synergieinsights.in"
+      ]
+    },
+    {
+      "db_names": [
+        "jiobp_db"
+      ],
+      "deployed_commit": "",
+      "docroots": [
+        "/var/www/jiobp.synergielms.com/public_html/public"
+      ],
+      "env_key_count": 50,
+      "env_templates": [],
+      "environment": "production",
+      "framework": "laravel",
+      "git_head": "77acbd5c9541e79bcfcb34450a0449de87241a6d",
+      "git_remote": "https://github.com/Synergie-ITCI/jiobp.synergielms.com.git",
+      "has_git": true,
+      "host": "jiobp.synergielms.com",
+      "lockfiles": [
+        "composer.lock"
+      ],
+      "manifests": [
+        "composer.json",
+        "package.json"
+      ],
+      "persistent_dirs": [
+        {
+          "bytes": 54799,
+          "files": 17,
+          "rel": "storage"
+        }
+      ],
+      "persistent_total_bytes": 54799,
+      "persistent_total_files": 17,
+      "root": "/var/www/jiobp.synergielms.com/public_html",
+      "secret_categories": [
+        "app",
+        "aws",
+        "db",
+        "mail",
+        "pusher",
+        "sms"
+      ],
+      "vhost_hosts": [
+        "jiobp.synergielms.com"
+      ]
+    },
+    {
+      "db_names": [
+        "jiobpcares_db"
+      ],
+      "deployed_commit": "",
+      "docroots": [
+        "/var/www/jiobpcares.synergieinsights.in/public_html"
+      ],
+      "env_key_count": 50,
+      "env_templates": [
+        ".env.example"
+      ],
+      "environment": "production",
+      "framework": "laravel",
+      "git_head": "",
+      "git_remote": "",
+      "has_git": false,
+      "host": "jiobpcares.synergieinsights.in",
+      "lockfiles": [
+        "composer.lock",
+        "package-lock.json"
+      ],
+      "manifests": [
+        "composer.json",
+        "package.json"
+      ],
+      "persistent_dirs": [
+        {
+          "bytes": 5821982,
+          "files": 244,
+          "rel": "storage"
+        },
+        {
+          "bytes": 14,
+          "files": 1,
+          "rel": "storage/app/public"
+        },
+        {
+          "bytes": 8365599955,
+          "files": 3744,
+          "rel": "public/uploads"
+        },
+        {
+          "bytes": 382155314,
+          "files": 192,
+          "rel": "public/useruploads"
+        },
+        {
+          "bytes": 247,
+          "files": 9,
+          "rel": "bridgestone/storage"
+        }
+      ],
+      "persistent_total_bytes": 8753577512,
+      "persistent_total_files": 4190,
+      "root": "/var/www/jiobpcares.synergieinsights.in/public_html",
+      "secret_categories": [
+        "app",
+        "aws",
+        "db",
+        "mail",
+        "pusher"
+      ],
+      "vhost_hosts": [
+        "jiobpcares.synergieinsights.in"
+      ]
+    },
+    {
+      "db_names": [
+        "jiobptransporter_db"
+      ],
+      "deployed_commit": "",
+      "docroots": [
+        "/var/www/jiobptransporter.synergieinsights.in/public_html/public"
+      ],
+      "env_key_count": 44,
+      "env_templates": [
+        ".env.example"
+      ],
+      "environment": "production",
+      "framework": "laravel",
+      "git_head": "",
+      "git_remote": "",
+      "has_git": false,
+      "host": "jiobptransporter.synergieinsights.in",
+      "lockfiles": [
+        "composer.lock",
+        "package-lock.json"
+      ],
+      "manifests": [
+        "composer.json",
+        "package.json"
+      ],
+      "persistent_dirs": [
+        {
+          "bytes": 520888272,
+          "files": 194,
+          "rel": "storage"
+        },
+        {
+          "bytes": 14,
+          "files": 1,
+          "rel": "storage/app/public"
+        }
+      ],
+      "persistent_total_bytes": 520888286,
+      "persistent_total_files": 195,
+      "root": "/var/www/jiobptransporter.synergieinsights.in/public_html",
+      "secret_categories": [
+        "app",
+        "aws",
+        "db",
+        "mail",
+        "pusher"
+      ],
+      "vhost_hosts": [
+        "jiobptransporter.synergieinsights.in"
+      ]
+    },
+    {
+      "db_names": [
+        "mobilekids_db"
+      ],
+      "deployed_commit": "",
+      "docroots": [
+        "/var/www/mobilekids.synergieinsights.in/public_html/public"
+      ],
+      "env_key_count": 45,
+      "env_templates": [
+        ".env.example"
+      ],
+      "environment": "production",
+      "framework": "laravel",
+      "git_head": "",
+      "git_remote": "",
+      "has_git": false,
+      "host": "mobilekids.synergieinsights.in",
+      "lockfiles": [
+        "composer.lock",
+        "package-lock.json"
+      ],
+      "manifests": [
+        "composer.json",
+        "package.json"
+      ],
+      "persistent_dirs": [
+        {
+          "bytes": 47751120,
+          "files": 266,
+          "rel": "storage"
+        },
+        {
+          "bytes": 14,
+          "files": 1,
+          "rel": "storage/app/public"
+        },
+        {
+          "bytes": 34399,
+          "files": 1,
+          "rel": "storage/app/uploads"
+        }
+      ],
+      "persistent_total_bytes": 47785533,
+      "persistent_total_files": 268,
+      "root": "/var/www/mobilekids.synergieinsights.in/public_html",
+      "secret_categories": [
+        "app",
+        "aws",
+        "db",
+        "mail",
+        "pusher"
+      ],
+      "vhost_hosts": [
+        "mobilekids.synergieinsights.in"
+      ]
+    },
+    {
+      "db_names": [
+        "projectdemo_staging"
+      ],
+      "deployed_commit": "",
+      "docroots": [
+        "/var/www/projectdemo-staging/public_html/public"
+      ],
+      "env_key_count": 41,
+      "env_templates": [],
+      "environment": "staging",
+      "framework": "laravel",
+      "git_head": "",
+      "git_remote": "",
+      "has_git": false,
+      "host": "projectdemo-staging",
+      "lockfiles": [
+        "composer.lock"
+      ],
+      "manifests": [
+        "composer.json",
+        "package.json"
+      ],
+      "persistent_dirs": [
+        {
+          "bytes": 24280,
+          "files": 36,
+          "rel": "storage"
+        },
+        {
+          "bytes": 0,
+          "files": 0,
+          "rel": "storage/app/public"
+        }
+      ],
+      "persistent_total_bytes": 24280,
+      "persistent_total_files": 36,
+      "root": "/var/www/projectdemo-staging/public_html",
+      "secret_categories": [
+        "app",
+        "aws",
+        "db",
+        "google",
+        "pusher",
+        "zoom"
+      ],
+      "vhost_hosts": [
+        "staging-projectdemo.synergielms.com"
+      ]
+    },
+    {
+      "db_names": [
+        "projectdemo_db"
+      ],
+      "deployed_commit": "",
+      "docroots": [
+        "/var/www/projectdemo.synergielms.com/public_html/public"
+      ],
+      "env_key_count": 46,
+      "env_templates": [
+        ".env.example"
+      ],
+      "environment": "production",
+      "framework": "laravel",
+      "git_head": "58b265ea978b81ac63fe7cb35b783821a308f7af",
+      "git_remote": "https://github.com/Synergie-ITCI/projectdemo.synergielms.com.git",
+      "has_git": true,
+      "host": "projectdemo.synergielms.com",
+      "lockfiles": [
+        "composer.lock"
+      ],
+      "manifests": [
+        "composer.json",
+        "package.json"
+      ],
+      "persistent_dirs": [
+        {
+          "bytes": 75792021,
+          "files": 109,
+          "rel": "storage"
+        },
+        {
+          "bytes": 47497,
+          "files": 2,
+          "rel": "storage/app/public"
+        }
+      ],
+      "persistent_total_bytes": 75839518,
+      "persistent_total_files": 111,
+      "root": "/var/www/projectdemo.synergielms.com/public_html",
+      "secret_categories": [
+        "app",
+        "aws",
+        "db",
+        "google",
+        "mail",
+        "pusher",
+        "zoom"
+      ],
+      "vhost_hosts": [
+        "projectdemo.synergielms.com"
+      ]
+    },
+    {
+      "db_names": [],
+      "deployed_commit": "b7884336f3aac9cd01b8d55c639f6c9055b082c4",
+      "docroots": [
+        "/var/www/sankalp.synergieinsights.in/public_html"
+      ],
+      "env_key_count": 0,
+      "env_templates": [
+        ".env.example"
+      ],
+      "environment": "production",
+      "framework": "codeigniter",
+      "git_head": "",
+      "git_remote": "",
+      "has_git": false,
+      "host": "sankalp.synergieinsights.in",
+      "lockfiles": [
+        "package-lock.json"
+      ],
+      "manifests": [
+        "package.json"
+      ],
+      "persistent_dirs": [
+        {
+          "bytes": 5129720923,
+          "files": 43996,
+          "rel": "assets/SurveyData"
+        },
+        {
+          "bytes": 1086709,
+          "files": 6,
+          "rel": "assets/ASSETS"
+        },
+        {
+          "bytes": 2422487,
+          "files": 30,
+          "rel": "assets/recharge"
+        }
+      ],
+      "persistent_total_bytes": 5133230119,
+      "persistent_total_files": 44032,
+      "root": "/var/www/sankalp.synergieinsights.in/public_html",
+      "secret_categories": [],
+      "vhost_hosts": [
+        "sankalp.synergieinsights.in"
+      ]
+    },
+    {
+      "db_names": [],
+      "deployed_commit": "",
+      "docroots": [
+        "/var/www/sankalpdev.synergieinsights.in/public_html"
+      ],
+      "env_key_count": 0,
+      "env_templates": [],
+      "environment": "dev",
+      "framework": "codeigniter",
+      "git_head": "",
+      "git_remote": "",
+      "has_git": false,
+      "host": "sankalpdev.synergieinsights.in",
+      "lockfiles": [],
+      "manifests": [],
+      "persistent_dirs": [
+        {
+          "bytes": 0,
+          "files": 0,
+          "rel": "assets/uploads"
+        },
+        {
+          "bytes": 48844,
+          "files": 3,
+          "rel": "assets/SurveyData"
+        },
+        {
+          "bytes": 1086709,
+          "files": 6,
+          "rel": "assets/ASSETS"
+        },
+        {
+          "bytes": 2422487,
+          "files": 30,
+          "rel": "assets/recharge"
+        }
+      ],
+      "persistent_total_bytes": 3558040,
+      "persistent_total_files": 39,
+      "root": "/var/www/sankalpdev.synergieinsights.in/public_html",
+      "secret_categories": [],
+      "vhost_hosts": [
+        "sankalpdev.synergieinsights.in"
+      ]
+    },
+    {
+      "db_names": [
+        "sankalptraining_db"
+      ],
+      "deployed_commit": "",
+      "docroots": [
+        "/var/www/sankalptraining.synergielms.com/public_html/public"
+      ],
+      "env_key_count": 43,
+      "env_templates": [
+        ".env.example"
+      ],
+      "environment": "production",
+      "framework": "laravel",
+      "git_head": "",
+      "git_remote": "",
+      "has_git": false,
+      "host": "sankalptraining.synergielms.com",
+      "lockfiles": [
+        "composer.lock",
+        "package-lock.json"
+      ],
+      "manifests": [
+        "composer.json",
+        "package.json"
+      ],
+      "persistent_dirs": [
+        {
+          "bytes": 46166928,
+          "files": 255,
+          "rel": "storage"
+        },
+        {
+          "bytes": 14,
+          "files": 1,
+          "rel": "storage/app/public"
+        }
+      ],
+      "persistent_total_bytes": 46166942,
+      "persistent_total_files": 256,
+      "root": "/var/www/sankalptraining.synergielms.com/public_html",
+      "secret_categories": [
+        "app",
+        "aws",
+        "db",
+        "mail",
+        "pusher"
+      ],
+      "vhost_hosts": [
+        "sankalptraining.synergielms.com"
+      ]
+    },
+    {
+      "db_names": [],
+      "deployed_commit": "",
+      "docroots": [
+        "/var/www/shareasmile.wearesynergie.com/public_html"
+      ],
+      "env_key_count": 0,
+      "env_templates": [],
+      "environment": "production",
+      "framework": "php",
+      "git_head": "",
+      "git_remote": "",
+      "has_git": false,
+      "host": "shareasmile.wearesynergie.com",
+      "lockfiles": [],
+      "manifests": [],
+      "persistent_dirs": [
+        {
+          "bytes": 9792728,
+          "files": 125,
+          "rel": "admin/storage"
+        },
+        {
+          "bytes": 0,
+          "files": 0,
+          "rel": "admin/public/uploads"
+        }
+      ],
+      "persistent_total_bytes": 9792728,
+      "persistent_total_files": 125,
+      "root": "/var/www/shareasmile.wearesynergie.com/public_html",
+      "secret_categories": [],
+      "vhost_hosts": [
+        "shareasmile.wearesynergie.com"
+      ]
+    },
+    {
+      "db_names": [
+        "shorturl_db"
+      ],
+      "deployed_commit": "",
+      "docroots": [
+        "/var/www/syncsr.in/public_html/public"
+      ],
+      "env_key_count": 50,
+      "env_templates": [
+        ".env.example"
+      ],
+      "environment": "production",
+      "framework": "laravel",
+      "git_head": "",
+      "git_remote": "",
+      "has_git": false,
+      "host": "syncsr.in",
+      "lockfiles": [
+        "composer.lock"
+      ],
+      "manifests": [
+        "composer.json",
+        "package.json"
+      ],
+      "persistent_dirs": [
+        {
+          "bytes": 4372563,
+          "files": 31319,
+          "rel": "storage"
+        },
+        {
+          "bytes": 14,
+          "files": 1,
+          "rel": "storage/app/public"
+        }
+      ],
+      "persistent_total_bytes": 4372577,
+      "persistent_total_files": 31320,
+      "root": "/var/www/syncsr.in/public_html",
+      "secret_categories": [
+        "app",
+        "aws",
+        "db",
+        "mail",
+        "pusher"
+      ],
+      "vhost_hosts": [
+        "syncsr.in",
+        "www.syncsr.in"
+      ]
+    },
+    {
+      "db_names": [
+        "synergie_hub"
+      ],
+      "deployed_commit": "",
+      "docroots": [
+        "/var/www/synergie-hub/public"
+      ],
+      "env_key_count": 23,
+      "env_templates": [],
+      "environment": "production",
+      "framework": "php",
+      "git_head": "",
+      "git_remote": "",
+      "has_git": false,
+      "host": "synergie-hub",
+      "lockfiles": [],
+      "manifests": [],
+      "persistent_dirs": [],
+      "persistent_total_bytes": 0,
+      "persistent_total_files": 0,
+      "root": "/var/www/synergie-hub/public",
+      "secret_categories": [
+        "app",
+        "db"
+      ],
+      "vhost_hosts": [
+        "hub.synergieinsights.in"
+      ]
+    },
+    {
+      "db_names": [],
+      "deployed_commit": "",
+      "docroots": [
+        "/var/www/synergielms.com/public_html"
+      ],
+      "env_key_count": 0,
+      "env_templates": [],
+      "environment": "production",
+      "framework": "php",
+      "git_head": "",
+      "git_remote": "",
+      "has_git": false,
+      "host": "synergielms.com",
+      "lockfiles": [],
+      "manifests": [],
+      "persistent_dirs": [
+        {
+          "bytes": 31139910,
+          "files": 1393,
+          "rel": "LMS/storage"
+        }
+      ],
+      "persistent_total_bytes": 31139910,
+      "persistent_total_files": 1393,
+      "root": "/var/www/synergielms.com/public_html",
+      "secret_categories": [],
+      "vhost_hosts": [
+        "synergielms.com",
+        "www.synergielms.com"
+      ]
+    },
+    {
+      "db_names": [
+        "telemedicine_db"
+      ],
+      "deployed_commit": "d967c1ed44a6e526b7e58aa0ec5e30b2097da0ae",
+      "docroots": [
+        "/var/www/telemedicine.synergieinsights.in/public_html/public"
+      ],
+      "env_key_count": 60,
+      "env_templates": [
+        ".env.example"
+      ],
+      "environment": "production",
+      "framework": "laravel",
+      "git_head": "",
+      "git_remote": "",
+      "has_git": false,
+      "host": "telemedicine.synergieinsights.in",
+      "lockfiles": [
+        "composer.lock",
+        "package-lock.json"
+      ],
+      "manifests": [
+        "composer.json",
+        "package.json"
+      ],
+      "persistent_dirs": [
+        {
+          "bytes": 1260467361,
+          "files": 1643,
+          "rel": "storage"
+        },
+        {
+          "bytes": 1260245782,
+          "files": 1477,
+          "rel": "storage/app/public"
+        }
+      ],
+      "persistent_total_bytes": 2520713143,
+      "persistent_total_files": 3120,
+      "root": "/var/www/telemedicine.synergieinsights.in/public_html",
+      "secret_categories": [
+        "app",
+        "aws",
+        "db",
+        "mail",
+        "pusher"
+      ],
+      "vhost_hosts": [
+        "telemedicine.synergieinsights.in"
+      ]
+    },
+    {
+      "db_names": [
+        "timesheet_db"
+      ],
+      "deployed_commit": "",
+      "docroots": [
+        "/var/www/timesheet.synergielms.com/public_html/public"
+      ],
+      "env_key_count": 43,
+      "env_templates": [
+        ".env.example"
+      ],
+      "environment": "production",
+      "framework": "laravel",
+      "git_head": "",
+      "git_remote": "",
+      "has_git": false,
+      "host": "timesheet.synergielms.com",
+      "lockfiles": [
+        "composer.lock"
+      ],
+      "manifests": [
+        "composer.json",
+        "package.json"
+      ],
+      "persistent_dirs": [
+        {
+          "bytes": 3914534,
+          "files": 46,
+          "rel": "storage"
+        },
+        {
+          "bytes": 14,
+          "files": 1,
+          "rel": "storage/app/public"
+        }
+      ],
+      "persistent_total_bytes": 3914548,
+      "persistent_total_files": 47,
+      "root": "/var/www/timesheet.synergielms.com/public_html",
+      "secret_categories": [
+        "app",
+        "aws",
+        "db",
+        "mail",
+        "pusher"
+      ],
+      "vhost_hosts": [
+        "timesheet.synergielms.com"
+      ]
+    },
+    {
+      "db_names": [
+        "wearesynergie_website"
+      ],
+      "deployed_commit": "",
+      "docroots": [
+        "/var/www/wearesynergie.com/public_html"
+      ],
+      "env_key_count": 21,
+      "env_templates": [],
+      "environment": "production",
+      "framework": "wordpress",
+      "git_head": "",
+      "git_remote": "",
+      "has_git": false,
+      "host": "wearesynergie.com",
+      "lockfiles": [],
+      "manifests": [
+        "wp-config.php"
+      ],
+      "persistent_dirs": [
+        {
+          "bytes": 265697526,
+          "files": 1961,
+          "rel": "wp-content/uploads"
+        },
+        {
+          "bytes": 5263,
+          "files": 18,
+          "rel": "wp-includes/images/media"
+        }
+      ],
+      "persistent_total_bytes": 265702789,
+      "persistent_total_files": 1979,
+      "root": "/var/www/wearesynergie.com/public_html",
+      "secret_categories": [
+        "app",
+        "db"
+      ],
+      "vhost_hosts": [
+        "wearesynergie.com",
+        "www.wearesynergie.com"
+      ]
+    },
+    {
+      "db_names": [
+        "wearesynergie_db"
+      ],
+      "deployed_commit": "",
+      "docroots": [
+        "/var/www/wearesynergie.synergieinsights.in/public_html"
+      ],
+      "env_key_count": 20,
+      "env_templates": [],
+      "environment": "production",
+      "framework": "wordpress",
+      "git_head": "",
+      "git_remote": "",
+      "has_git": false,
+      "host": "wearesynergie.synergieinsights.in",
+      "lockfiles": [],
+      "manifests": [
+        "wp-config.php"
+      ],
+      "persistent_dirs": [
+        {
+          "bytes": 207416680,
+          "files": 1329,
+          "rel": "wp-content/uploads"
+        },
+        {
+          "bytes": 5263,
+          "files": 18,
+          "rel": "wp-includes/images/media"
+        }
+      ],
+      "persistent_total_bytes": 207421943,
+      "persistent_total_files": 1347,
+      "root": "/var/www/wearesynergie.synergieinsights.in/public_html",
+      "secret_categories": [
+        "app",
+        "db"
+      ],
+      "vhost_hosts": [
+        "wearesynergie.synergieinsights.in"
+      ]
+    },
+    {
+      "db_names": [
+        "wearesynergie_db"
+      ],
+      "deployed_commit": "",
+      "docroots": [
+        "/var/www/wearesynergie.synergieinsights.in/public_html/synergiestaging"
+      ],
+      "env_key_count": 33,
+      "env_templates": [],
+      "environment": "production",
+      "framework": "wordpress",
+      "git_head": "",
+      "git_remote": "",
+      "has_git": false,
+      "host": "wearesynergie.synergieinsights.in",
+      "lockfiles": [],
+      "manifests": [
+        "wp-config.php"
+      ],
+      "persistent_dirs": [
+        {
+          "bytes": 234875090,
+          "files": 1935,
+          "rel": "wp-content/uploads"
+        },
+        {
+          "bytes": 5263,
+          "files": 18,
+          "rel": "wp-includes/images/media"
+        }
+      ],
+      "persistent_total_bytes": 234880353,
+      "persistent_total_files": 1953,
+      "root": "/var/www/wearesynergie.synergieinsights.in/public_html/synergiestaging",
+      "secret_categories": [
+        "app",
+        "db"
+      ],
+      "vhost_hosts": [
+        "staging.wearesynergie.com"
+      ]
+    }
+  ]
+}
