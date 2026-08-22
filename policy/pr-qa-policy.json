@@ -80,6 +80,36 @@
     "relaxations": [
       "diff_size",
       "changed_file_count"
+    ],
+    "exact_gitleaks_fingerprint_allowlist": true,
+    "gitleaks_allowlist": [
+      {
+        "rule_id": "generic-api-key",
+        "path": "app/helper/helper.php",
+        "line": 668,
+        "fingerprint": "8b0a0eb950784c33977b8ee50620eabd9bd17705:app/helper/helper.php:generic-api-key:668",
+        "justification": "historical commit-range credential; absent from final staging tree; credential revoked/rotated; one-time PR #15 baseline only",
+        "scope": "Synergie-ITCI/dhansamvaad-new.synergieinsights.in PR #15 only",
+        "expires_after": "2026-08-24T00:00:00Z"
+      },
+      {
+        "rule_id": "generic-api-key",
+        "path": "app/helper/helper.php",
+        "line": 670,
+        "fingerprint": "8b0a0eb950784c33977b8ee50620eabd9bd17705:app/helper/helper.php:generic-api-key:670",
+        "justification": "historical commit-range credential; absent from final staging tree; credential revoked/rotated; one-time PR #15 baseline only",
+        "scope": "Synergie-ITCI/dhansamvaad-new.synergieinsights.in PR #15 only",
+        "expires_after": "2026-08-24T00:00:00Z"
+      },
+      {
+        "rule_id": "generic-api-key",
+        "path": "app/helper/helper.php",
+        "line": 671,
+        "fingerprint": "8b0a0eb950784c33977b8ee50620eabd9bd17705:app/helper/helper.php:generic-api-key:671",
+        "justification": "historical commit-range credential; absent from final staging tree; credential revoked/rotated; one-time PR #15 baseline only",
+        "scope": "Synergie-ITCI/dhansamvaad-new.synergieinsights.in PR #15 only",
+        "expires_after": "2026-08-24T00:00:00Z"
+      }
     ]
   },
   "defaults": {
