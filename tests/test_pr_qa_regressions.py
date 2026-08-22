@@ -4324,6 +4324,125 @@ jobs:
             ],
         )
 
+    def test_php_pint_formats_only_changed_php_files_not_legacy_debt(self) -> None:
+        sys.path.insert(0, str(ROOT / "pr-qa"))
+        try:
+            from adapters.php import PhpAdapter
+            from adapters.base import PASS, PRContext
+        finally:
+            sys.path.pop(0)
+
+        repo = self.tmp / "php-pint-changed-only"
+        self.write(repo / "vendor" / "bin" / "pint", "")
+        self.write(repo / "app" / "LegacyBad.php", "<?php echo 'legacy';\n")
+        self.write(repo / "app" / "ChangedClean.php", "<?php echo 'changed';\n")
+        args_file = self.tmp / "pint-args.txt"
+        fake_php = self.bin / "php"
+        fake_php.write_text(
+            "#!/usr/bin/env python3\n"
+            "import os, pathlib, sys\n"
+            "pathlib.Path(os.environ['PINT_ARGS_FILE']).write_text(' '.join(sys.argv[1:]), encoding='utf-8')\n"
+            "sys.exit(1 if any('LegacyBad.php' in arg for arg in sys.argv[1:]) else 0)\n",
+            encoding="utf-8",
+        )
+        fake_php.chmod(0o755)
+        ctx = PRContext(
+            repo=repo,
+            config={"runtime": {"install_dependencies": False}},
+            policy={},
+            changed_files=["app/ChangedClean.php"],
+        )
+
+        with mock.patch.dict(os.environ, {"PATH": str(self.bin) + os.pathsep + os.environ.get("PATH", ""), "PINT_ARGS_FILE": str(args_file)}):
+            results = PhpAdapter().format(ctx, [repo])
+
+        self.assertEqual(results[0].status, PASS)
+        self.assertIn("app/ChangedClean.php", args_file.read_text(encoding="utf-8"))
+        self.assertNotIn("app/LegacyBad.php", args_file.read_text(encoding="utf-8"))
+
+    def test_php_pint_changed_file_formatting_failure_still_blocks(self) -> None:
+        sys.path.insert(0, str(ROOT / "pr-qa"))
+        try:
+            from adapters.php import PhpAdapter
+            from adapters.base import FAIL, PRContext
+        finally:
+            sys.path.pop(0)
+
+        repo = self.tmp / "php-pint-changed-fails"
+        self.write(repo / "vendor" / "bin" / "pint", "")
+        self.write(repo / "app" / "ChangedBad.php", "<?php echo 'bad';\n")
+        fake_php = self.bin / "php"
+        fake_php.write_text("#!/usr/bin/env bash\necho 'changed file needs formatting'\nexit 1\n", encoding="utf-8")
+        fake_php.chmod(0o755)
+        ctx = PRContext(
+            repo=repo,
+            config={"runtime": {"install_dependencies": False}},
+            policy={},
+            changed_files=["app/ChangedBad.php"],
+        )
+
+        sys.path.insert(0, str(ROOT / "pr-qa"))
+        try:
+            with mock.patch.dict(os.environ, {"PATH": str(self.bin) + os.pathsep + os.environ.get("PATH", "")}):
+                results = PhpAdapter().format(ctx, [repo])
+        finally:
+            sys.path.pop(0)
+
+        self.assertEqual(results[0].status, FAIL)
+        self.assertIn("Laravel Pint failed", results[0].message)
+
+    def test_php_pint_no_changed_php_files_does_not_scan_tree(self) -> None:
+        sys.path.insert(0, str(ROOT / "pr-qa"))
+        try:
+            from adapters.php import PhpAdapter
+            from adapters.base import PASS, PRContext
+        finally:
+            sys.path.pop(0)
+
+        repo = self.tmp / "php-pint-no-php-changes"
+        self.write(repo / "vendor" / "bin" / "pint", "")
+        self.write(repo / "app" / "LegacyBad.php", "<?php echo 'legacy';\n")
+        fake_php = self.bin / "php"
+        fake_php.write_text("#!/usr/bin/env bash\nexit 99\n", encoding="utf-8")
+        fake_php.chmod(0o755)
+        ctx = PRContext(
+            repo=repo,
+            config={"runtime": {"install_dependencies": False}},
+            policy={},
+            changed_files=["README.md"],
+        )
+
+        with mock.patch.dict(os.environ, {"PATH": str(self.bin) + os.pathsep + os.environ.get("PATH", "")}):
+            results = PhpAdapter().format(ctx, [repo])
+
+        self.assertEqual(results[0].status, PASS)
+        self.assertEqual(ctx.command_log, [])
+        self.assertIn("No changed PHP files", results[0].message)
+
+    def test_timeout_bytes_are_normalized_before_command_logging(self) -> None:
+        sys.path.insert(0, str(ROOT / "pr-qa"))
+        try:
+            from adapters.base import PRContext
+        finally:
+            sys.path.pop(0)
+
+        repo = self.tmp / "timeout-bytes"
+        repo.mkdir()
+        ctx = PRContext(repo=repo, config={}, policy={}, changed_files=[])
+
+        with mock.patch(
+            "subprocess.run",
+            side_effect=subprocess.TimeoutExpired(["fake"], timeout=1, output=b"stdout bytes", stderr=b"stderr bytes"),
+        ):
+            outcome = ctx.run(["fake"], cwd=repo, timeout=1)
+
+        self.assertTrue(outcome.timed_out)
+        self.assertIsInstance(outcome.stdout, str)
+        self.assertIsInstance(outcome.stderr, str)
+        self.assertIn("stdout bytes", outcome.concise_output())
+        self.assertIn("stderr bytes", outcome.concise_output())
+        self.assertTrue(ctx.command_log)
+
     def test_python_adapter_uses_current_interpreter_without_python_shim(self) -> None:
         fake_bin = self.tmp / "python-path-without-python"
         fake_bin.mkdir()

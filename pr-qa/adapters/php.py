@@ -37,7 +37,11 @@ class PhpAdapter(TechnologyAdapter):
             if results and results[-1].status == FAIL:
                 continue
             if (root / "vendor/bin/pint").exists():
-                outcome = ctx.run(["php", "vendor/bin/pint", "--test"], cwd=root)
+                php_files = self._changed_php_files(ctx, root)
+                if not php_files:
+                    results.append(passed("Formatting", self.name, f"{prefix}No changed PHP files to format."))
+                    continue
+                outcome = ctx.run(["php", "vendor/bin/pint", "--test", *self._root_relative_files(ctx, root, php_files)], cwd=root)
                 if not outcome.ok and baseline_inherited_pint_failure(ctx, outcome.concise_output()):
                     results.append(
                         CheckResult(
@@ -188,9 +192,18 @@ class PhpAdapter(TechnologyAdapter):
         for rel in ctx.changed_files:
             if not rel.endswith(".php"):
                 continue
+            if not (ctx.repo / rel).is_file():
+                continue
             if root_rel == "." or rel.startswith(root_rel.rstrip("/") + "/"):
                 files.append(rel)
         return files
+
+    def _root_relative_files(self, ctx: PRContext, root: Path, files: list[str]) -> list[str]:
+        root_rel = ctx.rel(root)
+        if root_rel == ".":
+            return files
+        prefix = root_rel.rstrip("/") + "/"
+        return [rel[len(prefix) :] for rel in files if rel.startswith(prefix)]
 
     def _risky_licence_hits(self, text: str) -> list[str]:
         hits = []
