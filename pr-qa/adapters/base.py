@@ -77,7 +77,7 @@ class CommandOutcome:
         return self.exit_code == 0 and not self.timed_out
 
     def concise_output(self, limit: int = 1600) -> str:
-        output = "\n".join(part for part in [self.stdout, self.stderr] if part)
+        output = "\n".join(_ensure_text(part) for part in [self.stdout, self.stderr] if part)
         output = redact(output.strip())
         if len(output) <= limit:
             return output
@@ -195,8 +195,8 @@ class PRContext:
                 command=command_text,
                 cwd=str(working_dir),
                 exit_code=124,
-                stdout=exc.stdout or "",
-                stderr=exc.stderr or "",
+                stdout=_ensure_text(exc.stdout),
+                stderr=_ensure_text(exc.stderr),
                 timed_out=True,
                 duration_seconds=round(time.time() - started, 3),
             )
@@ -232,6 +232,14 @@ class TechnologyAdapter:
 
 def command_exists(command: str) -> bool:
     return shutil.which(command) is not None
+
+
+def _ensure_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
 
 
 def should_skip_path(path: Path) -> bool:
