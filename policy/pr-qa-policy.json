@@ -79,9 +79,9 @@
     "required_pr_body_marker": "ONE-TIME DHANSAMVAAD STAGING TO MAIN BASELINE AUTHORIZATION PR-15",
     "relaxations": [
       "diff_size",
-      "changed_file_count"
+      "changed_file_count",
+      "exact_gitleaks_fingerprint_allowlist"
     ],
-    "exact_gitleaks_fingerprint_allowlist": true,
     "gitleaks_allowlist": [
       {
         "rule_id": "generic-api-key",
