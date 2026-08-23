@@ -4164,6 +4164,9 @@ def summarize(results: list[CheckResult], technologies: dict[str, dict[str, Any]
     for _, display in GATE_ORDER:
         gate_statuses[display] = aggregate_status([result for result in results if result.gate == display])
     overall = FAIL if any(result.is_blocking_failure() for result in results) else PASS
+    developer_handoff_ready = ""
+    if (git_context.get("base_ref") or "").lower() == "staging":
+        developer_handoff_ready = "YES" if overall == PASS else "NO"
     risk_result = next((result for result in results if result.gate == "Risk Engine"), None)
     size = risk_size_accounting(ctx)
     release_drift = build_release_drift_summary(ctx)
@@ -4184,6 +4187,7 @@ def summarize(results: list[CheckResult], technologies: dict[str, dict[str, Any]
         "gate_statuses": gate_statuses,
         "overall_result": overall,
         "merge_readiness": "READY FOR HUMAN REVIEW" if overall == PASS else "NOT READY FOR HUMAN REVIEW",
+        "developer_handoff_ready": developer_handoff_ready,
         "risk_score": extract_risk_score(risk_result.message if risk_result else ""),
         "policy_id": ctx.policy.get("policy_id", "unknown"),
         "baseline_alignment": build_baseline_summary(ctx, git_context, results),
@@ -4526,6 +4530,8 @@ def render_markdown_report(summary: dict[str, Any], results: list[CheckResult]) 
     for _, display in GATE_ORDER:
         lines.append(f"| {markdown_escape(display)} | {summary['gate_statuses'].get(display, SKIP)} |")
     lines.extend(["", f"Risk Score: {summary['risk_score']} / 100", "", f"Overall Result: {summary['overall_result']}", "", f"Merge Readiness: {summary['merge_readiness']}", ""])
+    if summary.get("developer_handoff_ready"):
+        lines.extend([f"DEVELOPER_HANDOFF_READY: {markdown_escape(summary['developer_handoff_ready'])}", ""])
     baseline = summary.get("baseline_alignment") or {}
     if baseline.get("requested"):
         lines.extend(

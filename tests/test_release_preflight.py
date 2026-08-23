@@ -59,6 +59,7 @@ class ReleasePreflightTests(unittest.TestCase):
         self.git(repo, "commit", "-m", "fixture")
         self.git(repo, "tag", "pr-qa-v1-test")
         self.git(repo, "update-ref", "refs/remotes/origin/development", "HEAD")
+        self.git(repo, "update-ref", "refs/remotes/origin/staging", "HEAD")
         return temp, repo
 
     def run_preflight(self, repo, *args, env=None):
@@ -76,6 +77,36 @@ class ReleasePreflightTests(unittest.TestCase):
         self.assertIn("WORKTREE: CLEAN", proc.stdout)
         self.assertIn("CENTRAL_PR_QA: PASS", proc.stdout)
         self.assertIn("READY_FOR_PROMOTION: YES", proc.stdout)
+        self.assertIn("DEVELOPER RELEASE READINESS", proc.stdout)
+        self.assertNotIn("DEVELOPER_HANDOFF_READY", proc.stdout)
+
+    def test_staging_base_reports_developer_handoff_ready(self):
+        temp, repo = self.make_repo()
+        self.addCleanup(temp.cleanup)
+
+        proc = self.run_preflight(repo, "--base", "staging")
+
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("DEVELOPER STAGING READINESS", proc.stdout)
+        self.assertIn("ACTIVE_PR_QA_RELEASE: pr-qa-v1-test", proc.stdout)
+        self.assertIn("BASE: staging", proc.stdout)
+        self.assertIn("WORKTREE: CLEAN", proc.stdout)
+        self.assertIn("CENTRAL_PR_QA: PASS", proc.stdout)
+        self.assertIn("DEVELOPER_HANDOFF_READY: YES", proc.stdout)
+        self.assertNotIn("READY_FOR_PROMOTION", proc.stdout)
+
+    def test_staging_base_reports_developer_handoff_not_ready_on_failure(self):
+        temp, repo = self.make_repo()
+        self.addCleanup(temp.cleanup)
+
+        proc = self.run_preflight(repo, "--base", "staging", env={"FAKE_PR_QA_EXIT": "9"})
+
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("DEVELOPER STAGING READINESS", proc.stdout)
+        self.assertIn("CENTRAL_PR_QA: FAIL", proc.stdout)
+        self.assertIn("DEVELOPER_HANDOFF_READY: NO", proc.stdout)
+        self.assertIn("central PR-QA failed", proc.stdout)
+        self.assertNotIn("READY_FOR_PROMOTION", proc.stdout)
 
     def test_unresolved_base_fails_closed(self):
         temp, repo = self.make_repo()
