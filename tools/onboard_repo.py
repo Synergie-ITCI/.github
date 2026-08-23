@@ -33,6 +33,9 @@ VERIFY_STATUSES = {
     "WAITING_FOR_HUMAN_APPROVAL",
     "BLOCKED_UNKNOWN",
 }
+LEGACY_REMEDIATION_FINDING_KEYS = {
+    "RELEASE_TOPOLOGY_GAP",
+}
 
 
 @dataclass
@@ -946,10 +949,21 @@ def verify(args: argparse.Namespace) -> int:
 
 def print_report(repo: str, findings: list[Finding], workflows: list[dict[str, Any]], *, json_mode: bool = False) -> None:
     blockers = [f for f in findings if f.status == "BLOCKED"]
+    onboarding_status = "FAIL" if blockers else "PASS"
+    legacy_required = legacy_remediation_required(findings)
     if json_mode:
-        print(json.dumps({"repository": repo, "findings": [asdict(f) for f in findings], "workflows": workflows, "ready": not blockers}, indent=2))
+        print(json.dumps({
+            "repository": repo,
+            "onboarding": onboarding_status,
+            "legacy_remediation_required": legacy_required,
+            "findings": [asdict(f) for f in findings],
+            "workflows": workflows,
+            "ready": not blockers,
+        }, indent=2))
         return
     print(f"REPO: {repo}")
+    print(f"ONBOARDING: {onboarding_status}")
+    print(f"LEGACY_REMEDIATION_REQUIRED: {'YES' if legacy_required else 'NO'}")
     for f in findings:
         print(f"{f.key:32} {f.status:8} {f.detail}")
     print()
@@ -958,6 +972,10 @@ def print_report(repo: str, findings: list[Finding], workflows: list[dict[str, A
         print("BLOCKERS:")
         for f in blockers:
             print(f"- {f.key}: {f.detail}")
+
+
+def legacy_remediation_required(findings: list[Finding]) -> bool:
+    return any(f.key in LEGACY_REMEDIATION_FINDING_KEYS and f.status in {"WARNING", "READY", "AWAITING", "BLOCKED"} for f in findings)
 
 
 def onboard(args: argparse.Namespace) -> int:
