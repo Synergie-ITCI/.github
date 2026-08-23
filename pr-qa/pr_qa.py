@@ -3735,14 +3735,15 @@ def build_pr_status_model(report: dict[str, Any], event: dict[str, Any], policy:
             if owner_approved:
                 return status_model("READY FOR GATE C MERGE", [], False, "No action required.", gate_c=True, approved_by=owner_login)
             return status_model("TECHNICALLY READY", [], True, "No code action required. Await Saurabh release approval.", gate_c=True)
-        return status_model("READY TO MERGE", [], False, "No action required.", gate_c=False)
+        handoff = "YES" if base_ref.lower() == "staging" else ""
+        return status_model("READY TO MERGE", [], False, "No action required.", gate_c=False, developer_handoff_ready=handoff)
 
     if review_only_blocked and not behind and not missing_contexts and not owner_approved:
         return status_model("TECHNICALLY READY", [], True, "No code action required. Await Saurabh release approval.", gate_c=True)
 
     why = pr_status_failure_reasons(results, behind, base_ref, missing_contexts)
     handoff = "NO" if base_ref.lower() == "staging" else ""
-    action_items = developer_action_items(results, behind, base_ref, missing_contexts)
+    action_items = developer_action_items(results, behind, base_ref, head_ref, missing_contexts)
     return status_model("BLOCKED", why, False, developer_action_for(why, base_ref), gate_c=gate_c, action_items=action_items, developer_handoff_ready=handoff)
 
 
@@ -3828,15 +3829,17 @@ def developer_action_for(why: list[str], base_ref: str) -> str:
     return "Use WHAT NEEDS FIXING below, then push again."
 
 
-def developer_action_items(results: list[Any], behind: bool, base_ref: str, missing_contexts: list[str]) -> list[dict[str, Any]]:
+def developer_action_items(results: list[Any], behind: bool, base_ref: str, head_ref: str, missing_contexts: list[str]) -> list[dict[str, Any]]:
     items = [developer_action_item_for_result(result) for result in results if result_failed(result)]
     if behind:
+        source = head_ref or "this"
+        target = base_ref or "the base"
         items.append(
             developer_action_item(
-                f"This branch is behind `{base_ref or 'the base branch'}`.",
+                f"Your {source} branch is behind {target}.",
                 "Branch history",
-                f"Align this branch with the latest `{base_ref or 'base'}` branch, resolve conflicts, and push again.",
-                "Push again; PR-QA will re-check it.",
+                f"Bring {source} up to date with {target}, resolve any conflicts locally, and push again.",
+                "GitHub will rerun PR-QA after the updated push.",
                 [],
             )
         )
