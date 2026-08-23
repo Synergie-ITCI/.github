@@ -1,0 +1,178 @@
+#!/usr/bin/env python3
+"""Run the active central PR-QA release as a local promotion preflight."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import tarfile
+import tempfile
+from pathlib import Path
+
+
+PIN_RE = re.compile(r'(?m)^\s*PR_QA_FRAMEWORK_RELEASE:\s*["\']?([^"\'\s]+)["\']?\s*$')
+
+
+def run(cmd: list[str], cwd: Path, **kwargs: object) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(cmd, cwd=cwd, text=True, capture_output=True, **kwargs)
+
+
+def git(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+    return run(["git", *cmd], cwd)
+
+
+def repo_root() -> Path | None:
+    proc = run(["git", "rev-parse", "--show-toplevel"], Path.cwd())
+    if proc.returncode != 0:
+        return None
+    return Path(proc.stdout.strip())
+
+
+def active_release(root: Path) -> str | None:
+    workflow = root / ".github" / "workflows" / "pr-qa.yml"
+    if not workflow.exists():
+        return None
+    match = PIN_RE.search(workflow.read_text(encoding="utf-8"))
+    return match.group(1) if match else None
+
+
+def resolve_origin_base(root: Path, base: str) -> str | None:
+    if base.startswith("-"):
+        return None
+    if git(["check-ref-format", "--branch", base], root).returncode != 0:
+        return None
+    ref = f"refs/remotes/origin/{base}^{{commit}}"
+    proc = git(["rev-parse", "--verify", ref], root)
+    return proc.stdout.strip() if proc.returncode == 0 else None
+
+
+def worktree_state(root: Path) -> str:
+    proc = git(["status", "--porcelain"], root)
+    if proc.returncode != 0:
+        return "DIRTY"
+    return "DIRTY" if proc.stdout.strip() else "CLEAN"
+
+
+def extract_release(root: Path, release: str, dest: Path) -> bool:
+    archive = subprocess.run(
+        ["git", "archive", "--format=tar", release],
+        cwd=root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if archive.returncode != 0:
+        return False
+    with tarfile.open(fileobj=__import__("io").BytesIO(archive.stdout), mode="r:") as tar:
+        tar.extractall(dest)
+    return True
+
+
+def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str) -> bool:
+    head_sha = git(["rev-parse", "HEAD"], root).stdout.strip()
+    head_ref = git(["branch", "--show-current"], root).stdout.strip() or "HEAD"
+    with tempfile.TemporaryDirectory(prefix="release-preflight-qa-") as tmp:
+        tmp_path = Path(tmp)
+        event = tmp_path / "event.json"
+        event.write_text(
+            json.dumps(
+                {
+                    "pull_request": {
+                        "number": 0,
+                        "base": {"ref": base, "sha": base_sha},
+                        "head": {"ref": head_ref, "sha": head_sha},
+                        "user": {"login": os.environ.get("GITHUB_ACTOR", "developer")},
+                        "labels": [],
+                        "body": "",
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        env = os.environ.copy()
+        env["PR_QA_FRAMEWORK_RELEASE"] = active_release(root) or ""
+        proc = subprocess.run(
+            [
+                sys.executable,
+                str(framework / "pr-qa" / "pr_qa.py"),
+                "--repo",
+                str(root),
+                "--event-path",
+                str(event),
+                "--out",
+                str(tmp_path / "pr-quality-report.md"),
+                "--json-out",
+                str(tmp_path / "pr-quality-report.json"),
+            ],
+            cwd=root,
+            env=env,
+        )
+        return proc.returncode == 0
+
+
+def print_report(release: str, base: str, dirty: str, qa: str, blockers: list[str]) -> None:
+    ready = "NO" if blockers else "YES"
+    print("DEVELOPER RELEASE READINESS")
+    print()
+    print(f"ACTIVE_PR_QA_RELEASE: {release}")
+    print(f"BASE: {base}")
+    print(f"WORKTREE: {dirty}")
+    print(f"CENTRAL_PR_QA: {qa}")
+    print()
+    print(f"READY_FOR_PROMOTION: {ready}")
+    print()
+    print("BLOCKERS:")
+    if blockers:
+        for blocker in blockers:
+            print(f"- {blocker}")
+    else:
+        print("- none")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Run central PR-QA before release promotion.")
+    parser.add_argument("--base", default="development", help="promotion base branch")
+    args = parser.parse_args()
+
+    root = repo_root()
+    blockers: list[str] = []
+    release = ""
+    qa = "FAIL"
+    dirty = "DIRTY"
+
+    if root is None:
+        print_report(release, args.base, dirty, qa, ["not inside a git repository"])
+        return 1
+
+    release = active_release(root) or ""
+    if not release:
+        blockers.append("active PR-QA release pin could not be derived")
+
+    base_sha = resolve_origin_base(root, args.base)
+    if not base_sha:
+        blockers.append(f"base '{args.base}' could not be resolved as origin/{args.base}")
+
+    dirty = worktree_state(root)
+    if dirty == "DIRTY":
+        blockers.append("working tree has uncommitted changes")
+
+    if not blockers and release and base_sha:
+        with tempfile.TemporaryDirectory(prefix="release-preflight-framework-") as tmp:
+            framework = Path(tmp)
+            if extract_release(root, release, framework):
+                qa_passed = run_pr_qa(root, framework, args.base, base_sha)
+                qa = "PASS" if qa_passed else "FAIL"
+                if not qa_passed:
+                    blockers.append("central PR-QA failed")
+            else:
+                blockers.append(f"active PR-QA release '{release}' could not be resolved")
+
+    print_report(release, args.base, dirty, qa, blockers)
+    return 0 if not blockers else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
