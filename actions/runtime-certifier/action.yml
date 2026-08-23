@@ -1,0 +1,77 @@
+name: Synergie Runtime Certifier
+description: Read-only runtime certification immediately before Gate D deployment.
+
+inputs:
+  instance-id:
+    description: EC2 or SSM managed-instance ID.
+    required: true
+
+  region:
+    description: AWS region.
+    required: false
+    default: ap-south-1
+
+  app-path:
+    description: Absolute application path on the target host.
+    required: true
+
+  app-user:
+    description: OS user used to resolve the deployed Git SHA.
+    required: true
+
+  validation-url:
+    description: HTTPS endpoint validated before deployment.
+    required: true
+
+  deploy-ref:
+    description: Exact approved 40-character deployment SHA.
+    required: true
+
+  rollback-ref:
+    description: Exact known-good 40-character rollback SHA.
+    required: true
+
+  runtime-kind:
+    description: Runtime adapter.
+    required: false
+    default: php-fpm
+
+  runtime-version:
+    description: Required runtime major.minor version.
+    required: true
+
+  web-server:
+    description: Web-server adapter.
+    required: false
+    default: apache
+
+outputs:
+  deploy-state:
+    description: ALREADY_DEPLOYED or READY_FROM_ROLLBACK
+    value: ${{ steps.certify.outputs.deploy_state }}
+
+  deployment-required:
+    description: true when Gate D should execute its deployment step
+    value: ${{ steps.certify.outputs.deployment_required }}
+
+runs:
+  using: composite
+
+  steps:
+    - name: Certify target runtime
+      id: certify
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        python3 "${{ github.action_path }}/../../tools/runtime_certifier.py" \
+          --instance-id "${{ inputs.instance-id }}" \
+          --region "${{ inputs.region }}" \
+          --app-path "${{ inputs.app-path }}" \
+          --app-user "${{ inputs.app-user }}" \
+          --validation-url "${{ inputs.validation-url }}" \
+          --deploy-ref "${{ inputs.deploy-ref }}" \
+          --rollback-ref "${{ inputs.rollback-ref }}" \
+          --runtime-kind "${{ inputs.runtime-kind }}" \
+          --runtime-version "${{ inputs.runtime-version }}" \
+          --web-server "${{ inputs.web-server }}"
