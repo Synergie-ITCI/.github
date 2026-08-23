@@ -5,6 +5,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from unittest.mock import patch
 from pathlib import Path
 from typing import Any
@@ -179,6 +181,10 @@ class ModernizedRecoveryTests(unittest.TestCase):
             sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
             subprocess.run(["git", "update-ref", f"refs/remotes/origin/{branch}", sha], cwd=repo, check=True)
         return tmp, repo
+
+    def git_add_commit(self, repo: Path, message: str) -> None:
+        subprocess.run(["git", "add", "."], cwd=repo, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", message], cwd=repo, check=True)
 
     def prqa_ruleset(self, context: str = mod.GENERIC_CALLER_CONTEXT) -> dict[str, Any]:
         return {
@@ -702,6 +708,54 @@ class ModernizedRecoveryTests(unittest.TestCase):
         open_pr.assert_not_called()
         self.assertEqual(findings[0].status, "PASS")
         self.assertIn("already present", findings[0].detail)
+
+    def test_golden_fresh_onboarding_separates_legacy_remediation(self):
+        tmp, repo = self.repo_with_origin_branch({
+            "development": {
+                "README.md": "fresh app\n",
+                "composer.json": "{}\n",
+                "artisan": "#!/usr/bin/env php\n",
+                ".github/workflows/production-deploy.yml": "on:\n  workflow_dispatch:\n",
+            },
+            "main": {"README.md": "legacy production branch\n"},
+        })
+        self.addCleanup(tmp.cleanup)
+        branches = {"development", "main"}
+        paths = mod.repository_files(repo, mod.local_branch_sha(repo, "development"))
+        technologies = mod.detect_technologies(paths)
+        profile = mod.classify_profile(paths, technologies, "auto")
+        criticality = mod.classify_criticality(profile, technologies, "auto", paths)
+        findings = [
+            mod.Finding("STATE", "PASS", "fresh"),
+            mod.Finding("TOPOLOGY", "PASS", mod.classify_topology(branches, "main")),
+            mod.Finding("PROFILE", "PASS", profile),
+            mod.Finding("CRITICALITY", "PASS", criticality),
+            mod.Finding("RELEASE_TOPOLOGY_GAP", "WARNING", "legacy history repair required separately"),
+        ]
+        out = StringIO()
+        with redirect_stdout(out), patch.object(mod, "open_or_find_pr") as open_pr, patch.object(mod, "merge_pr") as merge:
+            mod.print_report("Synergie-ITCI/example", findings, [], json_mode=True)
+            changed = mod.install_bootstrap_files(repo, "development")
+        report = json.loads(out.getvalue())
+        self.assertEqual(report["onboarding"], "PASS")
+        self.assertTrue(report["legacy_remediation_required"])
+        self.assertEqual(sorted(changed), [".github/pull_request_template.md", ".github/workflows/pr-qa.yml"])
+        self.assertEqual((repo / ".github" / "workflows" / "pr-qa.yml").read_text(encoding="utf-8"), self.canonical_caller())
+        self.assertEqual((repo / ".github" / "pull_request_template.md").read_text(encoding="utf-8"), mod.PR_TEMPLATE.read_text(encoding="utf-8"))
+        self.assertFalse((repo / ".github" / "pr-qa.yml").exists())
+        open_pr.assert_not_called()
+        merge.assert_not_called()
+
+        self.git_add_commit(repo, "chore(governance): onboard central PR QA")
+        with patch.object(mod, "active_ruleset_details", return_value=[self.prqa_ruleset()]), \
+             patch.object(mod, "observed_check_names", return_value={mod.GENERIC_CALLER_CONTEXT}):
+            rerun = mod.ruleset_audit("Synergie-ITCI/example", repo, "main", {"development"})
+        self.assertTrue(any(f.key == "RULESET_DEVELOPMENT_PRQA" and f.status == "PASS" for f in rerun))
+
+        with patch.object(mod, "gh_json", return_value={"author": {"login": "dev"}, "baseRefName": "development", "headRefName": "chore/governance-onboarding", "headRefOid": "abc", "mergeable": "MERGEABLE"}), \
+             patch.object(mod, "pr_files", return_value=[{"path": ".github/workflows/pr-qa.yml"}, {"path": ".github/pull_request_template.md"}]), \
+             patch.object(mod, "check_runs_for_sha", return_value=[self.check_run()]):
+            self.assertEqual(mod.pr_status("Synergie-ITCI/example", 1, "SaurabhVermaIN"), "PASS")
 
     def test_bootstrap_apply_blocks_moved_base_before_mutation(self):
         tmp, repo = self.repo_with_origin_branch({"development": {"README.md": "fresh\n"}})
