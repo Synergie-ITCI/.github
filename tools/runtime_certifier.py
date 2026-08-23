@@ -131,14 +131,33 @@ test -d "$APP_PATH" \
 test -f "$APP_PATH/.env" \
   || cert_fail "production .env missing"
 
-if ! CURRENT_SHA="$(
+SHA_SOURCE=""
+
+if CURRENT_SHA="$(
   sudo -u "$APP_USER" -H git -C "$APP_PATH" rev-parse HEAD 2>/dev/null
 )"; then
-  cert_fail "unable to resolve current production SHA"
+  SHA_SOURCE="GIT"
+else
+  CURRENT_SHA=""
+fi
+
+if [ -z "$SHA_SOURCE" ] && [ -r "$APP_PATH/.release-sha" ]; then
+  CURRENT_SHA="$(sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$APP_PATH/.release-sha")"
+  SHA_SOURCE="RELEASE_MARKER"
 fi
 
 test -n "$CURRENT_SHA" \
-  || cert_fail "resolved production SHA is empty"
+  || cert_fail "unable to resolve current production SHA"
+
+case "$CURRENT_SHA" in
+  *[!0-9a-f]*|"")
+    cert_fail "resolved production SHA is not an exact lowercase SHA"
+    ;;
+esac
+
+if [ "${#CURRENT_SHA}" -ne 40 ]; then
+  cert_fail "resolved production SHA is not an exact lowercase SHA"
+fi
 
 case "$CURRENT_SHA" in
   "$DEPLOY_REF")
@@ -227,6 +246,7 @@ echo "=== PRODUCTION RUNTIME CERTIFICATION ==="
 echo "TARGET_IDENTITY=PASS"
 echo "TARGET_HOST=$TARGET_HOST"
 echo "CURRENT_SHA=$CURRENT_SHA"
+echo "SHA_SOURCE=$SHA_SOURCE"
 echo "DEPLOY_REF=$DEPLOY_REF"
 echo "ROLLBACK_REF=$ROLLBACK_REF"
 echo "DEPLOY_STATE=$DEPLOY_STATE"

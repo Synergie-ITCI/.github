@@ -106,7 +106,7 @@ class RuntimeCertifierTests(unittest.TestCase):
         )
 
         self.assertIn(
-            'cert_fail "resolved production SHA is empty"',
+            'cert_fail "resolved production SHA is not an exact lowercase SHA"',
             script,
         )
 
@@ -221,6 +221,7 @@ def run_shell_harness(
     current_sha,
     *,
     git_fail=False,
+    release_marker=None,
     http_status="200",
 ):
     with tempfile.TemporaryDirectory(
@@ -241,6 +242,12 @@ def run_shell_harness(
             "APP_ENV=testing\n",
             encoding="utf-8",
         )
+
+        if release_marker is not None:
+            (app / ".release-sha").write_text(
+                release_marker,
+                encoding="utf-8",
+            )
 
         (apache / "example.conf").write_text(
             "ServerName example.org\n"
@@ -370,6 +377,10 @@ class RuntimeCertifierShellHarnessTests(unittest.TestCase):
 
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn(
+            "SHA_SOURCE=GIT",
+            proc.stdout,
+        )
+        self.assertIn(
             "DEPLOY_STATE=ALREADY_DEPLOYED",
             proc.stdout,
         )
@@ -437,6 +448,100 @@ class RuntimeCertifierShellHarnessTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 41)
         self.assertIn(
             "unable to resolve current production SHA",
+            proc.stdout,
+        )
+        self.assertIn(
+            "PRODUCTION_MUTATED=NO",
+            proc.stdout,
+        )
+
+    def test_shell_marker_ready_from_rollback(self):
+        proc = run_shell_harness(
+            "",
+            git_fail=True,
+            release_marker=ROLLBACK,
+        )
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn(
+            "SHA_SOURCE=RELEASE_MARKER",
+            proc.stdout,
+        )
+        self.assertIn(
+            "DEPLOY_STATE=READY_FROM_ROLLBACK",
+            proc.stdout,
+        )
+        self.assertIn(
+            "DEPLOYMENT_REQUIRED=YES",
+            proc.stdout,
+        )
+
+    def test_shell_marker_already_deployed(self):
+        proc = run_shell_harness(
+            "",
+            git_fail=True,
+            release_marker=DEPLOY,
+        )
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn(
+            "SHA_SOURCE=RELEASE_MARKER",
+            proc.stdout,
+        )
+        self.assertIn(
+            "DEPLOY_STATE=ALREADY_DEPLOYED",
+            proc.stdout,
+        )
+        self.assertIn(
+            "DEPLOYMENT_REQUIRED=NO",
+            proc.stdout,
+        )
+
+    def test_shell_malformed_marker_fails_closed(self):
+        proc = run_shell_harness(
+            "",
+            git_fail=True,
+            release_marker="not-a-sha\n",
+        )
+
+        self.assertEqual(proc.returncode, 41)
+        self.assertIn(
+            "resolved production SHA is not an exact lowercase SHA",
+            proc.stdout,
+        )
+        self.assertIn(
+            "PRODUCTION_MUTATED=NO",
+            proc.stdout,
+        )
+
+    def test_shell_marker_trims_outer_whitespace_only(self):
+        proc = run_shell_harness(
+            "",
+            git_fail=True,
+            release_marker=f"  {DEPLOY}\n",
+        )
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn(
+            f"CURRENT_SHA={DEPLOY}",
+            proc.stdout,
+        )
+        self.assertIn(
+            "SHA_SOURCE=RELEASE_MARKER",
+            proc.stdout,
+        )
+
+    def test_shell_marker_keeps_runtime_checks_blocking(self):
+        proc = run_shell_harness(
+            "",
+            git_fail=True,
+            release_marker=DEPLOY,
+            http_status="500",
+        )
+
+        self.assertEqual(proc.returncode, 41)
+        self.assertIn(
+            "pre-deployment endpoint smoke failed HTTP 500",
             proc.stdout,
         )
         self.assertIn(
