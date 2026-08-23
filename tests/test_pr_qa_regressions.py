@@ -5085,7 +5085,46 @@ exit 0
         self.assertIn("STATUS: READY TO MERGE", feature_body)
         self.assertIn("SAURABH APPROVAL REQUIRED: NO", feature_body)
         self.assertIn("STATUS: READY TO MERGE", staging_body)
+        self.assertIn("DEVELOPER_HANDOFF_READY: YES", staging_body)
         self.assertIn("SAURABH APPROVAL REQUIRED: NO", staging_body)
+
+    def test_pr_status_comment_marks_staging_handoff_not_ready_when_branch_is_behind(self) -> None:
+        engine = load_engine_module()
+        body = engine.render_pr_status_comment(
+            self.status_report("PASS", "staging", "development", []),
+            self.status_event("developer", base_ref="staging", head_ref="development"),
+            self.status_policy(),
+            {"pull_request": {"mergeable_state": "behind"}, "reviews": []},
+        )
+
+        self.assertIn("STATUS: BLOCKED", body)
+        self.assertIn("DEVELOPER_HANDOFF_READY: NO", body)
+        self.assertIn("WHAT FAILED:\nYour development branch is behind staging.", body)
+        self.assertIn("WHERE: Branch history", body)
+        self.assertIn("WHAT TO DO: Bring development up to date with staging, resolve any conflicts locally, and push again.", body)
+        self.assertIn("HOW TO VERIFY: GitHub will rerun PR-QA after the updated push.", body)
+        self.assertNotIn("policy failure", body.lower())
+
+    def test_pr_status_comment_marks_staging_handoff_not_ready_when_required_context_missing(self) -> None:
+        engine = load_engine_module()
+        body = engine.render_pr_status_comment(
+            self.status_report("PASS", "staging", "development", []),
+            self.status_event("developer", base_ref="staging", head_ref="development"),
+            self.status_policy(),
+            {
+                "pull_request": {"mergeable_state": "clean"},
+                "required_contexts": ["pr-qa / Pull Request Quality Assurance"],
+                "live_contexts": [],
+                "reviews": [],
+            },
+        )
+
+        self.assertIn("STATUS: BLOCKED", body)
+        self.assertIn("DEVELOPER_HANDOFF_READY: NO", body)
+        self.assertIn("WHAT FAILED:\nA required GitHub check is missing or stale.", body)
+        self.assertIn("WHERE: pr-qa / Pull Request Quality Assurance", body)
+        self.assertIn("WHAT TO DO: Restore the required workflow/check context or rerun checks so the exact required context reports.", body)
+        self.assertIn("HOW TO VERIFY: Push again; PR-QA will re-check it.", body)
 
     def test_pr_status_comment_gate_c_uses_owner_login_only(self) -> None:
         engine = load_engine_module()
