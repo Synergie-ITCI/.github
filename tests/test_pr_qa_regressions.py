@@ -4221,6 +4221,90 @@ jobs:
         self.assertTrue(required_reuse_options <= parser_options)
         self.assertEqual(sorted((workflow_options | {"--future-unsupported-option"}) - parser_options), ["--future-unsupported-option"])
 
+    def test_release_drift_passes_when_release_sensitive_content_matches(self) -> None:
+        engine = load_engine_module()
+        repo = self.framework_release_repo("release-drift-match")
+
+        state = engine.framework_release_state(repo)
+
+        self.assertEqual(state["active_pr_qa_release"], "pr-qa-v1-test")
+        self.assertEqual(state["framework_main_matches_active_release"], "PASS")
+        self.assertEqual(state["release_required"], "NO")
+
+    def test_release_drift_fails_when_pr_qa_engine_changes(self) -> None:
+        engine = load_engine_module()
+        repo = self.framework_release_repo("release-drift-engine")
+        self.write(repo / "pr-qa" / "pr_qa.py", "print('changed')\n")
+
+        state = engine.framework_release_state(repo)
+
+        self.assertEqual(state["framework_main_matches_active_release"], "FAIL")
+        self.assertEqual(state["release_required"], "YES")
+        self.assertIn("pr-qa/pr_qa.py", "\n".join(state["details"]))
+
+    def test_release_drift_fails_when_policy_or_runtime_dependency_changes(self) -> None:
+        engine = load_engine_module()
+        repo = self.framework_release_repo("release-drift-policy")
+        self.write(repo / "policy" / "pr-qa-policy.json", "{\"version\": 2}\n")
+        self.write(repo / "pr-qa" / "adapters" / "php.py", "PHP = 'changed'\n")
+
+        state = engine.framework_release_state(repo)
+
+        self.assertEqual(state["framework_main_matches_active_release"], "FAIL")
+        self.assertEqual(state["release_required"], "YES")
+        details = "\n".join(state["details"])
+        self.assertIn("policy/pr-qa-policy.json", details)
+        self.assertIn("pr-qa/adapters/php.py", details)
+
+    def test_release_drift_ignores_docs_only_changes(self) -> None:
+        engine = load_engine_module()
+        repo = self.framework_release_repo("release-drift-docs")
+        self.write(repo / "docs" / "guide.md", "# updated docs\n")
+
+        state = engine.framework_release_state(repo)
+
+        self.assertEqual(state["framework_main_matches_active_release"], "PASS")
+        self.assertEqual(state["release_required"], "NO")
+
+    def test_release_drift_fails_closed_when_active_release_cannot_be_resolved(self) -> None:
+        engine = load_engine_module()
+        repo = self.framework_release_repo("release-drift-missing-tag")
+        self.write(
+            repo / ".github" / "workflows" / "pr-qa.yml",
+            'env:\n  PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-missing"\n',
+        )
+
+        state = engine.framework_release_state(repo)
+
+        self.assertEqual(state["active_pr_qa_release"], "pr-qa-v1-missing")
+        self.assertEqual(state["framework_main_matches_active_release"], "FAIL")
+        self.assertEqual(state["release_required"], "YES")
+
+    def test_release_drift_report_exposes_requested_fields_without_blocking_merge(self) -> None:
+        repo = self.framework_release_repo("release-drift-report")
+        base = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.git(repo, "checkout", "-q", "-b", "feature/release-drift")
+        self.write(repo / "pr-qa" / "pr_qa.py", "print('changed')\n")
+        self.commit(repo, "fix: change framework")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            static_only=False,
+            repository="Synergie-ITCI/.github",
+            extra_args=["--repository-profile", "framework", "--no-command-runs"],
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertIn("ACTIVE_PR_QA_RELEASE: pr-qa-v1-test", report)
+        self.assertIn("FRAMEWORK_MAIN_MATCHES_ACTIVE_RELEASE: FAIL", report)
+        self.assertIn("RELEASE_REQUIRED: YES", report)
+        self.assertEqual(report_json["summary"]["active_pr_qa_release"], "pr-qa-v1-test")
+        self.assertEqual(report_json["summary"]["framework_main_matches_active_release"], "FAIL")
+        self.assertEqual(report_json["summary"]["release_required"], "YES")
+        release_result = next(result for result in report_json["results"] if result["gate"] == "Release Drift")
+        self.assertFalse(release_result["blocking"])
+
     def pr_qa_workflow_options(self, workflow: str) -> set[str]:
         lines = workflow.splitlines()
         options: set[str] = set()
@@ -4243,6 +4327,26 @@ jobs:
                 options.add("--repository-profile")
             index += 1
         return options
+
+    def framework_release_repo(self, name: str) -> Path:
+        repo = self.tmp / name
+        repo.mkdir()
+        self.git(repo, "init", "-q")
+        self.git(repo, "config", "user.email", "qa@example.invalid")
+        self.git(repo, "config", "user.name", "QA Regression")
+        self.write(repo / ".github" / "workflows" / "pr-qa.yml", 'env:\n  PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-test"\n')
+        self.write(repo / ".github" / "pr-qa.yml", self.base_config(profile="framework"))
+        self.write(repo / ".github" / "CODEOWNERS", "* @synergie/security\n")
+        self.write(repo / "policy" / "pr-qa-policy.json", "{\"version\": 1}\n")
+        self.write(repo / "pr-qa" / "pr_qa.py", "print('engine')\n")
+        self.write(repo / "pr-qa" / "resolve_node_version.py", "print('node')\n")
+        self.write(repo / "pr-qa" / "resolve_php_version.py", "print('php')\n")
+        self.write(repo / "pr-qa" / "adapters" / "__init__.py", "")
+        self.write(repo / "pr-qa" / "adapters" / "php.py", "PHP = 'runtime'\n")
+        self.write(repo / "docs" / "guide.md", "# docs\n")
+        self.commit(repo, "chore: baseline")
+        self.git(repo, "tag", "pr-qa-v1-test")
+        return repo
 
     def test_node_version_resolver_honors_supported_engine_major(self) -> None:
         repo = self.tmp / "node-version-24"

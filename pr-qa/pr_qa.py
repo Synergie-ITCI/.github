@@ -86,6 +86,12 @@ REUSABLE_SANDBOXED_GATE_NAMES = {
     "Dependencies",
     "Licence",
 }
+RELEASE_SENSITIVE_EXACT_FILES = {
+    "policy/pr-qa-policy.json",
+}
+RELEASE_SENSITIVE_ROOTS = {
+    "pr-qa",
+}
 
 GATE_ORDER = [
     ("baseline_alignment", "Baseline Alignment"),
@@ -106,6 +112,7 @@ GATE_ORDER = [
     ("licence", "Licence"),
     ("documentation", "Documentation"),
     ("advisory_review", "Architecture"),
+    ("release_drift", "Release Drift"),
     ("risk", "Risk Engine"),
     ("evidence", "Evidence"),
     ("review_policy", "Review Policy"),
@@ -973,10 +980,33 @@ def run_governance(ctx: PRContext, existing_results: list[CheckResult], args: ar
     results: list[CheckResult] = []
     results.extend(run_if_enabled(ctx, "documentation", lambda: gate_documentation(ctx)))
     results.extend(run_if_enabled(ctx, "advisory_review", lambda: gate_advisory_review(ctx)))
+    results.extend(gate_release_drift(ctx))
     results.extend(run_if_enabled(ctx, "risk", lambda: gate_risk(ctx, existing_results + results)))
     results.extend(run_if_enabled(ctx, "evidence", lambda: gate_evidence(ctx)))
     results.extend(run_if_enabled(ctx, "review_policy", lambda: gate_review_policy(ctx, args.review_policy_input)))
     return results
+
+
+def gate_release_drift(ctx: PRContext) -> list[CheckResult]:
+    if repository_profile(ctx) != "framework":
+        return []
+    state = framework_release_state(ctx.repo)
+    context_cache(ctx)["release_drift"] = state
+    details = list(state.get("details") or [])
+    details.append(f"ACTIVE_PR_QA_RELEASE: {state['active_pr_qa_release'] or 'UNKNOWN'}")
+    details.append(f"FRAMEWORK_MAIN_MATCHES_ACTIVE_RELEASE: {state['framework_main_matches_active_release']}")
+    details.append(f"RELEASE_REQUIRED: {state['release_required']}")
+    if state["framework_main_matches_active_release"] == PASS:
+        return [passed("Release Drift", None, "Active PR-QA release matches current release-sensitive framework content.", details)]
+    return [
+        CheckResult(
+            "Release Drift",
+            FAIL,
+            "Active PR-QA release does not match current release-sensitive framework content.",
+            details,
+            blocking=False,
+        )
+    ]
 
 
 def run_if_enabled(ctx: PRContext, key: str, fn: Callable[[], list[CheckResult]]) -> list[CheckResult]:
@@ -3797,6 +3827,104 @@ def framework_technical_digest(policy_path: Path) -> str:
     return hasher.hexdigest()
 
 
+def framework_release_state(repo: Path) -> dict[str, Any]:
+    release = active_pr_qa_release(repo)
+    if not release:
+        return release_state("", False, [], ["active PR-QA release pin could not be found in `.github/workflows/pr-qa.yml`."])
+    tag = subprocess.run(
+        ["git", "rev-parse", f"{release}^{{commit}}"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if tag.returncode != 0:
+        return release_state(release, False, [], [f"active PR-QA release `{release}` could not be resolved."])
+    files, details = release_sensitive_files(repo, release)
+    if details:
+        return release_state(release, False, files, details)
+    mismatches: list[str] = []
+    for rel in files:
+        current = read_release_sensitive_worktree_file(repo, rel)
+        pinned = read_release_sensitive_tag_file(repo, release, rel)
+        if current is None or pinned is None:
+            mismatches.append(f"{rel}: content could not be inspected in current checkout or active release.")
+        elif current != pinned:
+            mismatches.append(f"{rel}: current content differs from active release `{release}`.")
+    return release_state(release, not mismatches, files, mismatches[:20])
+
+
+def release_state(release: str, matches: bool, files: list[str], details: list[str]) -> dict[str, Any]:
+    return {
+        "active_pr_qa_release": release,
+        "framework_main_matches_active_release": PASS if matches else FAIL,
+        "release_required": "NO" if matches else "YES",
+        "release_sensitive_files": files,
+        "details": details,
+    }
+
+
+def active_pr_qa_release(repo: Path) -> str:
+    workflow = repo / ".github" / "workflows" / "pr-qa.yml"
+    try:
+        text = workflow.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    match = re.search(r'(?m)^\s*PR_QA_FRAMEWORK_RELEASE:\s*["\']?([^"\'\s]+)["\']?\s*$', text)
+    return match.group(1) if match else ""
+
+
+def release_sensitive_files(repo: Path, release: str) -> tuple[list[str], list[str]]:
+    current = {
+        path.relative_to(repo).as_posix()
+        for root in RELEASE_SENSITIVE_ROOTS
+        for path in (repo / root).rglob("*.py")
+        if path.is_file()
+    }
+    current.update(rel for rel in RELEASE_SENSITIVE_EXACT_FILES if (repo / rel).is_file())
+    tagged = subprocess.run(
+        ["git", "ls-tree", "-r", "--name-only", release, "--", "pr-qa", *sorted(RELEASE_SENSITIVE_EXACT_FILES)],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if tagged.returncode != 0:
+        return sorted(current), [f"release-sensitive file list for `{release}` could not be inspected."]
+    for rel in tagged.stdout.splitlines():
+        if is_release_sensitive_file(rel):
+            current.add(rel)
+    return sorted(current), []
+
+
+def is_release_sensitive_file(rel: str) -> bool:
+    path = rel.strip("/")
+    if path in RELEASE_SENSITIVE_EXACT_FILES:
+        return True
+    return path.startswith("pr-qa/") and path.endswith(".py")
+
+
+def read_release_sensitive_worktree_file(repo: Path, rel: str) -> bytes | None:
+    if not is_release_sensitive_file(rel):
+        return None
+    try:
+        return (repo / rel).read_bytes()
+    except OSError:
+        return None
+
+
+def read_release_sensitive_tag_file(repo: Path, release: str, rel: str) -> bytes | None:
+    if not is_release_sensitive_file(rel):
+        return None
+    result = subprocess.run(
+        ["git", "show", f"{release}:{rel}"],
+        cwd=repo,
+        capture_output=True,
+        check=False,
+    )
+    return result.stdout if result.returncode == 0 else None
+
+
 def write_technical_baseline_key_output(output_path: str, binding: dict[str, Any]) -> None:
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -3935,6 +4063,7 @@ def summarize(results: list[CheckResult], technologies: dict[str, dict[str, Any]
     overall = FAIL if any(result.is_blocking_failure() for result in results) else PASS
     risk_result = next((result for result in results if result.gate == "Risk Engine"), None)
     size = risk_size_accounting(ctx)
+    release_drift = build_release_drift_summary(ctx)
     return {
         "repository": resolve_repository_name(ctx),
         "base_ref": git_context.get("base_ref") or "",
@@ -3956,6 +4085,21 @@ def summarize(results: list[CheckResult], technologies: dict[str, dict[str, Any]
         "policy_id": ctx.policy.get("policy_id", "unknown"),
         "baseline_alignment": build_baseline_summary(ctx, git_context, results),
         "technical_baseline": build_technical_baseline_summary(ctx),
+        "release_drift": release_drift,
+        "active_pr_qa_release": release_drift.get("active_pr_qa_release", ""),
+        "framework_main_matches_active_release": release_drift.get("framework_main_matches_active_release", SKIP),
+        "release_required": release_drift.get("release_required", "NO"),
+    }
+
+
+def build_release_drift_summary(ctx: PRContext) -> dict[str, Any]:
+    state = dict(context_cache(ctx).get("release_drift") or {})
+    return {
+        "active_pr_qa_release": state.get("active_pr_qa_release", ""),
+        "framework_main_matches_active_release": state.get("framework_main_matches_active_release", SKIP),
+        "release_required": state.get("release_required", "NO"),
+        "release_sensitive_files": list(state.get("release_sensitive_files") or []),
+        "details": list(state.get("details") or []),
     }
 
 
@@ -4269,6 +4413,9 @@ def render_markdown_report(summary: dict[str, Any], results: list[CheckResult]) 
         f"Head Ref: `{markdown_escape(summary['head_ref'] or 'unknown')}`",
         f"Detected Technologies: {markdown_escape(techs)}",
         f"PR Size: {summary['changed_files']} files, +{summary['additions']} / -{summary['deletions']}",
+        f"ACTIVE_PR_QA_RELEASE: {markdown_escape(summary.get('active_pr_qa_release') or 'UNKNOWN')}",
+        f"FRAMEWORK_MAIN_MATCHES_ACTIVE_RELEASE: {markdown_escape(summary.get('framework_main_matches_active_release') or SKIP)}",
+        f"RELEASE_REQUIRED: {markdown_escape(summary.get('release_required') or 'NO')}",
         "",
         "| Gate | Result |",
         "| --- | --- |",
