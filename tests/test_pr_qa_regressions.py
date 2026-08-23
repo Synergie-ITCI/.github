@@ -3890,68 +3890,148 @@ jobs:
         self.assertNotIn("Approved central governance workflow/template changes", report)
         self.assertEqual(report_json["summary"]["gate_statuses"]["Deployment Risk"], "FAIL")
 
-    def controlled_gate_d_workflow(self, *, actor: bool = True, rollback: bool = True, push_main: bool = False, static_creds: bool = False, arbitrary_ref: bool = False) -> str:
-        push = "\n  push:\n    branches:\n      - main\n" if push_main else ""
-        actor_check = '          test "${GITHUB_ACTOR}" = "ReleaseAuthority"\n' if actor else ""
-        rollback_input = (
-            """      rollback_ref:
-        required: true
-        type: string
-"""
-            if rollback
-            else ""
+    def controlled_gate_d_workflow(
+        self,
+        *,
+        actor: bool = True,
+        rollback: bool = True,
+        push_main: bool = False,
+        static_creds: bool = False,
+        arbitrary_ref: bool = False,
+        runtime_certifier: bool = True,
+        runtime_guard: bool = True,
+        runtime_release: str = "runtime-certifier-action-v1",
+        certifier_after_deploy: bool = False,
+    ) -> str:
+        lines = [
+            "name: Controlled Production Gate D",
+            "on:",
+            "  workflow_dispatch:",
+            "    inputs:",
+            "      operation:",
+            "        required: true",
+            "        type: string",
+            "      deploy_ref:",
+            "        required: true",
+            "        type: string",
+        ]
+
+        if rollback:
+            lines.extend([
+                "      rollback_ref:",
+                "        required: true",
+                "        type: string",
+            ])
+
+        lines.extend([
+            "      approval_reference:",
+            "        required: true",
+            "        type: string",
+        ])
+
+        if push_main:
+            lines.extend([
+                "  push:",
+                "    branches:",
+                "      - main",
+            ])
+
+        lines.extend([
+            "permissions:",
+            "  contents: read",
+            "  id-token: write",
+            "jobs:",
+            "  deploy:",
+            "    runs-on: ubuntu-latest",
+            "    env:",
+        ])
+
+        if static_creds:
+            lines.append(
+                "      AWS_ACCESS_KEY_ID: ${{ secrets.PROD_AWS_ACCESS_KEY_ID }}"
+            )
+
+        lines.extend([
+            "      APP_PATH: /srv/production-app",
+            "    steps:",
+            "      - uses: actions/checkout@v4",
+            "      - name: Validate request",
+            "        env:",
+            "          DEPLOY_REF: ${{ inputs.deploy_ref }}",
+            "          ROLLBACK_REF: ${{ inputs.rollback_ref }}",
+            "          APPROVAL: ${{ inputs.approval_reference }}",
+            "        run: |",
+            "          set -euo pipefail",
+        ])
+
+        if actor:
+            lines.append(
+                '          test "${GITHUB_ACTOR}" = "ReleaseAuthority"'
+            )
+
+        lines.append(
+            '          test -n "${APPROVAL}"'
         )
-        rollback_validation = (
-            """          [[ "${ROLLBACK_REF}" =~ ^[0-9a-f]{40}$ ]]
-          CURRENT_SHA="$(git rev-parse HEAD)"
-          test "$CURRENT_SHA" = "$ROLLBACK_REF"
-          git reset --hard "$ROLLBACK_REF"
-"""
-            if rollback
-            else ""
+
+        if not arbitrary_ref:
+            lines.extend([
+                '          [[ "${DEPLOY_REF}" =~ ^[0-9a-f]{40}$ ]]',
+                '          MAIN_SHA="$(git rev-parse HEAD)"',
+                '          test "${DEPLOY_REF}" = "${MAIN_SHA}"',
+            ])
+
+        if rollback:
+            lines.extend([
+                '          [[ "${ROLLBACK_REF}" =~ ^[0-9a-f]{40}$ ]]',
+                '          CURRENT_SHA="$(git rev-parse HEAD)"',
+                '          test "$CURRENT_SHA" = "$ROLLBACK_REF"',
+                '          git reset --hard "$ROLLBACK_REF"',
+            ])
+
+        lines.extend([
+            "      - uses: aws-actions/configure-aws-credentials@v4",
+            "        with:",
+            "          role-to-assume: arn:aws:iam::123456789012:role/AppProductionDeployRole",
+            "          aws-region: ap-south-1",
+        ])
+
+        runtime_lines = []
+        if runtime_certifier:
+            runtime_lines = [
+                "      - name: Runtime Certifier",
+                "        id: runtime",
+                f"        uses: Synergie-ITCI/.github/actions/runtime-certifier@{runtime_release}",
+                "        with:",
+                "          instance-id: i-0123456789abcdef0",
+                "          app-path: /srv/production-app",
+                "          app-user: deploy",
+                "          validation-url: https://example.invalid/health",
+                "          deploy-ref: ${{ inputs.deploy_ref }}",
+                "          rollback-ref: ${{ inputs.rollback_ref }}",
+                '          runtime-version: "8.2"',
+            ]
+
+        if runtime_lines and not certifier_after_deploy:
+            lines.extend(runtime_lines)
+
+        lines.append(
+            "      - name: Gate D via SSM"
         )
-        deploy_validation = "" if arbitrary_ref else '          [[ "${DEPLOY_REF}" =~ ^[0-9a-f]{40}$ ]]\n          MAIN_SHA="$(git rev-parse HEAD)"\n          test "${DEPLOY_REF}" = "${MAIN_SHA}"\n'
-        static_env = "          AWS_ACCESS_KEY_ID: ${{ secrets.PROD_AWS_ACCESS_KEY_ID }}\n" if static_creds else ""
-        return f"""name: Controlled Production Gate D
-on:
-  workflow_dispatch:
-    inputs:
-      operation:
-        required: true
-        type: string
-      deploy_ref:
-        required: true
-        type: string
-{rollback_input}      approval_reference:
-        required: true
-        type: string
-{push}
-permissions:
-  contents: read
-  id-token: write
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    env:
-{static_env}      APP_PATH: /srv/production-app
-    steps:
-      - uses: actions/checkout@v4
-      - name: Validate request
-        env:
-          DEPLOY_REF: ${{{{ inputs.deploy_ref }}}}
-          ROLLBACK_REF: ${{{{ inputs.rollback_ref }}}}
-          APPROVAL: ${{{{ inputs.approval_reference }}}}
-        run: |
-          set -euo pipefail
-{actor_check}          test -n "${{APPROVAL}}"
-{deploy_validation}{rollback_validation}      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::123456789012:role/AppProductionDeployRole
-          aws-region: ap-south-1
-      - name: Gate D via SSM
-        run: |
-          aws ssm send-command --document-name AWS-RunShellScript --parameters commands='["sudo systemctl reload app"]'
-"""
+
+        if runtime_guard:
+            lines.append(
+                "        if: ${{ steps.runtime.outputs.deployment-required == 'true' }}"
+            )
+
+        lines.extend([
+            "        run: |",
+            "          aws ssm send-command --document-name AWS-RunShellScript --parameters commands='[\"sudo systemctl reload app\"]'",
+        ])
+
+        if runtime_lines and certifier_after_deploy:
+            lines.extend(runtime_lines)
+
+        return "\n".join(lines) + "\n"
 
     def test_controlled_manual_gate_d_safe_shape_warns_without_phase1_failure(self) -> None:
         repo, base = self.init_repo("controlled-gate-d")
@@ -3964,6 +4044,28 @@ jobs:
         self.assertEqual(report_json["summary"]["gate_statuses"]["Deployment Risk"], "WARNING")
         self.assertIn("CONTROLLED_PRODUCTION_GATE_D", report)
 
+    def test_fallback_parser_preserves_controlled_gate_d_steps(self) -> None:
+        engine = load_engine_module()
+        parsed = engine.parse_simple_yaml(self.controlled_gate_d_workflow())
+
+        steps = parsed["jobs"]["deploy"]["steps"]
+
+        self.assertEqual(len(steps), 5)
+        self.assertEqual(steps[0]["uses"], "actions/checkout@v4")
+        self.assertEqual(steps[1]["name"], "Validate request")
+        self.assertEqual(steps[2]["uses"], "aws-actions/configure-aws-credentials@v4")
+        self.assertEqual(steps[3]["name"], "Runtime Certifier")
+        self.assertEqual(steps[3]["id"], "runtime")
+        self.assertEqual(
+            steps[3]["uses"],
+            "Synergie-ITCI/.github/actions/runtime-certifier@runtime-certifier-action-v1",
+        )
+        self.assertEqual(steps[4]["name"], "Gate D via SSM")
+        self.assertEqual(
+            steps[4]["if"],
+            "${{ steps.runtime.outputs.deployment-required == 'true' }}",
+        )
+
     def test_controlled_gate_d_missing_mandatory_conditions_fails(self) -> None:
         cases = {
             "without-actor": {"actor": False},
@@ -3971,6 +4073,10 @@ jobs:
             "with-push-main": {"push_main": True},
             "with-static-creds": {"static_creds": True},
             "arbitrary-ref": {"arbitrary_ref": True},
+            "without-runtime-certifier": {"runtime_certifier": False},
+            "without-runtime-guard": {"runtime_guard": False},
+            "mutable-runtime-release": {"runtime_release": "main"},
+            "certifier-after-deploy": {"certifier_after_deploy": True},
         }
         for name, kwargs in cases.items():
             with self.subTest(name=name):

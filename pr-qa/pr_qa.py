@@ -474,7 +474,24 @@ def parse_yaml_block(lines: list[tuple[int, str]], index: int, indent: int) -> t
                 items.append(nested)
             elif re.match(r"^[A-Za-z0-9_.-]+\s*:", item):
                 key, value = item.split(":", 1)
-                items.append({key.strip(): parse_scalar(value.strip())} if value.strip() else {key.strip(): {}})
+                entry: dict[str, Any] = {}
+                value = value.strip()
+                if value in {"|", ">"}:
+                    block_lines: list[str] = []
+                    while index < len(lines) and lines[index][0] > current_indent:
+                        block_lines.append(lines[index][1])
+                        index += 1
+                    entry[key.strip()] = "\n".join(block_lines)
+                else:
+                    entry[key.strip()] = parse_scalar(value) if value else {}
+                    if index < len(lines) and lines[index][0] > current_indent:
+                        nested, index = parse_yaml_block(lines, index, lines[index][0])
+                        if isinstance(nested, dict):
+                            if value:
+                                entry.update(nested)
+                            else:
+                                entry[key.strip()] = nested
+                items.append(entry)
             else:
                 items.append(parse_scalar(item))
         return items, index
@@ -491,8 +508,15 @@ def parse_yaml_block(lines: list[tuple[int, str]], index: int, indent: int) -> t
             index += 1
             continue
         index += 1
-        if value.strip():
-            mapping[key.strip()] = parse_scalar(value.strip())
+        value = value.strip()
+        if value in {"|", ">"}:
+            block_lines: list[str] = []
+            while index < len(lines) and lines[index][0] > current_indent:
+                block_lines.append(lines[index][1])
+                index += 1
+            mapping[key.strip()] = "\n".join(block_lines)
+        elif value:
+            mapping[key.strip()] = parse_scalar(value)
         elif index < len(lines) and lines[index][0] > current_indent:
             nested, index = parse_yaml_block(lines, index, lines[index][0])
             mapping[key.strip()] = nested
@@ -2893,6 +2917,84 @@ def classify_safe_deployment_workflows(ctx: PRContext, changed: list[str]) -> tu
     return details, safe_paths
 
 
+RUNTIME_CERTIFIER_ACTION = "Synergie-ITCI/.github/actions/runtime-certifier@runtime-certifier-action-v1"
+RUNTIME_CERTIFIER_REQUIRED_INPUTS = {
+    "instance-id",
+    "app-path",
+    "app-user",
+    "validation-url",
+    "deploy-ref",
+    "rollback-ref",
+    "runtime-version",
+}
+
+
+def workflow_has_runtime_certifier_guard(parsed: dict[str, Any], text: str) -> bool:
+    jobs = parsed.get("jobs", {})
+    if not isinstance(jobs, dict):
+        return False
+
+    saw_valid_certifier = False
+    saw_remote_deploy = False
+
+    for job in jobs.values():
+        if not isinstance(job, dict):
+            continue
+
+        steps = job.get("steps", [])
+        if not isinstance(steps, list):
+            continue
+
+        available_certifiers: list[tuple[int, str]] = []
+
+        for index, step in enumerate(steps):
+            if not isinstance(step, dict):
+                continue
+
+            uses = str(step.get("uses", "") or "").strip()
+
+            if uses == RUNTIME_CERTIFIER_ACTION:
+                step_id = str(step.get("id", "") or "").strip()
+                with_values = step.get("with", {})
+                supplied_inputs = (
+                    {str(key) for key in with_values}
+                    if isinstance(with_values, dict)
+                    else set()
+                )
+
+                if (
+                    step_id
+                    and RUNTIME_CERTIFIER_REQUIRED_INPUTS <= supplied_inputs
+                ):
+                    available_certifiers.append((index, step_id))
+                    saw_valid_certifier = True
+
+            run_text = str(step.get("run", "") or "")
+            if not workflow_contains_remote_deploy(run_text):
+                continue
+
+            saw_remote_deploy = True
+            condition = str(step.get("if", "") or "")
+
+            guarded = False
+            for cert_index, cert_id in available_certifiers:
+                if cert_index >= index:
+                    continue
+
+                pattern = (
+                    rf"steps\.{re.escape(cert_id)}\.outputs\."
+                    rf"deployment-required\s*==\s*['\"]true['\"]"
+                )
+                if re.search(pattern, condition):
+                    guarded = True
+                    break
+
+            if not guarded:
+                return False
+
+    return saw_valid_certifier and saw_remote_deploy
+
+
 def controlled_gate_d_workflow_details(path: str, text: str) -> list[str]:
     parsed = parse_workflow_yaml(text)
     checks = {
@@ -2903,13 +3005,14 @@ def controlled_gate_d_workflow_details(path: str, text: str) -> list[str]:
         "approval_evidence": workflow_has_approval_evidence(parsed, text),
         "oidc": workflow_uses_oidc(parsed, text),
         "controlled_remote": workflow_uses_controlled_remote_execution(text),
+        "runtime_certifier": workflow_has_runtime_certifier_guard(parsed, text),
         "no_static_credentials": not workflow_has_embedded_or_static_deployment_credentials(text),
         "no_main_push": not workflow_pushes_to_main_or_master(parsed, text),
     }
     if not all(checks.values()):
         return []
     return [
-        f"{path}: CONTROLLED_PRODUCTION_GATE_D manual workflow_dispatch, exact deploy_ref, rollback_ref, actor restriction, OIDC, and controlled remote execution verified."
+        f"{path}: CONTROLLED_PRODUCTION_GATE_D manual workflow_dispatch, exact deploy_ref, rollback_ref, actor restriction, OIDC, immutable Runtime Certifier, guarded deployment, and controlled remote execution verified."
     ]
 
 

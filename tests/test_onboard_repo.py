@@ -56,7 +56,20 @@ jobs:
           test "$DEPLOY_REF" = "$MAIN_SHA"
           CURRENT_SHA="$(git rev-parse HEAD)"
           test "$ROLLBACK_REF" = "$CURRENT_SHA" || git reset --hard "$ROLLBACK_REF"
-          aws ssm send-command --document-name AWS-RunShellScript
+      - name: Runtime Certifier
+        id: runtime
+        uses: Synergie-ITCI/.github/actions/runtime-certifier@runtime-certifier-action-v1
+        with:
+          instance-id: i-0123456789abcdef0
+          app-path: /srv/production-app
+          app-user: deploy
+          validation-url: https://example.invalid/health
+          deploy-ref: ${{ inputs.deploy_ref }}
+          rollback-ref: ${{ inputs.rollback_ref }}
+          runtime-version: "8.2"
+      - name: Gate D via SSM
+        if: ${{ steps.runtime.outputs.deployment-required == 'true' }}
+        run: aws ssm send-command --document-name AWS-RunShellScript
 """
         self.assertTrue(mod.rc50_controlled_gate_d(".github/workflows/production-deploy.yml", text))
         self.assertFalse(mod.classify_workflow(".github/workflows/production-deploy.yml", text, self.OWNER)["production_auto_deploy"])
@@ -838,7 +851,9 @@ jobs:
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::123456789012:role/example
-      - run: |
+
+      - name: Validate Gate D request
+        run: |
           test "$GITHUB_ACTOR" = "SaurabhVermaIN"
           DEPLOY_REF="${{ inputs.deploy_ref }}"
           ROLLBACK_REF="${{ inputs.rollback_ref }}"
@@ -850,9 +865,29 @@ jobs:
           test "$DEPLOY_REF" = "$MAIN_SHA"
           CURRENT_SHA="$(git rev-parse HEAD)"
           test "$ROLLBACK_REF" = "$CURRENT_SHA" || git reset --hard "$ROLLBACK_REF"
-          aws ssm send-command --document-name AWS-RunShellScript
+
+      - name: Runtime Certifier
+        id: runtime
+        uses: Synergie-ITCI/.github/actions/runtime-certifier@runtime-certifier-action-v1
+        with:
+          instance-id: i-0123456789abcdef0
+          app-path: /srv/production-app
+          app-user: deploy
+          validation-url: https://example.invalid/health
+          deploy-ref: ${{ inputs.deploy_ref }}
+          rollback-ref: ${{ inputs.rollback_ref }}
+          runtime-version: "8.2"
+
+      - name: Deploy through SSM
+        if: ${{ steps.runtime.outputs.deployment-required == 'true' }}
+        run: aws ssm send-command --document-name AWS-RunShellScript
 """
-        self.assertTrue(mod.rc50_controlled_gate_d(".github/workflows/production-deploy.yml", text))
+        self.assertTrue(
+            mod.rc50_controlled_gate_d(
+                ".github/workflows/production-deploy.yml",
+                text,
+            )
+        )
 
     def test_gate_d_shared_classifier_rejects_unsafe_shapes(self):
         fixtures = [
