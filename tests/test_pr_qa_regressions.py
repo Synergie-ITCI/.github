@@ -4901,6 +4901,172 @@ exit 0
         self.assertIn("align locally with the latest staging branch", body)
         self.assertNotIn("Update branch", body)
 
+    def test_pr_status_comment_explains_secret_failure_actionably(self) -> None:
+        engine = load_engine_module()
+        body = engine.render_pr_status_comment(
+            self.status_report(
+                "FAIL",
+                "development",
+                "feature/work",
+                [
+                    {
+                        "gate": "Secrets",
+                        "status": "FAIL",
+                        "blocking": True,
+                        "message": "Potential generic-api-key found.",
+                        "details": ["config/example.php:27"],
+                    }
+                ],
+            ),
+            self.status_event("developer"),
+            self.status_policy(),
+            {"pull_request": {"mergeable_state": "clean"}, "reviews": []},
+        )
+
+        self.assertIn("WHAT NEEDS FIXING:", body)
+        self.assertIn("WHAT FAILED:", body)
+        self.assertIn("A possible secret was committed.", body)
+        self.assertIn("WHERE: config/example.php:27", body)
+        self.assertIn("Remove the credential from Git", body)
+        self.assertIn("Push the fix; PR-QA will re-check it.", body)
+        self.assertIn("Use WHAT NEEDS FIXING below", body)
+
+    def test_pr_status_comment_explains_test_failure_actionably(self) -> None:
+        engine = load_engine_module()
+        body = engine.render_pr_status_comment(
+            self.status_report(
+                "FAIL",
+                "development",
+                "feature/work",
+                [
+                    {
+                        "gate": "Tests",
+                        "status": "FAIL",
+                        "blocking": True,
+                        "message": "php artisan test failed.",
+                        "details": ["tests/Feature/LoginTest.php:18"],
+                    }
+                ],
+            ),
+            self.status_event("developer"),
+            self.status_policy(),
+            {"pull_request": {"mergeable_state": "clean"}, "reviews": []},
+        )
+
+        self.assertIn("A required automated test or build command failed.", body)
+        self.assertIn("WHERE: tests/Feature/LoginTest.php:18", body)
+        self.assertIn("Fix the failing command or test shown in the details.", body)
+        self.assertIn("Run the same failing command locally when available", body)
+
+    def test_pr_status_comment_explains_deployment_failure_actionably(self) -> None:
+        engine = load_engine_module()
+        body = engine.render_pr_status_comment(
+            self.status_report(
+                "FAIL",
+                "development",
+                "feature/work",
+                [
+                    {
+                        "gate": "Deployment Risk",
+                        "status": "FAIL",
+                        "blocking": True,
+                        "message": "Production workflow allows push deployment.",
+                        "details": [".github/workflows/production-deploy.yml"],
+                    }
+                ],
+            ),
+            self.status_event("developer"),
+            self.status_policy(),
+            {"pull_request": {"mergeable_state": "clean"}, "reviews": []},
+        )
+
+        self.assertIn("deployment workflow or production-sensitive change", body)
+        self.assertIn("WHERE: .github/workflows/production-deploy.yml", body)
+        self.assertIn("Update only the affected workflow/deployment file", body)
+        self.assertIn("PR-QA will re-check deployment safety", body)
+
+    def test_pr_status_comment_explains_migration_failure_actionably(self) -> None:
+        engine = load_engine_module()
+        body = engine.render_pr_status_comment(
+            self.status_report(
+                "FAIL",
+                "staging",
+                "development",
+                [
+                    {
+                        "gate": "Migration Risk",
+                        "status": "FAIL",
+                        "blocking": True,
+                        "message": "DROP COLUMN detected in migration up().",
+                        "details": ["database/migrations/2026_01_01_000000_update_users.php"],
+                    }
+                ],
+            ),
+            self.status_event("developer", base_ref="staging", head_ref="development"),
+            self.status_policy(),
+            {"pull_request": {"mergeable_state": "clean"}, "reviews": []},
+        )
+
+        self.assertIn("DEVELOPER_HANDOFF_READY: NO", body)
+        self.assertIn("A database migration may be unsafe for forward deployment.", body)
+        self.assertIn("WHERE: database/migrations/2026_01_01_000000_update_users.php", body)
+        self.assertIn("Make the migration forward-safe", body)
+        self.assertIn("PR-QA will re-check migration safety", body)
+
+    def test_pr_status_comment_explains_protected_resource_failure_actionably(self) -> None:
+        engine = load_engine_module()
+        body = engine.render_pr_status_comment(
+            self.status_report(
+                "FAIL",
+                "development",
+                "feature/work",
+                [
+                    {
+                        "gate": "Protected Resources",
+                        "status": "FAIL",
+                        "blocking": True,
+                        "message": "CODEOWNERS evidence missing.",
+                        "details": [".github/workflows/pr-qa.yml"],
+                    }
+                ],
+            ),
+            self.status_event("developer"),
+            self.status_policy(),
+            {"pull_request": {"mergeable_state": "clean"}, "reviews": []},
+        )
+
+        self.assertIn("A protected file or path changed", body)
+        self.assertIn("WHERE: .github/workflows/pr-qa.yml", body)
+        self.assertIn("Add the required review/ownership evidence", body)
+        self.assertIn("PR-QA will re-check protected-resource rules", body)
+
+    def test_pr_status_comment_explains_generic_failure_actionably(self) -> None:
+        engine = load_engine_module()
+        body = engine.render_pr_status_comment(
+            self.status_report(
+                "FAIL",
+                "development",
+                "feature/work",
+                [
+                    {
+                        "gate": "Custom Gate",
+                        "status": "FAIL",
+                        "blocking": True,
+                        "message": "Custom validation failed.",
+                        "details": ["docs/release.md"],
+                    }
+                ],
+            ),
+            self.status_event("developer"),
+            self.status_policy(),
+            {"pull_request": {"mergeable_state": "clean"}, "reviews": []},
+        )
+
+        self.assertIn("Custom Gate failed.", body)
+        self.assertIn("WHERE: docs/release.md", body)
+        self.assertIn("Fix the issue shown in the details.", body)
+        self.assertIn("Push the fix; PR-QA will re-check it.", body)
+
     def test_pr_status_comment_ready_without_review_for_non_gate_c_transitions(self) -> None:
         engine = load_engine_module()
         feature_body = engine.render_pr_status_comment(
