@@ -306,6 +306,40 @@ class ModernizedRecoveryTests(unittest.TestCase):
             findings = mod.ruleset_audit("Synergie-ITCI/example", Path("."), "main", {"main"})
         self.assertEqual(findings[0].status, "BLOCKED")
 
+    def test_ruleset_detail_uses_canonical_self_link_for_inherited_org_ruleset(self):
+        calls = []
+
+        def fake_run(cmd, **_kwargs):
+            calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(self.prqa_ruleset()), "")
+
+        item = {
+            "id": 19620452,
+            "source_type": "Organization",
+            "_links": {
+                "self": {
+                    "href": "https://api.github.com/repos/Synergie-ITCI/telemedicine-bridgestone/rulesets/19620452",
+                }
+            },
+        }
+        with patch.object(mod, "run", side_effect=fake_run):
+            detail = mod.ruleset_detail("Synergie-ITCI/telemedicine-bridgestone", item)
+
+        self.assertEqual(detail["rules"][0]["type"], "required_status_checks")
+        self.assertEqual(calls[0], ["gh", "api", "https://api.github.com/repos/Synergie-ITCI/telemedicine-bridgestone/rulesets/19620452"])
+
+    def test_ruleset_detail_without_self_link_uses_repository_route(self):
+        calls = []
+
+        def fake_run(cmd, **_kwargs):
+            calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(self.prqa_ruleset()), "")
+
+        with patch.object(mod, "run", side_effect=fake_run):
+            mod.ruleset_detail("Synergie-ITCI/example", {"id": 7, "source_type": "Organization"})
+
+        self.assertEqual(calls[0], ["gh", "api", "repos/Synergie-ITCI/example/rulesets/7"])
+
     def test_deployment_audit_uses_discovered_branches_and_warns_without_gate_d(self):
         with patch.object(mod, "workflow_files", side_effect=lambda _repo, ref: {".github/workflows/ci.yml": "on: pull_request\n"} if ref == "origin/main" else {}) as workflow_files:
             findings, rows = mod.deployment_audit(Path("."), "SaurabhVermaIN", {"main"}, "main")

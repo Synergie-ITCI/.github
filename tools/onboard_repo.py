@@ -441,9 +441,9 @@ def ruleset_detail(repo: str, item: dict[str, Any]) -> dict[str, Any]:
     rid = item.get("id")
     if not rid:
         raise CmdError("Active ruleset entry lacks an id; failing closed.")
-    source_type = str(item.get("source_type") or "Repository")
-    owner = repo.split("/", 1)[0]
-    endpoint = f"orgs/{owner}/rulesets/{rid}" if source_type.lower() == "organization" else f"repos/{repo}/rulesets/{rid}"
+    links = item.get("_links") if isinstance(item.get("_links"), dict) else {}
+    self_link = links.get("self") if isinstance(links.get("self"), dict) else {}
+    endpoint = str(self_link.get("href") or f"repos/{repo}/rulesets/{rid}")
     proc = run(["gh", "api", endpoint], check=False)
     if proc.returncode != 0:
         raise CmdError(f"Unable to read active ruleset detail {rid}; failing closed.")
