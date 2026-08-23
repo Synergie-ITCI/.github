@@ -2917,7 +2917,10 @@ def classify_safe_deployment_workflows(ctx: PRContext, changed: list[str]) -> tu
     return details, safe_paths
 
 
-RUNTIME_CERTIFIER_ACTION = "Synergie-ITCI/.github/actions/runtime-certifier@runtime-certifier-action-v1"
+APPROVED_RUNTIME_CERTIFIER_ACTIONS = {
+    "Synergie-ITCI/.github/actions/runtime-certifier@runtime-certifier-action-v1",
+    "Synergie-ITCI/.github/actions/runtime-certifier@runtime-certifier-action-v1.1",
+}
 RUNTIME_CERTIFIER_REQUIRED_INPUTS = {
     "instance-id",
     "app-path",
@@ -2953,7 +2956,7 @@ def workflow_has_runtime_certifier_guard(parsed: dict[str, Any], text: str) -> b
 
             uses = str(step.get("uses", "") or "").strip()
 
-            if uses == RUNTIME_CERTIFIER_ACTION:
+            if uses in APPROVED_RUNTIME_CERTIFIER_ACTIONS:
                 step_id = str(step.get("id", "") or "").strip()
                 with_values = step.get("with", {})
                 supplied_inputs = (

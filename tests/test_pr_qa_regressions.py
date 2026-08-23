@@ -3936,6 +3936,7 @@ jobs:
         runtime_certifier: bool = True,
         runtime_guard: bool = True,
         runtime_release: str = "runtime-certifier-action-v1",
+        runtime_action: str = "Synergie-ITCI/.github/actions/runtime-certifier",
         certifier_after_deploy: bool = False,
     ) -> str:
         lines = [
@@ -4035,7 +4036,7 @@ jobs:
             runtime_lines = [
                 "      - name: Runtime Certifier",
                 "        id: runtime",
-                f"        uses: Synergie-ITCI/.github/actions/runtime-certifier@{runtime_release}",
+                f"        uses: {runtime_action}@{runtime_release}",
                 "        with:",
                 "          instance-id: i-0123456789abcdef0",
                 "          app-path: /srv/production-app",
@@ -4078,6 +4079,48 @@ jobs:
         self.assertEqual(code, 0, report)
         self.assertEqual(report_json["summary"]["gate_statuses"]["Deployment Risk"], "WARNING")
         self.assertIn("CONTROLLED_PRODUCTION_GATE_D", report)
+
+    def test_controlled_gate_d_accepts_approved_runtime_certifier_releases(self) -> None:
+        for release in (
+            "runtime-certifier-action-v1",
+            "runtime-certifier-action-v1.1",
+        ):
+            with self.subTest(release=release):
+                repo, base = self.init_repo("approved-gate-d-" + release.replace(".", "-"))
+                self.write(
+                    repo / ".github" / "workflows" / "production-deploy.yml",
+                    self.controlled_gate_d_workflow(runtime_release=release),
+                )
+                self.commit(repo, "ci: add controlled gate d")
+
+                code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+                self.assertEqual(code, 0, report)
+                self.assertEqual(report_json["summary"]["gate_statuses"]["Deployment Risk"], "WARNING")
+                self.assertIn("CONTROLLED_PRODUCTION_GATE_D", report)
+
+    def test_controlled_gate_d_rejects_unapproved_runtime_certifier_actions(self) -> None:
+        cases = {
+            "future-runtime-release": {"runtime_release": "runtime-certifier-action-v1.2"},
+            "mutable-runtime-release": {"runtime_release": "main"},
+            "wrong-action": {
+                "runtime_action": "ExampleOrg/.github/actions/runtime-certifier",
+                "runtime_release": "runtime-certifier-action-v1.1",
+            },
+        }
+        for name, kwargs in cases.items():
+            with self.subTest(name=name):
+                repo, base = self.init_repo("unapproved-gate-d-" + name)
+                self.write(
+                    repo / ".github" / "workflows" / "production-deploy.yml",
+                    self.controlled_gate_d_workflow(**kwargs),
+                )
+                self.commit(repo, "ci: add unsafe gate d")
+
+                code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+                self.assertNotEqual(code, 0, report)
+                self.assertEqual(report_json["summary"]["gate_statuses"]["Deployment Risk"], "FAIL")
 
     def test_fallback_parser_preserves_controlled_gate_d_steps(self) -> None:
         engine = load_engine_module()
