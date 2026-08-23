@@ -5201,6 +5201,39 @@ exit 0
         self.assertIn("Secret scanning failed", body)
         self.assertNotIn("ghp_abcdefghijklmnopqrstuvwxyz123456", body)
 
+    def test_pr_status_comment_redacts_secret_shaped_values_in_actionable_output(self) -> None:
+        engine = load_engine_module()
+        fake_token = "ghp_FAKEtokenForRegressionOnly1234567890"
+        body = engine.render_pr_status_comment(
+            self.status_report(
+                "FAIL",
+                "development",
+                "feature/work",
+                [
+                    {
+                        "gate": "Secrets",
+                        "status": "FAIL",
+                        "blocking": True,
+                        "message": f"Potential token detected: {fake_token}",
+                        "details": [
+                            "config/example.php:27",
+                            f"token = {fake_token}",
+                        ],
+                    }
+                ],
+            ),
+            self.status_event("developer"),
+            self.status_policy(),
+            {"pull_request": {"mergeable_state": "clean"}, "reviews": []},
+        )
+
+        self.assertIn("A possible secret was committed.", body)
+        self.assertIn("Remove the credential from Git", body)
+        self.assertIn("Push the fix; PR-QA will re-check it.", body)
+        self.assertIn("WHERE: config/example.php:27", body)
+        self.assertNotIn(fake_token, body)
+        self.assertIn("ghp_[REDACTED]", body)
+
     def override_digest(self, record: dict) -> str:
         payload = {key: value for key, value in record.items() if key != "record_sha256"}
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
