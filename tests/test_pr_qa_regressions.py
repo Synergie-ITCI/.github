@@ -199,6 +199,41 @@ gates:
         parsed_json = json.loads(json_report.read_text(encoding="utf-8")) if json_report.exists() else {}
         return completed.returncode, report_text, parsed_json, audit
 
+    def test_staging_base_reports_developer_handoff_ready_from_overall_result(self) -> None:
+        repo, base = self.init_repo("staging-handoff-ready")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            static_only=True,
+            base_ref="staging",
+            head_ref="development",
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["overall_result"], "PASS")
+        self.assertEqual(report_json["summary"]["developer_handoff_ready"], "YES")
+        self.assertIn("DEVELOPER_HANDOFF_READY: YES", report)
+
+    def test_staging_base_reports_developer_handoff_not_ready_when_qa_fails(self) -> None:
+        repo, base = self.init_repo("staging-handoff-blocked")
+        self.write(repo / ".env", "APP_TOKEN=placeholder\n")
+        self.git(repo, "add", ".env")
+        self.git(repo, "commit", "-q", "-m", "test: add unsafe env file")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            static_only=True,
+            base_ref="staging",
+            head_ref="development",
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["overall_result"], "FAIL")
+        self.assertEqual(report_json["summary"]["developer_handoff_ready"], "NO")
+        self.assertIn("DEVELOPER_HANDOFF_READY: NO", report)
+
     def test_technical_pass_persists_and_reuses_after_evidence_only_fix(self) -> None:
         repo, base = self.init_repo("technical-baseline-reuse")
         self.write(repo / "app.py", "def answer():\n    return 42\n")

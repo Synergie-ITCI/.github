@@ -115,14 +115,18 @@ def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str) -> bool:
 
 def print_report(release: str, base: str, dirty: str, qa: str, blockers: list[str]) -> None:
     ready = "NO" if blockers else "YES"
-    print("DEVELOPER RELEASE READINESS")
+    staging = base == "staging"
+    print("DEVELOPER STAGING READINESS" if staging else "DEVELOPER RELEASE READINESS")
     print()
     print(f"ACTIVE_PR_QA_RELEASE: {release}")
     print(f"BASE: {base}")
     print(f"WORKTREE: {dirty}")
     print(f"CENTRAL_PR_QA: {qa}")
     print()
-    print(f"READY_FOR_PROMOTION: {ready}")
+    if staging:
+        print(f"DEVELOPER_HANDOFF_READY: {ready}")
+    else:
+        print(f"READY_FOR_PROMOTION: {ready}")
     print()
     print("BLOCKERS:")
     if blockers:
