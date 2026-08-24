@@ -1811,6 +1811,7 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
 
     if git_context.get("is_git_repo") and git_context.get("base_sha"):
         merge_commits = git_lines(ctx.repo, ["rev-list", "--first-parent", "--merges", git_context.get("pr_commit_range") or f"{git_context['base_sha']}..HEAD"])
+        main_to_development_source = main_to_development_current_alignment_source_tip(ctx) if merge_commits else ""
         unexpected_merge_commits = merge_commits
         if merge_commits and canonical_branch_promotion(ctx):
             unexpected_merge_commits = [
@@ -1824,6 +1825,10 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
                     or main_to_staging_gate_c_alignment_merge_commit(ctx, sha)
                     or development_to_staging_current_alignment_merge_commit(ctx, sha)
                     or main_to_development_current_alignment_merge_commit(ctx, sha)
+                    or (
+                        main_to_development_source
+                        and commit_is_ancestor(ctx.repo, sha, main_to_development_source)
+                    )
                     or governed_ancestry_alignment_merge_commit(ctx, sha)
                 )
             ]
@@ -1841,7 +1846,7 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
             results.append(passed("Repository Hygiene", None, "Only expected Gate C main-to-staging alignment merge commits detected."))
         elif merge_commits and all(development_to_staging_current_alignment_merge_commit(ctx, sha) for sha in merge_commits):
             results.append(passed("Repository Hygiene", None, "Only current development-to-staging tree-neutral alignment merge commits detected."))
-        elif merge_commits and all(main_to_development_current_alignment_merge_commit(ctx, sha) for sha in merge_commits):
+        elif merge_commits and main_to_development_source:
             results.append(passed("Repository Hygiene", None, "Only current main-to-development tree-neutral alignment merge commits detected."))
         elif merge_commits:
             results.append(passed("Repository Hygiene", None, "Only governed ancestry-alignment merge commits detected."))
@@ -1875,6 +1880,11 @@ def merge_commit_matches_second_parent_tree(repo: Path, sha: str) -> bool:
     if len(parents[0].split()) != 2:
         return False
     completed = subprocess.run(["git", "diff", "--quiet", sha, f"{sha}^2"], cwd=repo, text=True, capture_output=True, check=False)
+    return completed.returncode == 0
+
+
+def commit_is_ancestor(repo: Path, ancestor: str, descendant: str) -> bool:
+    completed = subprocess.run(["git", "merge-base", "--is-ancestor", ancestor, descendant], cwd=repo, text=True, capture_output=True, check=False)
     return completed.returncode == 0
 
 
@@ -1966,7 +1976,7 @@ def development_to_staging_current_alignment_merge_commit(ctx: PRContext, sha: s
         return False
     if parent_values[0] != staging_tip or parent_values[1] != development_tip:
         return False
-    tree_neutral = subprocess.run(["git", "diff", "--quiet", f"{sha}^1", sha], cwd=ctx.repo, text=True, capture_output=True, check=False)
+    tree_neutral = subprocess.run(["git", "diff", "--quiet", f"{head_sha}^1", head_sha], cwd=ctx.repo, text=True, capture_output=True, check=False)
     return tree_neutral.returncode == 0
 
 
@@ -1976,9 +1986,7 @@ def main_to_development_current_alignment_merge_commit(ctx: PRContext, sha: str)
     head_sha = run_git(ctx.repo, ["rev-parse", "--verify", "HEAD^{commit}"]).strip()
     if not head_sha or sha != head_sha:
         return False
-    development_tip = resolve_fresh_origin_development_tip(ctx.repo)
-    main_tip = resolve_fresh_origin_main_tip(ctx.repo)
-    if not development_tip or not main_tip:
+    if not main_to_development_current_alignment_source_tip(ctx):
         return False
     parents = git_lines(ctx.repo, ["show", "-s", "--format=%P", sha])
     if not parents:
@@ -1986,10 +1994,36 @@ def main_to_development_current_alignment_merge_commit(ctx: PRContext, sha: str)
     parent_values = parents[0].split()
     if len(parent_values) != 2:
         return False
+    development_tip = resolve_fresh_origin_development_tip(ctx.repo)
+    main_tip = resolve_fresh_origin_main_tip(ctx.repo)
     if parent_values[0] != development_tip or parent_values[1] != main_tip:
         return False
-    tree_neutral = subprocess.run(["git", "diff", "--quiet", f"{sha}^1", sha], cwd=ctx.repo, text=True, capture_output=True, check=False)
-    return tree_neutral.returncode == 0
+    return True
+
+
+def main_to_development_current_alignment_source_tip(ctx: PRContext) -> str:
+    if (ctx.base_ref or "").lower() != "development":
+        return ""
+    head_sha = run_git(ctx.repo, ["rev-parse", "--verify", "HEAD^{commit}"]).strip()
+    if not head_sha:
+        return ""
+    development_tip = resolve_fresh_origin_development_tip(ctx.repo)
+    main_tip = resolve_fresh_origin_main_tip(ctx.repo)
+    if not development_tip or not main_tip:
+        return ""
+    if head_sha == main_tip:
+        tree_neutral = subprocess.run(["git", "diff", "--quiet", development_tip, head_sha], cwd=ctx.repo, text=True, capture_output=True, check=False)
+        return main_tip if tree_neutral.returncode == 0 else ""
+    parents = git_lines(ctx.repo, ["show", "-s", "--format=%P", head_sha])
+    if not parents:
+        return ""
+    parent_values = parents[0].split()
+    if len(parent_values) != 2:
+        return ""
+    if parent_values[0] != development_tip or parent_values[1] != main_tip:
+        return ""
+    tree_neutral = subprocess.run(["git", "diff", "--quiet", f"{head_sha}^1", head_sha], cwd=ctx.repo, text=True, capture_output=True, check=False)
+    return main_tip if tree_neutral.returncode == 0 else ""
 
 
 def current_main_tip_is_gate_c_merge_for_staging(repo: Path, current_main_tip: str, staging_tip: str) -> bool:

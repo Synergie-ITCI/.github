@@ -1765,6 +1765,33 @@ exit 0
         self.assertNotEqual(code, 0)
         self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
 
+    def test_main_to_development_alignment_allows_inherited_main_lineage_merges(self) -> None:
+        repo, development_sha, main_sha = self.main_development_direct_main_alignment_repo(
+            "main-development-inherited-main-merges"
+        )
+        merge_commits = self.git(repo, "rev-list", "--first-parent", "--merges", f"{development_sha}..{main_sha}").stdout.split()
+        self.assertGreaterEqual(len(merge_commits), 2)
+        self.assertEqual(self.git(repo, "diff", "--name-only", f"{development_sha}..{main_sha}").stdout.strip(), "")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            development_sha,
+            static_only=True,
+            base_ref="development",
+            head_ref="chore/align-main-into-development",
+            head_sha=main_sha,
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "PASS")
+        self.assertTrue(
+            any(
+                result["gate"] == "Repository Hygiene"
+                and result["message"] == "Only current main-to-development tree-neutral alignment merge commits detected."
+                for result in report_json["results"]
+            )
+        )
+
     def test_main_to_development_tree_neutral_alignment_allows_current_main_history(self) -> None:
         repo, development_sha, main_sha, alignment_sha = self.main_development_alignment_repo(
             "main-development-tree-neutral-alignment"
@@ -1856,6 +1883,30 @@ exit 0
             head_ref="chore/align-unrelated-into-development",
             head_sha=wrong_parent_alignment,
         )
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
+        self.assertIn("Accidental merge commits detected", report)
+
+    def test_main_to_development_alignment_blocks_unrelated_merge_outside_main_lineage(self) -> None:
+        repo, development_sha, main_sha = self.main_development_direct_main_alignment_repo(
+            "main-development-unrelated-outside-main-lineage"
+        )
+        self.git(repo, "checkout", "-q", "-b", "unrelated", main_sha)
+        self.git(repo, "commit", "-q", "--allow-empty", "-m", "chore: unrelated side history")
+        self.git(repo, "checkout", "-q", "-B", "chore/align-main-plus-unrelated-into-development", main_sha)
+        self.git(repo, "merge", "--no-ff", "-s", "ours", "-m", "chore: merge unrelated side history", "unrelated")
+        head_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.assertEqual(self.git(repo, "diff", "--name-only", f"{development_sha}..{head_sha}").stdout.strip(), "")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            development_sha,
+            static_only=True,
+            base_ref="development",
+            head_ref="chore/align-main-plus-unrelated-into-development",
+            head_sha=head_sha,
+        )
+
         self.assertNotEqual(code, 0)
         self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
         self.assertIn("Accidental merge commits detected", report)
@@ -5543,6 +5594,30 @@ exit 0
         self.git(repo, "merge", "--no-ff", "-m", "chore: align main into development", "main")
         alignment_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
         return repo, development_sha, main_sha, alignment_sha
+
+    def main_development_direct_main_alignment_repo(self, name: str) -> tuple[Path, str, str]:
+        repo, base = self.init_repo(name, profile="framework")
+        self.git(repo, "checkout", "-q", "-B", "development", base)
+        self.write(repo / "app" / "ExistingApplication.php", "<?php\nreturn 'shared';\n")
+        self.commit(repo, "feat: add development application content")
+        development_sha = self.git(repo, "rev-parse", "development").stdout.strip()
+
+        self.git(repo, "checkout", "-q", "-B", "main", base)
+        self.write(repo / "app" / "ExistingApplication.php", "<?php\nreturn 'shared';\n")
+        self.commit(repo, "feat: add equivalent main application content")
+        self.git(repo, "checkout", "-q", "-b", "history/first-main-merge")
+        self.git(repo, "commit", "-q", "--allow-empty", "-m", "chore: governed main history one")
+        self.git(repo, "checkout", "-q", "main")
+        self.git(repo, "merge", "--no-ff", "-s", "ours", "-m", "chore: merge governed main history one", "history/first-main-merge")
+        self.git(repo, "checkout", "-q", "-b", "history/second-main-merge")
+        self.git(repo, "commit", "-q", "--allow-empty", "-m", "chore: governed main history two")
+        self.git(repo, "checkout", "-q", "main")
+        self.git(repo, "merge", "--no-ff", "-s", "ours", "-m", "chore: merge governed main history two", "history/second-main-merge")
+        main_sha = self.git(repo, "rev-parse", "main").stdout.strip()
+        self.assertEqual(self.git(repo, "rev-parse", "development^{tree}").stdout.strip(), self.git(repo, "rev-parse", "main^{tree}").stdout.strip())
+
+        self.attach_origin_with_development_and_main(repo, f"{name}-origin.git")
+        return repo, development_sha, main_sha
 
     def commit(self, repo: Path, message: str) -> None:
         self.git(repo, "add", ".")
