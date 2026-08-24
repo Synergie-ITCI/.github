@@ -14,7 +14,7 @@ env:
   GITLEAKS_VERSION: "8.30.1"
   OPENTOFU_VERSION: "1.12.5"
   TFSEC_VERSION: "1.28.14"
-  PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc68"
+  PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc69"
 
 jobs:
   detect:
