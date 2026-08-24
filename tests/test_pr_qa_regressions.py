@@ -5115,7 +5115,7 @@ exit 0
         self.assertEqual(audit["pr_author"], "another-author")
         self.assertEqual(audit["qa_summary"]["gate_statuses"], report_json["summary"]["gate_statuses"])
 
-    def test_pr_status_comment_blocks_developer_failures_with_actionable_guidance(self) -> None:
+    def test_pr_status_comment_multiple_blockers_are_compact_and_non_duplicative(self) -> None:
         engine = load_engine_module()
         body = engine.render_pr_status_comment(
             self.status_report(
@@ -5124,6 +5124,7 @@ exit 0
                 "feature/work",
                 [
                     {"gate": "Tests", "status": "FAIL", "blocking": True, "message": "Tests failed."},
+                    {"gate": "Tests", "status": "FAIL", "blocking": True, "message": "Tests failed.", "details": ["tests/AuthTest.php:12"]},
                     {"gate": "Repository Hygiene", "status": "FAIL", "blocking": True, "message": "Branch is behind."},
                 ],
             ),
@@ -5133,11 +5134,45 @@ exit 0
         )
 
         self.assertIn("STATUS: BLOCKED", body)
+        self.assertIn("PR QA BLOCKED", body)
         self.assertIn("- Automated tests failed", body)
         self.assertIn("- Your branch is behind staging", body)
+        self.assertEqual(body.count("What failed:\nTests"), 1)
+        self.assertIn("Technical details:\n- tests/AuthTest.php:12", body)
         self.assertIn("SAURABH APPROVAL REQUIRED: NO", body)
         self.assertIn("align locally with the latest staging branch", body)
         self.assertNotIn("Update branch", body)
+
+    def test_pr_status_comment_explains_repository_hygiene_failure_with_next_action(self) -> None:
+        engine = load_engine_module()
+        body = engine.render_pr_status_comment(
+            self.status_report(
+                "FAIL",
+                "development",
+                "feature/work",
+                [
+                    {
+                        "gate": "Repository Hygiene",
+                        "status": "FAIL",
+                        "blocking": True,
+                        "message": "Accidental merge commits detected.",
+                        "details": [
+                            "abc123 Merge branch 'development' into feature/work",
+                            "def456 Merge branch 'main' into feature/work",
+                            "fedcba Merge branch 'staging' into feature/work",
+                        ],
+                    }
+                ],
+            ),
+            self.status_event("developer"),
+            self.status_policy(),
+            {"pull_request": {"mergeable_state": "clean"}, "reviews": []},
+        )
+
+        self.assertIn("What failed:\nRepository Hygiene", body)
+        self.assertIn("Why:\nThis branch contains merge history that is not permitted for this PR.", body)
+        self.assertIn("What to do:\nUpdate/rebase the branch using the normal development workflow, then push again.", body)
+        self.assertIn("Technical details:\n- 3 unexpected merge commits detected.", body)
 
     def test_pr_status_comment_explains_secret_failure_actionably(self) -> None:
         engine = load_engine_module()
@@ -5161,15 +5196,14 @@ exit 0
             {"pull_request": {"mergeable_state": "clean"}, "reviews": []},
         )
 
-        self.assertIn("WHAT NEEDS FIXING:", body)
-        self.assertIn("WHAT FAILED:", body)
-        self.assertIn("A possible secret was committed.", body)
-        self.assertIn("WHERE: config/example.php:27", body)
-        self.assertIn("Remove the credential from Git", body)
-        self.assertIn("Push the fix; PR-QA will re-check it.", body)
-        self.assertIn("Use WHAT NEEDS FIXING below", body)
+        self.assertIn("PR QA BLOCKED", body)
+        self.assertIn("What failed:\nSecrets", body)
+        self.assertIn("Why:\nPR-QA detected a possible committed secret.", body)
+        self.assertIn("What to do:\nRemove the committed secret or unsafe secret-bearing file.", body)
+        self.assertIn("Technical details:\n- config/example.php:27", body)
+        self.assertIn("Use PR QA BLOCKED below", body)
 
-    def test_pr_status_comment_explains_test_failure_actionably(self) -> None:
+    def test_pr_status_comment_explains_test_failure_with_next_action(self) -> None:
         engine = load_engine_module()
         body = engine.render_pr_status_comment(
             self.status_report(
@@ -5191,10 +5225,10 @@ exit 0
             {"pull_request": {"mergeable_state": "clean"}, "reviews": []},
         )
 
-        self.assertIn("A required automated test or build command failed.", body)
-        self.assertIn("WHERE: tests/Feature/LoginTest.php:18", body)
-        self.assertIn("Fix the failing command or test shown in the details.", body)
-        self.assertIn("Run the same failing command locally when available", body)
+        self.assertIn("What failed:\nTests", body)
+        self.assertIn("Why:\nphp artisan test failed.", body)
+        self.assertIn("Technical details:\n- tests/Feature/LoginTest.php:18", body)
+        self.assertIn("Fix the failing test or build command shown in the technical details", body)
 
     def test_pr_status_comment_explains_deployment_failure_actionably(self) -> None:
         engine = load_engine_module()
@@ -5218,10 +5252,10 @@ exit 0
             {"pull_request": {"mergeable_state": "clean"}, "reviews": []},
         )
 
-        self.assertIn("deployment workflow or production-sensitive change", body)
-        self.assertIn("WHERE: .github/workflows/production-deploy.yml", body)
-        self.assertIn("Update only the affected workflow/deployment file", body)
-        self.assertIn("PR-QA will re-check deployment safety", body)
+        self.assertIn("What failed:\nDeployment Risk", body)
+        self.assertIn("Why:\nProduction workflow allows push deployment.", body)
+        self.assertIn("Technical details:\n- .github/workflows/production-deploy.yml", body)
+        self.assertIn("Update the affected workflow or deployment change", body)
 
     def test_pr_status_comment_explains_migration_failure_actionably(self) -> None:
         engine = load_engine_module()
@@ -5246,10 +5280,10 @@ exit 0
         )
 
         self.assertIn("DEVELOPER_HANDOFF_READY: NO", body)
-        self.assertIn("A database migration may be unsafe for forward deployment.", body)
-        self.assertIn("WHERE: database/migrations/2026_01_01_000000_update_users.php", body)
+        self.assertIn("What failed:\nMigration Risk", body)
+        self.assertIn("Why:\nDROP COLUMN detected in migration up().", body)
+        self.assertIn("Technical details:\n- database/migrations/2026_01_01_000000_update_users.php", body)
         self.assertIn("Make the migration forward-safe", body)
-        self.assertIn("PR-QA will re-check migration safety", body)
 
     def test_pr_status_comment_explains_protected_resource_failure_actionably(self) -> None:
         engine = load_engine_module()
@@ -5273,10 +5307,10 @@ exit 0
             {"pull_request": {"mergeable_state": "clean"}, "reviews": []},
         )
 
-        self.assertIn("A protected file or path changed", body)
-        self.assertIn("WHERE: .github/workflows/pr-qa.yml", body)
-        self.assertIn("Add the required review/ownership evidence", body)
-        self.assertIn("PR-QA will re-check protected-resource rules", body)
+        self.assertIn("What failed:\nProtected Resources", body)
+        self.assertIn("Why:\nCODEOWNERS evidence missing.", body)
+        self.assertIn("Technical details:\n- .github/workflows/pr-qa.yml", body)
+        self.assertIn("Add the required ownership/review evidence", body)
 
     def test_pr_status_comment_explains_generic_failure_actionably(self) -> None:
         engine = load_engine_module()
@@ -5300,10 +5334,10 @@ exit 0
             {"pull_request": {"mergeable_state": "clean"}, "reviews": []},
         )
 
-        self.assertIn("Custom Gate failed.", body)
-        self.assertIn("WHERE: docs/release.md", body)
-        self.assertIn("Fix the issue shown in the details.", body)
-        self.assertIn("Push the fix; PR-QA will re-check it.", body)
+        self.assertIn("What failed:\nCustom Gate", body)
+        self.assertIn("Why:\nCustom validation failed.", body)
+        self.assertIn("Technical details:\n- docs/release.md", body)
+        self.assertIn("Next action: review the technical details or contact the repository maintainer.", body)
 
     def test_pr_status_comment_ready_without_review_for_non_gate_c_transitions(self) -> None:
         engine = load_engine_module()
@@ -5337,10 +5371,9 @@ exit 0
 
         self.assertIn("STATUS: BLOCKED", body)
         self.assertIn("DEVELOPER_HANDOFF_READY: NO", body)
-        self.assertIn("WHAT FAILED:\nYour development branch is behind staging.", body)
-        self.assertIn("WHERE: Branch history", body)
-        self.assertIn("WHAT TO DO: Bring development up to date with staging, resolve any conflicts locally, and push again.", body)
-        self.assertIn("HOW TO VERIFY: GitHub will rerun PR-QA after the updated push.", body)
+        self.assertIn("What failed:\nBranch history", body)
+        self.assertIn("Why:\nYour development branch is behind staging.", body)
+        self.assertIn("What to do:\nBring development up to date with staging, resolve any conflicts locally, and push again.", body)
         self.assertNotIn("policy failure", body.lower())
 
     def test_pr_status_comment_marks_staging_handoff_not_ready_when_required_context_missing(self) -> None:
@@ -5359,10 +5392,10 @@ exit 0
 
         self.assertIn("STATUS: BLOCKED", body)
         self.assertIn("DEVELOPER_HANDOFF_READY: NO", body)
-        self.assertIn("WHAT FAILED:\nA required GitHub check is missing or stale.", body)
-        self.assertIn("WHERE: pr-qa / Pull Request Quality Assurance", body)
-        self.assertIn("WHAT TO DO: Restore the required workflow/check context or rerun checks so the exact required context reports.", body)
-        self.assertIn("HOW TO VERIFY: Push again; PR-QA will re-check it.", body)
+        self.assertIn("What failed:\nA required GitHub check is missing or stale.", body)
+        self.assertIn("Why:\nThe required check `pr-qa / Pull Request Quality Assurance` is missing or stale.", body)
+        self.assertIn("What to do:\nRestore the required workflow/check context or rerun checks so the exact required context reports.", body)
+        self.assertIn("Technical details:\n- pr-qa / Pull Request Quality Assurance", body)
 
     def test_pr_status_comment_gate_c_uses_owner_login_only(self) -> None:
         engine = load_engine_module()
@@ -5504,12 +5537,12 @@ exit 0
             {"pull_request": {"mergeable_state": "clean"}, "reviews": []},
         )
 
-        self.assertIn("A possible secret was committed.", body)
-        self.assertIn("Remove the credential from Git", body)
-        self.assertIn("Push the fix; PR-QA will re-check it.", body)
-        self.assertIn("WHERE: config/example.php:27", body)
+        self.assertIn("What failed:\nSecrets", body)
+        self.assertIn("Why:\nPR-QA detected a possible committed secret.", body)
+        self.assertIn("Remove the committed secret or unsafe secret-bearing file.", body)
+        self.assertIn("Technical details:\n- config/example.php:27", body)
         self.assertNotIn(fake_token, body)
-        self.assertIn("ghp_[REDACTED]", body)
+        self.assertIn("[REDACTED]", body)
 
     def override_digest(self, record: dict) -> str:
         payload = {key: value for key, value in record.items() if key != "record_sha256"}

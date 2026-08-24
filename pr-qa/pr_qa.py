@@ -60,6 +60,9 @@ TECHNICAL_BASELINE_DIR = ".pr-qa-technical-baseline"
 TECHNICAL_BASELINE_FILE = "technical-baseline.json"
 TECHNICAL_BASELINE_CACHE_PREFIX = "pr-qa-technical-v1"
 PR_STATUS_COMMENT_MARKER = "<!-- synergie-pr-status -->"
+PR_STATUS_ACTION_ITEM_LIMIT = 5
+PR_STATUS_TECHNICAL_DETAIL_LIMIT = 4
+PR_STATUS_TECHNICAL_DETAIL_CHARS = 240
 TECHNICAL_GATE_NAMES = {
     "Baseline Alignment",
     "Config Validation",
@@ -3754,21 +3757,16 @@ def render_pr_status_comment(report: dict[str, Any], event: dict[str, Any], poli
     if status.get("developer_handoff_ready"):
         lines.extend(["", f"DEVELOPER_HANDOFF_READY: {status['developer_handoff_ready']}"])
     if status.get("action_items"):
-        lines.extend(["", "WHAT NEEDS FIXING:"])
+        lines.extend(["", "PR QA BLOCKED"])
         for index, item in enumerate(status["action_items"], start=1):
-            lines.extend(
-                [
-                    "",
-                    f"{index}. WHAT FAILED:",
-                    item["what_failed"],
-                    f"WHERE: {item['where']}",
-                    f"WHAT TO DO: {item['what_to_do']}",
-                    f"HOW TO VERIFY: {item['how_to_verify']}",
-                ]
-            )
-            if item.get("details"):
-                lines.append("DETAILS:")
-                lines.extend(f"- {detail}" for detail in item["details"])
+            if len(status["action_items"]) > 1:
+                lines.extend(["", f"Blocker {index}:"])
+            lines.extend(["", "What failed:", item["what_failed"], "", "Why:", item["why"], "", "What to do:", item["what_to_do"]])
+            if item.get("technical_details"):
+                lines.extend(["", "Technical details:"])
+                lines.extend(f"- {detail}" for detail in item["technical_details"])
+        if status.get("additional_blockers"):
+            lines.extend(["", f"Additional blockers: {status['additional_blockers']} more. Review the PR-QA technical details for the remaining blockers."])
     if status["approved_by"]:
         lines.extend(["", f"APPROVED BY: {status['approved_by']}"])
     else:
@@ -3805,8 +3803,8 @@ def build_pr_status_model(report: dict[str, Any], event: dict[str, Any], policy:
 
     why = pr_status_failure_reasons(results, behind, base_ref, missing_contexts)
     handoff = "NO" if base_ref.lower() == "staging" else ""
-    action_items = developer_action_items(results, behind, base_ref, head_ref, missing_contexts)
-    return status_model("BLOCKED", why, False, developer_action_for(why, base_ref), gate_c=gate_c, action_items=action_items, developer_handoff_ready=handoff)
+    action_items, additional_blockers = developer_action_items(results, behind, base_ref, head_ref, missing_contexts)
+    return status_model("BLOCKED", why, False, developer_action_for(why, base_ref), gate_c=gate_c, action_items=action_items, additional_blockers=additional_blockers, developer_handoff_ready=handoff)
 
 
 def status_model(
@@ -3818,6 +3816,7 @@ def status_model(
     gate_c: bool,
     approved_by: str = "",
     action_items: list[dict[str, Any]] | None = None,
+    additional_blockers: int = 0,
     developer_handoff_ready: str = "",
 ) -> dict[str, Any]:
     return {
@@ -3828,6 +3827,7 @@ def status_model(
         "gate_c": gate_c,
         "approved_by": approved_by,
         "action_items": action_items or [],
+        "additional_blockers": additional_blockers,
         "developer_handoff_ready": developer_handoff_ready,
     }
 
@@ -3888,20 +3888,19 @@ def developer_action_for(why: list[str], base_ref: str) -> str:
         return f"Fix the failed tests, align locally with the latest {base_ref or 'base'} branch, and push again."
     if behind:
         return f"Align your branch locally with the latest {base_ref or 'base'} branch, then push again."
-    return "Use WHAT NEEDS FIXING below, then push again."
+    return "Use PR QA BLOCKED below, then push again."
 
 
-def developer_action_items(results: list[Any], behind: bool, base_ref: str, head_ref: str, missing_contexts: list[str]) -> list[dict[str, Any]]:
+def developer_action_items(results: list[Any], behind: bool, base_ref: str, head_ref: str, missing_contexts: list[str]) -> tuple[list[dict[str, Any]], int]:
     items = [developer_action_item_for_result(result) for result in results if result_failed(result)]
     if behind:
         source = head_ref or "this"
         target = base_ref or "the base"
         items.append(
             developer_action_item(
-                f"Your {source} branch is behind {target}.",
                 "Branch history",
+                f"Your {source} branch is behind {target}.",
                 f"Bring {source} up to date with {target}, resolve any conflicts locally, and push again.",
-                "GitHub will rerun PR-QA after the updated push.",
                 [],
             )
         )
@@ -3909,116 +3908,128 @@ def developer_action_items(results: list[Any], behind: bool, base_ref: str, head
         items.append(
             developer_action_item(
                 "A required GitHub check is missing or stale.",
-                context,
+                f"The required check `{context}` is missing or stale.",
                 "Restore the required workflow/check context or rerun checks so the exact required context reports.",
-                "Push again; PR-QA will re-check it.",
-                [],
+                [context],
             )
         )
-    return items
+    return compact_developer_action_items(items)
 
 
 def developer_action_item_for_result(result: dict[str, Any]) -> dict[str, Any]:
     gate = str(result.get("gate", ""))
     message = redact(str(result.get("message") or "")).strip()
     details = [redact(str(detail)) for detail in result.get("details", []) if str(detail).strip()]
-    where = developer_failure_location(details, message)
-    what, action, verify = developer_guidance_for_gate(gate, message)
-    item_details = []
-    if message:
-        item_details.append(message)
-    item_details.extend(details[:6])
-    return developer_action_item(what, where, action, verify, item_details)
+    what = developer_failure_label(gate, str(result.get("technology") or ""))
+    why = developer_failure_reason_for_gate(gate, message)
+    action = developer_next_action_for_gate(gate, message)
+    technical_details = developer_technical_details_for_result(gate, message, details)
+    return developer_action_item(what, why, action, technical_details)
 
 
-def developer_action_item(what_failed: str, where: str, what_to_do: str, how_to_verify: str, details: list[str]) -> dict[str, Any]:
+def developer_action_item(what_failed: str, why: str, what_to_do: str, technical_details: list[str]) -> dict[str, Any]:
     return {
         "what_failed": what_failed,
-        "where": where or "See details below",
+        "why": why or "PR-QA reported a blocking failure.",
         "what_to_do": what_to_do,
-        "how_to_verify": how_to_verify,
-        "details": list(dict.fromkeys(details)),
+        "technical_details": list(dict.fromkeys(technical_details)),
     }
 
 
-def developer_failure_location(details: list[str], message: str) -> str:
-    for value in [*details, message]:
-        location = extract_developer_location(value)
-        if location:
-            return location
-    return "See details below"
+def compact_developer_action_items(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    compact: list[dict[str, Any]] = []
+    by_key: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for item in items:
+        key = (item["what_failed"], item["why"], item["what_to_do"])
+        existing = by_key.get(key)
+        if existing:
+            existing["technical_details"] = list(
+                dict.fromkeys(existing.get("technical_details", []) + item.get("technical_details", []))
+            )[:PR_STATUS_TECHNICAL_DETAIL_LIMIT]
+            continue
+        by_key[key] = item
+        compact.append(item)
+    return compact[:PR_STATUS_ACTION_ITEM_LIMIT], max(0, len(compact) - PR_STATUS_ACTION_ITEM_LIMIT)
 
 
-def extract_developer_location(value: str) -> str:
-    text = value.strip()
+def developer_failure_label(gate: str, technology: str) -> str:
+    label = gate or "PR-QA"
+    if technology:
+        return f"{label} ({technology})"
+    return label
+
+
+def developer_failure_reason_for_gate(gate: str, message: str) -> str:
+    if gate == "Repository Hygiene" and "Accidental merge commits detected" in message:
+        return "This branch contains merge history that is not permitted for this PR."
+    if gate == "Secrets":
+        return "PR-QA detected a possible committed secret."
+    if message:
+        return message
+    return "PR-QA reported a blocking failure without a specific reason."
+
+
+def developer_next_action_for_gate(gate: str, message: str) -> str:
+    if gate in {"Tests", "Build"}:
+        return "Fix the failing test or build command shown in the technical details, run it locally if available, then push again."
+    if gate in {"Formatting", "Lint"}:
+        return "Fix the reported formatting or lint issue, run the formatter/linter locally if available, then push again."
+    if gate == "Secrets":
+        return "Remove the committed secret or unsafe secret-bearing file. If a real credential was exposed, rotate or revoke it, then push a cleaned commit."
+    if gate == "Repository Hygiene":
+        if "Accidental merge commits detected" in message:
+            return "Update/rebase the branch using the normal development workflow, then push again."
+        if "Merge conflict markers" in message:
+            return "Resolve the conflict markers in the changed files, then push again."
+        return "Clean up the branch history or changed files identified in the technical details, then push again."
+    if gate == "Deployment Risk":
+        return "Update the affected workflow or deployment change to satisfy the safety control named in the technical details, then push again."
+    if gate == "Migration Risk":
+        return "Make the migration forward-safe or use the governed migration path identified by the maintainer, then push again."
+    if gate == "Protected Resources":
+        return "Add the required ownership/review evidence or split the protected-resource change into the governed workflow, then push again."
+    if gate == "Review Policy":
+        return "Request the required reviewer or approval shown in the technical details; no code change is needed for this blocker."
+    if gate in {
+        "Baseline Alignment",
+        "Config Validation",
+        "Repository Integrity",
+        "Git Validation",
+        "Executable Classification",
+        "Dependencies",
+        "Licence",
+        "Documentation",
+        "Architecture",
+        "Release Drift",
+        "Risk Engine",
+        "Evidence",
+    }:
+        return "Fix the issue described in the technical details, then push again."
+    return "Next action: review the technical details or contact the repository maintainer."
+
+
+def developer_technical_details_for_result(gate: str, message: str, details: list[str]) -> list[str]:
+    technical: list[str] = []
+    if gate == "Repository Hygiene" and "Accidental merge commits detected" in message and details:
+        suffix = "commit" if len(details) == 1 else "commits"
+        technical.append(f"{len(details)} unexpected merge {suffix} detected.")
+    for detail in details:
+        cleaned = compact_status_detail(detail)
+        if cleaned:
+            technical.append(cleaned)
+        if len(technical) >= PR_STATUS_TECHNICAL_DETAIL_LIMIT:
+            break
+    return list(dict.fromkeys(technical))[:PR_STATUS_TECHNICAL_DETAIL_LIMIT]
+
+
+def compact_status_detail(value: str) -> str:
+    text = redact(str(value)).strip()
     if not text:
         return ""
-    patterns = [
-        r"([A-Za-z0-9_./-]+\.(?:php|py|js|ts|tsx|jsx|json|ya?ml|sql|md|env)(?::\d+)?)",
-        r"`([^`]+)`",
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text)
-        if match:
-            return match.group(1)
-    return ""
-
-
-def developer_guidance_for_gate(gate: str, message: str) -> tuple[str, str, str]:
-    if gate in {"Tests", "Build"}:
-        return (
-            "A required automated test or build command failed.",
-            "Fix the failing command or test shown in the details.",
-            "Run the same failing command locally when available, then push again.",
-        )
-    if gate in {"Formatting", "Lint"}:
-        return (
-            "A changed file has a formatting or linting problem.",
-            "Fix the reported style/lint issue in the changed file.",
-            "Run the reported formatter/linter command when available, then push again.",
-        )
-    if gate == "Secrets":
-        return (
-            "A possible secret was committed.",
-            "Remove the credential from Git. If it is real, rotate or revoke it.",
-            "Push the fix; PR-QA will re-check it.",
-        )
-    if gate == "Repository Hygiene":
-        return (
-            "The branch or repository contents are not in a merge-safe state.",
-            "Remove generated/junk files or align branch history as shown in the details.",
-            "Push again; PR-QA will re-check it.",
-        )
-    if gate == "Deployment Risk":
-        return (
-            "A deployment workflow or production-sensitive change is missing a required safety control.",
-            "Update only the affected workflow/deployment file to satisfy the safety detail shown below.",
-            "Push again; PR-QA will re-check deployment safety.",
-        )
-    if gate == "Migration Risk":
-        return (
-            "A database migration may be unsafe for forward deployment.",
-            "Make the migration forward-safe or document and implement the required governed migration path.",
-            "Push again; PR-QA will re-check migration safety.",
-        )
-    if gate == "Protected Resources":
-        return (
-            "A protected file or path changed without the required ownership evidence.",
-            "Add the required review/ownership evidence or split unrelated changes away from the protected path.",
-            "Push again; PR-QA will re-check protected-resource rules.",
-        )
-    if gate == "Review Policy":
-        return (
-            "Required human review or release approval is missing.",
-            "Request the required reviewer/approver shown in the details; do not change code just for this.",
-            "After approval, rerun or wait for PR-QA/status checks to update.",
-        )
-    gate_label = gate or "PR-QA"
-    return (
-        f"{gate_label} failed.",
-        "Fix the issue shown in the details.",
-        "Push the fix; PR-QA will re-check it.",
-    )
+    text = re.sub(r"\s+", " ", text)
+    if len(text) <= PR_STATUS_TECHNICAL_DETAIL_CHARS:
+        return text
+    return text[: PR_STATUS_TECHNICAL_DETAIL_CHARS - 3].rstrip() + "..."
 
 
 def independent_approved_reviewers(reviews: Any, pr_author: str) -> list[str]:
