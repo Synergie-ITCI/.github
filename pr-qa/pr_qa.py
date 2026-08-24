@@ -1062,15 +1062,33 @@ def run_adapter_gate(ctx: PRContext, technologies: dict[str, dict[str, Any]], ke
 
 def relevant_roots_for_adapter(ctx: PRContext, adapter_key: str, roots: list[Path]) -> list[Path]:
     roots = roots_after_stack_classification(ctx, adapter_key, roots)
-    if adapter_key == "node":
-        roots = deepest_changed_project_roots(ctx, roots)
     patterns = TECHNOLOGY_CHANGE_PATTERNS.get(adapter_key)
     if patterns is None:
         return roots
+    if adapter_key == "node":
+        return relevant_node_project_roots(ctx, roots, patterns)
     relevant = []
     for root in roots:
         if any(match_any(relative_to_root(ctx, root, rel), patterns) for rel in ctx.changed_under(root)):
             relevant.append(root)
+    return relevant
+
+
+def relevant_node_project_roots(ctx: PRContext, roots: list[Path], patterns: list[str]) -> list[Path]:
+    roots = deepest_changed_project_roots(ctx, roots)
+    relevant: list[Path] = []
+    for root in roots:
+        own_changes = [
+            rel
+            for rel in ctx.changed_under(root)
+            if not changed_file_belongs_to_nested_root(ctx, root, roots, rel)
+            and match_any(relative_to_root(ctx, root, rel), patterns)
+        ]
+        if not own_changes:
+            continue
+        if nested_node_roots(ctx, root, roots) and not node_root_has_local_project_markers(root):
+            continue
+        relevant.append(root)
     return relevant
 
 
@@ -1090,6 +1108,50 @@ def deepest_changed_project_roots(ctx: PRContext, roots: list[Path]) -> list[Pat
             selected.add(root_by_resolved[resolved])
             break
     return [root for root in roots if root in selected]
+
+
+def changed_file_belongs_to_nested_root(ctx: PRContext, root: Path, roots: list[Path], rel: str) -> bool:
+    path = (ctx.repo / rel).resolve()
+    for nested in nested_node_roots(ctx, root, roots):
+        try:
+            path.relative_to(nested.resolve())
+            return True
+        except ValueError:
+            continue
+    return False
+
+
+def nested_node_roots(ctx: PRContext, root: Path, roots: list[Path]) -> list[Path]:
+    nested: list[Path] = []
+    root_resolved = root.resolve()
+    for candidate in roots:
+        if candidate == root:
+            continue
+        try:
+            candidate.resolve().relative_to(root_resolved)
+        except ValueError:
+            continue
+        nested.append(candidate)
+    return nested
+
+
+def node_root_has_local_project_markers(root: Path) -> bool:
+    marker_names = {
+        "index.html",
+        "vite.config.js",
+        "vite.config.mjs",
+        "vite.config.ts",
+        "webpack.config.js",
+        "rollup.config.js",
+        "next.config.js",
+        "next.config.mjs",
+        "eslint.config.js",
+        "eslint.config.mjs",
+        "tsconfig.json",
+    }
+    if any((root / name).exists() for name in marker_names):
+        return True
+    return any((root / name).is_dir() for name in ["src", "public", "pages", "components"])
 
 
 def roots_after_stack_classification(ctx: PRContext, adapter_key: str, roots: list[Path]) -> list[Path]:

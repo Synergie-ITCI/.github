@@ -3696,6 +3696,130 @@ exit 0
         self.assertIn(f"{repo}|run lint", npm_commands)
         self.assertIn(f"{repo}|run build", npm_commands)
 
+    def test_two_independent_nested_node_projects_both_run(self) -> None:
+        npm_log = self.tmp / "two-nested-node-npm.log"
+        fake_npm = self.bin / "npm"
+        fake_npm.write_text(
+            f"""#!/usr/bin/env bash
+printf '%s|%s\\n' "$PWD" "$*" >> {npm_log}
+if [ "$1" = "audit" ]; then
+  printf '{{"metadata":{{"vulnerabilities":{{"high":0,"critical":0}}}},"vulnerabilities":{{}}}}\\n'
+fi
+exit 0
+""",
+            encoding="utf-8",
+        )
+        fake_npm.chmod(0o755)
+
+        repo, base = self.init_repo("two-nested-node")
+        for project in ["admin-ui", "applicant-ui"]:
+            self.write(
+                repo / project / "package.json",
+                json.dumps({"scripts": {"lint": "eslint .", "build": "vite build"}, "devDependencies": {"eslint": "9.0.0", "vite": "6.0.0"}}),
+            )
+            self.write(repo / project / "package-lock.json", json.dumps({"lockfileVersion": 3, "packages": {}}))
+            self.write(repo / project / "src" / "app.ts", f"export const project = '{project}';\n")
+        self.commit(repo, "feat: add two frontend projects")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, review_policy={"mergeable": True, "reviews": []})
+        npm_commands = npm_log.read_text(encoding="utf-8")
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Lint"], "PASS")
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Build"], "PASS")
+        self.assertIn(f"{repo / 'admin-ui'}|run lint", npm_commands)
+        self.assertIn(f"{repo / 'applicant-ui'}|run lint", npm_commands)
+        self.assertIn(f"{repo / 'admin-ui'}|run build", npm_commands)
+        self.assertIn(f"{repo / 'applicant-ui'}|run build", npm_commands)
+
+    def test_root_and_nested_node_apps_both_run_when_both_changed(self) -> None:
+        npm_log = self.tmp / "root-and-nested-node-npm.log"
+        fake_npm = self.bin / "npm"
+        fake_npm.write_text(
+            f"""#!/usr/bin/env bash
+printf '%s|%s\\n' "$PWD" "$*" >> {npm_log}
+if [ "$1" = "audit" ]; then
+  printf '{{"metadata":{{"vulnerabilities":{{"high":0,"critical":0}}}},"vulnerabilities":{{}}}}\\n'
+fi
+exit 0
+""",
+            encoding="utf-8",
+        )
+        fake_npm.chmod(0o755)
+
+        repo, base = self.init_repo("root-and-nested-node")
+        self.write(
+            repo / "package.json",
+            json.dumps({"scripts": {"lint": "eslint .", "build": "vite build"}, "devDependencies": {"eslint": "9.0.0", "vite": "6.0.0"}}),
+        )
+        self.write(repo / "package-lock.json", json.dumps({"lockfileVersion": 3, "packages": {}}))
+        self.write(repo / "src" / "root-app.ts", "export const root = true;\n")
+        self.write(
+            repo / "frontend" / "package.json",
+            json.dumps({"scripts": {"lint": "eslint .", "build": "vite build"}, "devDependencies": {"eslint": "9.0.0", "vite": "6.0.0"}}),
+        )
+        self.write(repo / "frontend" / "package-lock.json", json.dumps({"lockfileVersion": 3, "packages": {}}))
+        self.write(repo / "frontend" / "src" / "app.ts", "export const nested = true;\n")
+        self.commit(repo, "feat: add root and nested node apps")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, review_policy={"mergeable": True, "reviews": []})
+        npm_commands = npm_log.read_text(encoding="utf-8")
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Lint"], "PASS")
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Build"], "PASS")
+        self.assertIn(f"{repo}|run lint", npm_commands)
+        self.assertIn(f"{repo / 'frontend'}|run lint", npm_commands)
+        self.assertIn(f"{repo}|run build", npm_commands)
+        self.assertIn(f"{repo / 'frontend'}|run build", npm_commands)
+
+    def test_scholarship_shaped_root_placeholder_does_not_run_node_gates_at_repo_root(self) -> None:
+        npm_log = self.tmp / "scholarship-shaped-node-npm.log"
+        fake_npm = self.bin / "npm"
+        fake_npm.write_text(
+            f"""#!/usr/bin/env bash
+printf '%s|%s\\n' "$PWD" "$*" >> {npm_log}
+if [ "$PWD" = "{self.tmp}/scholarship-shaped-node" ] && [ "$1" = "run" ]; then
+  exit 37
+fi
+if [ "$1" = "audit" ]; then
+  printf '{{"metadata":{{"vulnerabilities":{{"high":0,"critical":0}}}},"vulnerabilities":{{}}}}\\n'
+fi
+exit 0
+""",
+            encoding="utf-8",
+        )
+        fake_npm.chmod(0o755)
+
+        repo, _ = self.init_repo("scholarship-shaped-node")
+        self.write(
+            repo / "package.json",
+            json.dumps({"scripts": {"lint": "eslint .", "build": "vite build"}, "devDependencies": {"eslint": "9.0.0", "vite": "6.0.0"}}),
+        )
+        self.write(repo / "package-lock.json", json.dumps({"lockfileVersion": 3, "packages": {}}))
+        self.commit(repo, "chore: baseline root package metadata")
+        base = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.write(repo / "scripts" / "scan-todos.js", "console.log('tooling changed');\n")
+        self.write(
+            repo / "scholarship-frontend" / "package.json",
+            json.dumps({"scripts": {"lint": "eslint .", "build": "vite build"}, "devDependencies": {"eslint": "9.0.0", "vite": "6.0.0"}}),
+        )
+        self.write(repo / "scholarship-frontend" / "package-lock.json", json.dumps({"lockfileVersion": 3, "packages": {}}))
+        self.write(repo / "scholarship-frontend" / "vite.config.mjs", "export default {};\n")
+        self.write(repo / "scholarship-frontend" / "src" / "app.ts", "export const ready = true;\n")
+        self.commit(repo, "feat: add changed scholarship frontend")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, review_policy={"mergeable": True, "reviews": []})
+        npm_commands = npm_log.read_text(encoding="utf-8")
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Lint"], "PASS")
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Build"], "PASS")
+        self.assertIn(f"{repo / 'scholarship-frontend'}|run lint", npm_commands)
+        self.assertIn(f"{repo / 'scholarship-frontend'}|run build", npm_commands)
+        self.assertNotIn(f"{repo}|run lint", npm_commands)
+        self.assertNotIn(f"{repo}|run build", npm_commands)
+
     def test_pre_existing_node_high_audit_finding_is_inherited_baseline_warning(self) -> None:
         self.install_fake_node_audit()
         repo, _ = self.init_repo("node-audit-inherited")
