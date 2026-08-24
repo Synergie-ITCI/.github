@@ -1062,6 +1062,8 @@ def run_adapter_gate(ctx: PRContext, technologies: dict[str, dict[str, Any]], ke
 
 def relevant_roots_for_adapter(ctx: PRContext, adapter_key: str, roots: list[Path]) -> list[Path]:
     roots = roots_after_stack_classification(ctx, adapter_key, roots)
+    if adapter_key == "node":
+        roots = deepest_changed_project_roots(ctx, roots)
     patterns = TECHNOLOGY_CHANGE_PATTERNS.get(adapter_key)
     if patterns is None:
         return roots
@@ -1070,6 +1072,24 @@ def relevant_roots_for_adapter(ctx: PRContext, adapter_key: str, roots: list[Pat
         if any(match_any(relative_to_root(ctx, root, rel), patterns) for rel in ctx.changed_under(root)):
             relevant.append(root)
     return relevant
+
+
+def deepest_changed_project_roots(ctx: PRContext, roots: list[Path]) -> list[Path]:
+    if len(roots) <= 1:
+        return roots
+    selected: set[Path] = set()
+    root_by_resolved = {root.resolve(): root for root in roots}
+    resolved_roots = sorted(root_by_resolved, key=lambda item: len(item.relative_to(ctx.repo.resolve()).parts), reverse=True)
+    for rel in ctx.changed_files:
+        path = (ctx.repo / rel).resolve()
+        for resolved in resolved_roots:
+            try:
+                path.relative_to(resolved)
+            except ValueError:
+                continue
+            selected.add(root_by_resolved[resolved])
+            break
+    return [root for root in roots if root in selected]
 
 
 def roots_after_stack_classification(ctx: PRContext, adapter_key: str, roots: list[Path]) -> list[Path]:
@@ -3437,10 +3457,64 @@ def risk_size_accounting(ctx: PRContext) -> dict[str, int]:
     return dict(accounting)
 
 
+def promotion_direct_size_accounting(ctx: PRContext) -> dict[str, int] | None:
+    if not long_lived_staging_to_main_promotion(ctx) or not is_git_repo(ctx.repo):
+        return None
+    cache = context_cache(ctx)
+    if "promotion_direct_size_accounting" in cache:
+        return dict(cache["promotion_direct_size_accounting"])
+    pull_request = ctx.event.get("pull_request", {}) or {}
+    base_sha = resolve_current_canonical_promotion_base_sha(ctx.repo, ctx.base_ref or "", ctx.head_ref or "")
+    if not base_sha:
+        base_sha = pull_request.get("base", {}).get("sha") or ""
+    if not base_sha or not commit_exists(ctx.repo, base_sha):
+        return None
+    direct_commits = git_lines(ctx.repo, ["rev-list", "--first-parent", "--no-merges", f"{base_sha}..HEAD"])
+    changed: set[str] = set()
+    additions = 0
+    deletions = 0
+    direct_numstat: dict[str, tuple[int, int]] = {}
+    for sha in direct_commits:
+        parent = f"{sha}^"
+        for line in git_lines(ctx.repo, ["diff", "--numstat", f"{parent}..{sha}"]):
+            parts = line.split("\t")
+            if len(parts) < 3:
+                continue
+            rel = parts[2]
+            try:
+                add = int(parts[0]) if parts[0] != "-" else 0
+                delete = int(parts[1]) if parts[1] != "-" else 0
+            except ValueError:
+                continue
+            changed.add(rel)
+            additions += add
+            deletions += delete
+            old_add, old_delete = direct_numstat.get(rel, (0, 0))
+            direct_numstat[rel] = (old_add + add, old_delete + delete)
+    excluded_additions = 0
+    excluded_deletions = 0
+    for rel, (add, delete) in direct_numstat.items():
+        if is_generated_npm_lockfile(ctx, rel):
+            excluded_additions += add
+            excluded_deletions += delete
+    accounting = {
+        "changed_files": len(changed),
+        "raw_additions": additions,
+        "raw_deletions": deletions,
+        "generated_lockfile_additions_excluded": excluded_additions,
+        "generated_lockfile_deletions_excluded": excluded_deletions,
+        "effective_additions": max(additions - excluded_additions, 0),
+        "effective_deletions": max(deletions - excluded_deletions, 0),
+    }
+    cache["promotion_direct_size_accounting"] = accounting
+    return dict(accounting)
+
+
 def gate_risk(ctx: PRContext, existing_results: list[CheckResult]) -> list[CheckResult]:
     score = calculate_risk_score(ctx, existing_results)
     level = risk_class(score)
     size = risk_size_accounting(ctx)
+    promotion_size = promotion_direct_size_accounting(ctx)
     details = [
         f"Changed files: {len(ctx.changed_files)}",
         f"RAW_ADDITIONS: {size['raw_additions']}",
@@ -3451,6 +3525,13 @@ def gate_risk(ctx: PRContext, existing_results: list[CheckResult]) -> list[Check
         f"EFFECTIVE_DELETIONS: {size['effective_deletions']}",
         f"Repository criticality: {ctx.config.get('repository', {}).get('criticality', 'medium')}",
     ]
+    if promotion_size is not None:
+        details.extend(
+            [
+                f"PROMOTION_DIRECT_CHANGED_FILES: {promotion_size['changed_files']}",
+                f"PROMOTION_DIRECT_EFFECTIVE_ADDITIONS: {promotion_size['effective_additions']}",
+            ]
+        )
     threshold_findings = risk_threshold_findings(ctx)
     if threshold_findings:
         return [failed("Risk Engine", None, "PR exceeds central size thresholds.", details + threshold_findings, score=max(score, 85))]
@@ -3467,9 +3548,14 @@ def gate_risk(ctx: PRContext, existing_results: list[CheckResult]) -> list[Check
 def risk_threshold_findings(ctx: PRContext) -> list[str]:
     findings: list[str] = []
     size = risk_size_accounting(ctx)
+    promotion_size = promotion_direct_size_accounting(ctx)
+    changed_file_count = len(ctx.changed_files)
+    if promotion_size is not None:
+        size = promotion_size
+        changed_file_count = promotion_size["changed_files"]
     max_changed = ctx.threshold("max_changed_files", 200)
-    if not baseline_allows(ctx, "changed_file_count") and len(ctx.changed_files) > max_changed:
-        findings.append(f"changed_files={len(ctx.changed_files)} exceeds max_changed_files={max_changed}")
+    if not baseline_allows(ctx, "changed_file_count") and changed_file_count > max_changed:
+        findings.append(f"changed_files={changed_file_count} exceeds max_changed_files={max_changed}")
     max_additions = ctx.threshold("max_additions", 5000)
     if not baseline_allows(ctx, "diff_size") and size["effective_additions"] > max_additions:
         findings.append(f"effective_additions={size['effective_additions']} exceeds max_additions={max_additions}")
@@ -3479,9 +3565,14 @@ def risk_threshold_findings(ctx: PRContext) -> list[str]:
 def calculate_risk_score(ctx: PRContext, results: list[CheckResult]) -> int:
     score = {"low": 0, "medium": 5, "high": 12, "critical": 20}.get(str(ctx.config.get("repository", {}).get("criticality", "medium")).lower(), 5)
     size = risk_size_accounting(ctx)
-    if not baseline_allows(ctx, "changed_file_count") and len(ctx.changed_files) > ctx.threshold("max_changed_files", 200):
+    promotion_size = promotion_direct_size_accounting(ctx)
+    changed_file_count = len(ctx.changed_files)
+    if promotion_size is not None:
+        size = promotion_size
+        changed_file_count = promotion_size["changed_files"]
+    if not baseline_allows(ctx, "changed_file_count") and changed_file_count > ctx.threshold("max_changed_files", 200):
         score += 15
-    elif not baseline_allows(ctx, "changed_file_count") and len(ctx.changed_files) > 50:
+    elif not baseline_allows(ctx, "changed_file_count") and changed_file_count > 50:
         score += 8
     if not baseline_allows(ctx, "diff_size") and size["effective_additions"] > ctx.threshold("max_additions", 5000):
         score += 15

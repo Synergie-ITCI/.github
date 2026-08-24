@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -184,6 +187,15 @@ class NodeAdapter(TechnologyAdapter):
                 continue
             if outcome.ok:
                 results.append(passed("Dependencies", self.name, f"{prefix}Dependency audit passed."))
+            elif self._audit_is_inherited_baseline(ctx, root, manager, outcome):
+                results.append(
+                    warning(
+                        "Dependencies",
+                        self.name,
+                        f"{prefix}Inherited baseline dependency vulnerabilities detected; no new high or critical Node audit findings.",
+                        [outcome.concise_output()],
+                    )
+                )
             else:
                 results.append(failed("Dependencies", self.name, f"{prefix}Dependency audit found high or critical vulnerabilities.", [outcome.concise_output()], score=18))
         return results
@@ -252,6 +264,108 @@ class NodeAdapter(TechnologyAdapter):
     def _looks_like_placeholder(self, script: str) -> bool:
         lowered = script.lower()
         return "no test specified" in lowered or "exit 1" in lowered and "echo" in lowered
+
+    def _audit_is_inherited_baseline(self, ctx: PRContext, root: Path, manager: str, outcome: Any) -> bool:
+        head_findings = self._audit_fingerprints(outcome)
+        if not head_findings:
+            return False
+        base_ref = self._audit_base_ref(ctx)
+        if not base_ref:
+            return False
+        with tempfile.TemporaryDirectory(prefix="pr-qa-node-audit-base-") as tmp:
+            base_root = Path(tmp)
+            if not self._populate_base_package_metadata(ctx, root, base_ref, base_root):
+                return False
+            command = self._audit_command(manager)
+            if not command:
+                return False
+            base_outcome = ctx.run(command, cwd=base_root)
+            base_findings = self._audit_fingerprints(base_outcome)
+        return bool(base_findings) and head_findings.issubset(base_findings)
+
+    def _audit_base_ref(self, ctx: PRContext) -> str:
+        pull_request = ctx.event.get("pull_request", {}) or {}
+        return str(pull_request.get("base", {}).get("sha") or ctx.base_ref or "")
+
+    def _populate_base_package_metadata(self, ctx: PRContext, root: Path, base_ref: str, destination: Path) -> bool:
+        root_rel = ctx.rel(root)
+        prefix = "" if root_rel in {"", "."} else root_rel.rstrip("/") + "/"
+        copied = False
+        for name in ["package.json", "package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock"]:
+            rel = prefix + name
+            completed = subprocess.run(["git", "show", f"{base_ref}:{rel}"], cwd=ctx.repo, capture_output=True, check=False)
+            if completed.returncode != 0:
+                continue
+            target = destination / name
+            target.write_bytes(completed.stdout)
+            copied = copied or name == "package.json"
+        return copied
+
+    def _audit_command(self, manager: str) -> list[str]:
+        if manager == "npm":
+            return ["npm", "audit", "--audit-level=high", "--json"]
+        if manager == "pnpm":
+            return ["pnpm", "audit", "--audit-level", "high", "--json"]
+        if manager == "yarn":
+            return ["yarn", "npm", "audit", "--recursive", "--severity", "high", "--json"]
+        return []
+
+    def _audit_fingerprints(self, outcome: Any) -> set[str]:
+        payload = self._audit_json_payload(outcome)
+        if not payload:
+            return set()
+        findings: set[str] = set()
+        vulnerabilities = payload.get("vulnerabilities")
+        if isinstance(vulnerabilities, dict):
+            for package_name, raw in vulnerabilities.items():
+                if not isinstance(raw, dict):
+                    continue
+                severity = str(raw.get("severity", "unknown"))
+                via_parts: list[str] = []
+                for item in raw.get("via", []) or []:
+                    if isinstance(item, dict):
+                        via_parts.append(
+                            "|".join(
+                                str(item.get(key, ""))
+                                for key in ["source", "name", "title", "severity", "range"]
+                            )
+                        )
+                    else:
+                        via_parts.append(str(item))
+                range_value = str(raw.get("range", ""))
+                findings.add(f"{package_name}|{severity}|{range_value}|{';'.join(sorted(via_parts))}")
+            return findings
+        advisories = payload.get("advisories")
+        if isinstance(advisories, dict):
+            for raw in advisories.values():
+                if not isinstance(raw, dict):
+                    continue
+                findings.add(
+                    "|".join(
+                        str(raw.get(key, ""))
+                        for key in ["module_name", "severity", "title", "vulnerable_versions"]
+                    )
+                )
+        return findings
+
+    def _audit_json_payload(self, outcome: Any) -> dict[str, Any]:
+        text = "\n".join(part for part in [getattr(outcome, "stdout", ""), getattr(outcome, "stderr", "")] if part)
+        if not text.strip():
+            return {}
+        try:
+            parsed = json.loads(text)
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            pass
+        start = text.find("{")
+        end = text.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            return {}
+        try:
+            parsed = json.loads(text[start : end + 1])
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
 
     def _node_module_manifests(self, root: Path) -> list[Path]:
         node_modules = root / "node_modules"
