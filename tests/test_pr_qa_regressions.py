@@ -2177,6 +2177,56 @@ exit 0
         self.assertIn("RAW_ADDITIONS", "\n".join(risk_result["details"]))
         self.assertIn("EFFECTIVE_ADDITIONS", "\n".join(risk_result["details"]))
 
+    def test_governed_staging_to_main_bulk_promotion_uses_direct_size_for_thresholds(self) -> None:
+        repo, base = self.init_repo("governed-promotion-bulk-size")
+        self.git(repo, "checkout", "-q", "-B", "development", base)
+        for index in range(240):
+            self.write(repo / "docs" / f"history-{index:03d}.md", "already governed promotion content\n" * 30)
+        self.commit(repo, "docs: add governed source bulk")
+
+        self.git(repo, "checkout", "-q", "-B", "staging", base)
+        self.git(repo, "merge", "--no-ff", "-m", "Merge pull request #99 from Synergie-ITCI/development", "development")
+        staging_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            base_ref="main",
+            head_ref="staging",
+            head_sha=staging_sha,
+            extra_args=["--no-command-runs"],
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertNotEqual(report_json["summary"]["gate_statuses"]["Risk Engine"], "FAIL")
+        risk_result = next(result for result in report_json["results"] if result["gate"] == "Risk Engine")
+        details = "\n".join(risk_result["details"])
+        self.assertIn("PROMOTION_DIRECT_CHANGED_FILES: 0", details)
+        self.assertIn("PROMOTION_DIRECT_EFFECTIVE_ADDITIONS: 0", details)
+
+    def test_direct_oversized_staging_to_main_content_still_fails_size_thresholds(self) -> None:
+        repo, base = self.init_repo("direct-promotion-oversized-size")
+        self.git(repo, "checkout", "-q", "-B", "staging", base)
+        for index in range(205):
+            self.write(repo / "docs" / f"direct-{index:03d}.md", "direct staging content\n" * 30)
+        self.commit(repo, "docs: add direct oversized staging content")
+        staging_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            base_ref="main",
+            head_ref="staging",
+            head_sha=staging_sha,
+            extra_args=["--no-command-runs"],
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Risk Engine"], "FAIL")
+        self.assertIn("PR exceeds central size thresholds", report)
+
     def test_authored_source_bulk_still_fails_with_generated_npm_lockfile(self) -> None:
         repo, base = self.init_repo("npm-lockfile-plus-source-bulk")
         self.write(repo / "package.json", json.dumps({"scripts": {"production": "echo build"}, "dependencies": {}}))
@@ -3560,6 +3610,126 @@ exit 0
                 for result in report_json["results"]
             )
         )
+
+    def test_subdirectory_node_project_runs_commands_from_project_root(self) -> None:
+        npm_log = self.tmp / "subdir-node-npm.log"
+        fake_npm = self.bin / "npm"
+        fake_npm.write_text(
+            f"""#!/usr/bin/env bash
+printf '%s|%s\\n' "$PWD" "$*" >> {npm_log}
+if [ "$PWD" = "{self.tmp}/subdir-node-root" ] && [ "$1" = "run" ]; then
+  exit 37
+fi
+if [ "$1" = "audit" ]; then
+  printf '{{"metadata":{{"vulnerabilities":{{"high":0,"critical":0}}}},"vulnerabilities":{{}}}}\\n'
+fi
+exit 0
+""",
+            encoding="utf-8",
+        )
+        fake_npm.chmod(0o755)
+
+        repo, _ = self.init_repo("subdir-node-root")
+        self.write(repo / "package.json", json.dumps({"scripts": {"lint": "eslint .", "build": "vite build"}, "devDependencies": {"vite": "1.0.0"}}))
+        self.write(repo / "package-lock.json", json.dumps({"lockfileVersion": 3, "packages": {}}))
+        self.commit(repo, "chore: baseline stale root package")
+        base = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.write(
+            repo / "frontend" / "package.json",
+            json.dumps(
+                {
+                    "scripts": {"format:check": "prettier --check .", "lint": "eslint .", "build": "vite build"},
+                    "devDependencies": {"prettier": "3.0.0", "eslint": "9.0.0", "vite": "6.0.0"},
+                }
+            ),
+        )
+        self.write(repo / "frontend" / "package-lock.json", json.dumps({"lockfileVersion": 3, "packages": {}}))
+        self.write(repo / "frontend" / "src" / "app.ts", "export const ready = true;\n")
+        self.commit(repo, "feat: add real frontend project")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, review_policy={"mergeable": True, "reviews": []})
+        npm_commands = npm_log.read_text(encoding="utf-8")
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Lint"], "PASS")
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Build"], "PASS")
+        self.assertIn(f"{repo / 'frontend'}|run lint", npm_commands)
+        self.assertIn(f"{repo / 'frontend'}|run build", npm_commands)
+        self.assertNotIn(f"{repo}|run lint", npm_commands)
+        self.assertNotIn(f"{repo}|run build", npm_commands)
+
+    def test_root_node_project_behavior_is_preserved(self) -> None:
+        npm_log = self.tmp / "root-node-npm.log"
+        fake_npm = self.bin / "npm"
+        fake_npm.write_text(
+            f"""#!/usr/bin/env bash
+printf '%s|%s\\n' "$PWD" "$*" >> {npm_log}
+if [ "$1" = "audit" ]; then
+  printf '{{"metadata":{{"vulnerabilities":{{"high":0,"critical":0}}}},"vulnerabilities":{{}}}}\\n'
+fi
+exit 0
+""",
+            encoding="utf-8",
+        )
+        fake_npm.chmod(0o755)
+
+        repo, base = self.init_repo("root-node-project")
+        self.write(
+            repo / "package.json",
+            json.dumps(
+                {
+                    "scripts": {"format:check": "prettier --check .", "lint": "eslint .", "build": "vite build"},
+                    "devDependencies": {"prettier": "3.0.0", "eslint": "9.0.0", "vite": "6.0.0"},
+                }
+            ),
+        )
+        self.write(repo / "package-lock.json", json.dumps({"lockfileVersion": 3, "packages": {}}))
+        self.write(repo / "src" / "app.ts", "export const ready = true;\n")
+        self.commit(repo, "feat: add root frontend project")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, review_policy={"mergeable": True, "reviews": []})
+        npm_commands = npm_log.read_text(encoding="utf-8")
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Lint"], "PASS")
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Build"], "PASS")
+        self.assertIn(f"{repo}|run lint", npm_commands)
+        self.assertIn(f"{repo}|run build", npm_commands)
+
+    def test_pre_existing_node_high_audit_finding_is_inherited_baseline_warning(self) -> None:
+        self.install_fake_node_audit()
+        repo, _ = self.init_repo("node-audit-inherited")
+        self.write(repo / "package.json", json.dumps({"dependencies": {"legacy-bad": "1.0.0"}}))
+        self.write(repo / "package-lock.json", json.dumps({"lockfileVersion": 3, "packages": {}}))
+        self.write(repo / "src" / "app.js", "console.log('base');\n")
+        self.commit(repo, "chore: baseline vulnerable dependency")
+        base = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.write(repo / "src" / "app.js", "console.log('changed');\n")
+        self.commit(repo, "feat: change app without dependency change")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, review_policy={"mergeable": True, "reviews": []})
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Dependencies"], "WARNING")
+        self.assertIn("Inherited baseline dependency vulnerabilities", report)
+
+    def test_new_node_high_audit_finding_still_fails(self) -> None:
+        self.install_fake_node_audit()
+        repo, _ = self.init_repo("node-audit-new")
+        self.write(repo / "package.json", json.dumps({"dependencies": {"legacy-bad": "1.0.0"}}))
+        self.write(repo / "package-lock.json", json.dumps({"lockfileVersion": 3, "packages": {}}))
+        self.write(repo / "src" / "app.js", "console.log('base');\n")
+        self.commit(repo, "chore: baseline vulnerable dependency")
+        base = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.write(repo / "package.json", json.dumps({"dependencies": {"legacy-bad": "1.0.0", "new-bad": "1.0.0"}}))
+        self.write(repo / "src" / "app.js", "console.log('changed');\n")
+        self.commit(repo, "feat: add newly vulnerable dependency")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, review_policy={"mergeable": True, "reviews": []})
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Dependencies"], "FAIL")
+        self.assertIn("Dependency audit found high or critical vulnerabilities", report)
 
     def test_codeowners_modification_fails(self) -> None:
         repo, base = self.init_repo("codeowners-change")
@@ -5651,6 +5821,38 @@ exit 0
 
         self.attach_origin_with_development_and_main(repo, f"{name}-origin.git")
         return repo, development_sha, main_sha
+
+    def install_fake_node_audit(self) -> None:
+        fake_npm = self.bin / "npm"
+        fake_npm.write_text(
+            """#!/usr/bin/env python3
+import json
+import pathlib
+import sys
+
+package = json.loads(pathlib.Path("package.json").read_text())
+dependencies = package.get("dependencies", {})
+vulnerabilities = {}
+if "legacy-bad" in dependencies:
+    vulnerabilities["legacy-bad"] = {
+        "severity": "high",
+        "range": "<2.0.0",
+        "via": [{"source": 1, "name": "legacy-bad", "title": "legacy vulnerable dependency", "severity": "high", "range": "<2.0.0"}],
+    }
+if "new-bad" in dependencies:
+    vulnerabilities["new-bad"] = {
+        "severity": "high",
+        "range": "<2.0.0",
+        "via": [{"source": 2, "name": "new-bad", "title": "new vulnerable dependency", "severity": "high", "range": "<2.0.0"}],
+    }
+if sys.argv[1:2] == ["audit"]:
+    print(json.dumps({"metadata": {"vulnerabilities": {"high": len(vulnerabilities), "critical": 0}}, "vulnerabilities": vulnerabilities}))
+    sys.exit(1 if vulnerabilities else 0)
+sys.exit(0)
+""",
+            encoding="utf-8",
+        )
+        fake_npm.chmod(0o755)
 
     def commit(self, repo: Path, message: str) -> None:
         self.git(repo, "add", ".")
