@@ -209,7 +209,14 @@ jobs:
 
       - name: Enforce Phase 1 static preflight
         if: steps.static.outputs.exit_code != '0'
-        run: exit 1
+        env:
+          PR_QA_EMIT_FAILURE_SUMMARY: "true"
+        run: |
+          python3 .pr-qa-framework/pr-qa/pr_qa.py \
+            --repo "$GITHUB_WORKSPACE" \
+            --publish-pr-status-comment \
+            --status-json-in pr-qa-results/pr-quality-report.json
+          exit 1
 
       - name: Resolve Node.js version
         id: node-version
@@ -374,4 +381,11 @@ jobs:
 
       - name: Enforce final PR QA result
         if: steps.full.outputs.exit_code != '0'
-        run: exit 1
+        env:
+          PR_QA_EMIT_FAILURE_SUMMARY: "true"
+        run: |
+          python3 .pr-qa-framework/pr-qa/pr_qa.py \
+            --repo "$GITHUB_WORKSPACE" \
+            --publish-pr-status-comment \
+            --status-json-in pr-qa-results/pr-quality-report.json
+          exit 1
