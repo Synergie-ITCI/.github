@@ -4,6 +4,8 @@ Version/date: 2026-08-25
 
 Audience: Synergie developers and IT team
 
+Authoritative source: this Markdown file. Word/PDF distribution copies may be generated from this source and are not stored in the repository.
+
 ## 1. One-page developer summary
 
 Synergie uses a governed pull-request flow. Developers should create work branches from the correct integration branch, open pull requests into the next branch in the path, let the required checks run, and fix only the failing area shown by PR-QA.
