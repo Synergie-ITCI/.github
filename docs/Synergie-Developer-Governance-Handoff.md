@@ -316,4 +316,3 @@ Live enforced behavior and current central workflow are operational truth.
 | --- | --- | --- |
 | Required generic PR-QA status context | `pr-qa / Pull Request Quality Assurance` in the active organization rulesets and onboarding tool. | `policy/status-check-registry.json` still lists `Pull Request Quality Assurance / Pull Request Quality Assurance`. |
 | Branch governance status-check text | Repository rulesets must require the exact context emitted by that repository. For the generic caller, that is `pr-qa / Pull Request Quality Assurance`. | `docs/company-branch-release-governance.md` still lists `Pull Request Quality Assurance / Pull Request Quality Assurance`. |
-
