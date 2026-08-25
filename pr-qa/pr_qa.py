@@ -3823,15 +3823,73 @@ def github_api_request(method: str, url: str, token: str, errors: list[str], pay
         return None
 
 
+def emit_pr_failure_summary_cli(args: argparse.Namespace, policy: dict[str, Any], event: dict[str, Any] | None = None, report: dict[str, Any] | None = None) -> int:
+    try:
+        loaded_event = event if event is not None else load_event(args.event_path)
+        loaded_report = report
+        if loaded_report is None:
+            report_path = Path(args.status_json_in or args.json_out)
+            loaded_report = json.loads(report_path.read_text(encoding="utf-8"))
+        summary = render_pr_failure_summary(loaded_report, loaded_event, policy)
+        if summary:
+            print(summary.rstrip())
+            print(actions_error_annotation(summary))
+            step_summary = os.environ.get("GITHUB_STEP_SUMMARY", "")
+            if step_summary:
+                with open(step_summary, "a", encoding="utf-8") as handle:
+                    handle.write("\n" + summary.rstrip() + "\n")
+    except Exception as exc:
+        print(f"WARNING: PR failure summary was not emitted: {redact(str(exc))}", file=sys.stderr)
+    return 0
+
+
+def render_pr_failure_summary(report: dict[str, Any], event: dict[str, Any], policy: dict[str, Any]) -> str:
+    status = build_pr_status_model(report, event, policy, {})
+    if status["status"] != "BLOCKED" or not status.get("action_items"):
+        return ""
+    lines = ["PR QA BLOCKED"]
+    for index, item in enumerate(status["action_items"], start=1):
+        if len(status["action_items"]) > 1:
+            lines.extend(["", f"Blocker {index}:"])
+        lines.extend(["", "What failed:", item["what_failed"], "", "Why:", item["why"], "", "What to do:", item["what_to_do"]])
+        if item.get("technical_details"):
+            lines.extend(["", "Technical details:"])
+            lines.extend(f"- {detail}" for detail in item["technical_details"])
+    if status.get("additional_blockers"):
+        lines.extend(["", f"Additional blockers: {status['additional_blockers']} more. Review the PR-QA technical details for the remaining blockers."])
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def actions_error_annotation(summary: str) -> str:
+    reason = ""
+    lines = summary.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip() == "Why:" and index + 1 < len(lines):
+            reason = lines[index + 1].strip()
+            break
+    message = reason or "PR-QA reported a blocking failure."
+    return f"::error title=PR QA BLOCKED::{escape_actions_command_value(message)}"
+
+
+def escape_actions_command_value(value: str) -> str:
+    return redact(str(value)).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
 def publish_pr_status_comment_cli(args: argparse.Namespace, policy: dict[str, Any]) -> int:
     try:
         event = load_event(args.event_path)
         report_path = Path(args.status_json_in or args.json_out)
         report = json.loads(report_path.read_text(encoding="utf-8"))
+        if should_emit_actions_failure_summary():
+            emit_pr_failure_summary_cli(args, policy, event, report)
         publish_pr_status_comment(event, policy, report)
     except Exception as exc:
         print(f"WARNING: PR status comment was not published: {redact(str(exc))}", file=sys.stderr)
     return 0
+
+
+def should_emit_actions_failure_summary() -> bool:
+    return os.environ.get("PR_QA_EMIT_FAILURE_SUMMARY", "").strip().lower() in {"1", "true", "yes"}
 
 
 def publish_pr_status_comment(event: dict[str, Any], policy: dict[str, Any], report: dict[str, Any]) -> bool:

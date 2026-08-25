@@ -5437,6 +5437,141 @@ exit 0
         self.assertIn("align locally with the latest staging branch", body)
         self.assertNotIn("Update branch", body)
 
+    def test_actions_failure_summary_renders_phase_1_blocker_before_enforcement(self) -> None:
+        engine = load_engine_module()
+        summary = engine.render_pr_failure_summary(
+            self.status_report(
+                "FAIL",
+                "development",
+                "feature/work",
+                [
+                    {
+                        "gate": "Repository Hygiene",
+                        "status": "FAIL",
+                        "blocking": True,
+                        "message": "Accidental merge commits detected.",
+                        "details": ["abc123", "def456"],
+                    }
+                ],
+            ),
+            self.status_event("developer"),
+            self.status_policy(),
+        )
+
+        self.assertIn("PR QA BLOCKED", summary)
+        self.assertIn("What failed:\nRepository Hygiene", summary)
+        self.assertIn("Why:\nThis branch contains merge history that is not permitted for this PR.", summary)
+        self.assertIn("What to do:\nUpdate/rebase the branch using the normal development workflow, then push again.", summary)
+        self.assertIn("Technical details:\n- 2 unexpected merge commits detected.", summary)
+
+    def test_actions_failure_summary_annotation_contains_safe_reason(self) -> None:
+        engine = load_engine_module()
+        summary = engine.render_pr_failure_summary(
+            self.status_report(
+                "FAIL",
+                "development",
+                "feature/work",
+                [{"gate": "Tests", "status": "FAIL", "blocking": True, "message": "php artisan test failed."}],
+            ),
+            self.status_event("developer"),
+            self.status_policy(),
+        )
+
+        annotation = engine.actions_error_annotation(summary)
+
+        self.assertEqual(annotation, "::error title=PR QA BLOCKED::php artisan test failed.")
+
+    def test_actions_failure_summary_cli_writes_job_summary_and_redacts_secrets(self) -> None:
+        engine = load_engine_module()
+        fake_token = "ghp_FAKEtokenForRegressionOnly1234567890"
+        report = self.tmp / "failure-report.json"
+        event = self.tmp / "failure-event.json"
+        step_summary = self.tmp / "step-summary.md"
+        report.write_text(
+            json.dumps(
+                self.status_report(
+                    "FAIL",
+                    "development",
+                    "feature/work",
+                    [
+                        {
+                            "gate": "Secrets",
+                            "status": "FAIL",
+                            "blocking": True,
+                            "message": f"Potential token detected: {fake_token}",
+                            "details": [f"token = {fake_token}"],
+                        }
+                    ],
+                )
+            ),
+            encoding="utf-8",
+        )
+        event.write_text(json.dumps(self.status_event("developer")), encoding="utf-8")
+        stdout = StringIO()
+
+        with mock.patch.dict(
+            os.environ,
+            {
+                "GITHUB_STEP_SUMMARY": str(step_summary),
+                "PR_QA_EMIT_FAILURE_SUMMARY": "true",
+                "GH_TOKEN": "",
+                "GITHUB_TOKEN": "",
+            },
+        ), redirect_stdout(stdout):
+            code = engine.publish_pr_status_comment_cli(
+                argparse.Namespace(event_path=str(event), status_json_in=str(report), json_out=""),
+                self.status_policy(),
+            )
+
+        output = stdout.getvalue()
+        summary_text = step_summary.read_text(encoding="utf-8")
+        self.assertEqual(code, 0)
+        self.assertIn("::error title=PR QA BLOCKED::PR-QA detected a possible committed secret.", output)
+        self.assertIn("What failed:\nSecrets", summary_text)
+        self.assertIn("Why:\nPR-QA detected a possible committed secret.", summary_text)
+        self.assertIn("What to do:\nRemove the committed secret or unsafe secret-bearing file.", summary_text)
+        self.assertNotIn(fake_token, output)
+        self.assertNotIn(fake_token, summary_text)
+        self.assertIn("[REDACTED]", output)
+
+    def test_actions_failure_summary_success_emits_no_false_failure_annotation(self) -> None:
+        engine = load_engine_module()
+        report = self.tmp / "pass-report.json"
+        event = self.tmp / "pass-event.json"
+        step_summary = self.tmp / "pass-step-summary.md"
+        report.write_text(json.dumps(self.status_report("PASS", "development", "feature/work", [])), encoding="utf-8")
+        event.write_text(json.dumps(self.status_event("developer")), encoding="utf-8")
+        stdout = StringIO()
+
+        with mock.patch.dict(
+            os.environ,
+            {
+                "GITHUB_STEP_SUMMARY": str(step_summary),
+                "PR_QA_EMIT_FAILURE_SUMMARY": "true",
+                "GH_TOKEN": "",
+                "GITHUB_TOKEN": "",
+            },
+        ), redirect_stdout(stdout):
+            code = engine.publish_pr_status_comment_cli(
+                argparse.Namespace(event_path=str(event), status_json_in=str(report), json_out=""),
+                self.status_policy(),
+            )
+
+        self.assertEqual(code, 0)
+        self.assertNotIn("::error", stdout.getvalue())
+        self.assertFalse(step_summary.exists())
+
+    def test_enforcement_steps_emit_summary_before_preserving_nonzero_exit(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "pr-qa.yml").read_text(encoding="utf-8")
+        self.assertNotIn("run: exit 1", workflow)
+        for step_name in ("Enforce Phase 1 static preflight", "Enforce final PR QA result"):
+            start = workflow.index(f"- name: {step_name}")
+            chunk = workflow[start : workflow.index("\n      - name:", start + 1) if "\n      - name:" in workflow[start + 1 :] else len(workflow)]
+            self.assertIn('PR_QA_EMIT_FAILURE_SUMMARY: "true"', chunk)
+            self.assertIn("--publish-pr-status-comment", chunk)
+            self.assertIn("--status-json-in pr-qa-results/pr-quality-report.json", chunk)
+            self.assertLess(chunk.index("--publish-pr-status-comment"), chunk.index("exit 1"))
+
     def test_pr_status_comment_explains_repository_hygiene_failure_with_next_action(self) -> None:
         engine = load_engine_module()
         body = engine.render_pr_status_comment(
