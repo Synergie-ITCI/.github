@@ -5460,9 +5460,14 @@ exit 0
 
         self.assertIn("PR QA BLOCKED", summary)
         self.assertIn("What failed:\nRepository Hygiene", summary)
-        self.assertIn("Why:\nThis branch contains merge history that is not permitted for this PR.", summary)
-        self.assertIn("What to do:\nUpdate/rebase the branch using the normal development workflow, then push again.", summary)
-        self.assertIn("Technical details:\n- 2 unexpected merge commits detected.", summary)
+        self.assertIn("Why:\nYour feature branch contains merge commits.", summary)
+        self.assertIn("feature branches to stay linear", summary)
+        self.assertIn("review, audit, and promote safely", summary)
+        self.assertIn(
+            "What to do:\nRebase your feature branch onto the latest `development` branch, resolve any conflicts, then push the updated branch again.",
+            summary,
+        )
+        self.assertIn("Technical details:\n- Unexpected merge commits detected: 2.", summary)
 
     def test_actions_failure_summary_annotation_contains_safe_reason(self) -> None:
         engine = load_engine_module()
@@ -5599,9 +5604,29 @@ exit 0
         )
 
         self.assertIn("What failed:\nRepository Hygiene", body)
-        self.assertIn("Why:\nThis branch contains merge history that is not permitted for this PR.", body)
-        self.assertIn("What to do:\nUpdate/rebase the branch using the normal development workflow, then push again.", body)
-        self.assertIn("Technical details:\n- 3 unexpected merge commits detected.", body)
+        self.assertIn("Why:\nYour feature branch contains merge commits.", body)
+        self.assertIn("feature branches to stay linear", body)
+        self.assertIn("review, audit, and promote safely", body)
+        self.assertIn(
+            "What to do:\nRebase your feature branch onto the latest `development` branch, resolve any conflicts, then push the updated branch again.",
+            body,
+        )
+        self.assertIn("Technical details:\n- Unexpected merge commits detected: 3.", body)
+
+    def test_repository_hygiene_non_merge_commit_guidance_is_unchanged(self) -> None:
+        engine = load_engine_module()
+
+        reason = engine.developer_failure_reason_for_gate("Repository Hygiene", "Merge conflict markers found in changed files.")
+        action = engine.developer_next_action_for_gate("Repository Hygiene", "Merge conflict markers found in changed files.")
+        details = engine.developer_technical_details_for_result(
+            "Repository Hygiene",
+            "Merge conflict markers found in changed files.",
+            ["app/Service.php:12"],
+        )
+
+        self.assertEqual(reason, "Merge conflict markers found in changed files.")
+        self.assertEqual(action, "Resolve the conflict markers in the changed files, then push again.")
+        self.assertEqual(details, ["app/Service.php:12"])
 
     def test_pr_status_comment_explains_secret_failure_actionably(self) -> None:
         engine = load_engine_module()

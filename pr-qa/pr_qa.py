@@ -4172,7 +4172,10 @@ def developer_failure_label(gate: str, technology: str) -> str:
 
 def developer_failure_reason_for_gate(gate: str, message: str) -> str:
     if gate == "Repository Hygiene" and "Accidental merge commits detected" in message:
-        return "This branch contains merge history that is not permitted for this PR."
+        return (
+            "Your feature branch contains merge commits. Synergie requires feature branches to stay linear so the PR "
+            "contains only the intended feature changes and is easier to review, audit, and promote safely."
+        )
     if gate == "Secrets":
         return "PR-QA detected a possible committed secret."
     if message:
@@ -4189,7 +4192,7 @@ def developer_next_action_for_gate(gate: str, message: str) -> str:
         return "Remove the committed secret or unsafe secret-bearing file. If a real credential was exposed, rotate or revoke it, then push a cleaned commit."
     if gate == "Repository Hygiene":
         if "Accidental merge commits detected" in message:
-            return "Update/rebase the branch using the normal development workflow, then push again."
+            return "Rebase your feature branch onto the latest `development` branch, resolve any conflicts, then push the updated branch again."
         if "Merge conflict markers" in message:
             return "Resolve the conflict markers in the changed files, then push again."
         return "Clean up the branch history or changed files identified in the technical details, then push again."
@@ -4222,8 +4225,7 @@ def developer_next_action_for_gate(gate: str, message: str) -> str:
 def developer_technical_details_for_result(gate: str, message: str, details: list[str]) -> list[str]:
     technical: list[str] = []
     if gate == "Repository Hygiene" and "Accidental merge commits detected" in message and details:
-        suffix = "commit" if len(details) == 1 else "commits"
-        technical.append(f"{len(details)} unexpected merge {suffix} detected.")
+        technical.append(f"Unexpected merge commits detected: {len(details)}.")
     for detail in details:
         cleaned = compact_status_detail(detail)
         if cleaned:
