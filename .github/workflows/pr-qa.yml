@@ -35,6 +35,7 @@ jobs:
       swift: ${{ steps.detect.outputs.swift }}
       shell: ${{ steps.detect.outputs.shell }}
       terraform: ${{ steps.detect.outputs.terraform }}
+      docker: ${{ steps.detect.outputs.docker }}
     steps:
       - name: Checkout pull request
         uses: actions/checkout@v4
