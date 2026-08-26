@@ -34,6 +34,15 @@ Do not solve Git ownership issues using a global `safe.directory` exception.
 
 Private repository credentials used for Git fetches must be temporary and removed from the remote URL after use.
 
+Static Vite/Apache webroot deployments must use the `static-vite-apache`
+runtime certifier adapter. The adapter validates the explicit HTTPS target,
+the enabled Apache vhost `DocumentRoot`, static `index.html` and `assets`
+presence, Apache configuration health, endpoint smoke, and release marker or
+deployment manifest state when present. An unmarked static webroot may be used
+only as a first governed baseline and must still pass target, Apache, asset,
+health, artifact-integrity, backup, rollback, SSM, and post-deploy smoke checks
+in the deployment workflow.
+
 ## Release Integrity
 
 Every deployment must identify:

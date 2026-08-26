@@ -4426,6 +4426,8 @@ jobs:
         runtime_guard: bool = True,
         runtime_release: str = "runtime-certifier-action-v1",
         runtime_action: str = "Synergie-ITCI/.github/actions/runtime-certifier",
+        runtime_kind: str = "php-fpm",
+        runtime_version: str = "8.2",
         certifier_after_deploy: bool = False,
     ) -> str:
         lines = [
@@ -4533,7 +4535,8 @@ jobs:
                 "          validation-url: https://example.invalid/health",
                 "          deploy-ref: ${{ inputs.deploy_ref }}",
                 "          rollback-ref: ${{ inputs.rollback_ref }}",
-                '          runtime-version: "8.2"',
+                f"          runtime-kind: {runtime_kind}",
+                f'          runtime-version: "{runtime_version}"',
             ]
 
         if runtime_lines and not certifier_after_deploy:
@@ -4573,6 +4576,7 @@ jobs:
         for release in (
             "runtime-certifier-action-v1",
             "runtime-certifier-action-v1.1",
+            "runtime-certifier-action-v1.2",
         ):
             with self.subTest(release=release):
                 repo, base = self.init_repo("approved-gate-d-" + release.replace(".", "-"))
@@ -4590,7 +4594,7 @@ jobs:
 
     def test_controlled_gate_d_rejects_unapproved_runtime_certifier_actions(self) -> None:
         cases = {
-            "future-runtime-release": {"runtime_release": "runtime-certifier-action-v1.2"},
+            "future-runtime-release": {"runtime_release": "runtime-certifier-action-v1.3"},
             "mutable-runtime-release": {"runtime_release": "main"},
             "wrong-action": {
                 "runtime_action": "ExampleOrg/.github/actions/runtime-certifier",
@@ -4610,6 +4614,24 @@ jobs:
 
                 self.assertNotEqual(code, 0, report)
                 self.assertEqual(report_json["summary"]["gate_statuses"]["Deployment Risk"], "FAIL")
+
+    def test_controlled_gate_d_accepts_static_vite_apache_runtime_certifier(self) -> None:
+        repo, base = self.init_repo("approved-static-vite-apache-gate-d")
+        self.write(
+            repo / ".github" / "workflows" / "production-deploy.yml",
+            self.controlled_gate_d_workflow(
+                runtime_release="runtime-certifier-action-v1.2",
+                runtime_kind="static-vite-apache",
+                runtime_version="vite",
+            ),
+        )
+        self.commit(repo, "ci: add controlled static gate d")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Deployment Risk"], "WARNING")
+        self.assertIn("CONTROLLED_PRODUCTION_GATE_D", report)
 
     def test_fallback_parser_preserves_controlled_gate_d_steps(self) -> None:
         engine = load_engine_module()
@@ -4832,7 +4854,7 @@ jobs:
         self.assertIn("persist-credentials: false", workflow)
         self.assertIn("Fetch current pull request base branch", workflow)
         self.assertIn("refs/remotes/origin/${BASE_REF}", workflow)
-        self.assertIn('PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc72"', workflow)
+        self.assertIn('PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc73"', workflow)
         self.assertIn("issues: write", workflow)
         self.assertIn("issues: write", self_workflow)
         self.assertIn("issues: write", caller)

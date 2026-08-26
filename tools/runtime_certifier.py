@@ -10,6 +10,7 @@ v1:
 - AWS SSM
 - Apache
 - PHP-FPM
+- Static Vite/Apache webroot
 
 This tool does not deploy, migrate, switch releases, restart services,
 edit configuration, or otherwise mutate production.
@@ -31,7 +32,12 @@ from urllib.parse import urlparse
 
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
-DEPLOY_STATES = {"ALREADY_DEPLOYED", "READY_FROM_ROLLBACK"}
+DEPLOY_STATES = {
+    "ALREADY_DEPLOYED",
+    "READY_FROM_ROLLBACK",
+    "READY_FROM_STATIC_BASELINE",
+}
+SUPPORTED_RUNTIME_KINDS = {"php-fpm", "static-vite-apache"}
 
 
 class CertifierError(RuntimeError):
@@ -72,15 +78,26 @@ def validate_config(config: Config) -> None:
     if not config.app_path.startswith("/"):
         raise CertifierError("app_path must be absolute")
 
-    if config.runtime_kind != "php-fpm":
+    if config.runtime_kind not in SUPPORTED_RUNTIME_KINDS:
         raise CertifierError(
             f"unsupported runtime_kind={config.runtime_kind!r}; "
-            "v1 supports php-fpm"
+            "v1 supports php-fpm and static-vite-apache"
         )
 
-    if not re.fullmatch(r"[0-9]+\.[0-9]+", config.runtime_version):
+    if (
+        config.runtime_kind == "php-fpm"
+        and not re.fullmatch(r"[0-9]+\.[0-9]+", config.runtime_version)
+    ):
         raise CertifierError(
             "runtime_version must be major.minor, for example 8.2"
+        )
+
+    if (
+        config.runtime_kind == "static-vite-apache"
+        and config.runtime_version != "vite"
+    ):
+        raise CertifierError(
+            "static-vite-apache runtime_version must be vite"
         )
 
     if config.web_server != "apache":
@@ -92,6 +109,9 @@ def validate_config(config: Config) -> None:
 
 def build_remote_script(config: Config) -> str:
     validate_config(config)
+
+    if config.runtime_kind == "static-vite-apache":
+        return build_static_vite_apache_remote_script(config)
 
     host = urlparse(config.validation_url).hostname
     assert host is not None
@@ -254,6 +274,179 @@ echo "CLI_RUNTIME_VERSION=$CLI_RUNTIME_VERSION"
 echo "EXPECTED_RUNTIME_VERSION=$EXPECTED_RUNTIME_VERSION"
 echo "FPM_SERVICE=$FPM_SERVICE"
 echo "FPM_SOCKET=$FPM_SOCKET"
+echo "WEB_SERVER=apache"
+echo "WEB_RUNTIME_MAPPING=PASS"
+echo "VALIDATION_HTTP=$HTTP_STATUS"
+echo "RUNTIME_CERTIFIER=PASS"
+echo "READY_TO_DEPLOY=YES"
+echo "DEPLOYMENT_STARTED=NO"
+echo "PRODUCTION_MUTATED=NO"
+
+if [ "$DEPLOY_STATE" = "ALREADY_DEPLOYED" ]; then
+  echo "DEPLOYMENT_REQUIRED=NO"
+else
+  echo "DEPLOYMENT_REQUIRED=YES"
+fi
+'''
+
+    return "\n".join(assignments) + "\n" + body
+
+
+def build_static_vite_apache_remote_script(config: Config) -> str:
+    host = urlparse(config.validation_url).hostname
+    assert host is not None
+
+    assignments = [
+        "set -euo pipefail",
+        f"APP_PATH={shlex.quote(config.app_path)}",
+        f"VALIDATION_URL={shlex.quote(config.validation_url)}",
+        f"TARGET_HOST={shlex.quote(host)}",
+        f"DEPLOY_REF={shlex.quote(config.deploy_ref)}",
+        f"ROLLBACK_REF={shlex.quote(config.rollback_ref)}",
+        "APACHE_SITES_DIR=/etc/apache2/sites-enabled",
+    ]
+
+    body = r'''
+cert_fail() {
+  echo "RUNTIME_CERTIFIER=FAIL"
+  echo "CERTIFIER_REASON=$1"
+  echo "READY_TO_DEPLOY=NO"
+  echo "DEPLOYMENT_STARTED=NO"
+  echo "PRODUCTION_MUTATED=NO"
+  exit 41
+}
+
+test -d "$APP_PATH" \
+  || cert_fail "APP_PATH missing"
+
+test -f "$APP_PATH/index.html" \
+  || cert_fail "static index.html missing"
+
+test -d "$APP_PATH/assets" \
+  || cert_fail "static assets directory missing"
+
+test -d "$APACHE_SITES_DIR" \
+  || cert_fail "Apache sites-enabled directory is missing"
+
+VHOST=""
+
+for candidate in "$APACHE_SITES_DIR"/*; do
+  [ -f "$candidate" ] || continue
+
+  if awk -v host="$TARGET_HOST" '
+      $1 == "ServerName" && $2 == host { found=1 }
+      END { exit !found }
+    ' "$candidate"
+  then
+    VHOST="$candidate"
+    break
+  fi
+done
+
+test -n "$VHOST" \
+  || cert_fail "target hostname is not mapped to an enabled Apache vhost"
+
+if ! awk -v path="$APP_PATH" '
+    $1 == "DocumentRoot" && $2 == path { found=1 }
+    END { exit !found }
+  ' "$VHOST"
+then
+  cert_fail "target Apache vhost is not mapped to APP_PATH DocumentRoot"
+fi
+
+SHA_SOURCE=""
+CURRENT_SHA=""
+
+if [ -r "$APP_PATH/deployment-manifest.json" ]; then
+  command -v python3 >/dev/null \
+    || cert_fail "python3 is unavailable for static manifest validation"
+
+  CURRENT_SHA="$(
+    python3 - "$APP_PATH/deployment-manifest.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+print(str(data.get("commit_sha", "")).strip())
+PY
+  )" || cert_fail "unable to parse static deployment manifest"
+  SHA_SOURCE="DEPLOYMENT_MANIFEST"
+fi
+
+if [ -z "$SHA_SOURCE" ] && [ -r "$APP_PATH/.release-sha" ]; then
+  CURRENT_SHA="$(sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$APP_PATH/.release-sha")"
+  SHA_SOURCE="RELEASE_MARKER"
+fi
+
+if [ -n "$SHA_SOURCE" ]; then
+  case "$CURRENT_SHA" in
+    *[!0-9a-f]*|"")
+      cert_fail "resolved production SHA is not an exact lowercase SHA"
+      ;;
+  esac
+
+  if [ "${#CURRENT_SHA}" -ne 40 ]; then
+    cert_fail "resolved production SHA is not an exact lowercase SHA"
+  fi
+
+  case "$CURRENT_SHA" in
+    "$DEPLOY_REF")
+      DEPLOY_STATE="ALREADY_DEPLOYED"
+      ;;
+    "$ROLLBACK_REF")
+      DEPLOY_STATE="READY_FROM_ROLLBACK"
+      ;;
+    *)
+      echo "CURRENT_SHA=$CURRENT_SHA"
+      echo "DEPLOY_REF=$DEPLOY_REF"
+      echo "ROLLBACK_REF=$ROLLBACK_REF"
+      cert_fail "current SHA is neither DEPLOY_REF nor ROLLBACK_REF"
+      ;;
+  esac
+else
+  CURRENT_SHA="UNMARKED_STATIC_WEBROOT"
+  SHA_SOURCE="STATIC_BASELINE"
+  DEPLOY_STATE="READY_FROM_STATIC_BASELINE"
+fi
+
+command -v apache2ctl >/dev/null \
+  || cert_fail "apache2ctl is unavailable"
+
+apache2ctl configtest >/dev/null 2>&1 \
+  || cert_fail "Apache configuration test failed"
+
+command -v curl >/dev/null \
+  || cert_fail "curl is unavailable"
+
+HTTP_STATUS="$(
+  curl -k -sS \
+    -o /dev/null \
+    -w '%{http_code}' \
+    --max-time 30 \
+    "$VALIDATION_URL" \
+    || true
+)"
+
+case "$HTTP_STATUS" in
+  200|301|302|403)
+    ;;
+  *)
+    cert_fail "pre-deployment endpoint smoke failed HTTP $HTTP_STATUS"
+    ;;
+esac
+
+echo "=== PRODUCTION RUNTIME CERTIFICATION ==="
+echo "TARGET_IDENTITY=PASS"
+echo "TARGET_HOST=$TARGET_HOST"
+echo "APP_PATH=$APP_PATH"
+echo "CURRENT_SHA=$CURRENT_SHA"
+echo "SHA_SOURCE=$SHA_SOURCE"
+echo "DEPLOY_REF=$DEPLOY_REF"
+echo "ROLLBACK_REF=$ROLLBACK_REF"
+echo "DEPLOY_STATE=$DEPLOY_STATE"
+echo "RUNTIME_KIND=static-vite-apache"
+echo "STATIC_ASSETS=PASS"
 echo "WEB_SERVER=apache"
 echo "WEB_RUNTIME_MAPPING=PASS"
 echo "VALIDATION_HTTP=$HTTP_STATUS"

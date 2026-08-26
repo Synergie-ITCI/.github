@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import subprocess
 import sys
 import tempfile
@@ -172,6 +173,52 @@ class RuntimeCertifierTests(unittest.TestCase):
             mod.validate_config(
                 config(runtime_kind="node")
             )
+
+    def test_static_vite_apache_runtime_is_supported(self):
+        mod.validate_config(
+            config(
+                runtime_kind="static-vite-apache",
+                runtime_version="vite",
+            )
+        )
+
+    def test_static_vite_apache_rejects_non_vite_runtime_version(self):
+        with self.assertRaises(mod.CertifierError):
+            mod.validate_config(
+                config(
+                    runtime_kind="static-vite-apache",
+                    runtime_version="8.2",
+                )
+            )
+
+    def test_static_remote_script_does_not_require_php_fpm(self):
+        script = mod.build_remote_script(
+            config(
+                runtime_kind="static-vite-apache",
+                runtime_version="vite",
+            )
+        )
+
+        self.assertIn(
+            "RUNTIME_KIND=static-vite-apache",
+            script,
+        )
+        self.assertIn(
+            "STATIC_ASSETS=PASS",
+            script,
+        )
+        self.assertIn(
+            'DEPLOY_STATE="READY_FROM_STATIC_BASELINE"',
+            script,
+        )
+        self.assertNotIn(
+            "php8.2-fpm.sock",
+            script,
+        )
+        self.assertNotIn(
+            'test -f "$APP_PATH/.env"',
+            script,
+        )
 
     def test_unsupported_web_server_fails_closed(self):
         with self.assertRaises(mod.CertifierError):
@@ -370,6 +417,105 @@ printf '%s' "${FAKE_HTTP_STATUS:-200}"
             sock.close()
 
 
+def run_static_shell_harness(
+    *,
+    manifest_sha=None,
+    release_marker=None,
+    http_status="200",
+    document_root_matches=True,
+):
+    with tempfile.TemporaryDirectory(
+        dir="/tmp",
+        prefix="runtime-certifier-static-",
+    ) as tmp:
+        root = Path(tmp)
+        app = root / "public_html"
+        apache = root / "apache"
+        fake_bin = root / "bin"
+
+        app.mkdir()
+        (app / "assets").mkdir()
+        apache.mkdir()
+        fake_bin.mkdir()
+
+        (app / "index.html").write_text(
+            "<div id=\"root\"></div>\n",
+            encoding="utf-8",
+        )
+        (app / "assets" / "index.js").write_text(
+            "console.log('ok');\n",
+            encoding="utf-8",
+        )
+
+        if manifest_sha is not None:
+            (app / "deployment-manifest.json").write_text(
+                json.dumps({"commit_sha": manifest_sha}),
+                encoding="utf-8",
+            )
+
+        if release_marker is not None:
+            (app / ".release-sha").write_text(
+                release_marker,
+                encoding="utf-8",
+            )
+
+        document_root = app if document_root_matches else root / "wrong"
+        (apache / "example.conf").write_text(
+            "ServerName example.org\n"
+            f"DocumentRoot {document_root}\n",
+            encoding="utf-8",
+        )
+
+        stubs = {
+            "apache2ctl": r"""#!/usr/bin/env bash
+set -e
+if [ "${1:-}" = "configtest" ]; then
+  exit 0
+fi
+exit 22
+""",
+            "curl": r"""#!/usr/bin/env bash
+set -e
+printf '%s' "${FAKE_HTTP_STATUS:-200}"
+""",
+        }
+
+        for name, content in stubs.items():
+            path = fake_bin / name
+            path.write_text(content, encoding="utf-8")
+            path.chmod(0o755)
+
+        cfg = config(
+            app_path=str(app),
+            validation_url="https://example.org/login",
+            runtime_kind="static-vite-apache",
+            runtime_version="vite",
+        )
+
+        script = mod.build_remote_script(cfg)
+
+        script = script.replace(
+            "APACHE_SITES_DIR=/etc/apache2/sites-enabled",
+            "APACHE_SITES_DIR=" + shlex.quote(str(apache)),
+        )
+
+        env = os.environ.copy()
+        env["PATH"] = (
+            str(fake_bin)
+            + os.pathsep
+            + env.get("PATH", "")
+        )
+        env["FAKE_HTTP_STATUS"] = http_status
+
+        return subprocess.run(
+            ["bash", "-c", script],
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+
 class RuntimeCertifierShellHarnessTests(unittest.TestCase):
 
     def test_shell_already_deployed(self):
@@ -542,6 +688,79 @@ class RuntimeCertifierShellHarnessTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 41)
         self.assertIn(
             "pre-deployment endpoint smoke failed HTTP 500",
+            proc.stdout,
+        )
+        self.assertIn(
+            "PRODUCTION_MUTATED=NO",
+            proc.stdout,
+        )
+
+
+class StaticViteApacheRuntimeCertifierShellHarnessTests(unittest.TestCase):
+
+    def test_static_shell_accepts_unmarked_baseline_without_php(self):
+        proc = run_static_shell_harness()
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn(
+            "SHA_SOURCE=STATIC_BASELINE",
+            proc.stdout,
+        )
+        self.assertIn(
+            "DEPLOY_STATE=READY_FROM_STATIC_BASELINE",
+            proc.stdout,
+        )
+        self.assertIn(
+            "DEPLOYMENT_REQUIRED=YES",
+            proc.stdout,
+        )
+        self.assertIn(
+            "PRODUCTION_MUTATED=NO",
+            proc.stdout,
+        )
+
+    def test_static_shell_manifest_already_deployed(self):
+        proc = run_static_shell_harness(
+            manifest_sha=DEPLOY,
+        )
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn(
+            "SHA_SOURCE=DEPLOYMENT_MANIFEST",
+            proc.stdout,
+        )
+        self.assertIn(
+            "DEPLOY_STATE=ALREADY_DEPLOYED",
+            proc.stdout,
+        )
+        self.assertIn(
+            "DEPLOYMENT_REQUIRED=NO",
+            proc.stdout,
+        )
+
+    def test_static_shell_manifest_ready_from_rollback(self):
+        proc = run_static_shell_harness(
+            manifest_sha=ROLLBACK,
+        )
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn(
+            "DEPLOY_STATE=READY_FROM_ROLLBACK",
+            proc.stdout,
+        )
+        self.assertIn(
+            "DEPLOYMENT_REQUIRED=YES",
+            proc.stdout,
+        )
+
+    def test_static_shell_wrong_document_root_fails_closed(self):
+        proc = run_static_shell_harness(
+            document_root_matches=False,
+        )
+
+        self.assertEqual(proc.returncode, 41)
+        self.assertIn(
+            "target Apache vhost is not mapped to APP_PATH DocumentRoot",
             proc.stdout,
         )
         self.assertIn(
