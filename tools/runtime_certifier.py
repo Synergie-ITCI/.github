@@ -11,6 +11,7 @@ v1:
 - Apache
 - PHP-FPM
 - Static Vite/Apache webroot
+- Django/Gunicorn/Nginx
 
 This tool does not deploy, migrate, switch releases, restart services,
 edit configuration, or otherwise mutate production.
@@ -37,7 +38,11 @@ DEPLOY_STATES = {
     "READY_FROM_ROLLBACK",
     "READY_FROM_STATIC_BASELINE",
 }
-SUPPORTED_RUNTIME_KINDS = {"php-fpm", "static-vite-apache"}
+SUPPORTED_RUNTIME_KINDS = {
+    "php-fpm",
+    "static-vite-apache",
+    "django-gunicorn-nginx",
+}
 
 
 class CertifierError(RuntimeError):
@@ -100,6 +105,17 @@ def validate_config(config: Config) -> None:
             "static-vite-apache runtime_version must be vite"
         )
 
+    if (
+        config.runtime_kind == "django-gunicorn-nginx"
+        and not re.fullmatch(r"django-[0-9]+(?:\.[0-9]+){1,2}", config.runtime_version)
+    ):
+        raise CertifierError(
+            "django-gunicorn-nginx runtime_version must be django-major.minor[.patch]"
+        )
+
+    if config.runtime_kind == "django-gunicorn-nginx":
+        return
+
     if config.web_server != "apache":
         raise CertifierError(
             f"unsupported web_server={config.web_server!r}; "
@@ -112,6 +128,9 @@ def build_remote_script(config: Config) -> str:
 
     if config.runtime_kind == "static-vite-apache":
         return build_static_vite_apache_remote_script(config)
+
+    if config.runtime_kind == "django-gunicorn-nginx":
+        return build_django_gunicorn_nginx_remote_script(config)
 
     host = urlparse(config.validation_url).hostname
     assert host is not None
@@ -276,6 +295,225 @@ echo "FPM_SERVICE=$FPM_SERVICE"
 echo "FPM_SOCKET=$FPM_SOCKET"
 echo "WEB_SERVER=apache"
 echo "WEB_RUNTIME_MAPPING=PASS"
+echo "VALIDATION_HTTP=$HTTP_STATUS"
+echo "RUNTIME_CERTIFIER=PASS"
+echo "READY_TO_DEPLOY=YES"
+echo "DEPLOYMENT_STARTED=NO"
+echo "PRODUCTION_MUTATED=NO"
+
+if [ "$DEPLOY_STATE" = "ALREADY_DEPLOYED" ]; then
+  echo "DEPLOYMENT_REQUIRED=NO"
+else
+  echo "DEPLOYMENT_REQUIRED=YES"
+fi
+'''
+
+    return "\n".join(assignments) + "\n" + body
+
+
+def build_django_gunicorn_nginx_remote_script(config: Config) -> str:
+    host = urlparse(config.validation_url).hostname
+    assert host is not None
+
+    assignments = [
+        "set -euo pipefail",
+        f"APP_PATH={shlex.quote(config.app_path)}",
+        f"VALIDATION_URL={shlex.quote(config.validation_url)}",
+        f"TARGET_HOST={shlex.quote(host)}",
+        f"DEPLOY_REF={shlex.quote(config.deploy_ref)}",
+        f"ROLLBACK_REF={shlex.quote(config.rollback_ref)}",
+        f"EXPECTED_RUNTIME_VERSION={shlex.quote(config.runtime_version)}",
+        "NGINX_SITES_DIR=/etc/nginx/sites-enabled",
+    ]
+
+    body = r'''
+cert_fail() {
+  echo "RUNTIME_CERTIFIER=FAIL"
+  echo "CERTIFIER_REASON=$1"
+  echo "READY_TO_DEPLOY=NO"
+  echo "DEPLOYMENT_STARTED=NO"
+  echo "PRODUCTION_MUTATED=NO"
+  exit 41
+}
+
+test -d "$APP_PATH" \
+  || cert_fail "APP_PATH missing"
+
+test -f "$APP_PATH/manage.py" \
+  || cert_fail "Django manage.py missing"
+
+test -x "$APP_PATH/.venv/bin/python" \
+  || cert_fail "Django virtualenv python missing"
+
+test -x "$APP_PATH/.venv/bin/gunicorn" \
+  || cert_fail "Gunicorn executable missing"
+
+test -L "$APP_PATH/db.sqlite3" \
+  || cert_fail "db.sqlite3 is not linked to persistent storage"
+
+test -L "$APP_PATH/media" \
+  || cert_fail "media is not linked to persistent storage"
+
+test -d "$APP_PATH/media/audio" \
+  || cert_fail "persistent media/audio directory missing"
+
+test -d "$APP_PATH/media/profile_pics" \
+  || cert_fail "persistent media/profile_pics directory missing"
+
+SHA_SOURCE=""
+CURRENT_SHA=""
+
+if [ -r "$APP_PATH/.deployment-sha" ]; then
+  CURRENT_SHA="$(sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$APP_PATH/.deployment-sha")"
+  SHA_SOURCE="DEPLOYMENT_MARKER"
+elif [ -r "$APP_PATH/.release-sha" ]; then
+  CURRENT_SHA="$(sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$APP_PATH/.release-sha")"
+  SHA_SOURCE="RELEASE_MARKER"
+elif CURRENT_SHA="$(git -C "$APP_PATH" rev-parse HEAD 2>/dev/null)"; then
+  SHA_SOURCE="GIT"
+else
+  CURRENT_SHA=""
+fi
+
+test -n "$CURRENT_SHA" \
+  || cert_fail "unable to resolve current production SHA"
+
+case "$CURRENT_SHA" in
+  *[!0-9a-f]*|"")
+    cert_fail "resolved production SHA is not an exact lowercase SHA"
+    ;;
+esac
+
+if [ "${#CURRENT_SHA}" -ne 40 ]; then
+  cert_fail "resolved production SHA is not an exact lowercase SHA"
+fi
+
+case "$CURRENT_SHA" in
+  "$DEPLOY_REF")
+    DEPLOY_STATE="ALREADY_DEPLOYED"
+    ;;
+  "$ROLLBACK_REF")
+    DEPLOY_STATE="READY_FROM_ROLLBACK"
+    ;;
+  *)
+    echo "CURRENT_SHA=$CURRENT_SHA"
+    echo "DEPLOY_REF=$DEPLOY_REF"
+    echo "ROLLBACK_REF=$ROLLBACK_REF"
+    cert_fail "current SHA is neither DEPLOY_REF nor ROLLBACK_REF"
+    ;;
+esac
+
+DJANGO_VERSION="$(
+  "$APP_PATH/.venv/bin/python" - <<'PY'
+import django
+print("django-" + django.get_version())
+PY
+)" || cert_fail "unable to determine Django version"
+
+test "$DJANGO_VERSION" = "$EXPECTED_RUNTIME_VERSION" \
+  || cert_fail "Django runtime version mismatch"
+
+command -v systemctl >/dev/null \
+  || cert_fail "systemctl is unavailable"
+
+SERVICE=""
+while IFS= read -r candidate; do
+  [ -n "$candidate" ] || continue
+
+  systemctl is-active "$candidate" >/dev/null 2>&1 \
+    || continue
+
+  UNIT_CONFIG="$(systemctl cat "$candidate" 2>/dev/null || true)"
+
+  case "$UNIT_CONFIG" in
+    *"$APP_PATH"*|*".venv/bin/gunicorn"*|*" gunicorn "*)
+      SERVICE="$candidate"
+      break
+      ;;
+  esac
+done < <(
+  systemctl list-units \
+    --type=service \
+    --state=active \
+    --no-legend \
+    --no-pager 2>/dev/null \
+    | awk '{print $1}'
+)
+
+test -n "$SERVICE" \
+  || cert_fail "Gunicorn/Django service is not active"
+
+test -d "$NGINX_SITES_DIR" \
+  || cert_fail "Nginx sites-enabled directory is missing"
+
+VHOST=""
+
+for candidate in "$NGINX_SITES_DIR"/*; do
+  [ -f "$candidate" ] || continue
+
+  if awk -v host="$TARGET_HOST" '
+      $1 == "server_name" {
+        for (i = 2; i <= NF; i++) {
+          value = $i
+          sub(/;$/, "", value)
+          if (value == host) { found=1 }
+        }
+      }
+      END { exit !found }
+    ' "$candidate"
+  then
+    VHOST="$candidate"
+    break
+  fi
+done
+
+test -n "$VHOST" \
+  || cert_fail "target hostname is not mapped to an enabled Nginx server block"
+
+grep -Eq 'proxy_pass[[:space:]]+http://127\.0\.0\.1:[0-9]+' "$VHOST" \
+  || cert_fail "target Nginx server block is not mapped to local Gunicorn upstream"
+
+command -v nginx >/dev/null \
+  || cert_fail "nginx is unavailable"
+
+nginx -t >/dev/null 2>&1 \
+  || cert_fail "Nginx configuration test failed"
+
+command -v curl >/dev/null \
+  || cert_fail "curl is unavailable"
+
+HTTP_STATUS="$(
+  curl -sS \
+    -o /dev/null \
+    -w '%{http_code}' \
+    --max-time 30 \
+    "$VALIDATION_URL" \
+    || true
+)"
+
+case "$HTTP_STATUS" in
+  200|301|302|303|403)
+    ;;
+  *)
+    cert_fail "pre-deployment endpoint smoke failed HTTP $HTTP_STATUS"
+    ;;
+esac
+
+echo "=== PRODUCTION RUNTIME CERTIFICATION ==="
+echo "TARGET_IDENTITY=PASS"
+echo "TARGET_HOST=$TARGET_HOST"
+echo "APP_PATH=$APP_PATH"
+echo "CURRENT_SHA=$CURRENT_SHA"
+echo "SHA_SOURCE=$SHA_SOURCE"
+echo "DEPLOY_REF=$DEPLOY_REF"
+echo "ROLLBACK_REF=$ROLLBACK_REF"
+echo "DEPLOY_STATE=$DEPLOY_STATE"
+echo "RUNTIME_KIND=django-gunicorn-nginx"
+echo "DJANGO_RUNTIME_VERSION=$DJANGO_VERSION"
+echo "GUNICORN_SERVICE=$SERVICE"
+echo "WEB_SERVER=nginx"
+echo "WEB_RUNTIME_MAPPING=PASS"
+echo "PERSISTENT_STORAGE=PASS"
 echo "VALIDATION_HTTP=$HTTP_STATUS"
 echo "RUNTIME_CERTIFIER=PASS"
 echo "READY_TO_DEPLOY=YES"
