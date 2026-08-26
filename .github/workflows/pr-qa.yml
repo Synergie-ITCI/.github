@@ -295,7 +295,7 @@ jobs:
           tfsec --version
 
       - name: Install mandatory Docker dependency scanner
-        if: needs.detect.outputs.docker == 'true'
+        if: contains(needs.detect.outputs.technologies, 'Docker')
         run: |
           set -euo pipefail
           asset="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
