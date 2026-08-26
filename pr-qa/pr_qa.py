@@ -3064,6 +3064,7 @@ def classify_safe_deployment_workflows(ctx: PRContext, changed: list[str]) -> tu
 APPROVED_RUNTIME_CERTIFIER_ACTIONS = {
     "Synergie-ITCI/.github/actions/runtime-certifier@runtime-certifier-action-v1",
     "Synergie-ITCI/.github/actions/runtime-certifier@runtime-certifier-action-v1.1",
+    "Synergie-ITCI/.github/actions/runtime-certifier@runtime-certifier-action-v1.2",
 }
 RUNTIME_CERTIFIER_REQUIRED_INPUTS = {
     "instance-id",

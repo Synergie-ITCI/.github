@@ -37,7 +37,7 @@ inputs:
     default: php-fpm
 
   runtime-version:
-    description: Required runtime major.minor version.
+    description: Required runtime version. Use major.minor for php-fpm, or vite for static-vite-apache.
     required: true
 
   web-server:
