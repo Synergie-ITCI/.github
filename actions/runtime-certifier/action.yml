@@ -37,7 +37,7 @@ inputs:
     default: php-fpm
 
   runtime-version:
-    description: Required runtime version. Use major.minor for php-fpm, or vite for static-vite-apache.
+    description: Required runtime version. Use major.minor for php-fpm, vite for static-vite-apache, or django-major.minor[.patch] for django-gunicorn-nginx.
     required: true
 
   web-server:

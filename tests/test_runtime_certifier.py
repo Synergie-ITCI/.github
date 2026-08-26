@@ -191,6 +191,55 @@ class RuntimeCertifierTests(unittest.TestCase):
                 )
             )
 
+    def test_django_gunicorn_nginx_runtime_is_supported(self):
+        mod.validate_config(
+            config(
+                runtime_kind="django-gunicorn-nginx",
+                runtime_version="django-4.2.17",
+                web_server="nginx",
+            )
+        )
+
+    def test_django_gunicorn_nginx_rejects_non_django_runtime_version(self):
+        with self.assertRaises(mod.CertifierError):
+            mod.validate_config(
+                config(
+                    runtime_kind="django-gunicorn-nginx",
+                    runtime_version="4.2.17",
+                    web_server="nginx",
+                )
+            )
+
+    def test_django_remote_script_does_not_require_php_fpm_or_apache(self):
+        script = mod.build_remote_script(
+            config(
+                runtime_kind="django-gunicorn-nginx",
+                runtime_version="django-4.2.17",
+                web_server="nginx",
+            )
+        )
+
+        self.assertIn(
+            "RUNTIME_KIND=django-gunicorn-nginx",
+            script,
+        )
+        self.assertIn(
+            "PERSISTENT_STORAGE=PASS",
+            script,
+        )
+        self.assertIn(
+            "WEB_SERVER=nginx",
+            script,
+        )
+        self.assertNotIn(
+            "php8.2-fpm.sock",
+            script,
+        )
+        self.assertNotIn(
+            "apache2ctl",
+            script,
+        )
+
     def test_static_remote_script_does_not_require_php_fpm(self):
         script = mod.build_remote_script(
             config(
@@ -516,6 +565,146 @@ printf '%s' "${FAKE_HTTP_STATUS:-200}"
         )
 
 
+def run_django_shell_harness(
+    *,
+    marker_sha=DEPLOY,
+    http_status="302",
+    persistent_links=True,
+):
+    with tempfile.TemporaryDirectory(
+        dir="/tmp",
+        prefix="runtime-certifier-django-",
+    ) as tmp:
+        root = Path(tmp)
+        app = root / "current"
+        shared = root / "shared"
+        nginx = root / "nginx"
+        fake_bin = root / "bin"
+        venv_bin = app / ".venv" / "bin"
+
+        app.mkdir(parents=True)
+        shared.mkdir()
+        (shared / "media" / "audio").mkdir(parents=True)
+        (shared / "media" / "profile_pics").mkdir(parents=True)
+        fake_bin.mkdir()
+        nginx.mkdir()
+        venv_bin.mkdir(parents=True)
+
+        (app / "manage.py").write_text(
+            "#!/usr/bin/env python3\n",
+            encoding="utf-8",
+        )
+        (app / ".deployment-sha").write_text(
+            marker_sha + "\n",
+            encoding="utf-8",
+        )
+        (shared / "db.sqlite3").write_text(
+            "",
+            encoding="utf-8",
+        )
+
+        if persistent_links:
+            (app / "db.sqlite3").symlink_to(shared / "db.sqlite3")
+            (app / "media").symlink_to(shared / "media")
+        else:
+            (app / "db.sqlite3").write_text(
+                "",
+                encoding="utf-8",
+            )
+            (app / "media").mkdir()
+
+        (nginx / "example.conf").write_text(
+            "server {\n"
+            "  server_name example.org;\n"
+            "  location / { proxy_pass http://127.0.0.1:8000; }\n"
+            "}\n",
+            encoding="utf-8",
+        )
+
+        stubs = {
+            "python": r"""#!/usr/bin/env bash
+set -e
+cat >/dev/null
+printf 'django-4.2.17\n'
+""",
+            "gunicorn": r"""#!/usr/bin/env bash
+exit 0
+""",
+            "systemctl": r"""#!/usr/bin/env bash
+set -e
+if [ "${1:-}" = "is-active" ] &&
+   [ "${2:-}" = "django-app.service" ]; then
+  exit 0
+fi
+if [ "${1:-}" = "list-units" ]; then
+  printf 'django-app.service loaded active running test\n'
+  exit 0
+fi
+if [ "${1:-}" = "cat" ] &&
+   [ "${2:-}" = "django-app.service" ]; then
+  printf 'ExecStart=%s/.venv/bin/gunicorn loginSingup.wsgi:application\n' "$FAKE_APP_PATH"
+  exit 0
+fi
+exit 21
+""",
+            "nginx": r"""#!/usr/bin/env bash
+set -e
+if [ "${1:-}" = "-t" ]; then
+  exit 0
+fi
+exit 22
+""",
+            "curl": r"""#!/usr/bin/env bash
+set -e
+printf '%s' "${FAKE_HTTP_STATUS:-302}"
+""",
+            "git": r"""#!/usr/bin/env bash
+exit 18
+""",
+        }
+
+        for name, content in stubs.items():
+            path = (
+                venv_bin / name
+                if name in {"python", "gunicorn"}
+                else fake_bin / name
+            )
+            path.write_text(content, encoding="utf-8")
+            path.chmod(0o755)
+
+        cfg = config(
+            app_path=str(app),
+            validation_url="https://example.org/login",
+            runtime_kind="django-gunicorn-nginx",
+            runtime_version="django-4.2.17",
+            web_server="nginx",
+        )
+
+        script = mod.build_remote_script(cfg)
+
+        script = script.replace(
+            "NGINX_SITES_DIR=/etc/nginx/sites-enabled",
+            "NGINX_SITES_DIR=" + shlex.quote(str(nginx)),
+        )
+
+        env = os.environ.copy()
+        env["PATH"] = (
+            str(fake_bin)
+            + os.pathsep
+            + env.get("PATH", "")
+        )
+        env["FAKE_HTTP_STATUS"] = http_status
+        env["FAKE_APP_PATH"] = str(app)
+
+        return subprocess.run(
+            ["bash", "-c", script],
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+
 class RuntimeCertifierShellHarnessTests(unittest.TestCase):
 
     def test_shell_already_deployed(self):
@@ -761,6 +950,49 @@ class StaticViteApacheRuntimeCertifierShellHarnessTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 41)
         self.assertIn(
             "target Apache vhost is not mapped to APP_PATH DocumentRoot",
+            proc.stdout,
+        )
+        self.assertIn(
+            "PRODUCTION_MUTATED=NO",
+            proc.stdout,
+        )
+
+
+class DjangoGunicornNginxRuntimeCertifierShellHarnessTests(unittest.TestCase):
+
+    def test_django_shell_already_deployed(self):
+        proc = run_django_shell_harness()
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn(
+            "SHA_SOURCE=DEPLOYMENT_MARKER",
+            proc.stdout,
+        )
+        self.assertIn(
+            "DEPLOY_STATE=ALREADY_DEPLOYED",
+            proc.stdout,
+        )
+        self.assertIn(
+            "RUNTIME_CERTIFIER=PASS",
+            proc.stdout,
+        )
+        self.assertIn(
+            "DEPLOYMENT_REQUIRED=NO",
+            proc.stdout,
+        )
+        self.assertIn(
+            "PRODUCTION_MUTATED=NO",
+            proc.stdout,
+        )
+
+    def test_django_shell_requires_persistent_links(self):
+        proc = run_django_shell_harness(
+            persistent_links=False,
+        )
+
+        self.assertEqual(proc.returncode, 41)
+        self.assertIn(
+            "db.sqlite3 is not linked to persistent storage",
             proc.stdout,
         )
         self.assertIn(
