@@ -14,6 +14,7 @@ env:
   GITLEAKS_VERSION: "8.30.1"
   OPENTOFU_VERSION: "1.12.5"
   TFSEC_VERSION: "1.28.14"
+  TRIVY_VERSION: "0.74.0"
   PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc72"
 
 jobs:
@@ -291,6 +292,19 @@ jobs:
           tar -xzf "/tmp/${asset}" -C /tmp tfsec
           sudo install -m 0755 /tmp/tfsec /usr/local/bin/tfsec
           tfsec --version
+
+      - name: Install mandatory Docker dependency scanner
+        if: needs.detect.outputs.docker == 'true'
+        run: |
+          set -euo pipefail
+          asset="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          curl -sSfL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/${asset}" -o "/tmp/${asset}"
+          curl -sSfL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_checksums.txt" -o /tmp/trivy-checksums.txt
+          grep " ${asset}$" /tmp/trivy-checksums.txt > /tmp/trivy.sha256
+          (cd /tmp && sha256sum -c /tmp/trivy.sha256)
+          tar -xzf "/tmp/${asset}" -C /tmp trivy
+          sudo install -m 0755 /tmp/trivy /usr/local/bin/trivy
+          trivy --version
 
       - name: Set up .NET
         if: needs.detect.outputs.dotnet == 'true'
