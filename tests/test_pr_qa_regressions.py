@@ -4953,7 +4953,7 @@ jobs:
         self.assertIn("policy/pr-qa-policy.json", details)
         self.assertIn("pr-qa/adapters/php.py", details)
 
-    def test_release_drift_fails_when_main_commit_differs_from_active_release(self) -> None:
+    def test_release_drift_fails_when_runtime_certifier_changes_after_active_release(self) -> None:
         engine = load_engine_module()
         repo = self.framework_release_repo("release-drift-commit")
         self.write(repo / "tools" / "runtime_certifier.py", "print('runtime certifier changed')\n")
@@ -4963,7 +4963,18 @@ jobs:
 
         self.assertEqual(state["framework_main_matches_active_release"], "FAIL")
         self.assertEqual(state["release_required"], "YES")
-        self.assertIn("differs from active release", "\n".join(state["details"]))
+        self.assertIn("tools/runtime_certifier.py", "\n".join(state["details"]))
+
+    def test_release_drift_ignores_activation_only_pin_change(self) -> None:
+        engine = load_engine_module()
+        repo = self.framework_release_repo("release-drift-activation")
+        self.write(repo / ".github" / "workflows" / "pr-qa.yml", 'env:\n  PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-test"\n')
+        self.commit(repo, "chore: activate release")
+
+        state = engine.framework_release_state(repo)
+
+        self.assertEqual(state["framework_main_matches_active_release"], "PASS")
+        self.assertEqual(state["release_required"], "NO")
 
     def test_release_drift_fails_closed_when_active_release_cannot_be_resolved(self) -> None:
         engine = load_engine_module()
