@@ -4953,15 +4953,17 @@ jobs:
         self.assertIn("policy/pr-qa-policy.json", details)
         self.assertIn("pr-qa/adapters/php.py", details)
 
-    def test_release_drift_ignores_docs_only_changes(self) -> None:
+    def test_release_drift_fails_when_main_commit_differs_from_active_release(self) -> None:
         engine = load_engine_module()
-        repo = self.framework_release_repo("release-drift-docs")
-        self.write(repo / "docs" / "guide.md", "# updated docs\n")
+        repo = self.framework_release_repo("release-drift-commit")
+        self.write(repo / "tools" / "runtime_certifier.py", "print('runtime certifier changed')\n")
+        self.commit(repo, "feat: update runtime certifier")
 
         state = engine.framework_release_state(repo)
 
-        self.assertEqual(state["framework_main_matches_active_release"], "PASS")
-        self.assertEqual(state["release_required"], "NO")
+        self.assertEqual(state["framework_main_matches_active_release"], "FAIL")
+        self.assertEqual(state["release_required"], "YES")
+        self.assertIn("differs from active release", "\n".join(state["details"]))
 
     def test_release_drift_fails_closed_when_active_release_cannot_be_resolved(self) -> None:
         engine = load_engine_module()

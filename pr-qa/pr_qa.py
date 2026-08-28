@@ -4666,6 +4666,24 @@ def framework_release_state(repo: Path) -> dict[str, Any]:
     )
     if tag.returncode != 0:
         return release_state(release, False, [], [f"active PR-QA release `{release}` could not be resolved."])
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD^{commit}"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if head.returncode != 0:
+        return release_state(release, False, [], ["current framework commit could not be resolved."])
+    tag_sha = tag.stdout.strip()
+    head_sha = head.stdout.strip()
+    if tag_sha != head_sha:
+        return release_state(
+            release,
+            False,
+            release_sensitive_files(repo, release)[0],
+            [f"current framework commit `{head_sha}` differs from active release `{release}` commit `{tag_sha}`."],
+        )
     files, details = release_sensitive_files(repo, release)
     if details:
         return release_state(release, False, files, details)
