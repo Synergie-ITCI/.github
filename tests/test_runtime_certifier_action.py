@@ -30,8 +30,15 @@ class RuntimeCertifierActionTests(unittest.TestCase):
             "deploy-ref:",
             "rollback-ref:",
             "runtime-version:",
+            "governance-config:",
         ):
             self.assertIn(value, self.text)
+
+    def test_action_passes_governance_config_to_certifier(self):
+        self.assertIn(
+            '--governance-config "${{ inputs.governance-config }}"',
+            self.text,
+        )
 
     def test_outputs_expose_deploy_decision(self):
         self.assertIn("deploy-state:", self.text)

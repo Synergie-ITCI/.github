@@ -45,6 +45,11 @@ inputs:
     required: false
     default: apache
 
+  governance-config:
+    description: Repository governance config containing persistent_data declarations.
+    required: false
+    default: .github/synergie-governance.yml
+
 outputs:
   deploy-state:
     description: ALREADY_DEPLOYED or READY_FROM_ROLLBACK
@@ -74,4 +79,5 @@ runs:
           --rollback-ref "${{ inputs.rollback-ref }}" \
           --runtime-kind "${{ inputs.runtime-kind }}" \
           --runtime-version "${{ inputs.runtime-version }}" \
-          --web-server "${{ inputs.web-server }}"
+          --web-server "${{ inputs.web-server }}" \
+          --governance-config "${{ inputs.governance-config }}"
