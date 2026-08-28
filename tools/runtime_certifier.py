@@ -168,7 +168,6 @@ def build_remote_script(config: Config) -> str:
     host = urlparse(config.validation_url).hostname
     assert host is not None
 
-    php_bin = f"php{config.runtime_version}"
     fpm_service = f"php{config.runtime_version}-fpm"
     fpm_socket = f"/run/php/php{config.runtime_version}-fpm.sock"
 
@@ -181,7 +180,6 @@ def build_remote_script(config: Config) -> str:
         f"DEPLOY_REF={shlex.quote(config.deploy_ref)}",
         f"ROLLBACK_REF={shlex.quote(config.rollback_ref)}",
         f"EXPECTED_RUNTIME_VERSION={shlex.quote(config.runtime_version)}",
-        f"PHP_BIN={shlex.quote(php_bin)}",
         f"FPM_SERVICE={shlex.quote(fpm_service)}",
         f"FPM_SOCKET={shlex.quote(fpm_socket)}",
         "APACHE_SITES_DIR=/etc/apache2/sites-enabled",
@@ -251,17 +249,35 @@ case "$CURRENT_SHA" in
     ;;
 esac
 
-command -v "$PHP_BIN" >/dev/null \
-  || cert_fail "required PHP CLI is not installed"
+PHP_BIN=""
+CLI_RUNTIME_VERSION=""
 
-CLI_RUNTIME_VERSION="$(
-  "$PHP_BIN" -r 'echo PHP_VERSION;' 2>/dev/null
-)" || cert_fail "unable to determine CLI PHP version"
+select_compatible_php_cli() {
+  for candidate in "php$EXPECTED_RUNTIME_VERSION" php; do
+    command -v "$candidate" >/dev/null 2>&1 || continue
 
-"$PHP_BIN" -r \
-  'exit(version_compare(PHP_VERSION, $argv[1], ">=") ? 0 : 1);' \
-  "$EXPECTED_RUNTIME_VERSION" \
-  || cert_fail "CLI PHP is below the required runtime version"
+    candidate_path="$(command -v "$candidate")" \
+      || continue
+
+    candidate_version="$(
+      "$candidate_path" -r 'echo PHP_VERSION;' 2>/dev/null
+    )" || continue
+
+    "$candidate_path" -r \
+      'exit(version_compare(PHP_VERSION, $argv[1], ">=") ? 0 : 1);' \
+      "$EXPECTED_RUNTIME_VERSION" \
+      || continue
+
+    PHP_BIN="$candidate_path"
+    CLI_RUNTIME_VERSION="$candidate_version"
+    return 0
+  done
+
+  return 1
+}
+
+select_compatible_php_cli \
+  || cert_fail "required compatible PHP CLI is not installed"
 
 systemctl is-active "$FPM_SERVICE" >/dev/null \
   || cert_fail "required PHP-FPM service is not active"
@@ -327,6 +343,7 @@ echo "SHA_SOURCE=$SHA_SOURCE"
 echo "DEPLOY_REF=$DEPLOY_REF"
 echo "ROLLBACK_REF=$ROLLBACK_REF"
 echo "DEPLOY_STATE=$DEPLOY_STATE"
+echo "PHP_BIN=$PHP_BIN"
 echo "CLI_RUNTIME_VERSION=$CLI_RUNTIME_VERSION"
 echo "EXPECTED_RUNTIME_VERSION=$EXPECTED_RUNTIME_VERSION"
 echo "FPM_SERVICE=$FPM_SERVICE"
