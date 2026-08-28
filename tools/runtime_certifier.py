@@ -43,10 +43,21 @@ SUPPORTED_RUNTIME_KINDS = {
     "static-vite-apache",
     "django-gunicorn-nginx",
 }
+SUPPORTED_PERSISTENCE_MECHANISMS = {
+    "SYMLINK",
+    "BIND_MOUNT",
+}
 
 
 class CertifierError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class PersistentDataPath:
+    application_path: str
+    physical_path: str
+    persistence_mechanism: str
 
 
 @dataclass(frozen=True)
@@ -61,6 +72,7 @@ class Config:
     runtime_kind: str
     runtime_version: str
     web_server: str
+    persistent_data: tuple[PersistentDataPath, ...] = ()
 
 
 def validate_config(config: Config) -> None:
@@ -82,6 +94,8 @@ def validate_config(config: Config) -> None:
 
     if not config.app_path.startswith("/"):
         raise CertifierError("app_path must be absolute")
+
+    validate_persistent_data(config.persistent_data)
 
     if config.runtime_kind not in SUPPORTED_RUNTIME_KINDS:
         raise CertifierError(
@@ -123,6 +137,25 @@ def validate_config(config: Config) -> None:
         )
 
 
+def validate_persistent_data(paths: tuple[PersistentDataPath, ...]) -> None:
+    for item in paths:
+        if not item.application_path.strip():
+            raise CertifierError("persistent_data application_path is required")
+        if item.application_path.startswith("/"):
+            raise CertifierError("persistent_data application_path must be relative to app_path")
+        if not item.physical_path.strip():
+            raise CertifierError("persistent_data physical_path is required")
+        mechanism = normalize_persistence_mechanism(item.persistence_mechanism)
+        if mechanism not in SUPPORTED_PERSISTENCE_MECHANISMS:
+            raise CertifierError(
+                "The declared persistence mechanism is not supported by Runtime Certifier v1."
+            )
+
+
+def normalize_persistence_mechanism(value: str) -> str:
+    return value.strip().replace("-", "_").upper()
+
+
 def build_remote_script(config: Config) -> str:
     validate_config(config)
 
@@ -152,6 +185,7 @@ def build_remote_script(config: Config) -> str:
         f"FPM_SERVICE={shlex.quote(fpm_service)}",
         f"FPM_SOCKET={shlex.quote(fpm_socket)}",
         "APACHE_SITES_DIR=/etc/apache2/sites-enabled",
+        "PERSISTENCE_MOUNTS_FILE=/proc/mounts",
     ]
 
     body = r'''
@@ -164,8 +198,12 @@ cert_fail() {
   exit 41
 }
 
+''' + persistent_data_shell_functions(config) + r'''
+
 test -d "$APP_PATH" \
   || cert_fail "APP_PATH missing"
+
+''' + persistent_data_shell_invocations(config) + r'''
 
 test -f "$APP_PATH/.env" \
   || cert_fail "production .env missing"
@@ -295,6 +333,7 @@ echo "FPM_SERVICE=$FPM_SERVICE"
 echo "FPM_SOCKET=$FPM_SOCKET"
 echo "WEB_SERVER=apache"
 echo "WEB_RUNTIME_MAPPING=PASS"
+''' + persistent_data_pass_output(config) + r'''
 echo "VALIDATION_HTTP=$HTTP_STATUS"
 echo "RUNTIME_CERTIFIER=PASS"
 echo "READY_TO_DEPLOY=YES"
@@ -324,6 +363,7 @@ def build_django_gunicorn_nginx_remote_script(config: Config) -> str:
         f"ROLLBACK_REF={shlex.quote(config.rollback_ref)}",
         f"EXPECTED_RUNTIME_VERSION={shlex.quote(config.runtime_version)}",
         "NGINX_SITES_DIR=/etc/nginx/sites-enabled",
+        "PERSISTENCE_MOUNTS_FILE=/proc/mounts",
     ]
 
     body = r'''
@@ -336,8 +376,12 @@ cert_fail() {
   exit 41
 }
 
+''' + persistent_data_shell_functions(config) + r'''
+
 test -d "$APP_PATH" \
   || cert_fail "APP_PATH missing"
+
+''' + persistent_data_shell_invocations(config) + r'''
 
 test -f "$APP_PATH/manage.py" \
   || cert_fail "Django manage.py missing"
@@ -514,6 +558,7 @@ echo "GUNICORN_SERVICE=$SERVICE"
 echo "WEB_SERVER=nginx"
 echo "WEB_RUNTIME_MAPPING=PASS"
 echo "PERSISTENT_STORAGE=PASS"
+''' + persistent_data_pass_output(config) + r'''
 echo "VALIDATION_HTTP=$HTTP_STATUS"
 echo "RUNTIME_CERTIFIER=PASS"
 echo "READY_TO_DEPLOY=YES"
@@ -542,6 +587,7 @@ def build_static_vite_apache_remote_script(config: Config) -> str:
         f"DEPLOY_REF={shlex.quote(config.deploy_ref)}",
         f"ROLLBACK_REF={shlex.quote(config.rollback_ref)}",
         "APACHE_SITES_DIR=/etc/apache2/sites-enabled",
+        "PERSISTENCE_MOUNTS_FILE=/proc/mounts",
     ]
 
     body = r'''
@@ -554,8 +600,12 @@ cert_fail() {
   exit 41
 }
 
+''' + persistent_data_shell_functions(config) + r'''
+
 test -d "$APP_PATH" \
   || cert_fail "APP_PATH missing"
+
+''' + persistent_data_shell_invocations(config) + r'''
 
 test -f "$APP_PATH/index.html" \
   || cert_fail "static index.html missing"
@@ -687,6 +737,7 @@ echo "RUNTIME_KIND=static-vite-apache"
 echo "STATIC_ASSETS=PASS"
 echo "WEB_SERVER=apache"
 echo "WEB_RUNTIME_MAPPING=PASS"
+''' + persistent_data_pass_output(config) + r'''
 echo "VALIDATION_HTTP=$HTTP_STATUS"
 echo "RUNTIME_CERTIFIER=PASS"
 echo "READY_TO_DEPLOY=YES"
@@ -701,6 +752,88 @@ fi
 '''
 
     return "\n".join(assignments) + "\n" + body
+
+
+def persistent_data_shell_functions(config: Config) -> str:
+    if not config.persistent_data:
+        return ""
+    return r'''
+resolve_declared_path() {
+  case "$1" in
+    /*)
+      printf '%s\n' "$1"
+      ;;
+    *)
+      readlink -f "$(dirname "$APP_PATH")/$1" 2>/dev/null
+      ;;
+  esac
+}
+
+certify_persistent_data_path() {
+  application_path="$1"
+  physical_path="$2"
+  mechanism="$3"
+  app_target="$APP_PATH/$application_path"
+
+  { test -e "$app_target" || test -L "$app_target"; } \
+    || cert_fail "Persistent Data Safety: declared application path is missing"
+
+  expected_target="$(resolve_declared_path "$physical_path")" \
+    || cert_fail "Persistent Data Safety: declared physical path is missing"
+
+  test -e "$expected_target" \
+    || cert_fail "Persistent Data Safety: declared physical path is missing"
+
+  case "$mechanism" in
+    SYMLINK)
+      test -L "$app_target" \
+        || cert_fail "Persistent Data Safety: declared persistent path is a plain directory inside the current release"
+
+      resolved_target="$(readlink -f "$app_target" 2>/dev/null)" \
+        || cert_fail "Persistent Data Safety: unable to resolve declared persistent symlink"
+
+      test "$resolved_target" = "$expected_target" \
+        || cert_fail "Persistent Data Safety: resolved target does not match declared physical path"
+      ;;
+    BIND_MOUNT)
+      test -d "$app_target" \
+        || cert_fail "Persistent Data Safety: declared bind mount application path is missing"
+
+      mount_source="$(awk -v target="$app_target" '$2 == target { print $1; found=1; exit } END { exit found ? 0 : 1 }' "$PERSISTENCE_MOUNTS_FILE" 2>/dev/null)" \
+        || cert_fail "Persistent Data Safety: declared bind mount is not active"
+
+      resolved_source="$(readlink -f "$mount_source" 2>/dev/null)" \
+        || cert_fail "Persistent Data Safety: unable to resolve bind mount source"
+
+      test "$resolved_source" = "$expected_target" \
+        || cert_fail "Persistent Data Safety: bind mount source does not match declared physical path"
+      ;;
+    *)
+      cert_fail "Persistent Data Safety: The declared persistence mechanism is not supported by Runtime Certifier v1."
+      ;;
+  esac
+}
+'''
+
+
+def persistent_data_shell_invocations(config: Config) -> str:
+    lines = []
+    for item in config.persistent_data:
+        lines.append(
+            "certify_persistent_data_path "
+            + shlex.quote(item.application_path)
+            + " "
+            + shlex.quote(item.physical_path)
+            + " "
+            + shlex.quote(normalize_persistence_mechanism(item.persistence_mechanism))
+        )
+    return "\n".join(lines) + ("\n" if lines else "")
+
+
+def persistent_data_pass_output(config: Config) -> str:
+    if not config.persistent_data:
+        return ""
+    return 'echo "PERSISTENT_DATA_SAFETY=PASS"\n'
 
 
 def run_command(
@@ -733,6 +866,142 @@ def extract_deploy_state(output: str) -> str:
         )
 
     return state
+
+
+def parse_scalar(value: str) -> object:
+    if value in {"true", "True", "TRUE"}:
+        return True
+    if value in {"false", "False", "FALSE"}:
+        return False
+    if value in {"null", "Null", "NULL", "~"}:
+        return None
+    if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
+        return value[1:-1]
+    try:
+        return int(value)
+    except ValueError:
+        return value
+
+
+def strip_inline_comment(line: str) -> str:
+    in_single = False
+    in_double = False
+    for index, char in enumerate(line):
+        if char == "'" and not in_double:
+            in_single = not in_single
+        elif char == '"' and not in_single:
+            in_double = not in_double
+        elif char == "#" and not in_single and not in_double and (index == 0 or line[index - 1].isspace()):
+            return line[:index].rstrip()
+    return line
+
+
+def parse_yaml_subset(text: str) -> object:
+    tokens: list[tuple[int, str]] = []
+    for raw in text.splitlines():
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        line = strip_inline_comment(raw.rstrip())
+        if line.strip():
+            tokens.append((len(line) - len(line.lstrip(" ")), line.strip()))
+
+    def parse_block(index: int, indent: int) -> tuple[object, int]:
+        if index >= len(tokens):
+            return {}, index
+        if tokens[index][1].startswith("- "):
+            return parse_list(index, indent)
+        return parse_dict(index, indent)
+
+    def parse_dict(index: int, indent: int) -> tuple[dict[str, object], int]:
+        result: dict[str, object] = {}
+        while index < len(tokens):
+            current_indent, content = tokens[index]
+            if current_indent < indent or current_indent > indent or content.startswith("- "):
+                break
+            key, sep, raw_value = content.partition(":")
+            if not sep:
+                index += 1
+                continue
+            index += 1
+            raw_value = raw_value.strip()
+            if raw_value:
+                result[key.strip()] = parse_scalar(raw_value)
+            elif index < len(tokens) and tokens[index][0] > current_indent:
+                result[key.strip()], index = parse_block(index, tokens[index][0])
+            else:
+                result[key.strip()] = None
+        return result, index
+
+    def parse_list(index: int, indent: int) -> tuple[list[object], int]:
+        result: list[object] = []
+        while index < len(tokens):
+            current_indent, content = tokens[index]
+            if current_indent < indent or current_indent > indent or not content.startswith("- "):
+                break
+            item = content[2:].strip()
+            index += 1
+            if ":" in item and not item.startswith(("http://", "https://", "s3://", "arn:")):
+                key, raw_value = item.split(":", 1)
+                value: dict[str, object] = {key.strip(): parse_scalar(raw_value.strip()) if raw_value.strip() else None}
+                if index < len(tokens) and tokens[index][0] > current_indent:
+                    nested, index = parse_dict(index, tokens[index][0])
+                    value.update(nested)
+                result.append(value)
+            elif item:
+                result.append(parse_scalar(item))
+            elif index < len(tokens) and tokens[index][0] > current_indent:
+                value, index = parse_block(index, tokens[index][0])
+                result.append(value)
+            else:
+                result.append(None)
+        return result, index
+
+    parsed, _ = parse_block(0, tokens[0][0] if tokens else 0)
+    return parsed
+
+
+def load_governance_manifest(path: Path) -> dict[str, object]:
+    if not path.exists():
+        return {}
+    text = path.read_text(encoding="utf-8", errors="replace")
+    if path.suffix.lower() == ".json":
+        data = json.loads(text)
+    else:
+        try:
+            import yaml  # type: ignore
+
+            data = yaml.safe_load(text)
+        except Exception:
+            data = parse_yaml_subset(text)
+    if not isinstance(data, dict):
+        raise CertifierError("governance config must be a mapping/object")
+    return data
+
+
+def load_persistent_data_declarations(path: Path) -> tuple[PersistentDataPath, ...]:
+    manifest = load_governance_manifest(path)
+    raw_items = manifest.get("persistent_data", [])
+    if raw_items is None:
+        return ()
+    if not isinstance(raw_items, list):
+        raise CertifierError("persistent_data must be a list")
+    paths: list[PersistentDataPath] = []
+    for raw in raw_items:
+        if not isinstance(raw, dict):
+            raise CertifierError("persistent_data entries must be mappings")
+        classification = str(raw.get("classification") or "").strip().upper()
+        if classification == "DISPOSABLE":
+            continue
+        if classification != "PERSISTENT":
+            raise CertifierError("persistent_data classification must be PERSISTENT or DISPOSABLE")
+        paths.append(
+            PersistentDataPath(
+                application_path=str(raw.get("application_path") or "").strip().strip("/"),
+                physical_path=str(raw.get("physical_path") or "").strip(),
+                persistence_mechanism=str(raw.get("persistence_mechanism") or "").strip(),
+            )
+        )
+    return tuple(paths)
 
 
 def write_github_outputs(state: str) -> None:
@@ -935,7 +1204,14 @@ def parse_args() -> Config:
         default="apache",
     )
 
+    parser.add_argument(
+        "--governance-config",
+        type=Path,
+        default=Path(".github/synergie-governance.yml"),
+    )
+
     args = parser.parse_args()
+    persistent_data = load_persistent_data_declarations(args.governance_config)
 
     return Config(
         instance_id=args.instance_id,
@@ -948,6 +1224,7 @@ def parse_args() -> Config:
         runtime_kind=args.runtime_kind,
         runtime_version=args.runtime_version,
         web_server=args.web_server,
+        persistent_data=persistent_data,
     )
 
 

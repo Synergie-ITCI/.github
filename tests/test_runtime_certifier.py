@@ -48,6 +48,18 @@ def config(**overrides):
     return mod.Config(**values)
 
 
+def persistent_path(
+    application_path="public/inventoryuploads",
+    physical_path="shared/public/inventoryuploads",
+    persistence_mechanism="symlink",
+):
+    return mod.PersistentDataPath(
+        application_path=application_path,
+        physical_path=physical_path,
+        persistence_mechanism=persistence_mechanism,
+    )
+
+
 class RuntimeCertifierTests(unittest.TestCase):
 
     def test_remote_script_is_generic_and_read_only(self):
@@ -319,6 +331,8 @@ def run_shell_harness(
     git_fail=False,
     release_marker=None,
     http_status="200",
+    persistent_data=(),
+    persistent_setup=None,
 ):
     with tempfile.TemporaryDirectory(
         dir="/tmp",
@@ -333,11 +347,16 @@ def run_shell_harness(
         app.mkdir()
         apache.mkdir()
         fake_bin.mkdir()
+        mounts_file = root / "mounts"
+        mounts_file.write_text("", encoding="utf-8")
 
         (app / ".env").write_text(
             "APP_ENV=testing\n",
             encoding="utf-8",
         )
+
+        if persistent_setup:
+            persistent_setup(root, app, mounts_file)
 
         if release_marker is not None:
             (app / ".release-sha").write_text(
@@ -423,6 +442,7 @@ printf '%s' "${FAKE_HTTP_STATUS:-200}"
         cfg = config(
             app_path=str(app),
             validation_url="https://example.org/login",
+            persistent_data=tuple(persistent_data),
         )
 
         script = mod.build_remote_script(cfg)
@@ -435,6 +455,11 @@ printf '%s' "${FAKE_HTTP_STATUS:-200}"
         script = script.replace(
             "APACHE_SITES_DIR=/etc/apache2/sites-enabled",
             "APACHE_SITES_DIR=" + shlex.quote(str(apache)),
+        )
+
+        script = script.replace(
+            "PERSISTENCE_MOUNTS_FILE=/proc/mounts",
+            "PERSISTENCE_MOUNTS_FILE=" + shlex.quote(str(mounts_file)),
         )
 
         env = os.environ.copy()
@@ -883,6 +908,169 @@ class RuntimeCertifierShellHarnessTests(unittest.TestCase):
             "PRODUCTION_MUTATED=NO",
             proc.stdout,
         )
+
+    def test_persistent_data_correct_symlink_passes(self):
+        def setup(root, app, mounts_file):
+            physical = root / "shared" / "public" / "inventoryuploads"
+            physical.mkdir(parents=True)
+            (app / "public").mkdir()
+            (app / "public" / "inventoryuploads").symlink_to(physical)
+
+        proc = run_shell_harness(
+            DEPLOY,
+            persistent_data=[persistent_path()],
+            persistent_setup=setup,
+        )
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("PERSISTENT_DATA_SAFETY=PASS", proc.stdout)
+        self.assertIn("PRODUCTION_MUTATED=NO", proc.stdout)
+
+    def test_persistent_data_wrong_symlink_destination_fails(self):
+        def setup(root, app, mounts_file):
+            declared = root / "shared" / "public" / "inventoryuploads"
+            wrong = root / "shared" / "wrong" / "inventoryuploads"
+            declared.mkdir(parents=True)
+            wrong.mkdir(parents=True)
+            (app / "public").mkdir()
+            (app / "public" / "inventoryuploads").symlink_to(wrong)
+
+        proc = run_shell_harness(
+            DEPLOY,
+            persistent_data=[persistent_path()],
+            persistent_setup=setup,
+        )
+
+        self.assertEqual(proc.returncode, 41)
+        self.assertIn("resolved target does not match declared physical path", proc.stdout)
+        self.assertIn("READY_TO_DEPLOY=NO", proc.stdout)
+        self.assertIn("PRODUCTION_MUTATED=NO", proc.stdout)
+
+    def test_persistent_data_plain_release_directory_fails(self):
+        def setup(root, app, mounts_file):
+            (root / "shared" / "public" / "inventoryuploads").mkdir(parents=True)
+            (app / "public" / "inventoryuploads").mkdir(parents=True)
+
+        proc = run_shell_harness(
+            DEPLOY,
+            persistent_data=[persistent_path()],
+            persistent_setup=setup,
+        )
+
+        self.assertEqual(proc.returncode, 41)
+        self.assertIn("plain directory inside the current release", proc.stdout)
+        self.assertIn("PRODUCTION_MUTATED=NO", proc.stdout)
+
+    def test_persistent_data_missing_physical_path_fails(self):
+        def setup(root, app, mounts_file):
+            (app / "public").mkdir()
+            (app / "public" / "inventoryuploads").symlink_to(root / "shared" / "public" / "inventoryuploads")
+
+        proc = run_shell_harness(
+            DEPLOY,
+            persistent_data=[persistent_path()],
+            persistent_setup=setup,
+        )
+
+        self.assertEqual(proc.returncode, 41)
+        self.assertIn("declared physical path is missing", proc.stdout)
+        self.assertIn("PRODUCTION_MUTATED=NO", proc.stdout)
+
+    def test_persistent_data_correct_bind_mount_passes(self):
+        def setup(root, app, mounts_file):
+            physical = root / "shared" / "public" / "inventoryuploads"
+            target = app / "public" / "inventoryuploads"
+            physical.mkdir(parents=True)
+            target.mkdir(parents=True)
+            mounts_file.write_text(f"{physical} {target} none rw,bind 0 0\n", encoding="utf-8")
+
+        proc = run_shell_harness(
+            DEPLOY,
+            persistent_data=[persistent_path(persistence_mechanism="bind_mount")],
+            persistent_setup=setup,
+        )
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("PERSISTENT_DATA_SAFETY=PASS", proc.stdout)
+
+    def test_persistent_data_incorrect_bind_mount_source_fails(self):
+        def setup(root, app, mounts_file):
+            physical = root / "shared" / "public" / "inventoryuploads"
+            wrong = root / "shared" / "wrong" / "inventoryuploads"
+            target = app / "public" / "inventoryuploads"
+            physical.mkdir(parents=True)
+            wrong.mkdir(parents=True)
+            target.mkdir(parents=True)
+            mounts_file.write_text(f"{wrong} {target} none rw,bind 0 0\n", encoding="utf-8")
+
+        proc = run_shell_harness(
+            DEPLOY,
+            persistent_data=[persistent_path(persistence_mechanism="bind_mount")],
+            persistent_setup=setup,
+        )
+
+        self.assertEqual(proc.returncode, 41)
+        self.assertIn("bind mount source does not match declared physical path", proc.stdout)
+        self.assertIn("PRODUCTION_MUTATED=NO", proc.stdout)
+
+    def test_persistent_data_unsupported_mechanism_fails_closed(self):
+        with self.assertRaises(mod.CertifierError):
+            mod.build_remote_script(
+                config(
+                    persistent_data=[
+                        persistent_path(persistence_mechanism="object_storage")
+                    ]
+                )
+            )
+
+    def test_disposable_persistent_data_declarations_are_ignored(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            manifest = Path(tmp) / "synergie-governance.yml"
+            manifest.write_text(
+                """persistent_data:
+  - application_path: storage/logs
+    classification: DISPOSABLE
+""",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(mod.load_persistent_data_declarations(manifest), ())
+
+    def test_no_persistent_data_declarations_keep_script_unchanged(self):
+        script = mod.build_remote_script(config())
+
+        self.assertNotIn("PERSISTENT_DATA_SAFETY", script)
+        self.assertNotIn("certify_persistent_data_path", script)
+
+    def test_telemedicine_plain_inventoryuploads_directory_fails(self):
+        def setup(root, app, mounts_file):
+            (root / "shared" / "public" / "inventoryuploads").mkdir(parents=True)
+            (app / "public" / "inventoryuploads").mkdir(parents=True)
+
+        proc = run_shell_harness(
+            DEPLOY,
+            persistent_data=[persistent_path()],
+            persistent_setup=setup,
+        )
+
+        self.assertEqual(proc.returncode, 41)
+        self.assertIn("plain directory inside the current release", proc.stdout)
+
+    def test_telemedicine_inventoryuploads_symlink_passes(self):
+        def setup(root, app, mounts_file):
+            physical = root / "shared" / "public" / "inventoryuploads"
+            physical.mkdir(parents=True)
+            (app / "public").mkdir()
+            (app / "public" / "inventoryuploads").symlink_to(physical)
+
+        proc = run_shell_harness(
+            DEPLOY,
+            persistent_data=[persistent_path()],
+            persistent_setup=setup,
+        )
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("PERSISTENT_DATA_SAFETY=PASS", proc.stdout)
 
 
 class StaticViteApacheRuntimeCertifierShellHarnessTests(unittest.TestCase):
