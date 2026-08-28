@@ -333,6 +333,8 @@ def run_shell_harness(
     http_status="200",
     persistent_data=(),
     persistent_setup=None,
+    versioned_php=True,
+    generic_php_version=None,
 ):
     with tempfile.TemporaryDirectory(
         dir="/tmp",
@@ -397,22 +399,6 @@ if [ "${1:-}" = "rev-parse" ] && [ "${2:-}" = "HEAD" ]; then
 fi
 exit 18
 """,
-            "php8.2": r"""#!/usr/bin/env bash
-set -e
-if [ "${1:-}" != "-r" ]; then
-  exit 19
-fi
-case "${2:-}" in
-  *"echo PHP_VERSION"*)
-    printf '8.2.33'
-    exit 0
-    ;;
-  *"version_compare"*)
-    exit 0
-    ;;
-esac
-exit 20
-""",
             "systemctl": r"""#!/usr/bin/env bash
 set -e
 if [ "${1:-}" = "is-active" ] &&
@@ -433,6 +419,38 @@ set -e
 printf '%s' "${FAKE_HTTP_STATUS:-200}"
 """,
         }
+
+        php_template = r"""#!/usr/bin/env bash
+set -e
+if [ "${1:-}" != "-r" ]; then
+  exit 19
+fi
+case "${2:-}" in
+  *"echo PHP_VERSION"*)
+    printf '%s' "${FAKE_PHP_VERSION:-8.2.33}"
+    exit 0
+    ;;
+  *"version_compare"*)
+    python3 - "${FAKE_PHP_VERSION:-8.2.33}" "${3:-}" <<'PY'
+import sys
+
+actual = tuple(int(part) for part in sys.argv[1].split(".")[:2])
+expected = tuple(int(part) for part in sys.argv[2].split(".")[:2])
+raise SystemExit(0 if actual >= expected else 1)
+PY
+    exit $?
+    ;;
+esac
+exit 20
+"""
+
+        if versioned_php:
+            stubs["php8.2"] = php_template
+
+        if generic_php_version is not None:
+            stubs["php"] = php_template
+        elif not versioned_php:
+            stubs["php"] = "#!/usr/bin/env bash\nexit 127\n"
 
         for name, content in stubs.items():
             path = fake_bin / name
@@ -471,6 +489,7 @@ printf '%s' "${FAKE_HTTP_STATUS:-200}"
         env["FAKE_CURRENT_SHA"] = current_sha
         env["FAKE_GIT_FAIL"] = "1" if git_fail else "0"
         env["FAKE_HTTP_STATUS"] = http_status
+        env["FAKE_PHP_VERSION"] = generic_php_version or "8.2.33"
 
         sock = socket.socket(
             socket.AF_UNIX,
@@ -756,6 +775,56 @@ class RuntimeCertifierShellHarnessTests(unittest.TestCase):
             "PRODUCTION_MUTATED=NO",
             proc.stdout,
         )
+
+    def test_shell_prefers_versioned_php_cli_when_present(self):
+        proc = run_shell_harness(DEPLOY)
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("PHP_BIN=", proc.stdout)
+        self.assertIn("php8.2", proc.stdout)
+        self.assertIn("CLI_RUNTIME_VERSION=8.2.33", proc.stdout)
+        self.assertIn("RUNTIME_CERTIFIER=PASS", proc.stdout)
+
+    def test_shell_accepts_compatible_generic_php_cli(self):
+        proc = run_shell_harness(
+            DEPLOY,
+            versioned_php=False,
+            generic_php_version="8.2.33",
+        )
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("PHP_BIN=", proc.stdout)
+        self.assertIn("CLI_RUNTIME_VERSION=8.2.33", proc.stdout)
+        self.assertIn("RUNTIME_CERTIFIER=PASS", proc.stdout)
+
+    def test_shell_rejects_incompatible_generic_php_cli(self):
+        proc = run_shell_harness(
+            DEPLOY,
+            versioned_php=False,
+            generic_php_version="8.1.29",
+        )
+
+        self.assertEqual(proc.returncode, 41)
+        self.assertIn(
+            "required compatible PHP CLI is not installed",
+            proc.stdout,
+        )
+        self.assertIn("READY_TO_DEPLOY=NO", proc.stdout)
+        self.assertIn("PRODUCTION_MUTATED=NO", proc.stdout)
+
+    def test_shell_rejects_missing_php_cli(self):
+        proc = run_shell_harness(
+            DEPLOY,
+            versioned_php=False,
+        )
+
+        self.assertEqual(proc.returncode, 41)
+        self.assertIn(
+            "required compatible PHP CLI is not installed",
+            proc.stdout,
+        )
+        self.assertIn("READY_TO_DEPLOY=NO", proc.stdout)
+        self.assertIn("PRODUCTION_MUTATED=NO", proc.stdout)
 
     def test_shell_ready_from_rollback(self):
         proc = run_shell_harness(ROLLBACK)
