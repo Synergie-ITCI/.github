@@ -72,6 +72,7 @@ TECHNICAL_GATE_NAMES = {
     "Secrets",
     "Executable Classification",
     "Protected Resources",
+    "Persistent Data Safety",
     "Deployment Risk",
     "Migration Risk",
     "Formatting",
@@ -105,6 +106,7 @@ GATE_ORDER = [
     ("secrets", "Secrets"),
     ("executable_classification", "Executable Classification"),
     ("protected_resources", "Protected Resources"),
+    ("persistent_data_safety", "Persistent Data Safety"),
     ("deployment_safety", "Deployment Risk"),
     ("database_safety", "Migration Risk"),
     ("formatting", "Formatting"),
@@ -987,6 +989,7 @@ def run_static_preflight(ctx: PRContext, git_context: dict[str, Any], technologi
     results.extend(gate_secrets(ctx, git_context, report_path))
     results.extend(gate_executable_classification(ctx, technologies))
     results.extend(gate_protected_resources(ctx, git_context))
+    results.extend(gate_persistent_data_safety(ctx, git_context))
     results.extend(gate_deployment_safety(ctx, git_context))
     results.extend(gate_database_safety(ctx))
     return results
@@ -2912,6 +2915,273 @@ def codeowners_covers(path: str, patterns: list[str]) -> bool:
     return False
 
 
+GOVERNANCE_MANIFEST_PATH = ".github/synergie-governance.yml"
+WRITABLE_PATH_PATTERNS = [
+    "storage/**",
+    "bootstrap/cache/**",
+    "public/uploads/**",
+    "assets/uploads/**",
+    "uploads/**",
+    "tmp/**",
+    "temp/**",
+    "cache/**",
+    "logs/**",
+    "var/cache/**",
+    "var/log/**",
+]
+WRITABLE_REFERENCE_PATTERN = re.compile(
+    r"(?i)\b(?:mkdir|makedirs|file_put_contents|fopen|writefile|createwritestream|storage_path|public_path|upload_path|tmp_path|cache_path|log_path)\b"
+)
+QUOTED_PATH_PATTERN = re.compile(r"['\"]([^'\"]*(?:uploads?|storage|cache|logs?|tmp|temp)[^'\"]*)['\"]", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class PersistentDataDeclaration:
+    application_path: str
+    classification: str
+    physical_path: str
+    persistence_mechanism: str
+    backup_declared: bool
+    rollback_declared: bool
+
+
+def gate_persistent_data_safety(ctx: PRContext, git_context: dict[str, Any]) -> list[CheckResult]:
+    head_manifest = load_governance_manifest_from_head(ctx)
+    base_manifest = load_governance_manifest_from_base(ctx, git_context)
+    declarations, declaration_errors = persistent_data_declarations(head_manifest)
+    base_declarations, _ = persistent_data_declarations(base_manifest)
+    declared_paths = {item.application_path for item in declarations}
+    persistent_paths = [item for item in declarations if item.classification == "PERSISTENT"]
+    disposable_release_paths = declared_disposable_release_paths(head_manifest)
+    relevant = persistence_relevant_change(ctx, git_context, declarations, base_declarations)
+    failures: list[str] = []
+    warnings: list[str] = []
+
+    for error in declaration_errors:
+        failures.append(f"DEVELOPER_DECLARATION: {error}")
+
+    for item in persistent_paths:
+        if not item.physical_path:
+            failures.append(f"DEVOPS_PERSISTENCE_DECLARED: `{item.application_path}` has no durable physical mapping declared.")
+        if item.physical_path and path_within_any(item.physical_path, disposable_release_paths):
+            failures.append(
+                f"DEVOPS_PERSISTENCE_DECLARED: `{item.application_path}` maps inside declared disposable release content."
+            )
+        if not item.persistence_mechanism:
+            failures.append(f"DEVOPS_PERSISTENCE_DECLARED: `{item.application_path}` has no persistence mechanism declared.")
+        if not item.backup_declared:
+            failures.append(f"BACKUP_DECLARED: `{item.application_path}` has no backup declaration or evidence reference.")
+        if not item.rollback_declared:
+            failures.append(f"ROLLBACK_DECLARED: `{item.application_path}` has no rollback declaration or evidence reference.")
+
+    if relevant:
+        for path in introduced_writable_paths(ctx, git_context):
+            if not path_covered_by_declarations(path, declared_paths):
+                failures.append(f"DEVELOPER_DECLARATION: `{path}` introduces a writable/runtime path that has not been classified.")
+
+    destructive = destructive_persistent_targets(ctx, declarations)
+    if destructive:
+        failures.extend(destructive)
+
+    if failures:
+        return [failed("Persistent Data Safety", None, "Persistent data declarations are missing, incomplete, or structurally unsafe.", failures[:80], score=20)]
+
+    if legacy_persistence_needs_sanitation(ctx, head_manifest, base_manifest):
+        warnings.append("NEEDS_SANITATION: legacy production repository has no persistent-data declarations; require sanitation before the next relevant production deployment.")
+
+    if warnings:
+        return [warning("Persistent Data Safety", None, "Persistent data safety declarations need sanitation before the next relevant production deployment.", warnings[:40])]
+
+    if not relevant:
+        return [skipped("Persistent Data Safety", None, "No persistence-relevant repository or deployment changes detected.")]
+
+    details = [f"DEVELOPER_DECLARATION: `{item.application_path}` classified {item.classification}." for item in declarations[:30]]
+    details.extend(f"DEVOPS_PERSISTENCE_DECLARED: `{item.application_path}` mapped to `{item.physical_path}`." for item in persistent_paths[:30])
+    details.extend(f"BACKUP_DECLARED: `{item.application_path}`." for item in persistent_paths[:30])
+    details.extend(f"ROLLBACK_DECLARED: `{item.application_path}`." for item in persistent_paths[:30])
+    return [passed("Persistent Data Safety", None, "Persistent data declarations satisfy static production-safety requirements.", details[:80])]
+
+
+def load_governance_manifest_from_head(ctx: PRContext) -> dict[str, Any]:
+    path = ctx.repo / GOVERNANCE_MANIFEST_PATH
+    if not path.is_file():
+        return {}
+    parsed = parse_yaml_or_json(read_text(path))
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def load_governance_manifest_from_base(ctx: PRContext, git_context: dict[str, Any]) -> dict[str, Any]:
+    text = read_base_file(ctx.repo, git_context, GOVERNANCE_MANIFEST_PATH)
+    if not text:
+        return {}
+    parsed = parse_yaml_or_json(text)
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def persistent_data_declarations(manifest: dict[str, Any]) -> tuple[list[PersistentDataDeclaration], list[str]]:
+    raw_items = manifest.get("persistent_data", []) if isinstance(manifest, dict) else []
+    if raw_items is None or raw_items == "":
+        raw_items = []
+    if not isinstance(raw_items, list):
+        return [], ["`persistent_data` must be a list of path declarations."]
+    declarations: list[PersistentDataDeclaration] = []
+    errors: list[str] = []
+    for index, raw in enumerate(raw_items, 1):
+        if not isinstance(raw, dict):
+            errors.append(f"`persistent_data[{index}]` must be a mapping.")
+            continue
+        application_path = normalize_declared_path(raw.get("application_path"))
+        classification = str(raw.get("classification") or "").strip().upper()
+        if not application_path:
+            errors.append(f"`persistent_data[{index}].application_path` is required.")
+        if classification not in {"PERSISTENT", "DISPOSABLE"}:
+            errors.append(f"`persistent_data[{index}].classification` must be PERSISTENT or DISPOSABLE.")
+        declarations.append(
+            PersistentDataDeclaration(
+                application_path=application_path,
+                classification=classification,
+                physical_path=normalize_declared_path(raw.get("physical_path")),
+                persistence_mechanism=str(raw.get("persistence_mechanism") or "").strip(),
+                backup_declared=declaration_reference_present(raw, ["backup", "backup_declaration", "backup_reference", "backup_evidence_reference", "backup_requirement"]),
+                rollback_declared=declaration_reference_present(raw, ["rollback", "rollback_declaration", "rollback_reference", "rollback_evidence_reference", "rollback_requirement"]),
+            )
+        )
+    return declarations, errors
+
+
+def declaration_reference_present(raw: dict[str, Any], keys: list[str]) -> bool:
+    for key in keys:
+        value = raw.get(key)
+        if isinstance(value, str) and value.strip():
+            return True
+        if isinstance(value, dict) and any(str(item).strip() for item in value.values()):
+            return True
+    return False
+
+
+def declared_disposable_release_paths(manifest: dict[str, Any]) -> list[str]:
+    deployment = manifest.get("deployment", {}) if isinstance(manifest, dict) else {}
+    raw_paths = deployment.get("disposable_release_paths", []) if isinstance(deployment, dict) else []
+    if isinstance(raw_paths, str):
+        raw_paths = [raw_paths]
+    declared = [normalize_declared_path(path) for path in raw_paths if normalize_declared_path(path)]
+    for declaration, _ in [persistent_data_declarations(manifest)]:
+        declared.extend(item.application_path for item in declaration if item.classification == "DISPOSABLE")
+    return list(dict.fromkeys(declared))
+
+
+def normalize_declared_path(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    text = text.replace("\\", "/")
+    text = re.sub(r"/+", "/", text)
+    return text.rstrip("/") or text
+
+
+def path_within_any(path: str, roots: list[str]) -> bool:
+    normalized = normalize_declared_path(path).lstrip("/")
+    for root in roots:
+        normalized_root = normalize_declared_path(root).lstrip("/")
+        if normalized_root and (normalized == normalized_root or normalized.startswith(normalized_root.rstrip("/") + "/")):
+            return True
+    return False
+
+
+def path_covered_by_declarations(path: str, declared_paths: set[str]) -> bool:
+    normalized = normalize_declared_path(path).lstrip("/")
+    for declared in declared_paths:
+        root = normalize_declared_path(declared).lstrip("/")
+        if root and (normalized == root or normalized.startswith(root.rstrip("/") + "/") or root.startswith(normalized.rstrip("/") + "/")):
+            return True
+    return False
+
+
+def persistence_relevant_change(
+    ctx: PRContext,
+    git_context: dict[str, Any],
+    declarations: list[PersistentDataDeclaration],
+    base_declarations: list[PersistentDataDeclaration],
+) -> bool:
+    if GOVERNANCE_MANIFEST_PATH in ctx.changed_files:
+        return True
+    if any(match_any(path, ["deploy/**", "deployment/**", "scripts/deploy*", ".github/workflows/**", "Dockerfile", "Dockerfile.*"]) for path in ctx.changed_files):
+        return True
+    if declarations != base_declarations:
+        return True
+    return any(match_any(path, WRITABLE_PATH_PATTERNS) for path in ctx.changed_files) or bool(introduced_writable_paths(ctx, git_context))
+
+
+def introduced_writable_paths(ctx: PRContext, git_context: dict[str, Any]) -> list[str]:
+    found: list[str] = []
+    found.extend(path for path in ctx.changed_files if not skip_framework_persistent_data_fixture(ctx, path) and match_any(path, WRITABLE_PATH_PATTERNS))
+    diff_range = str(git_context.get("diff_range") or "")
+    if diff_range:
+        current_file = ""
+        for line in git_lines(ctx.repo, ["diff", "--unified=0", diff_range, "--"]):
+            if line.startswith("+++ b/"):
+                current_file = line[6:]
+                continue
+            if current_file and skip_framework_persistent_data_fixture(ctx, current_file):
+                continue
+            if not line.startswith("+") or line.startswith("+++"):
+                continue
+            added = line[1:]
+            if not WRITABLE_REFERENCE_PATTERN.search(added):
+                continue
+            for match in QUOTED_PATH_PATTERN.finditer(added):
+                candidate = normalize_declared_path(match.group(1))
+                if candidate and not candidate.startswith(("http://", "https://")):
+                    found.append(candidate.lstrip("./"))
+            if current_file and match_any(current_file, WRITABLE_PATH_PATTERNS):
+                found.append(current_file)
+    return list(dict.fromkeys(normalize_declared_path(path).lstrip("./") for path in found if normalize_declared_path(path)))
+
+
+def skip_framework_persistent_data_fixture(ctx: PRContext, rel: str) -> bool:
+    return repository_profile(ctx) == "framework" and (
+        is_approved_regression_fixture(ctx, rel) or is_approved_governance_asset(ctx, rel)
+        or rel.startswith(("pr-qa/", "tools/"))
+    )
+
+
+def destructive_persistent_targets(ctx: PRContext, declarations: list[PersistentDataDeclaration]) -> list[str]:
+    persistent_targets = [
+        target
+        for item in declarations
+        if item.classification == "PERSISTENT"
+        for target in [item.application_path, item.physical_path]
+        if target
+    ]
+    if not persistent_targets:
+        return []
+    details: list[str] = []
+    deployment_files = [
+        path
+        for path in ctx.changed_files
+        if match_any(path, [".github/workflows/**", "deploy/**", "deployment/**", "scripts/deploy*", "Dockerfile", "Dockerfile.*"])
+    ]
+    for rel in deployment_files:
+        path = ctx.repo / rel
+        if not path.is_file() or is_binary_file(path):
+            continue
+        for line_number, line in enumerate(read_text(path).splitlines(), 1):
+            lowered = line.lower()
+            destructive = re.search(r"\brm\s+(?:-[^\s]*\s+)*", lowered) or ("rsync" in lowered and "--delete" in lowered)
+            if not destructive:
+                continue
+            for target in persistent_targets:
+                if target and target.lower() in lowered:
+                    details.append(f"DEVOPS_PERSISTENCE_DECLARED: `{rel}:{line_number}` destructively targets declared persistent path `{target}`.")
+    return details[:40]
+
+
+def legacy_persistence_needs_sanitation(ctx: PRContext, head_manifest: dict[str, Any], base_manifest: dict[str, Any]) -> bool:
+    if head_manifest.get("persistent_data") or base_manifest.get("persistent_data"):
+        return False
+    return repository_profile(ctx) == "application" and any(path.startswith((".github/workflows/", "deploy/", "deployment/")) for path in ctx.changed_files)
+
+
 def gate_deployment_safety(ctx: PRContext, git_context: dict[str, Any]) -> list[CheckResult]:
     deployment_patterns = [
         ".github/workflows/**",
@@ -4200,6 +4470,8 @@ def developer_next_action_for_gate(gate: str, message: str) -> str:
         return "Clean up the branch history or changed files identified in the technical details, then push again."
     if gate == "Deployment Risk":
         return "Update the affected workflow or deployment change to satisfy the safety control named in the technical details, then push again."
+    if gate == "Persistent Data Safety":
+        return "Developer: classify each writable/runtime path as PERSISTENT or DISPOSABLE. DevOps: for persistent paths, declare durable storage mapping, persistence mechanism, backup, and rollback references."
     if gate == "Migration Risk":
         return "Make the migration forward-safe or use the governed migration path identified by the maintainer, then push again."
     if gate == "Protected Resources":

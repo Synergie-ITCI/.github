@@ -184,6 +184,99 @@
         "rollback_required": {
           "type": "boolean",
           "default": true
+        },
+        "disposable_release_paths": {
+          "type": "array",
+          "description": "Declared release/content paths replaced during deployment. Persistent physical paths must not map inside these disposable locations.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "persistent_data": {
+      "type": "array",
+      "description": "Declarative persistent-data and disposable runtime-path classification. This is static intent only and does not prove live production filesystem state.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "application_path",
+          "classification"
+        ],
+        "properties": {
+          "application_path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Application-writable or runtime path relative to the repository/application root."
+          },
+          "classification": {
+            "type": "string",
+            "enum": [
+              "PERSISTENT",
+              "DISPOSABLE"
+            ]
+          },
+          "physical_path": {
+            "type": "string",
+            "description": "Intended durable physical/shared path for PERSISTENT data. Do not store credentials."
+          },
+          "persistence_mechanism": {
+            "type": "string",
+            "description": "Declared persistence mechanism, such as symlink, mount, object-storage adapter, or managed service."
+          },
+          "backup": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "object",
+                "additionalProperties": true
+              }
+            ],
+            "description": "Backup requirement or evidence reference for PERSISTENT data."
+          },
+          "backup_declaration": {
+            "type": "string"
+          },
+          "backup_reference": {
+            "type": "string"
+          },
+          "backup_evidence_reference": {
+            "type": "string"
+          },
+          "backup_requirement": {
+            "type": "string"
+          },
+          "rollback": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "object",
+                "additionalProperties": true
+              }
+            ],
+            "description": "Rollback requirement or evidence reference for PERSISTENT data."
+          },
+          "rollback_declaration": {
+            "type": "string"
+          },
+          "rollback_reference": {
+            "type": "string"
+          },
+          "rollback_evidence_reference": {
+            "type": "string"
+          },
+          "rollback_requirement": {
+            "type": "string"
+          }
         }
       }
     },

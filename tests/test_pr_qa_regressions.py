@@ -92,6 +92,7 @@ gates:
   dependencies: true
   licence: true
   deployment_safety: true
+  persistent_data_safety: true
   database_safety: true
   documentation: true
   protected_resources: true
@@ -6021,6 +6022,101 @@ exit 0
         self.assertNotIn(fake_token, body)
         self.assertIn("[REDACTED]", body)
 
+    def test_persistent_data_safety_fails_new_writable_path_without_declaration(self) -> None:
+        repo, base = self.init_repo("persistent-data-undeclared")
+        self.write(repo / "app" / "Upload.php", "<?php\nfile_put_contents('assets/uploads/photo.jpg', $body);\n")
+        self.commit(repo, "feat: add upload writer")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Persistent Data Safety"], "FAIL")
+        self.assertIn("DEVELOPER_DECLARATION", report)
+        self.assertIn("assets/uploads/photo.jpg", report)
+
+    def test_persistent_data_safety_passes_complete_persistent_declaration(self) -> None:
+        repo, base = self.init_repo("persistent-data-complete")
+        self.write(repo / ".github" / "synergie-governance.yml", self.persistent_data_manifest())
+        self.write(repo / "app" / "Upload.php", "<?php\nfile_put_contents('assets/uploads/photo.jpg', $body);\n")
+        self.commit(repo, "feat: declare upload persistence")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Persistent Data Safety"], "PASS")
+        persistent_result = next(result for result in report_json["results"] if result["gate"] == "Persistent Data Safety")
+        details = "\n".join(persistent_result["details"])
+        self.assertIn("DEVOPS_PERSISTENCE_DECLARED", details)
+        self.assertIn("BACKUP_DECLARED", details)
+        self.assertIn("ROLLBACK_DECLARED", details)
+        self.assertNotIn("LIVE_PERSISTENCE_" + "VERIFIED", details)
+
+    def test_persistent_data_safety_passes_disposable_writable_path(self) -> None:
+        repo, base = self.init_repo("persistent-data-disposable")
+        self.write(
+            repo / ".github" / "synergie-governance.yml",
+            self.persistent_data_manifest(
+                """persistent_data:
+  - application_path: storage/logs
+    classification: DISPOSABLE
+"""
+            ),
+        )
+        self.write(repo / "app" / "Logger.php", "<?php\nfile_put_contents('storage/logs/app.log', 'ok');\n")
+        self.commit(repo, "feat: classify disposable runtime logs")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Persistent Data Safety"], "PASS")
+        persistent_result = next(result for result in report_json["results"] if result["gate"] == "Persistent Data Safety")
+        self.assertIn("DEVELOPER_DECLARATION", "\n".join(persistent_result["details"]))
+
+    def test_persistent_data_safety_fails_persistent_mapping_inside_disposable_release(self) -> None:
+        repo, base = self.init_repo("persistent-data-unsafe-mapping")
+        self.write(
+            repo / ".github" / "synergie-governance.yml",
+            self.persistent_data_manifest(
+                """persistent_data:
+  - application_path: assets/uploads
+    classification: PERSISTENT
+    physical_path: releases/current/assets/uploads
+    persistence_mechanism: symlink
+    backup_reference: docs/backup.md
+    rollback_reference: docs/rollback.md
+"""
+            ),
+        )
+        self.commit(repo, "ci: declare unsafe persistent mapping")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Persistent Data Safety"], "FAIL")
+        self.assertIn("maps inside declared disposable release content", report)
+
+    def test_persistent_data_safety_fails_destructive_deployment_target(self) -> None:
+        repo, base = self.init_repo("persistent-data-destructive-deploy")
+        self.write(repo / ".github" / "synergie-governance.yml", self.persistent_data_manifest())
+        self.write(repo / "deploy" / "release.sh", "#!/usr/bin/env bash\nrm -rf shared/assets/uploads\n")
+        self.commit(repo, "ci: add destructive deploy command")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Persistent Data Safety"], "FAIL")
+        self.assertIn("destructively targets declared persistent path", report)
+
+    def test_persistent_data_safety_skips_unrelated_feature_pr(self) -> None:
+        repo, base = self.init_repo("persistent-data-unrelated")
+        self.write(repo / "app" / "Feature.php", "<?php\nreturn 'feature';\n")
+        self.commit(repo, "feat: add unrelated feature")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Persistent Data Safety"], "SKIP")
+
     def override_digest(self, record: dict) -> str:
         payload = {key: value for key, value in record.items() if key != "record_sha256"}
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -6233,6 +6329,7 @@ gates:
   dependencies: true
   licence: true
   deployment_safety: true
+  persistent_data_safety: true
   database_safety: true
   documentation: true
   protected_resources: true
@@ -6240,6 +6337,37 @@ gates:
   risk: true
   evidence: true
 """
+
+    def persistent_data_manifest(self, persistent_data: str = "") -> str:
+        return """application: Persistent Data Fixture
+stack: php
+branches:
+  feature_pattern: feature/*
+  development: development
+  staging: staging
+  production: main
+quality_checks:
+  pr_qa: true
+  secret_scan: true
+  security_scan: true
+deployment:
+  staging_environment: staging
+  production_environment: production
+  deployment_mechanism: github-actions-ssm
+  rollback_required: true
+  disposable_release_paths:
+    - releases/current
+""" + (
+            persistent_data
+            or """persistent_data:
+  - application_path: assets/uploads
+    classification: PERSISTENT
+    physical_path: shared/assets/uploads
+    persistence_mechanism: symlink
+    backup_reference: docs/backup.md
+    rollback_reference: docs/rollback.md
+"""
+        )
 
 
 if __name__ == "__main__":

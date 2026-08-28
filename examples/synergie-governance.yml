@@ -27,6 +27,18 @@ deployment:
   production_environment: production
   deployment_mechanism: existing-repository-process
   rollback_required: true
+  disposable_release_paths:
+    - releases/current
+
+persistent_data:
+  - application_path: assets/uploads
+    classification: PERSISTENT
+    physical_path: shared/assets/uploads
+    persistence_mechanism: symlink
+    backup_reference: docs/backup.md
+    rollback_reference: docs/rollback.md
+  - application_path: storage/logs
+    classification: DISPOSABLE
 
 phpmyadmin:
   local_allowed: true
