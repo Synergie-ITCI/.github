@@ -851,6 +851,47 @@ exit 0
         self.assertEqual(report_json["summary"]["gate_statuses"]["Review Policy"], "PASS")
         self.assertTrue(any("Human review is not required for this branch transition" in result["message"] for result in report_json["results"]))
 
+    def test_feature_pr_with_one_linear_commit_passes_repository_hygiene(self) -> None:
+        repo, base = self.init_repo("feature-one-linear-commit")
+        self.write(repo / "README.md", "# regression\n\nOne linear commit.\n")
+        self.commit(repo, "docs: add one linear change")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            static_only=True,
+            base_ref="development",
+            head_ref="feature/regression",
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "PASS")
+        self.assertTrue(
+            any(result["message"] == "No accidental merge commits detected." for result in report_json["results"])
+        )
+
+    def test_feature_pr_with_multiple_linear_commits_passes_repository_hygiene(self) -> None:
+        repo, base = self.init_repo("feature-multiple-linear-commits")
+        for index in range(1, 4):
+            self.write(repo / f"linear-{index}.txt", f"linear change {index}\n")
+            self.commit(repo, f"docs: add linear change {index}")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            static_only=True,
+            base_ref="development",
+            head_ref="feature/regression",
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "PASS")
+        self.assertTrue(
+            any(result["message"] == "No accidental merge commits detected." for result in report_json["results"])
+        )
+
     def test_development_to_staging_requires_no_human_review(self) -> None:
         repo, base = self.init_repo("development-staging-no-review")
         self.write(repo / "README.md", "# regression\n\nDevelopment to staging.\n")
@@ -867,6 +908,44 @@ exit 0
         self.assertEqual(code, 0, report)
         self.assertEqual(report_json["summary"]["gate_statuses"]["Review Policy"], "PASS")
         self.assertTrue(any("Human review is not required for this branch transition" in result["message"] for result in report_json["results"]))
+
+    def test_standard_promotion_preflights_enforce_canonical_branch_matrix(self) -> None:
+        cases = [
+            ("synergie-quality-gate.yml", "development", "feature/work", 0),
+            ("synergie-quality-gate.yml", "staging", "development", 0),
+            ("synergie-quality-gate.yml", "staging", "feature/work", 1),
+            ("synergie-production-gate.yml", "main", "staging", 0),
+            ("synergie-production-gate.yml", "main", "feature/work", 1),
+            ("synergie-production-gate.yml", "main", "development", 1),
+        ]
+
+        for workflow, base_ref, head_ref, expected_code in cases:
+            with self.subTest(workflow=workflow, base_ref=base_ref, head_ref=head_ref):
+                completed = self.run_promotion_preflight(workflow, base_ref, head_ref)
+                self.assertEqual(completed.returncode, expected_code, completed.stdout + completed.stderr)
+
+    def test_standard_branch_caller_separates_merge_gates_from_deployment(self) -> None:
+        caller = (ROOT / "workflow-templates" / "synergie-branch-governance.yml").read_text(encoding="utf-8")
+
+        self.assertIn("branches:\n      - staging\n      - main", caller)
+        self.assertIn("allowed-staging-sources: development", caller)
+        self.assertIn("allowed-production-sources: staging", caller)
+        self.assertNotIn("workflow_dispatch:", caller)
+        self.assertNotIn("push:", caller)
+        self.assertNotIn("deploy", caller.lower())
+
+    def test_noncanonical_promotion_guidance_retargets_the_same_pr(self) -> None:
+        engine = load_engine_module()
+
+        feature_to_staging = engine.developer_branch_alignment_action("feature/work", "staging")
+        feature_to_main = engine.developer_branch_alignment_action("feature/work", "main")
+        development_to_main = engine.developer_branch_alignment_action("development", "main")
+
+        self.assertIn("Retarget this same PR to `development`", feature_to_staging)
+        self.assertIn("Retarget this same PR to `development`", feature_to_main)
+        self.assertIn("Retarget this same PR to `staging`", development_to_main)
+        for action in (feature_to_staging, feature_to_main, development_to_main):
+            self.assertIn("do not create a replacement PR", action)
 
     def test_feature_pr_still_blocks_accidental_merge_commit(self) -> None:
         repo, base = self.init_repo("feature-merge-commit")
@@ -5472,7 +5551,9 @@ exit 0
         self.assertEqual(body.count("What failed:\nTests"), 1)
         self.assertIn("Technical details:\n- tests/AuthTest.php:12", body)
         self.assertIn("SAURABH APPROVAL REQUIRED: NO", body)
-        self.assertIn("align locally with the latest staging branch", body)
+        self.assertIn("Retarget this same PR to `development`", body)
+        self.assertIn("does not promote a feature branch directly to `staging`", body)
+        self.assertIn("do not create a replacement PR", body)
         self.assertNotIn("Update branch", body)
 
     def test_actions_failure_summary_renders_phase_1_blocker_before_enforcement(self) -> None:
@@ -5502,7 +5583,7 @@ exit 0
         self.assertIn("feature branches to stay linear", summary)
         self.assertIn("review, audit, and promote safely", summary)
         self.assertIn(
-            "What to do:\nRebase your feature branch onto the latest `development` branch, resolve any conflicts, then push the updated branch again.",
+            "What to do:\nRepair the same feature branch if it is safe to do so: rebase it onto the latest `development` branch, resolve conflicts, and push that branch to update this PR. Use a replacement branch/PR only when same-branch history repair is unsafe or impossible.",
             summary,
         )
         self.assertIn("Technical details:\n- Unexpected merge commits detected: 2.", summary)
@@ -5646,7 +5727,7 @@ exit 0
         self.assertIn("feature branches to stay linear", body)
         self.assertIn("review, audit, and promote safely", body)
         self.assertIn(
-            "What to do:\nRebase your feature branch onto the latest `development` branch, resolve any conflicts, then push the updated branch again.",
+            "What to do:\nRepair the same feature branch if it is safe to do so: rebase it onto the latest `development` branch, resolve conflicts, and push that branch to update this PR. Use a replacement branch/PR only when same-branch history repair is unsafe or impossible.",
             body,
         )
         self.assertIn("Technical details:\n- Unexpected merge commits detected: 3.", body)
@@ -5721,6 +5802,9 @@ exit 0
         self.assertIn("Why:\nphp artisan test failed.", body)
         self.assertIn("Technical details:\n- tests/Feature/LoginTest.php:18", body)
         self.assertIn("Fix the failing test or build command shown in the technical details", body)
+        self.assertIn("push the same branch to update this PR", body)
+        self.assertNotIn("replacement branch", body.lower())
+        self.assertNotIn("new pull request", body.lower())
 
     def test_pr_status_comment_explains_deployment_failure_actionably(self) -> None:
         engine = load_engine_module()
@@ -5865,7 +5949,8 @@ exit 0
         self.assertIn("DEVELOPER_HANDOFF_READY: NO", body)
         self.assertIn("What failed:\nBranch history", body)
         self.assertIn("Why:\nYour development branch is behind staging.", body)
-        self.assertIn("What to do:\nBring development up to date with staging, resolve any conflicts locally, and push again.", body)
+        self.assertIn("What to do:\nUse the repository's governed lineage proof or approved tree-neutral alignment procedure, then update this same promotion PR.", body)
+        self.assertIn("Do not merge the destination branch backward into the source", body)
         self.assertNotIn("policy failure", body.lower())
 
     def test_pr_status_comment_marks_staging_handoff_not_ready_when_required_context_missing(self) -> None:
@@ -6270,6 +6355,49 @@ sys.exit(0)
             encoding="utf-8",
         )
         fake_npm.chmod(0o755)
+
+    def run_promotion_preflight(self, workflow_name: str, base_ref: str, head_ref: str) -> subprocess.CompletedProcess[str]:
+        workflow = (ROOT / ".github" / "workflows" / workflow_name).read_text(encoding="utf-8")
+        marker = "python3 - <<'PY'"
+        payload = workflow.split(marker, 1)[1].split("\n          PY", 1)[0].lstrip("\n")
+        script = "\n".join(line[10:] if line.startswith("          ") else line for line in payload.splitlines())
+        env = dict(self.env)
+        env.update(
+            {
+                "EVENT_NAME": "pull_request",
+                "BASE_REF": base_ref,
+                "HEAD_REF": head_ref,
+                "GOVERNANCE_CONFIG_PATH": ".github/synergie-governance.yml",
+                "REQUIRE_GOVERNANCE_CONFIG": "false",
+                "ENFORCE_PROMOTION_PATH": "true",
+            }
+        )
+        if workflow_name == "synergie-quality-gate.yml":
+            env.update(
+                {
+                    "DEVELOPMENT_BRANCH": "development",
+                    "STAGING_BRANCH": "staging",
+                    "ALLOWED_STAGING_SOURCES": "development",
+                }
+            )
+        else:
+            env.update(
+                {
+                    "PRODUCTION_BRANCH": "main",
+                    "ALLOWED_PRODUCTION_SOURCES": "staging",
+                    "REQUIRE_ROLLBACK_EVIDENCE": "false",
+                    "ROLLBACK_EVIDENCE_PATHS": "docs/rollback.md",
+                }
+            )
+        return subprocess.run(
+            ["python3", "-"],
+            cwd=self.tmp,
+            env=env,
+            input=script,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
 
     def commit(self, repo: Path, message: str) -> None:
         self.git(repo, "add", ".")

@@ -60,6 +60,10 @@ The deployment must use the exact approved SHA/artifact and preserve a verified 
 
 ## Permanent Principles
 
+- The canonical promotion path is `feature → development → staging → main`; direct feature-to-staging, feature-to-main, and development-to-main promotions are rejected unless a separately documented governed exception applies.
+- One task uses one feature branch and one pull request by default. Ordinary lint, test, review, or PR-QA corrections update that same branch and PR; replacement is exceptional when safe continuation is impossible.
+- Multiple ordinary linear commits are allowed. Repository Hygiene blocks accidental merge commits and other unproven lineage, not commit count.
+- Promotions must preserve the destination's governed ancestry. Use direct canonical promotion when ancestry is already valid, or the existing bounded tree-neutral alignment procedure; do not casually merge long-lived destination branches backward.
 - No routine governance bootstrap process.
 - No enrollment/provenance/candidate-ID machinery.
 - No one-time deployment-risk authorization registry.
@@ -68,6 +72,8 @@ The deployment must use the exact approved SHA/artifact and preserve a verified 
 - Saurabh approval is required only at Gate C and Gate D.
 - Production deployment is never implied by merge to main.
 - Recovery capability is mandatory for production.
+- Merging `development` to `staging` may hand off to a separately configured governed UAT deployment. Merging `staging` to `main` is Gate C promotion only; production remains a separately approved Gate D exact-SHA deployment.
+- Each pull-request boundary has one canonical PR-QA caller. A generic caller must exclude a boundary once an approved staging or production wrapper owns that boundary, preventing duplicate or conflicting checks.
 - Historical Governance V2 records may remain archived for audit history only; they are not active policy.
 
 ## Required Status Checks
