@@ -4290,7 +4290,7 @@ def build_pr_status_model(report: dict[str, Any], event: dict[str, Any], policy:
     why = pr_status_failure_reasons(results, behind, base_ref, missing_contexts)
     handoff = "NO" if base_ref.lower() == "staging" else ""
     action_items, additional_blockers = developer_action_items(results, behind, base_ref, head_ref, missing_contexts)
-    return status_model("BLOCKED", why, False, developer_action_for(why, base_ref), gate_c=gate_c, action_items=action_items, additional_blockers=additional_blockers, developer_handoff_ready=handoff)
+    return status_model("BLOCKED", why, False, developer_action_for(why, base_ref, head_ref), gate_c=gate_c, action_items=action_items, additional_blockers=additional_blockers, developer_handoff_ready=handoff)
 
 
 def status_model(
@@ -4367,14 +4367,15 @@ def pr_status_failure_reasons(results: list[Any], behind: bool, base_ref: str, m
     return list(dict.fromkeys(reasons))
 
 
-def developer_action_for(why: list[str], base_ref: str) -> str:
+def developer_action_for(why: list[str], base_ref: str, head_ref: str) -> str:
     tests = "Automated tests failed" in why
     behind = any(reason.startswith("Your branch is behind ") for reason in why)
+    alignment_action = developer_branch_alignment_action(head_ref or "this", base_ref or "the base")
     if tests and behind:
-        return f"Fix the failed tests, align locally with the latest {base_ref or 'base'} branch, and push again."
+        return f"Fix the failed tests. {alignment_action}"
     if behind:
-        return f"Align your branch locally with the latest {base_ref or 'base'} branch, then push again."
-    return "Use PR QA BLOCKED below, then push again."
+        return alignment_action
+    return "Use PR QA BLOCKED below, then push the same branch to update this PR."
 
 
 def developer_action_items(results: list[Any], behind: bool, base_ref: str, head_ref: str, missing_contexts: list[str]) -> tuple[list[dict[str, Any]], int]:
@@ -4386,7 +4387,7 @@ def developer_action_items(results: list[Any], behind: bool, base_ref: str, head
             developer_action_item(
                 "Branch history",
                 f"Your {source} branch is behind {target}.",
-                f"Bring {source} up to date with {target}, resolve any conflicts locally, and push again.",
+                developer_branch_alignment_action(source, target),
                 [],
             )
         )
@@ -4400,6 +4401,33 @@ def developer_action_items(results: list[Any], behind: bool, base_ref: str, head
             )
         )
     return compact_developer_action_items(items)
+
+
+def developer_branch_alignment_action(source: str, target: str) -> str:
+    pair = (source.lower(), target.lower())
+    if pair in {("development", "staging"), ("staging", "main"), ("staging", "master")}:
+        return (
+            "Use the repository's governed lineage proof or approved tree-neutral alignment procedure, then update "
+            "this same promotion PR. Do not merge the destination branch backward into the source merely to make "
+            "GitHub report it as up to date."
+        )
+    if target.lower() == "staging" and source.lower() not in {"develop", "development"}:
+        return (
+            "Retarget this same PR to `development`, then update the same source branch as needed. The normal path "
+            "does not promote a feature branch directly to `staging`; do not create a replacement PR merely for "
+            "this correction."
+        )
+    if target.lower() in {"main", "master"} and source.lower() != "staging":
+        canonical_target = "`staging`" if source.lower() in {"develop", "development"} else "`development`"
+        return (
+            f"Retarget this same PR to {canonical_target}, then update the same source branch as needed. The normal "
+            "path reaches the production branch only from `staging`; do not create a replacement PR merely for "
+            "this correction."
+        )
+    return (
+        f"Rebase the same {source} branch onto the latest {target} branch, resolve conflicts locally, and push the "
+        "same branch to update this PR."
+    )
 
 
 def developer_action_item_for_result(result: dict[str, Any]) -> dict[str, Any]:
@@ -4460,17 +4488,21 @@ def developer_failure_reason_for_gate(gate: str, message: str) -> str:
 
 def developer_next_action_for_gate(gate: str, message: str) -> str:
     if gate in {"Tests", "Build"}:
-        return "Fix the failing test or build command shown in the technical details, run it locally if available, then push again."
+        return "Fix the failing test or build command shown in the technical details, run it locally if available, then push the same branch to update this PR."
     if gate in {"Formatting", "Lint"}:
-        return "Fix the reported formatting or lint issue, run the formatter/linter locally if available, then push again."
+        return "Fix the reported formatting or lint issue, run the formatter/linter locally if available, then push the same branch to update this PR."
     if gate == "Secrets":
         return "Remove the committed secret or unsafe secret-bearing file. If a real credential was exposed, rotate or revoke it, then push a cleaned commit."
     if gate == "Repository Hygiene":
         if "Accidental merge commits detected" in message:
-            return "Rebase your feature branch onto the latest `development` branch, resolve any conflicts, then push the updated branch again."
+            return (
+                "Repair the same feature branch if it is safe to do so: rebase it onto the latest `development` "
+                "branch, resolve conflicts, and push that branch to update this PR. Use a replacement branch/PR "
+                "only when same-branch history repair is unsafe or impossible."
+            )
         if "Merge conflict markers" in message:
             return "Resolve the conflict markers in the changed files, then push again."
-        return "Clean up the branch history or changed files identified in the technical details, then push again."
+        return "Clean up the branch history or changed files identified in the technical details, then push the same branch to update this PR."
     if gate == "Deployment Risk":
         return "Update the affected workflow or deployment change to satisfy the safety control named in the technical details, then push again."
     if gate == "Persistent Data Safety":

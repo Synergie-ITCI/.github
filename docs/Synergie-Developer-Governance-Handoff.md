@@ -22,6 +22,8 @@ Feature branch
 
 Normal feature work goes to `development`. Validated development work is promoted to `staging`. Release candidates are promoted from `staging` to `main`. Production deployment is separate; merging to `main` does not mean production deploys.
 
+One task uses one feature branch and one pull request by default. Multiple ordinary linear commits are allowed. Fix lint, test, review, and normal PR-QA findings on that same branch so the existing PR updates; create a replacement branch/PR only when the existing history cannot be repaired safely.
+
 What must pass:
 
 - `pr-qa / Pull Request Quality Assurance` is the live required PR-QA status context in the active organization rulesets.
@@ -66,7 +68,8 @@ Use the repository's existing commands. Do not invent root-level files or new CI
 Before opening a PR:
 
 - Start from the correct base branch for the promotion.
-- Sync your branch using the normal development workflow; avoid accidental merge commits where policy disallows them.
+- For a feature PR, rebase the same feature branch onto the current `development` branch when synchronization is required; do not merge unrelated branches into it.
+- For `development -> staging` and `staging -> main`, preserve governed destination ancestry using the existing lineage proof or approved tree-neutral alignment procedure. Do not casually merge the destination branch backward merely to make GitHub report the source as up to date.
 - Run the repository formatter if one exists.
 - Run the repository linter if one exists.
 - Run the relevant tests for the changed project root.
@@ -128,9 +131,9 @@ Current central policy requires independent review for non-`SaurabhVermaIN` auth
 | Tests | Automated tests failed. | Run the repository test command, fix the failing behavior or test expectation, and push again. |
 | Secrets | PR-QA detected a possible committed secret or unsafe credential indicator. | Remove the secret-bearing change. If a real credential was exposed, rotate or revoke it. Cleaning only the current tree may not be enough if history exposed it. |
 | Dependency vulnerabilities | A dependency audit found high-risk vulnerable packages or required audit inputs are missing. | Update dependencies or lockfiles using the repository package manager. Do not suppress the audit without governance approval. |
-| Repository Hygiene | The branch history or naming does not match policy. | Rebase or rebuild the branch using the normal workflow, remove accidental merge commits, and push again. |
-| Accidental merge commits | The branch contains merge history not permitted for the PR. | Rebase/update the branch cleanly from the intended base branch; do not merge unrelated branch history into the feature branch. |
-| Branch behind base | The source branch is behind the target branch. | Update the source branch from the target branch using the normal repository workflow, then push again. |
+| Repository Hygiene | The branch history or naming does not match policy. | Repair the same branch using the normal workflow, remove accidental merge commits, and push it to update the existing PR. Replacement is exceptional when safe repair is impossible. |
+| Accidental merge commits | The branch contains merge history not permitted for the PR. | Rebase the same feature branch cleanly from `development` and update the existing PR; do not merge unrelated history into it. |
+| Branch behind base | The source branch is behind the target branch. | For feature PRs, rebase the same branch onto `development`. For canonical promotions, use governed lineage proof or the approved tree-neutral alignment procedure; do not casually merge the destination backward. Update the same PR. |
 | Missing/stale required check | The ruleset requires a check context that is not present on the current head SHA. | Confirm the repository caller uses the canonical workflow and that rulesets require the exact emitted context, currently `pr-qa / Pull Request Quality Assurance` for the generic caller. |
 | Protected Resources | Files such as workflows, policy, deployment, Docker, infra, or CODEOWNERS-adjacent resources changed without the expected ownership evidence. | Add required ownership/review evidence or split the protected change into the governed workflow. |
 | Migration/database safety | Migration files changed, or destructive database operations may be present. | Make migrations forward-safe, use the repository migration framework, add rollback/recovery notes, and ask the maintainer if a governed migration path is needed. |
