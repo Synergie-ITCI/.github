@@ -4936,7 +4936,7 @@ jobs:
         self.assertIn("persist-credentials: false", workflow)
         self.assertIn("Fetch current pull request base branch", workflow)
         self.assertIn("refs/remotes/origin/${BASE_REF}", workflow)
-        self.assertIn('PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc78"', workflow)
+        self.assertIn('PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc79"', workflow)
         self.assertIn("issues: write", workflow)
         self.assertIn("issues: write", self_workflow)
         self.assertIn("issues: write", caller)
