@@ -1143,6 +1143,120 @@ exit 0
         self.assertEqual(code, 0, report)
         self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "PASS")
 
+    def test_tree_neutral_main_to_staging_ancestry_alignment_passes(self) -> None:
+        repo, base = self.init_repo("tree-neutral-main-staging-alignment")
+        self.git(repo, "checkout", "-q", "-b", "staging", base)
+        self.write(repo / "staging.txt", "validated staging tree\n")
+        self.commit(repo, "chore: establish validated staging tree")
+        staging_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.git(repo, "checkout", "-q", "-B", "main", base)
+        self.write(repo / "main.txt", "divergent governed main ancestry\n")
+        self.commit(repo, "chore: establish main ancestry")
+        main_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.attach_origin_with_main_and_staging(repo, "tree-neutral-main-staging-origin.git")
+        self.git(repo, "checkout", "-q", "-b", "chore/align-main-ancestor-into-staging", "staging")
+        self.git(repo, "merge", "--no-ff", "-s", "ours", "-m", "chore: align main ancestry into staging", "main")
+        alignment_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        self.assertEqual(self.git(repo, "show", "-s", "--format=%P", alignment_sha).stdout.split(), [staging_sha, main_sha])
+        self.assertEqual(self.git(repo, "rev-parse", f"{alignment_sha}^{{tree}}").stdout, self.git(repo, "rev-parse", f"{staging_sha}^{{tree}}").stdout)
+        self.assertEqual(self.git(repo, "diff", "--name-only", f"{staging_sha}..{alignment_sha}").stdout.strip(), "")
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            staging_sha,
+            static_only=True,
+            base_ref="staging",
+            head_ref="chore/align-main-ancestor-into-staging",
+            head_sha=alignment_sha,
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "PASS", report)
+        self.assertTrue(
+            any(
+                result["gate"] == "Repository Hygiene"
+                and result["message"] == "Only canonical tree-neutral ancestry alignment merge commits detected."
+                for result in report_json["results"]
+            )
+        )
+
+    def test_tree_neutral_main_to_staging_alignment_blocks_hidden_file_change(self) -> None:
+        repo, base = self.init_repo("tree-neutral-main-staging-hidden-change")
+        self.git(repo, "checkout", "-q", "-b", "staging", base)
+        staging_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.git(repo, "checkout", "-q", "-B", "main", base)
+        self.write(repo / "main.txt", "current main ancestry\n")
+        self.commit(repo, "chore: establish main ancestry")
+        self.attach_origin_with_main_and_staging(repo, "tree-neutral-main-staging-hidden-origin.git")
+        self.git(repo, "checkout", "-q", "-b", "align/main-ancestor-into-staging", "staging")
+        self.git(repo, "merge", "--no-ff", "--no-commit", "-s", "ours", "main")
+        self.write(repo / "hidden-change.txt", "must remain blocked\n")
+        self.git(repo, "add", "hidden-change.txt")
+        self.git(repo, "commit", "-q", "-m", "chore: align main ancestry with hidden change")
+        alignment_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            staging_sha,
+            static_only=True,
+            base_ref="staging",
+            head_ref="align/main-ancestor-into-staging",
+            head_sha=alignment_sha,
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
+        self.assertIn("Accidental merge commits detected", report)
+
+    def test_tree_neutral_alignment_does_not_allow_feature_merge_commit(self) -> None:
+        repo, base = self.init_repo("tree-neutral-feature-merge-block")
+        self.git(repo, "checkout", "-q", "-b", "side", base)
+        self.write(repo / "side.txt", "side ancestry\n")
+        self.commit(repo, "chore: create side ancestry")
+        self.git(repo, "checkout", "-q", "feature/regression")
+        self.write(repo / "feature.txt", "feature change\n")
+        self.commit(repo, "feat: add feature change")
+        self.git(repo, "merge", "--no-ff", "-s", "ours", "-m", "chore: accidental feature merge", "side")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            static_only=True,
+            base_ref="development",
+            head_ref="feature/regression",
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
+        self.assertIn("Accidental merge commits detected", report)
+
+    def test_tree_neutral_alignment_blocks_noncanonical_destination(self) -> None:
+        repo, base = self.init_repo("tree-neutral-noncanonical-alignment")
+        self.git(repo, "checkout", "-q", "-b", "staging", base)
+        self.write(repo / "release.txt", "release destination tree\n")
+        self.commit(repo, "chore: establish release destination")
+        destination_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.git(repo, "checkout", "-q", "-B", "main", base)
+        self.write(repo / "main.txt", "current main ancestry\n")
+        self.commit(repo, "chore: establish main ancestry")
+        self.attach_origin_with_main_and_staging(repo, "tree-neutral-noncanonical-origin.git")
+        self.git(repo, "checkout", "-q", "-b", "align/main-ancestor-into-release", "staging")
+        self.git(repo, "merge", "--no-ff", "-s", "ours", "-m", "chore: align main ancestry into release", "main")
+        alignment_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            destination_sha,
+            static_only=True,
+            base_ref="release",
+            head_ref="align/main-ancestor-into-release",
+            head_sha=alignment_sha,
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Hygiene"], "FAIL")
+        self.assertIn("Accidental merge commits detected", report)
+
     def test_main_to_staging_alignment_blocks_content_changing_gate_c_merge(self) -> None:
         repo, base = self.init_repo("main-staging-content-changing-gate-c")
         self.git(repo, "checkout", "-q", "-b", "staging", base)
