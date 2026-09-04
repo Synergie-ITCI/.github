@@ -1912,6 +1912,7 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
                 sha for sha in merge_commits
                 if not (
                     tree_neutral_ancestry_reconciliation_merge_commit(ctx, sha)
+                    or tree_neutral_canonical_ancestry_alignment_merge_commit(ctx, sha)
                     or main_to_staging_gate_c_alignment_merge_commit(ctx, sha)
                     or development_to_staging_current_alignment_merge_commit(ctx, sha)
                     or main_to_development_current_alignment_merge_commit(ctx, sha)
@@ -1932,6 +1933,8 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
             results.append(passed("Repository Hygiene", None, "Only governed branch-promotion merge commits detected."))
         elif merge_commits and all(tree_neutral_ancestry_reconciliation_merge_commit(ctx, sha) for sha in merge_commits):
             results.append(passed("Repository Hygiene", None, "Only intentional tree-neutral ancestry reconciliation merge commits detected."))
+        elif merge_commits and all(tree_neutral_canonical_ancestry_alignment_merge_commit(ctx, sha) for sha in merge_commits):
+            results.append(passed("Repository Hygiene", None, "Only canonical tree-neutral ancestry alignment merge commits detected."))
         elif merge_commits and all(main_to_staging_gate_c_alignment_merge_commit(ctx, sha) for sha in merge_commits):
             results.append(passed("Repository Hygiene", None, "Only expected Gate C main-to-staging alignment merge commits detected."))
         elif merge_commits and all(development_to_staging_current_alignment_merge_commit(ctx, sha) for sha in merge_commits):
@@ -2131,6 +2134,28 @@ def current_main_tip_is_gate_c_merge_for_staging(repo: Path, current_main_tip: s
 
 def resolve_fresh_origin_main_tip(repo: Path) -> str:
     return resolve_fresh_origin_branch_tip(repo, "main")
+
+
+def tree_neutral_canonical_ancestry_alignment_merge_commit(ctx: PRContext, sha: str) -> bool:
+    """Allow only a zero-file current-main ancestry alignment into staging."""
+    if (ctx.base_ref or "").lower() != "staging" or ctx.changed_files:
+        return False
+    head_sha = run_git(ctx.repo, ["rev-parse", "--verify", "HEAD^{commit}"]).strip()
+    if not head_sha or sha != head_sha:
+        return False
+    staging_tip = resolve_fresh_origin_staging_tip(ctx.repo)
+    main_tip = resolve_fresh_origin_main_tip(ctx.repo)
+    if not staging_tip or not main_tip:
+        return False
+    parents = git_lines(ctx.repo, ["show", "-s", "--format=%P", sha])
+    parent_values = parents[0].split() if parents else []
+    if parent_values != [staging_tip, main_tip]:
+        return False
+    if commit_is_ancestor(ctx.repo, main_tip, staging_tip):
+        return False
+    head_tree = run_git(ctx.repo, ["rev-parse", "--verify", f"{sha}^{{tree}}"]).strip()
+    destination_tree = run_git(ctx.repo, ["rev-parse", "--verify", f"{staging_tip}^{{tree}}"]).strip()
+    return bool(head_tree) and head_tree == destination_tree
 
 
 def governed_ancestry_alignment_merge_commit(ctx: PRContext, sha: str) -> bool:
