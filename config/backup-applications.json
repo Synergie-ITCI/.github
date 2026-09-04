@@ -1,0 +1,1282 @@
+{
+  "applications": [
+    {
+      "application_name": "Bayer",
+      "backup_bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+      "backup_prefix": "applications/bayer",
+      "database": {
+        "credential_source": {
+          "type": "mysql_root_socket"
+        },
+        "database_secret_reference": "runtime file /var/www/bayer.synergieinsights.in/public_html/.env DB_* keys; backup job uses local MariaDB root socket",
+        "engine": "mariadb",
+        "logical_backup": "mysqldump with engine-aware consistency options; never live DB file copy",
+        "name": "bayer_db"
+      },
+      "enabled": true,
+      "environment": "production",
+      "exclude_paths": [
+        ".git/*",
+        "vendor/*",
+        "node_modules/*",
+        "cache/*",
+        "logs/*",
+        "log/*",
+        "sessions/*",
+        "tmp/*",
+        "temp/*",
+        "*~",
+        "*.tmp",
+        "*.log",
+        "*.cache",
+        "*.bak",
+        "*.zip",
+        "*.tar",
+        "*.tar.gz",
+        "*.sql",
+        "*.sql.gz",
+        "ShortpixelBackups/*",
+        "wp-staging/*",
+        "sucuri/*",
+        "wpo/*",
+        "*cache*/*",
+        "unlimited_elements_cache/*"
+      ],
+      "monitoring": {
+        "sns_topic_arn": "arn:aws:sns:ap-south-1:918870682888:synergie-monitor-platform-alerts"
+      },
+      "owner": "Central Synergie DevOps / Disaster Recovery",
+      "persistent_paths": [
+        {
+          "id": "storage_app_public",
+          "path": "/var/www/bayer.synergieinsights.in/public_html/storage/app/public"
+        }
+      ],
+      "production_host": "bayer.synergieinsights.in",
+      "repository_candidates": [
+        "Synergie-ITCI/bayer.synergieinsights.in"
+      ],
+      "restore_test_class": "isolated-temporary-mariadb-plus-persistent-sample",
+      "retention_class": "daily-35d-noncurrent-35d-current-45d",
+      "root": "/var/www/bayer.synergieinsights.in/public_html",
+      "rpo_class": "daily-standard-production",
+      "slug": "bayer"
+    },
+    {
+      "application_name": "Bridgestone",
+      "backup_bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+      "backup_prefix": "applications/bridgestone",
+      "database": {
+        "credential_source": {
+          "type": "mysql_root_socket"
+        },
+        "database_secret_reference": "runtime file /var/www/bridgestone.synergieinsights.in/public_html/.env DB_* keys; backup job uses local MariaDB root socket",
+        "engine": "mariadb",
+        "logical_backup": "mysqldump with engine-aware consistency options; never live DB file copy",
+        "name": "bridgestone_db"
+      },
+      "enabled": true,
+      "environment": "production",
+      "exclude_paths": [
+        ".git/*",
+        "vendor/*",
+        "node_modules/*",
+        "cache/*",
+        "logs/*",
+        "log/*",
+        "sessions/*",
+        "tmp/*",
+        "temp/*",
+        "*~",
+        "*.tmp",
+        "*.log",
+        "*.cache",
+        "*.bak",
+        "*.zip",
+        "*.tar",
+        "*.tar.gz",
+        "*.sql",
+        "*.sql.gz",
+        "ShortpixelBackups/*",
+        "wp-staging/*",
+        "sucuri/*",
+        "wpo/*",
+        "*cache*/*",
+        "unlimited_elements_cache/*"
+      ],
+      "monitoring": {
+        "sns_topic_arn": "arn:aws:sns:ap-south-1:918870682888:synergie-monitor-platform-alerts"
+      },
+      "owner": "Central Synergie DevOps / Disaster Recovery",
+      "persistent_paths": [
+        {
+          "id": "storage_app_public",
+          "path": "/var/www/bridgestone.synergieinsights.in/public_html/storage/app/public"
+        },
+        {
+          "id": "public_uploads",
+          "path": "/var/www/bridgestone.synergieinsights.in/public_html/public/uploads"
+        },
+        {
+          "id": "public_useruploads",
+          "path": "/var/www/bridgestone.synergieinsights.in/public_html/public/useruploads"
+        }
+      ],
+      "production_host": "bridgestone.synergieinsights.in",
+      "repository_candidates": [
+        "Synergie-ITCI/bridgestone.synergieinsights.in"
+      ],
+      "restore_test_class": "isolated-temporary-mariadb-plus-persistent-sample",
+      "retention_class": "daily-35d-noncurrent-35d-current-45d",
+      "root": "/var/www/bridgestone.synergieinsights.in/public_html",
+      "rpo_class": "daily-standard-production",
+      "slug": "bridgestone"
+    },
+    {
+      "application_name": "Datamatics LMS",
+      "backup_bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+      "backup_prefix": "applications/datamatics-lms",
+      "database": {
+        "credential_source": {
+          "type": "mysql_root_socket"
+        },
+        "database_secret_reference": "runtime file /var/www/datamatics.synergielms.com/public_html/.env DB_* keys; backup job uses local MariaDB root socket",
+        "engine": "mariadb",
+        "logical_backup": "mysqldump with engine-aware consistency options; never live DB file copy",
+        "name": "datamatics_lms"
+      },
+      "enabled": true,
+      "environment": "production",
+      "exclude_paths": [
+        ".git/*",
+        "vendor/*",
+        "node_modules/*",
+        "cache/*",
+        "logs/*",
+        "log/*",
+        "sessions/*",
+        "tmp/*",
+        "temp/*",
+        "*~",
+        "*.tmp",
+        "*.log",
+        "*.cache",
+        "*.bak",
+        "*.zip",
+        "*.tar",
+        "*.tar.gz",
+        "*.sql",
+        "*.sql.gz",
+        "ShortpixelBackups/*",
+        "wp-staging/*",
+        "sucuri/*",
+        "wpo/*",
+        "*cache*/*",
+        "unlimited_elements_cache/*"
+      ],
+      "monitoring": {
+        "sns_topic_arn": "arn:aws:sns:ap-south-1:918870682888:synergie-monitor-platform-alerts"
+      },
+      "owner": "Central Synergie DevOps / Disaster Recovery",
+      "persistent_paths": [
+        {
+          "id": "storage_app_public",
+          "path": "/var/www/datamatics.synergielms.com/public_html/storage/app/public"
+        }
+      ],
+      "production_host": "datamatics.synergielms.com",
+      "repository_candidates": [
+        "Synergie-ITCI/datamatics.synergielms.com"
+      ],
+      "restore_test_class": "isolated-temporary-mariadb-plus-persistent-sample",
+      "retention_class": "daily-35d-noncurrent-35d-current-45d",
+      "root": "/var/www/datamatics.synergielms.com/public_html",
+      "rpo_class": "daily-standard-production",
+      "slug": "datamatics-lms"
+    },
+    {
+      "application_name": "Dhansamvaad",
+      "backup_bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+      "backup_prefix": "applications/dhansamvaad",
+      "database": {
+        "credential_source": {
+          "type": "mysql_root_socket"
+        },
+        "database_secret_reference": "runtime file /var/www/dhansamvaad.synergieinsights.in/public_html/.env DB_* keys; backup job uses local MariaDB root socket",
+        "engine": "mariadb",
+        "logical_backup": "mysqldump with engine-aware consistency options; never live DB file copy",
+        "name": "dhansamvaad_db"
+      },
+      "enabled": true,
+      "environment": "production",
+      "exclude_paths": [
+        ".git/*",
+        "vendor/*",
+        "node_modules/*",
+        "cache/*",
+        "logs/*",
+        "log/*",
+        "sessions/*",
+        "tmp/*",
+        "temp/*",
+        "*~",
+        "*.tmp",
+        "*.log",
+        "*.cache",
+        "*.bak",
+        "*.zip",
+        "*.tar",
+        "*.tar.gz",
+        "*.sql",
+        "*.sql.gz",
+        "ShortpixelBackups/*",
+        "wp-staging/*",
+        "sucuri/*",
+        "wpo/*",
+        "*cache*/*",
+        "unlimited_elements_cache/*"
+      ],
+      "monitoring": {
+        "sns_topic_arn": "arn:aws:sns:ap-south-1:918870682888:synergie-monitor-platform-alerts"
+      },
+      "owner": "Central Synergie DevOps / Disaster Recovery",
+      "persistent_paths": [
+        {
+          "id": "storage_app_audio",
+          "path": "/var/www/dhansamvaad.synergieinsights.in/public_html/storage/app/audio"
+        },
+        {
+          "id": "storage_app_public",
+          "path": "/var/www/dhansamvaad.synergieinsights.in/public_html/storage/app/public"
+        }
+      ],
+      "production_host": "dhansamvaad.synergieinsights.in",
+      "repository_candidates": [
+        "Synergie-ITCI/dhansamvaad-new.synergieinsights.in"
+      ],
+      "restore_test_class": "isolated-temporary-mariadb-plus-persistent-sample",
+      "retention_class": "daily-35d-noncurrent-35d-current-45d",
+      "root": "/var/www/dhansamvaad.synergieinsights.in/public_html",
+      "rpo_class": "daily-standard-production",
+      "slug": "dhansamvaad"
+    },
+    {
+      "application_name": "FIS LMS",
+      "backup_bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+      "backup_prefix": "applications/fis-lms",
+      "database": {
+        "credential_source": {
+          "type": "mysql_root_socket"
+        },
+        "database_secret_reference": "runtime file /var/www/fis.synergielms.com/public_html/.env DB_* keys; backup job uses local MariaDB root socket",
+        "engine": "mariadb",
+        "logical_backup": "mysqldump with engine-aware consistency options; never live DB file copy",
+        "name": "fis_db"
+      },
+      "enabled": true,
+      "environment": "production",
+      "exclude_paths": [
+        ".git/*",
+        "vendor/*",
+        "node_modules/*",
+        "cache/*",
+        "logs/*",
+        "log/*",
+        "sessions/*",
+        "tmp/*",
+        "temp/*",
+        "*~",
+        "*.tmp",
+        "*.log",
+        "*.cache",
+        "*.bak",
+        "*.zip",
+        "*.tar",
+        "*.tar.gz",
+        "*.sql",
+        "*.sql.gz",
+        "ShortpixelBackups/*",
+        "wp-staging/*",
+        "sucuri/*",
+        "wpo/*",
+        "*cache*/*",
+        "unlimited_elements_cache/*"
+      ],
+      "monitoring": {
+        "sns_topic_arn": "arn:aws:sns:ap-south-1:918870682888:synergie-monitor-platform-alerts"
+      },
+      "owner": "Central Synergie DevOps / Disaster Recovery",
+      "persistent_paths": [
+        {
+          "id": "storage_app_public",
+          "path": "/var/www/fis.synergielms.com/public_html/storage/app/public"
+        }
+      ],
+      "production_host": "fis.synergielms.com",
+      "repository_candidates": [
+        "Synergie-ITCI/fis.synergielms.com"
+      ],
+      "restore_test_class": "isolated-temporary-mariadb-plus-persistent-sample",
+      "retention_class": "daily-35d-noncurrent-35d-current-45d",
+      "root": "/var/www/fis.synergielms.com/public_html",
+      "rpo_class": "daily-standard-production",
+      "slug": "fis-lms"
+    },
+    {
+      "application_name": "ICICI R2S",
+      "backup_bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+      "backup_prefix": "applications/icicir2s",
+      "database": {
+        "credential_source": {
+          "type": "mysql_root_socket"
+        },
+        "database_secret_reference": "runtime file /var/www/icicir2s.synergieinsights.in/public_html/.env DB_* keys; backup job uses local MariaDB root socket",
+        "engine": "mariadb",
+        "logical_backup": "mysqldump with engine-aware consistency options; never live DB file copy",
+        "name": "icicir2s_db"
+      },
+      "enabled": true,
+      "environment": "production",
+      "exclude_paths": [
+        ".git/*",
+        "vendor/*",
+        "node_modules/*",
+        "cache/*",
+        "logs/*",
+        "log/*",
+        "sessions/*",
+        "tmp/*",
+        "temp/*",
+        "*~",
+        "*.tmp",
+        "*.log",
+        "*.cache",
+        "*.bak",
+        "*.zip",
+        "*.tar",
+        "*.tar.gz",
+        "*.sql",
+        "*.sql.gz",
+        "ShortpixelBackups/*",
+        "wp-staging/*",
+        "sucuri/*",
+        "wpo/*",
+        "*cache*/*",
+        "unlimited_elements_cache/*"
+      ],
+      "monitoring": {
+        "sns_topic_arn": "arn:aws:sns:ap-south-1:918870682888:synergie-monitor-platform-alerts"
+      },
+      "owner": "Central Synergie DevOps / Disaster Recovery",
+      "persistent_paths": [
+        {
+          "id": "storage_app_public",
+          "path": "/var/www/icicir2s.synergieinsights.in/public_html/storage/app/public"
+        }
+      ],
+      "production_host": "icicir2s.synergieinsights.in",
+      "repository_candidates": [
+        "Synergie-ITCI/ICICI"
+      ],
+      "restore_test_class": "isolated-temporary-mariadb-plus-persistent-sample",
+      "retention_class": "daily-35d-noncurrent-35d-current-45d",
+      "root": "/var/www/icicir2s.synergieinsights.in/public_html",
+      "rpo_class": "daily-standard-production",
+      "slug": "icicir2s"
+    },
+    {
+      "application_name": "JioBP LMS",
+      "backup_bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+      "backup_prefix": "applications/jiobp-lms",
+      "database": {
+        "credential_source": {
+          "type": "mysql_root_socket"
+        },
+        "database_secret_reference": "runtime file /var/www/jiobp.synergielms.com/public_html/.env DB_* keys; backup job uses local MariaDB root socket",
+        "engine": "mariadb",
+        "logical_backup": "mysqldump with engine-aware consistency options; never live DB file copy",
+        "name": "jiobp_db"
+      },
+      "enabled": true,
+      "environment": "production",
+      "exclude_paths": [
+        ".git/*",
+        "vendor/*",
+        "node_modules/*",
+        "cache/*",
+        "logs/*",
+        "log/*",
+        "sessions/*",
+        "tmp/*",
+        "temp/*",
+        "*~",
+        "*.tmp",
+        "*.log",
+        "*.cache",
+        "*.bak",
+        "*.zip",
+        "*.tar",
+        "*.tar.gz",
+        "*.sql",
+        "*.sql.gz",
+        "ShortpixelBackups/*",
+        "wp-staging/*",
+        "sucuri/*",
+        "wpo/*",
+        "*cache*/*",
+        "unlimited_elements_cache/*"
+      ],
+      "monitoring": {
+        "sns_topic_arn": "arn:aws:sns:ap-south-1:918870682888:synergie-monitor-platform-alerts"
+      },
+      "owner": "Central Synergie DevOps / Disaster Recovery",
+      "persistent_paths": [],
+      "production_host": "jiobp.synergielms.com",
+      "repository_candidates": [
+        "Synergie-ITCI/jiobp.synergielms.com"
+      ],
+      "restore_test_class": "isolated-temporary-mariadb-plus-persistent-sample",
+      "retention_class": "daily-35d-noncurrent-35d-current-45d",
+      "root": "/var/www/jiobp.synergielms.com/public_html",
+      "rpo_class": "daily-standard-production",
+      "slug": "jiobp-lms"
+    },
+    {
+      "application_name": "JioBP Cares",
+      "backup_bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+      "backup_prefix": "applications/jiobpcares",
+      "database": {
+        "credential_source": {
+          "type": "mysql_root_socket"
+        },
+        "database_secret_reference": "runtime file /var/www/jiobpcares.synergieinsights.in/public_html/.env DB_* keys; backup job uses local MariaDB root socket",
+        "engine": "mariadb",
+        "logical_backup": "mysqldump with engine-aware consistency options; never live DB file copy",
+        "name": "jiobpcares_db"
+      },
+      "enabled": true,
+      "environment": "production",
+      "exclude_paths": [
+        ".git/*",
+        "vendor/*",
+        "node_modules/*",
+        "cache/*",
+        "logs/*",
+        "log/*",
+        "sessions/*",
+        "tmp/*",
+        "temp/*",
+        "*~",
+        "*.tmp",
+        "*.log",
+        "*.cache",
+        "*.bak",
+        "*.zip",
+        "*.tar",
+        "*.tar.gz",
+        "*.sql",
+        "*.sql.gz",
+        "ShortpixelBackups/*",
+        "wp-staging/*",
+        "sucuri/*",
+        "wpo/*",
+        "*cache*/*",
+        "unlimited_elements_cache/*"
+      ],
+      "monitoring": {
+        "sns_topic_arn": "arn:aws:sns:ap-south-1:918870682888:synergie-monitor-platform-alerts"
+      },
+      "owner": "Central Synergie DevOps / Disaster Recovery",
+      "persistent_paths": [
+        {
+          "id": "storage_app_public",
+          "path": "/var/www/jiobpcares.synergieinsights.in/public_html/storage/app/public"
+        },
+        {
+          "id": "public_uploads",
+          "path": "/var/www/jiobpcares.synergieinsights.in/public_html/public/uploads"
+        },
+        {
+          "id": "public_useruploads",
+          "path": "/var/www/jiobpcares.synergieinsights.in/public_html/public/useruploads"
+        }
+      ],
+      "production_host": "jiobpcares.synergieinsights.in",
+      "repository_candidates": [
+        "Synergie-ITCI/BP"
+      ],
+      "restore_test_class": "isolated-temporary-mariadb-plus-persistent-sample",
+      "retention_class": "daily-35d-noncurrent-35d-current-45d",
+      "root": "/var/www/jiobpcares.synergieinsights.in/public_html",
+      "rpo_class": "daily-standard-production",
+      "slug": "jiobpcares"
+    },
+    {
+      "application_name": "JioBP Transporter",
+      "backup_bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+      "backup_prefix": "applications/jiobptransporter",
+      "database": {
+        "credential_source": {
+          "type": "mysql_root_socket"
+        },
+        "database_secret_reference": "runtime file /var/www/jiobptransporter.synergieinsights.in/public_html/.env DB_* keys; backup job uses local MariaDB root socket",
+        "engine": "mariadb",
+        "logical_backup": "mysqldump with engine-aware consistency options; never live DB file copy",
+        "name": "jiobptransporter_db"
+      },
+      "enabled": true,
+      "environment": "production",
+      "exclude_paths": [
+        ".git/*",
+        "vendor/*",
+        "node_modules/*",
+        "cache/*",
+        "logs/*",
+        "log/*",
+        "sessions/*",
+        "tmp/*",
+        "temp/*",
+        "*~",
+        "*.tmp",
+        "*.log",
+        "*.cache",
+        "*.bak",
+        "*.zip",
+        "*.tar",
+        "*.tar.gz",
+        "*.sql",
+        "*.sql.gz",
+        "ShortpixelBackups/*",
+        "wp-staging/*",
+        "sucuri/*",
+        "wpo/*",
+        "*cache*/*",
+        "unlimited_elements_cache/*"
+      ],
+      "monitoring": {
+        "sns_topic_arn": "arn:aws:sns:ap-south-1:918870682888:synergie-monitor-platform-alerts"
+      },
+      "owner": "Central Synergie DevOps / Disaster Recovery",
+      "persistent_paths": [
+        {
+          "id": "storage_app_public",
+          "path": "/var/www/jiobptransporter.synergieinsights.in/public_html/storage/app/public"
+        }
+      ],
+      "production_host": "jiobptransporter.synergieinsights.in",
+      "repository_candidates": [
+        "Synergie-ITCI/BP"
+      ],
+      "restore_test_class": "isolated-temporary-mariadb-plus-persistent-sample",
+      "retention_class": "daily-35d-noncurrent-35d-current-45d",
+      "root": "/var/www/jiobptransporter.synergieinsights.in/public_html",
+      "rpo_class": "daily-standard-production",
+      "slug": "jiobptransporter"
+    },
+    {
+      "application_name": "Mobile Kids",
+      "backup_bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+      "backup_prefix": "applications/mobilekids",
+      "database": {
+        "credential_source": {
+          "type": "mysql_root_socket"
+        },
+        "database_secret_reference": "runtime file /var/www/mobilekids.synergieinsights.in/public_html/.env DB_* keys; backup job uses local MariaDB root socket",
+        "engine": "mariadb",
+        "logical_backup": "mysqldump with engine-aware consistency options; never live DB file copy",
+        "name": "mobilekids_db"
+      },
+      "enabled": true,
+      "environment": "production",
+      "exclude_paths": [
+        ".git/*",
+        "vendor/*",
+        "node_modules/*",
+        "cache/*",
+        "logs/*",
+        "log/*",
+        "sessions/*",
+        "tmp/*",
+        "temp/*",
+        "*~",
+        "*.tmp",
+        "*.log",
+        "*.cache",
+        "*.bak",
+        "*.zip",
+        "*.tar",
+        "*.tar.gz",
+        "*.sql",
+        "*.sql.gz",
+        "ShortpixelBackups/*",
+        "wp-staging/*",
+        "sucuri/*",
+        "wpo/*",
+        "*cache*/*",
+        "unlimited_elements_cache/*"
+      ],
+      "monitoring": {
+        "sns_topic_arn": "arn:aws:sns:ap-south-1:918870682888:synergie-monitor-platform-alerts"
+      },
+      "owner": "Central Synergie DevOps / Disaster Recovery",
+      "persistent_paths": [
+        {
+          "id": "storage_app_public",
+          "path": "/var/www/mobilekids.synergieinsights.in/public_html/storage/app/public"
+        },
+        {
+          "id": "storage_app_uploads",
+          "path": "/var/www/mobilekids.synergieinsights.in/public_html/storage/app/uploads"
+        }
+      ],
+      "production_host": "mobilekids.synergieinsights.in",
+      "repository_candidates": [
+        "Synergie-ITCI/mobilekids.synergieinsights.in"
+      ],
+      "restore_test_class": "isolated-temporary-mariadb-plus-persistent-sample",
+      "retention_class": "daily-35d-noncurrent-35d-current-45d",
+      "root": "/var/www/mobilekids.synergieinsights.in/public_html",
+      "rpo_class": "daily-standard-production",
+      "slug": "mobilekids"
+    },
+    {
+      "application_name": "Project Demo LMS",
+      "backup_bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+      "backup_prefix": "applications/projectdemo-lms",
+      "database": {
+        "credential_source": {
+          "type": "mysql_root_socket"
+        },
+        "database_secret_reference": "runtime file /var/www/projectdemo.synergielms.com/public_html/.env DB_* keys; backup job uses local MariaDB root socket",
+        "engine": "mariadb",
+        "logical_backup": "mysqldump with engine-aware consistency options; never live DB file copy",
+        "name": "projectdemo_db"
+      },
+      "enabled": true,
+      "environment": "production",
+      "exclude_paths": [
+        ".git/*",
+        "vendor/*",
+        "node_modules/*",
+        "cache/*",
+        "logs/*",
+        "log/*",
+        "sessions/*",
+        "tmp/*",
+        "temp/*",
+        "*~",
+        "*.tmp",
+        "*.log",
+        "*.cache",
+        "*.bak",
+        "*.zip",
+        "*.tar",
+        "*.tar.gz",
+        "*.sql",
+        "*.sql.gz",
+        "ShortpixelBackups/*",
+        "wp-staging/*",
+        "sucuri/*",
+        "wpo/*",
+        "*cache*/*",
+        "unlimited_elements_cache/*"
+      ],
+      "monitoring": {
+        "sns_topic_arn": "arn:aws:sns:ap-south-1:918870682888:synergie-monitor-platform-alerts"
+      },
+      "owner": "Central Synergie DevOps / Disaster Recovery",
+      "persistent_paths": [
+        {
+          "id": "storage_app_protected",
+          "path": "/var/www/projectdemo.synergielms.com/public_html/storage/app/protected"
+        },
+        {
+          "id": "storage_app_public",
+          "path": "/var/www/projectdemo.synergielms.com/public_html/storage/app/public"
+        }
+      ],
+      "production_host": "projectdemo.synergielms.com",
+      "repository_candidates": [
+        "Synergie-ITCI/projectdemo.synergielms.com"
+      ],
+      "restore_test_class": "isolated-temporary-mariadb-plus-persistent-sample",
+      "retention_class": "daily-35d-noncurrent-35d-current-45d",
+      "root": "/var/www/projectdemo.synergielms.com/public_html",
+      "rpo_class": "daily-standard-production",
+      "slug": "projectdemo-lms"
+    },
+    {
+      "application_name": "Sankalp Training LMS",
+      "backup_bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+      "backup_prefix": "applications/sankalptraining-lms",
+      "database": {
+        "credential_source": {
+          "type": "mysql_root_socket"
+        },
+        "database_secret_reference": "runtime file /var/www/sankalptraining.synergielms.com/public_html/.env DB_* keys; backup job uses local MariaDB root socket",
+        "engine": "mariadb",
+        "logical_backup": "mysqldump with engine-aware consistency options; never live DB file copy",
+        "name": "sankalptraining_db"
+      },
+      "enabled": true,
+      "environment": "production",
+      "exclude_paths": [
+        ".git/*",
+        "vendor/*",
+        "node_modules/*",
+        "cache/*",
+        "logs/*",
+        "log/*",
+        "sessions/*",
+        "tmp/*",
+        "temp/*",
+        "*~",
+        "*.tmp",
+        "*.log",
+        "*.cache",
+        "*.bak",
+        "*.zip",
+        "*.tar",
+        "*.tar.gz",
+        "*.sql",
+        "*.sql.gz",
+        "ShortpixelBackups/*",
+        "wp-staging/*",
+        "sucuri/*",
+        "wpo/*",
+        "*cache*/*",
+        "unlimited_elements_cache/*"
+      ],
+      "monitoring": {
+        "sns_topic_arn": "arn:aws:sns:ap-south-1:918870682888:synergie-monitor-platform-alerts"
+      },
+      "owner": "Central Synergie DevOps / Disaster Recovery",
+      "persistent_paths": [
+        {
+          "id": "storage_app_public",
+          "path": "/var/www/sankalptraining.synergielms.com/public_html/storage/app/public"
+        }
+      ],
+      "production_host": "sankalptraining.synergielms.com",
+      "repository_candidates": [
+        "Synergie-ITCI/sankalp",
+        "Synergie-ITCI/synergielms.com"
+      ],
+      "restore_test_class": "isolated-temporary-mariadb-plus-persistent-sample",
+      "retention_class": "daily-35d-noncurrent-35d-current-45d",
+      "root": "/var/www/sankalptraining.synergielms.com/public_html",
+      "rpo_class": "daily-standard-production",
+      "slug": "sankalptraining-lms"
+    },
+    {
+      "application_name": "Share A Smile",
+      "backup_bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+      "backup_prefix": "applications/shareasmile",
+      "database": {
+        "credential_source": {
+          "type": "mysql_root_socket"
+        },
+        "database_secret_reference": "runtime file /var/www/shareasmile.wearesynergie.com/public_html/admin/.env DB_* keys; backup job uses local MariaDB root socket",
+        "engine": "mariadb",
+        "logical_backup": "mysqldump with engine-aware consistency options; never live DB file copy",
+        "name": "shareasmile_db"
+      },
+      "enabled": true,
+      "environment": "production",
+      "exclude_paths": [
+        ".git/*",
+        "vendor/*",
+        "node_modules/*",
+        "cache/*",
+        "logs/*",
+        "log/*",
+        "sessions/*",
+        "tmp/*",
+        "temp/*",
+        "*~",
+        "*.tmp",
+        "*.log",
+        "*.cache",
+        "*.bak",
+        "*.zip",
+        "*.tar",
+        "*.tar.gz",
+        "*.sql",
+        "*.sql.gz",
+        "ShortpixelBackups/*",
+        "wp-staging/*",
+        "sucuri/*",
+        "wpo/*",
+        "*cache*/*",
+        "unlimited_elements_cache/*"
+      ],
+      "monitoring": {
+        "sns_topic_arn": "arn:aws:sns:ap-south-1:918870682888:synergie-monitor-platform-alerts"
+      },
+      "owner": "Central Synergie DevOps / Disaster Recovery",
+      "persistent_paths": [
+        {
+          "id": "admin_storage_app_public",
+          "path": "/var/www/shareasmile.wearesynergie.com/public_html/admin/storage/app/public"
+        },
+        {
+          "id": "admin_public_uploads",
+          "optional": true,
+          "path": "/var/www/shareasmile.wearesynergie.com/public_html/admin/public/uploads"
+        }
+      ],
+      "production_host": "shareasmile.wearesynergie.com",
+      "repository_candidates": [
+        "Synergie-ITCI/wearesynergie"
+      ],
+      "restore_test_class": "isolated-temporary-mariadb-plus-persistent-sample",
+      "retention_class": "daily-35d-noncurrent-35d-current-45d",
+      "root": "/var/www/shareasmile.wearesynergie.com/public_html",
+      "rpo_class": "daily-standard-production",
+      "slug": "shareasmile"
+    },
+    {
+      "application_name": "SyncSR",
+      "backup_bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+      "backup_prefix": "applications/syncsr",
+      "database": {
+        "credential_source": {
+          "type": "mysql_root_socket"
+        },
+        "database_secret_reference": "runtime file /var/www/syncsr.in/public_html/.env DB_* keys; backup job uses local MariaDB root socket",
+        "engine": "mariadb",
+        "logical_backup": "mysqldump with engine-aware consistency options; never live DB file copy",
+        "name": "shorturl_db"
+      },
+      "enabled": true,
+      "environment": "production",
+      "exclude_paths": [
+        ".git/*",
+        "vendor/*",
+        "node_modules/*",
+        "cache/*",
+        "logs/*",
+        "log/*",
+        "sessions/*",
+        "tmp/*",
+        "temp/*",
+        "*~",
+        "*.tmp",
+        "*.log",
+        "*.cache",
+        "*.bak",
+        "*.zip",
+        "*.tar",
+        "*.tar.gz",
+        "*.sql",
+        "*.sql.gz",
+        "ShortpixelBackups/*",
+        "wp-staging/*",
+        "sucuri/*",
+        "wpo/*",
+        "*cache*/*",
+        "unlimited_elements_cache/*"
+      ],
+      "monitoring": {
+        "sns_topic_arn": "arn:aws:sns:ap-south-1:918870682888:synergie-monitor-platform-alerts"
+      },
+      "owner": "Central Synergie DevOps / Disaster Recovery",
+      "persistent_paths": [
+        {
+          "id": "storage_app_public",
+          "path": "/var/www/syncsr.in/public_html/storage/app/public"
+        }
+      ],
+      "production_host": "syncsr.in",
+      "repository_candidates": [],
+      "restore_test_class": "isolated-temporary-mariadb-plus-persistent-sample",
+      "retention_class": "daily-35d-noncurrent-35d-current-45d",
+      "root": "/var/www/syncsr.in/public_html",
+      "rpo_class": "daily-standard-production",
+      "slug": "syncsr"
+    },
+    {
+      "application_name": "Synergie Hub",
+      "backup_bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+      "backup_prefix": "applications/synergie-hub",
+      "database": {
+        "credential_source": {
+          "type": "mysql_root_socket"
+        },
+        "database_secret_reference": "runtime file /var/www/synergie-hub/shared/.env DB_* keys and Secrets Manager partial coverage; backup job uses local MariaDB root socket",
+        "engine": "mariadb",
+        "logical_backup": "mysqldump with engine-aware consistency options; never live DB file copy",
+        "name": "synergie_hub"
+      },
+      "enabled": true,
+      "environment": "production",
+      "exclude_paths": [
+        ".git/*",
+        "vendor/*",
+        "node_modules/*",
+        "cache/*",
+        "logs/*",
+        "log/*",
+        "sessions/*",
+        "tmp/*",
+        "temp/*",
+        "*~",
+        "*.tmp",
+        "*.log",
+        "*.cache",
+        "*.bak",
+        "*.zip",
+        "*.tar",
+        "*.tar.gz",
+        "*.sql",
+        "*.sql.gz",
+        "ShortpixelBackups/*",
+        "wp-staging/*",
+        "sucuri/*",
+        "wpo/*",
+        "*cache*/*",
+        "unlimited_elements_cache/*"
+      ],
+      "monitoring": {
+        "sns_topic_arn": "arn:aws:sns:ap-south-1:918870682888:synergie-monitor-platform-alerts"
+      },
+      "owner": "Central Synergie DevOps / Disaster Recovery",
+      "persistent_paths": [],
+      "production_host": "hub.synergieinsights.in",
+      "repository_candidates": [
+        "Synergie-ITCI/synergie-hub"
+      ],
+      "restore_test_class": "isolated-temporary-mariadb-plus-persistent-sample",
+      "retention_class": "daily-35d-noncurrent-35d-current-45d",
+      "root": "/var/www/synergie-hub/public",
+      "rpo_class": "daily-standard-production",
+      "slug": "synergie-hub"
+    },
+    {
+      "application_name": "Synergie LMS Root",
+      "backup_bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+      "backup_prefix": "applications/synergielms-root",
+      "database": {
+        "credential_source": {
+          "type": "mysql_root_socket"
+        },
+        "database_secret_reference": "runtime file /var/www/synergielms.com/public_html/LMS/.env DB_* keys; backup job uses local MariaDB root socket",
+        "engine": "mariadb",
+        "logical_backup": "mysqldump with engine-aware consistency options; never live DB file copy",
+        "name": "lms_db"
+      },
+      "enabled": true,
+      "environment": "production",
+      "exclude_paths": [
+        ".git/*",
+        "vendor/*",
+        "node_modules/*",
+        "cache/*",
+        "logs/*",
+        "log/*",
+        "sessions/*",
+        "tmp/*",
+        "temp/*",
+        "*~",
+        "*.tmp",
+        "*.log",
+        "*.cache",
+        "*.bak",
+        "*.zip",
+        "*.tar",
+        "*.tar.gz",
+        "*.sql",
+        "*.sql.gz",
+        "ShortpixelBackups/*",
+        "wp-staging/*",
+        "sucuri/*",
+        "wpo/*",
+        "*cache*/*",
+        "unlimited_elements_cache/*"
+      ],
+      "monitoring": {
+        "sns_topic_arn": "arn:aws:sns:ap-south-1:918870682888:synergie-monitor-platform-alerts"
+      },
+      "owner": "Central Synergie DevOps / Disaster Recovery",
+      "persistent_paths": [
+        {
+          "id": "lms_storage_app_public",
+          "path": "/var/www/synergielms.com/public_html/LMS/storage/app/public"
+        }
+      ],
+      "production_host": "synergielms.com",
+      "repository_candidates": [
+        "Synergie-ITCI/synergielms.com"
+      ],
+      "restore_test_class": "isolated-temporary-mariadb-plus-persistent-sample",
+      "retention_class": "daily-35d-noncurrent-35d-current-45d",
+      "root": "/var/www/synergielms.com/public_html",
+      "rpo_class": "daily-standard-production",
+      "slug": "synergielms-root"
+    },
+    {
+      "application_name": "Telemedicine",
+      "backup_bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+      "backup_prefix": "applications/telemedicine",
+      "database": {
+        "credential_source": {
+          "type": "mysql_root_socket"
+        },
+        "database_secret_reference": "runtime file /var/www/telemedicine.synergieinsights.in/public_html/.env DB_* keys; backup job uses local MariaDB root socket",
+        "engine": "mariadb",
+        "logical_backup": "mysqldump with engine-aware consistency options; never live DB file copy",
+        "name": "telemedicine_db"
+      },
+      "enabled": true,
+      "environment": "production",
+      "exclude_paths": [
+        ".git/*",
+        "vendor/*",
+        "node_modules/*",
+        "cache/*",
+        "logs/*",
+        "log/*",
+        "sessions/*",
+        "tmp/*",
+        "temp/*",
+        "*~",
+        "*.tmp",
+        "*.log",
+        "*.cache",
+        "*.bak",
+        "*.zip",
+        "*.tar",
+        "*.tar.gz",
+        "*.sql",
+        "*.sql.gz",
+        "ShortpixelBackups/*",
+        "wp-staging/*",
+        "sucuri/*",
+        "wpo/*",
+        "*cache*/*",
+        "unlimited_elements_cache/*"
+      ],
+      "monitoring": {
+        "sns_topic_arn": "arn:aws:sns:ap-south-1:918870682888:synergie-monitor-platform-alerts"
+      },
+      "owner": "Central Synergie DevOps / Disaster Recovery",
+      "persistent_paths": [
+        {
+          "id": "storage_app_public",
+          "path": "/var/www/telemedicine.synergieinsights.in/public_html/storage/app/public"
+        }
+      ],
+      "production_host": "telemedicine.synergieinsights.in",
+      "repository_candidates": [
+        "Synergie-ITCI/telemedicine-backend",
+        "Synergie-ITCI/telemedicine-bridgestone",
+        "Synergie-ITCI/TelemedicineNew"
+      ],
+      "restore_test_class": "isolated-temporary-mariadb-plus-persistent-sample",
+      "retention_class": "daily-35d-noncurrent-35d-current-45d",
+      "root": "/var/www/telemedicine.synergieinsights.in/public_html",
+      "rpo_class": "daily-standard-production",
+      "slug": "telemedicine"
+    },
+    {
+      "application_name": "Timesheet LMS",
+      "backup_bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+      "backup_prefix": "applications/timesheet-lms",
+      "database": {
+        "credential_source": {
+          "type": "mysql_root_socket"
+        },
+        "database_secret_reference": "runtime file /var/www/timesheet.synergielms.com/public_html/.env DB_* keys; backup job uses local MariaDB root socket",
+        "engine": "mariadb",
+        "logical_backup": "mysqldump with engine-aware consistency options; never live DB file copy",
+        "name": "timesheet_db"
+      },
+      "enabled": true,
+      "environment": "production",
+      "exclude_paths": [
+        ".git/*",
+        "vendor/*",
+        "node_modules/*",
+        "cache/*",
+        "logs/*",
+        "log/*",
+        "sessions/*",
+        "tmp/*",
+        "temp/*",
+        "*~",
+        "*.tmp",
+        "*.log",
+        "*.cache",
+        "*.bak",
+        "*.zip",
+        "*.tar",
+        "*.tar.gz",
+        "*.sql",
+        "*.sql.gz",
+        "ShortpixelBackups/*",
+        "wp-staging/*",
+        "sucuri/*",
+        "wpo/*",
+        "*cache*/*",
+        "unlimited_elements_cache/*"
+      ],
+      "monitoring": {
+        "sns_topic_arn": "arn:aws:sns:ap-south-1:918870682888:synergie-monitor-platform-alerts"
+      },
+      "owner": "Central Synergie DevOps / Disaster Recovery",
+      "persistent_paths": [
+        {
+          "id": "storage_app_public",
+          "path": "/var/www/timesheet.synergielms.com/public_html/storage/app/public"
+        }
+      ],
+      "production_host": "timesheet.synergielms.com",
+      "repository_candidates": [
+        "Synergie-ITCI/synergielms.com"
+      ],
+      "restore_test_class": "isolated-temporary-mariadb-plus-persistent-sample",
+      "retention_class": "daily-35d-noncurrent-35d-current-45d",
+      "root": "/var/www/timesheet.synergielms.com/public_html",
+      "rpo_class": "daily-standard-production",
+      "slug": "timesheet-lms"
+    },
+    {
+      "application_name": "We Are Synergie",
+      "backup_bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+      "backup_prefix": "applications/wearesynergie",
+      "database": {
+        "credential_source": {
+          "type": "mysql_root_socket"
+        },
+        "database_secret_reference": "runtime file /var/www/wearesynergie.com/public_html/wp-config.php DB_* defines; backup job uses local MariaDB root socket",
+        "engine": "mariadb",
+        "logical_backup": "mysqldump with engine-aware consistency options; never live DB file copy",
+        "name": "wearesynergie_website"
+      },
+      "enabled": true,
+      "environment": "production",
+      "exclude_paths": [
+        ".git/*",
+        "vendor/*",
+        "node_modules/*",
+        "cache/*",
+        "logs/*",
+        "log/*",
+        "sessions/*",
+        "tmp/*",
+        "temp/*",
+        "*~",
+        "*.tmp",
+        "*.log",
+        "*.cache",
+        "*.bak",
+        "*.zip",
+        "*.tar",
+        "*.tar.gz",
+        "*.sql",
+        "*.sql.gz",
+        "ShortpixelBackups/*",
+        "wp-staging/*",
+        "sucuri/*",
+        "wpo/*",
+        "*cache*/*",
+        "unlimited_elements_cache/*"
+      ],
+      "monitoring": {
+        "sns_topic_arn": "arn:aws:sns:ap-south-1:918870682888:synergie-monitor-platform-alerts"
+      },
+      "owner": "Central Synergie DevOps / Disaster Recovery",
+      "persistent_paths": [
+        {
+          "id": "wp_content_uploads",
+          "path": "/var/www/wearesynergie.com/public_html/wp-content/uploads"
+        }
+      ],
+      "production_host": "wearesynergie.com",
+      "repository_candidates": [
+        "Synergie-ITCI/wearesynergie"
+      ],
+      "restore_test_class": "isolated-temporary-mariadb-plus-persistent-sample",
+      "retention_class": "daily-35d-noncurrent-35d-current-45d",
+      "root": "/var/www/wearesynergie.com/public_html",
+      "rpo_class": "daily-standard-production",
+      "slug": "wearesynergie"
+    },
+    {
+      "application_name": "We Are Synergie Insights",
+      "backup_bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+      "backup_prefix": "applications/wearesynergie-insights",
+      "database": {
+        "credential_source": {
+          "type": "mysql_root_socket"
+        },
+        "database_secret_reference": "runtime file /var/www/wearesynergie.synergieinsights.in/public_html/wp-config.php DB_* defines; backup job uses local MariaDB root socket",
+        "engine": "mariadb",
+        "logical_backup": "mysqldump with engine-aware consistency options; never live DB file copy",
+        "name": "wearesynergie_db"
+      },
+      "enabled": true,
+      "environment": "production",
+      "exclude_paths": [
+        ".git/*",
+        "vendor/*",
+        "node_modules/*",
+        "cache/*",
+        "logs/*",
+        "log/*",
+        "sessions/*",
+        "tmp/*",
+        "temp/*",
+        "*~",
+        "*.tmp",
+        "*.log",
+        "*.cache",
+        "*.bak",
+        "*.zip",
+        "*.tar",
+        "*.tar.gz",
+        "*.sql",
+        "*.sql.gz",
+        "ShortpixelBackups/*",
+        "wp-staging/*",
+        "sucuri/*",
+        "wpo/*",
+        "*cache*/*",
+        "unlimited_elements_cache/*"
+      ],
+      "monitoring": {
+        "sns_topic_arn": "arn:aws:sns:ap-south-1:918870682888:synergie-monitor-platform-alerts"
+      },
+      "owner": "Central Synergie DevOps / Disaster Recovery",
+      "persistent_paths": [
+        {
+          "id": "wp_content_uploads",
+          "path": "/var/www/wearesynergie.synergieinsights.in/public_html/wp-content/uploads"
+        }
+      ],
+      "production_host": "wearesynergie.synergieinsights.in",
+      "repository_candidates": [
+        "Synergie-ITCI/wearesynergie"
+      ],
+      "restore_test_class": "isolated-temporary-mariadb-plus-persistent-sample",
+      "retention_class": "daily-35d-noncurrent-35d-current-45d",
+      "root": "/var/www/wearesynergie.synergieinsights.in/public_html",
+      "rpo_class": "daily-standard-production",
+      "slug": "wearesynergie-insights"
+    }
+  ],
+  "defaults": {
+    "aws_region": "ap-south-1",
+    "backup_bucket": "synergie-production-app-backups-918870682888-ap-south-1",
+    "encryption": "AES256",
+    "retention_class": "daily-35d-noncurrent-35d-current-45d",
+    "schedule": "10 21 * * * UTC",
+    "status_prefix": "applications/<slug>/production/status/"
+  },
+  "framework": "Synergie Production Application Backup Framework",
+  "framework_version": "2026.08.09",
+  "monitoring": {
+    "default_sns_topic_arn": "arn:aws:sns:ap-south-1:918870682888:synergie-monitor-platform-alerts",
+    "owner_fallback": "Central Synergie DevOps / Disaster Recovery"
+  }
+}
