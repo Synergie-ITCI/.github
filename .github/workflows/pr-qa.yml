@@ -15,7 +15,7 @@ env:
   OPENTOFU_VERSION: "1.12.5"
   TFSEC_VERSION: "1.28.14"
   TRIVY_VERSION: "0.74.0"
-  PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc79"
+  PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc80"
 
 jobs:
   detect:
