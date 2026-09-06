@@ -135,6 +135,7 @@ class RuntimeCertifierTests(unittest.TestCase):
         self.assertIn("legacy baseline authorization was already consumed", script)
         self.assertIn("LEGACY_BASELINE_INTEGRITY=PASS", script)
         self.assertIn("PRODUCTION_MUTATED=NO", script)
+        self.assertIn("legacy baseline reference is not immutable", script)
         subprocess.run(
             ["bash", "-n"],
             input=script,

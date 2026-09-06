@@ -470,6 +470,7 @@ grep -Fxq 'rollback_kind=legacy-baseline' "$BASELINE_REF" || cert_fail "legacy b
 grep -Fxq 'source_kind=legacy-unversioned' "$BASELINE_REF" || cert_fail "legacy baseline source marker missing"
 grep -Fxq "artifact_sha256=$ROLLBACK_REF" "$BASELINE_REF" || cert_fail "legacy baseline reference hash mismatch"
 lsattr -d "$LEGACY_BASELINE_PATH" | awk '{print $1}' | grep -q i || cert_fail "legacy baseline artifact is not immutable"
+lsattr -d "$BASELINE_REF" | awk '{print $1}' | grep -q i || cert_fail "legacy baseline reference is not immutable"
 tar -tf "$LEGACY_BASELINE_PATH" >/dev/null || cert_fail "legacy baseline archive cannot be read"
 
 PHP_BIN=""
