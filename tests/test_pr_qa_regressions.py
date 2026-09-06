@@ -724,6 +724,18 @@ exit 1
         )
         fake_gitleaks.chmod(0o755)
 
+    def install_nested_framework_fixture(self, repo: Path, relative_path: str, content: str) -> Path:
+        framework = repo / ".pr-qa-framework"
+        framework.mkdir()
+        self.git(framework, "init", "-q")
+        self.git(framework, "config", "user.email", "qa@example.invalid")
+        self.git(framework, "config", "user.name", "QA Regression")
+        fixture = framework / relative_path
+        self.write(fixture, content)
+        self.git(framework, "add", ".")
+        self.git(framework, "commit", "-q", "-m", "test: add synthetic framework fixture")
+        return fixture
+
     def install_fake_gitleaks_asserting_log_opts(self, expected: str) -> None:
         fake_gitleaks = self.bin / "gitleaks"
         fake_gitleaks.write_text(
@@ -1589,6 +1601,78 @@ exit 0
         )
 
         self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Secrets"], "FAIL")
+        self.assertIn("Gitleaks detected secrets", report)
+
+    def test_immutable_nested_framework_test_fixture_secret_is_classified(self) -> None:
+        repo, base = self.init_repo("framework-self-test-fixture")
+        self.write(repo / "app.py", "print('candidate')\n")
+        self.commit(repo, "feat: add candidate")
+        self.install_nested_framework_fixture(
+            repo,
+            "tests/test_synthetic_secret.py",
+            "SYNTHETIC_TOKEN = 'ghp_abcdefghijklmnopqrstuvwxyz123456'\n",
+        )
+        self.install_fake_gitleaks_report(
+            [
+                {
+                    "RuleID": "github-pat",
+                    "File": ".pr-qa-framework/tests/test_synthetic_secret.py",
+                    "StartLine": 1,
+                    "Fingerprint": ".pr-qa-framework/tests/test_synthetic_secret.py:github-pat:1",
+                }
+            ]
+        )
+
+        _, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Secrets"], "WARNING", report)
+        self.assertIn("unchanged test fixture in the immutable nested PR-QA framework checkout", report)
+
+    def test_modified_nested_framework_test_fixture_secret_fails_closed(self) -> None:
+        repo, base = self.init_repo("modified-framework-self-test-fixture")
+        self.write(repo / "app.py", "print('candidate')\n")
+        self.commit(repo, "feat: add candidate")
+        fixture = self.install_nested_framework_fixture(
+            repo,
+            "tests/test_synthetic_secret.py",
+            "SYNTHETIC_TOKEN = 'fixture-value'\n",
+        )
+        self.write(fixture, "REAL_TOKEN = 'ghp_abcdefghijklmnopqrstuvwxyz123456'\n")
+        self.install_fake_gitleaks_report(
+            [
+                {
+                    "RuleID": "github-pat",
+                    "File": ".pr-qa-framework/tests/test_synthetic_secret.py",
+                    "StartLine": 1,
+                    "Fingerprint": ".pr-qa-framework/tests/test_synthetic_secret.py:github-pat:1",
+                }
+            ]
+        )
+
+        _, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Secrets"], "FAIL")
+        self.assertIn("Gitleaks detected secrets", report)
+
+    def test_candidate_tracked_framework_lookalike_secret_fails_closed(self) -> None:
+        repo, base = self.init_repo("tracked-framework-lookalike")
+        path = ".pr-qa-framework/tests/test_synthetic_secret.py"
+        self.write(repo / path, "REAL_TOKEN = 'ghp_abcdefghijklmnopqrstuvwxyz123456'\n")
+        self.commit(repo, "test: add candidate-tracked lookalike")
+        self.install_fake_gitleaks_report(
+            [
+                {
+                    "RuleID": "github-pat",
+                    "File": path,
+                    "StartLine": 1,
+                    "Fingerprint": f"{path}:github-pat:1",
+                }
+            ]
+        )
+
+        _, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
         self.assertEqual(report_json["summary"]["gate_statuses"]["Secrets"], "FAIL")
         self.assertIn("Gitleaks detected secrets", report)
 
@@ -5051,7 +5135,7 @@ jobs:
         self.assertIn("persist-credentials: false", workflow)
         self.assertIn("Fetch current pull request base branch", workflow)
         self.assertIn("refs/remotes/origin/${BASE_REF}", workflow)
-        self.assertRegex(workflow, r'PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc(?:80|82)"')
+        self.assertRegex(workflow, r'PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc(?:82|83)"')
         self.assertIn("issues: write", workflow)
         self.assertIn("issues: write", self_workflow)
         self.assertIn("issues: write", caller)
@@ -6567,7 +6651,13 @@ case "$args" in *"--log-opts"*) exit 0;; *) echo "missing history scan" >&2; exi
         self.assertIn("exact_approved_blob_fallback_cache", baseline["relaxations"])
         self.assertIn("exact_gitleaks_fingerprint_allowlist", baseline["relaxations"])
         self.assertEqual(len(baseline["gitleaks_allowlist"]), 2)
-        self.assertTrue(all(item.get("line_sha256") for item in baseline["gitleaks_allowlist"]))
+        self.assertEqual(
+            [item.get("line_sha256") for item in baseline["gitleaks_allowlist"]],
+            [
+                "5c510f5dd0f712be94bbfcb5ec165afae01af6468c1c917def14aba05e8bc3ac",
+                "dae34c7feda68314f58baeb34f30027796f2f1297d1c9698aeddbee2134089fc",
+            ],
+        )
         self.assertEqual(len(baseline["static_executable_assets"]["safe_paths"]), 4)
         self.assertEqual(len(baseline["fallback_secret_allowlist"]), 1)
         self.assertEqual(

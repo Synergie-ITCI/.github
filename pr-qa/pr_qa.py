@@ -2356,14 +2356,17 @@ def classify_gitleaks_findings(ctx: PRContext, report: Path) -> tuple[bool, list
         return False, ["Gitleaks report is not a list."], []
     if not findings:
         return False, [], []
-    if not baseline_allows(ctx, "exact_gitleaks_fingerprint_allowlist"):
-        return False, [gitleaks_finding_summary(item) for item in findings if isinstance(item, dict)], []
-    allowed = baseline_policy_settings(ctx).get("gitleaks_allowlist", []) or []
+    baseline_allowlist_enabled = baseline_allows(ctx, "exact_gitleaks_fingerprint_allowlist")
+    allowed: list[Any] = []
+    if baseline_allowlist_enabled:
+        allowed = baseline_policy_settings(ctx).get("gitleaks_allowlist", []) or []
     unexpected: list[str] = []
     allowed_details: list[str] = []
     for raw in findings:
         item = raw if isinstance(raw, dict) else {}
-        match = matching_gitleaks_allowance(ctx, item, allowed)
+        match = matching_framework_self_test_fixture(ctx, item)
+        if not match and baseline_allowlist_enabled:
+            match = matching_gitleaks_allowance(ctx, item, allowed)
         if not match:
             unexpected.append(gitleaks_finding_summary(item))
             continue
@@ -2372,6 +2375,48 @@ def classify_gitleaks_findings(ctx: PRContext, report: Path) -> tuple[bool, list
             f"fingerprint={item.get('Fingerprint', 'unknown')} justification={match.get('justification', 'baseline fixture')}"
         )
     return bool(allowed_details), unexpected, allowed_details
+
+
+def matching_framework_self_test_fixture(ctx: PRContext, item: dict[str, Any]) -> dict[str, str] | None:
+    prefix = ".pr-qa-framework/tests/"
+    path = str(item.get("File", ""))
+    if not path.startswith(prefix):
+        return None
+    if subprocess.run(
+        ["git", "ls-files", "--error-unmatch", "--", path],
+        cwd=ctx.repo,
+        capture_output=True,
+        check=False,
+    ).returncode == 0:
+        return None
+    framework_root = ctx.repo / ".pr-qa-framework"
+    framework_git = framework_root / ".git"
+    framework_rel = path[len(".pr-qa-framework/") :]
+    fixture_path = framework_root / framework_rel
+    tests_root = framework_root / "tests"
+    if not framework_git.exists() or not fixture_path.is_file():
+        return None
+    try:
+        fixture_path.resolve().relative_to(tests_root.resolve())
+    except ValueError:
+        return None
+    if subprocess.run(
+        ["git", "ls-files", "--error-unmatch", "--", framework_rel],
+        cwd=framework_root,
+        capture_output=True,
+        check=False,
+    ).returncode != 0:
+        return None
+    if subprocess.run(
+        ["git", "diff", "--quiet", "HEAD", "--", framework_rel],
+        cwd=framework_root,
+        capture_output=True,
+        check=False,
+    ).returncode != 0:
+        return None
+    return {
+        "justification": "Synthetic finding is confined to an unchanged test fixture in the immutable nested PR-QA framework checkout."
+    }
 
 
 def matching_gitleaks_allowance(ctx: PRContext, item: dict[str, Any], allowlist: list[Any]) -> dict[str, Any] | None:

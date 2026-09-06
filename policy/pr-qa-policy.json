@@ -114,7 +114,7 @@
         "rule_id": "generic-api-key",
         "path": "application/views/dashboard/dashboard.php",
         "line": 2153,
-        "line_sha256": "7d78fc11b9a31d8a9808622b906e5c02b1dfc0cb7e73d6208eb0e0f64275b843",
+        "line_sha256": "5c510f5dd0f712be94bbfcb5ec165afae01af6468c1c917def14aba05e8bc3ac",
         "fingerprint": "application/views/dashboard/dashboard.php:generic-api-key:2153",
         "justification": "Exact inherited dashboard form-label false positive in the approved PR #7 source blob.",
         "expires_after": "2026-09-08T07:07:34Z"
@@ -123,7 +123,7 @@
         "rule_id": "generic-api-key",
         "path": "application/views/dashboard/dashboard.php",
         "line": 2160,
-        "line_sha256": "35ce9337d6ab5d0fa8d7d468dfad7ac856114936306f83fc820866b3399ac9cf",
+        "line_sha256": "dae34c7feda68314f58baeb34f30027796f2f1297d1c9698aeddbee2134089fc",
         "fingerprint": "application/views/dashboard/dashboard.php:generic-api-key:2160",
         "justification": "Exact inherited dashboard form-label false positive in the approved PR #7 source blob.",
         "expires_after": "2026-09-08T07:07:34Z"
