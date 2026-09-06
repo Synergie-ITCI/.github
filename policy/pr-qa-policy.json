@@ -70,46 +70,72 @@
   },
   "one_time_baseline_alignment": {
     "enabled": true,
-    "repository": "Synergie-ITCI/dhansamvaad-new.synergieinsights.in",
+    "repository": "Synergie-ITCI/jkcementypsscholarship",
     "base_ref": "main",
     "head_ref": "staging",
-    "expected_base_sha": "3e2404bb53874fa5e46f249eba55914193eeef1c",
-    "expected_head_sha": "1919ba8edd6de50cccc9a2ed09f731ccbac28ed5",
-    "expires_after": "2026-08-24T00:00:00Z",
-    "minimum_changed_files": 300,
-    "required_pr_body_marker": "ONE-TIME DHANSAMVAAD STAGING TO MAIN BASELINE AUTHORIZATION PR-15",
+    "expected_base_sha": "284bf644d39ffd63ee66891ced7960d011a532bf",
+    "expected_head_sha": "b6f457fdb5507cc032a4c1675a893669e99aca25",
+    "expires_after": "2026-09-08T07:07:34Z",
+    "minimum_changed_files": 2000,
+    "required_pr_body_marker": "ONE-TIME JK CEMENT STAGING TO MAIN BASELINE AUTHORIZATION PR-7",
     "relaxations": [
       "diff_size",
       "changed_file_count",
-      "exact_gitleaks_fingerprint_allowlist"
+      "historical_commit_volume",
+      "historical_migration_count",
+      "generated_static_baseline_content",
+      "baseline_binary_assets",
+      "exact_approved_tree_secret_scan",
+      "exact_approved_blob_fallback_cache",
+      "exact_gitleaks_fingerprint_allowlist",
+      "exact_secret_fallback_allowlist"
     ],
+    "binary_assets": {
+      "safe_patterns": [
+        "assets/**/*.eot",
+        "assets/**/*.ico",
+        "assets/**/*.ttf",
+        "assets/**/*.woff",
+        "assets/**/*.woff2",
+        "tcpdf/fonts/**"
+      ],
+      "max_file_bytes": 5242880
+    },
+    "static_executable_assets": {
+      "safe_paths": [
+        "user_guide/nav/moo.fx.js",
+        "user_guide/nav/nav.js",
+        "user_guide/nav/prototype.lite.js",
+        "user_guide/nav/user_guide_menu.js"
+      ]
+    },
     "gitleaks_allowlist": [
       {
         "rule_id": "generic-api-key",
-        "path": "app/helper/helper.php",
-        "line": 668,
-        "fingerprint": "8b0a0eb950784c33977b8ee50620eabd9bd17705:app/helper/helper.php:generic-api-key:668",
-        "justification": "historical commit-range credential; absent from final staging tree; credential revoked/rotated; one-time PR #15 baseline only",
-        "scope": "Synergie-ITCI/dhansamvaad-new.synergieinsights.in PR #15 only",
-        "expires_after": "2026-08-24T00:00:00Z"
+        "path": "application/views/dashboard/dashboard.php",
+        "line": 2153,
+        "line_sha256": "7d78fc11b9a31d8a9808622b906e5c02b1dfc0cb7e73d6208eb0e0f64275b843",
+        "fingerprint": "application/views/dashboard/dashboard.php:generic-api-key:2153",
+        "justification": "Exact inherited dashboard form-label false positive in the approved PR #7 source blob.",
+        "expires_after": "2026-09-08T07:07:34Z"
       },
       {
         "rule_id": "generic-api-key",
-        "path": "app/helper/helper.php",
-        "line": 670,
-        "fingerprint": "8b0a0eb950784c33977b8ee50620eabd9bd17705:app/helper/helper.php:generic-api-key:670",
-        "justification": "historical commit-range credential; absent from final staging tree; credential revoked/rotated; one-time PR #15 baseline only",
-        "scope": "Synergie-ITCI/dhansamvaad-new.synergieinsights.in PR #15 only",
-        "expires_after": "2026-08-24T00:00:00Z"
-      },
+        "path": "application/views/dashboard/dashboard.php",
+        "line": 2160,
+        "line_sha256": "35ce9337d6ab5d0fa8d7d468dfad7ac856114936306f83fc820866b3399ac9cf",
+        "fingerprint": "application/views/dashboard/dashboard.php:generic-api-key:2160",
+        "justification": "Exact inherited dashboard form-label false positive in the approved PR #7 source blob.",
+        "expires_after": "2026-09-08T07:07:34Z"
+      }
+    ],
+    "fallback_secret_allowlist": [
       {
-        "rule_id": "generic-api-key",
-        "path": "app/helper/helper.php",
-        "line": 671,
-        "fingerprint": "8b0a0eb950784c33977b8ee50620eabd9bd17705:app/helper/helper.php:generic-api-key:671",
-        "justification": "historical commit-range credential; absent from final staging tree; credential revoked/rotated; one-time PR #15 baseline only",
-        "scope": "Synergie-ITCI/dhansamvaad-new.synergieinsights.in PR #15 only",
-        "expires_after": "2026-08-24T00:00:00Z"
+        "path": "user_guide/libraries/xmlrpc.html",
+        "label": "generic credential assignment",
+        "line_sha256": "4a01300547d4e0a68131d3c63d60d3a80316dafeeb723afd5ca12c6cef978893",
+        "justification": "Exact historical CodeIgniter XML-RPC user-guide example line in the approved PR #7 source tree; not runtime configuration.",
+        "expires_after": "2026-09-08T07:07:34Z"
       }
     ]
   },

@@ -400,6 +400,7 @@ gates:
                 "historical_migration_count",
                 "generated_static_baseline_content",
                 "baseline_binary_assets",
+                "exact_approved_tree_secret_scan",
                 "environment_fixture_classification",
                 "exact_gitleaks_fingerprint_allowlist",
                 "exact_secret_fallback_allowlist",
@@ -6329,6 +6330,250 @@ exit 0
 
         self.assertEqual(code, 0, report)
         self.assertEqual(report_json["summary"]["gate_statuses"]["Persistent Data Safety"], "SKIP")
+
+    def test_baseline_persistence_ignores_only_exact_inherited_minified_token(self) -> None:
+        repo, base = self.init_repo("baseline-inherited-minified-persistence-token")
+        self.write(repo / ".github" / "synergie-governance.yml", self.persistent_data_manifest())
+        self.write(repo / "assets" / "vendor.min.js", 'function file_put_contents(){return "cache/generated.bin";}\n')
+        self.commit(repo, "chore: import approved legacy baseline")
+        source = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        policy = self.baseline_policy_for(base_sha=base, head_sha=source, minimum_changed_files=1)
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            base_ref="main",
+            head_ref="release/production-baseline-alignment-20260812",
+            head_sha=source,
+            repository="Synergie-ITCI/telemedicine-backend",
+            baseline_alignment=True,
+            body_extra=self.baseline_marker(),
+            policy_path=policy,
+            static_only=True,
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Persistent Data Safety"], "WARNING")
+        self.assertIn("INHERITED_BASELINE", report)
+
+    def test_exact_baseline_uses_bounded_current_tree_secret_scan(self) -> None:
+        repo, base = self.init_repo("baseline-bounded-current-tree-secret-scan")
+        self.write(repo / "assets" / "approved.min.js", "const approved = true;\n")
+        self.commit(repo, "chore: import approved legacy baseline")
+        source = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        policy = self.baseline_policy_for(base_sha=base, head_sha=source, minimum_changed_files=1)
+        fake_gitleaks = self.bin / "gitleaks"
+        fake_gitleaks.write_text(
+            """#!/usr/bin/env bash
+args="$*"
+case "$args" in *"--no-git"*) ;; *) echo "missing --no-git" >&2; exit 1;; esac
+case "$args" in *"--timeout 120"*) ;; *) echo "missing bounded timeout" >&2; exit 1;; esac
+case "$args" in *"--log-opts"*) echo "unexpected history scan" >&2; exit 1;; esac
+exit 0
+""",
+            encoding="utf-8",
+        )
+        fake_gitleaks.chmod(0o755)
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            base_ref="main",
+            head_ref="release/production-baseline-alignment-20260812",
+            head_sha=source,
+            repository="Synergie-ITCI/telemedicine-backend",
+            baseline_alignment=True,
+            body_extra=self.baseline_marker(),
+            policy_path=policy,
+            static_only=True,
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Secrets"], "PASS")
+        self.assertTrue(
+            any(
+                result["gate"] == "Secrets"
+                and "bounded current-tree scan passed" in result["message"]
+                for result in report_json["results"]
+            )
+        )
+
+    def test_modified_baseline_sha_does_not_use_approved_tree_secret_scan(self) -> None:
+        repo, base = self.init_repo("baseline-modified-sha-secret-scan")
+        self.write(repo / "assets" / "approved.min.js", "const approved = true;\n")
+        self.commit(repo, "chore: import approved legacy baseline")
+        source = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        policy = self.baseline_policy_for(base_sha=base, head_sha=source, minimum_changed_files=1)
+        self.write(repo / "assets" / "new.js", "const changed = true;\n")
+        self.commit(repo, "feat: modify content after baseline approval")
+        fake_gitleaks = self.bin / "gitleaks"
+        fake_gitleaks.write_text(
+            """#!/usr/bin/env bash
+args="$*"
+case "$args" in *"--no-git"*) echo "unexpected approved-tree scan" >&2; exit 1;; esac
+case "$args" in *"--log-opts"*) exit 0;; *) echo "missing history scan" >&2; exit 1;; esac
+""",
+            encoding="utf-8",
+        )
+        fake_gitleaks.chmod(0o755)
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            base_ref="main",
+            head_ref="release/production-baseline-alignment-20260812",
+            repository="Synergie-ITCI/telemedicine-backend",
+            baseline_alignment=True,
+            body_extra=self.baseline_marker(),
+            policy_path=policy,
+            static_only=True,
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Baseline Alignment"], "FAIL")
+        self.assertNotIn("bounded current-tree scan passed", report)
+
+    def test_exact_baseline_reuses_only_exact_approved_blob_fallback_classification(self) -> None:
+        repo, base = self.init_repo("baseline-exact-blob-fallback-cache")
+        approved = repo / "assets" / "approved.min.js"
+        self.write(approved, 'const password = "legacy-example-value";\n')
+        self.commit(repo, "chore: import approved legacy baseline")
+        source = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        policy = self.baseline_policy_for(base_sha=base, head_sha=source, minimum_changed_files=1)
+        policy_data = json.loads(policy.read_text(encoding="utf-8"))
+        policy_data["one_time_baseline_alignment"]["relaxations"].append("exact_approved_blob_fallback_cache")
+        policy.write_text(json.dumps(policy_data, indent=2) + "\n", encoding="utf-8")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            base_ref="main",
+            head_ref="release/production-baseline-alignment-20260812",
+            head_sha=source,
+            repository="Synergie-ITCI/telemedicine-backend",
+            baseline_alignment=True,
+            body_extra=self.baseline_marker(),
+            policy_path=policy,
+            static_only=True,
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Secrets"], "PASS")
+
+        self.write(approved, 'const password = "new-real-secret-value";\n')
+        self.commit(repo, "feat: modify approved blob with a new secret")
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            base_ref="main",
+            head_ref="release/production-baseline-alignment-20260812",
+            repository="Synergie-ITCI/telemedicine-backend",
+            baseline_alignment=True,
+            body_extra=self.baseline_marker(),
+            policy_path=policy,
+            static_only=True,
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Secrets"], "FAIL")
+        self.assertIn("generic credential assignment", report)
+
+    def test_baseline_persistence_blocks_modified_minified_token(self) -> None:
+        repo, base = self.init_repo("baseline-modified-minified-persistence-token")
+        self.write(repo / ".github" / "synergie-governance.yml", self.persistent_data_manifest())
+        self.write(repo / "assets" / "vendor.min.js", 'function file_put_contents(){return "cache/original.bin";}\n')
+        self.commit(repo, "chore: import approved legacy baseline")
+        source = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        policy = self.baseline_policy_for(base_sha=base, head_sha=source, minimum_changed_files=1)
+        self.write(repo / "assets" / "vendor.min.js", 'function file_put_contents(){return "cache/modified.bin";}\n')
+        self.commit(repo, "feat: modify writable token after approval")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            base_ref="main",
+            head_ref="release/production-baseline-alignment-20260812",
+            repository="Synergie-ITCI/telemedicine-backend",
+            baseline_alignment=True,
+            body_extra=self.baseline_marker(),
+            policy_path=policy,
+            static_only=True,
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Persistent Data Safety"], "FAIL")
+        self.assertIn("cache/modified.bin", report)
+
+    def test_baseline_binary_pattern_requires_exact_approved_source_blob(self) -> None:
+        repo, base = self.init_repo("baseline-binary-pattern")
+        font = repo / "assets" / "fonts" / "legacy.woff"
+        font.parent.mkdir(parents=True, exist_ok=True)
+        font.write_bytes(b"\x00approved-legacy-font")
+        self.commit(repo, "chore: import approved legacy font")
+        source = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        policy = self.baseline_policy_for(base_sha=base, head_sha=source, minimum_changed_files=1)
+        policy_data = json.loads(policy.read_text(encoding="utf-8"))
+        policy_data["one_time_baseline_alignment"]["binary_assets"] = {
+            "safe_patterns": ["assets/**/*.woff"],
+            "max_file_bytes": 1024,
+        }
+        policy.write_text(json.dumps(policy_data, indent=2) + "\n", encoding="utf-8")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            base_ref="main",
+            head_ref="release/production-baseline-alignment-20260812",
+            head_sha=source,
+            repository="Synergie-ITCI/telemedicine-backend",
+            baseline_alignment=True,
+            body_extra=self.baseline_marker(),
+            policy_path=policy,
+            static_only=True,
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Integrity"], "WARNING")
+        font.write_bytes(b"\x00modified-after-approval")
+        self.commit(repo, "feat: modify binary after approval")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            base_ref="main",
+            head_ref="release/production-baseline-alignment-20260812",
+            repository="Synergie-ITCI/telemedicine-backend",
+            baseline_alignment=True,
+            body_extra=self.baseline_marker(),
+            policy_path=policy,
+            static_only=True,
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Integrity"], "FAIL")
+
+    def test_active_jkcement_baseline_is_exact_and_time_limited(self) -> None:
+        policy = json.loads((ROOT / "policy" / "pr-qa-policy.json").read_text(encoding="utf-8"))
+        baseline = policy["one_time_baseline_alignment"]
+
+        self.assertEqual(baseline["repository"], "Synergie-ITCI/jkcementypsscholarship")
+        self.assertEqual(baseline["base_ref"], "main")
+        self.assertEqual(baseline["head_ref"], "staging")
+        self.assertEqual(baseline["expected_base_sha"], "284bf644d39ffd63ee66891ced7960d011a532bf")
+        self.assertEqual(baseline["expected_head_sha"], "b6f457fdb5507cc032a4c1675a893669e99aca25")
+        self.assertEqual(baseline["expires_after"], "2026-09-08T07:07:34Z")
+        self.assertNotIn("confirmed_secret", baseline["relaxations"])
+        self.assertIn("exact_approved_tree_secret_scan", baseline["relaxations"])
+        self.assertIn("exact_approved_blob_fallback_cache", baseline["relaxations"])
+        self.assertIn("exact_gitleaks_fingerprint_allowlist", baseline["relaxations"])
+        self.assertEqual(len(baseline["gitleaks_allowlist"]), 2)
+        self.assertTrue(all(item.get("line_sha256") for item in baseline["gitleaks_allowlist"]))
+        self.assertEqual(len(baseline["static_executable_assets"]["safe_paths"]), 4)
+        self.assertEqual(len(baseline["fallback_secret_allowlist"]), 1)
+        self.assertEqual(
+            baseline["fallback_secret_allowlist"][0]["line_sha256"],
+            "4a01300547d4e0a68131d3c63d60d3a80316dafeeb723afd5ca12c6cef978893",
+        )
 
     def override_digest(self, record: dict) -> str:
         payload = {key: value for key, value in record.items() if key != "record_sha256"}
