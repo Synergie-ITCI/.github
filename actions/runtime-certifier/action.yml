@@ -28,8 +28,23 @@ inputs:
     required: true
 
   rollback-ref:
-    description: Exact known-good 40-character rollback SHA.
+    description: Exact known-good rollback SHA, or SHA-256 for legacy-baseline mode.
     required: true
+
+  rollback-kind:
+    description: exact-sha or the one-time legacy-baseline mode.
+    required: false
+    default: exact-sha
+
+  legacy-baseline-path:
+    description: Absolute immutable artifact path required in legacy-baseline mode.
+    required: false
+    default: ""
+
+  repository:
+    description: Calling repository, required to bind exceptional baseline authorizations.
+    required: false
+    default: ""
 
   runtime-kind:
     description: Runtime adapter.
@@ -52,7 +67,7 @@ inputs:
 
 outputs:
   deploy-state:
-    description: ALREADY_DEPLOYED or READY_FROM_ROLLBACK
+    description: Validated deployment state, including an explicitly authorized legacy baseline.
     value: ${{ steps.certify.outputs.deploy_state }}
 
   deployment-required:
@@ -77,6 +92,9 @@ runs:
           --validation-url "${{ inputs.validation-url }}" \
           --deploy-ref "${{ inputs.deploy-ref }}" \
           --rollback-ref "${{ inputs.rollback-ref }}" \
+          --rollback-kind "${{ inputs.rollback-kind }}" \
+          --legacy-baseline-path "${{ inputs.legacy-baseline-path }}" \
+          --repository "${{ inputs.repository }}" \
           --runtime-kind "${{ inputs.runtime-kind }}" \
           --runtime-version "${{ inputs.runtime-version }}" \
           --web-server "${{ inputs.web-server }}" \

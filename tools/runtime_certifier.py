@@ -27,16 +27,29 @@ import shlex
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
 
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 DEPLOY_STATES = {
     "ALREADY_DEPLOYED",
     "READY_FROM_ROLLBACK",
     "READY_FROM_STATIC_BASELINE",
+    "READY_FROM_LEGACY_BASELINE",
+}
+
+LEGACY_BASELINE_AUTHORIZATIONS = {
+    (
+        "Synergie-ITCI/jkcementypsscholarship",
+        "13f2badba1a24b3259fee718b97920b6eea50cad",
+        "50fdf0aba94f2d0c9cffa6e9647b85ba8e6a8efb337236a87b8f75c5bc297775",
+        "/var/www/jkcementypsscholarship.synergieinsights.in/public_html",
+        "/var/www/jkcementypsscholarship.synergieinsights.in/backups/legacy-production-baselines/50fdf0aba94f2d0c9cffa6e9647b85ba8e6a8efb337236a87b8f75c5bc297775/legacy-production-baseline.tar",
+    ): "2026-09-08T18:00:00Z",
 }
 SUPPORTED_RUNTIME_KINDS = {
     "php-fpm",
@@ -51,6 +64,10 @@ SUPPORTED_PERSISTENCE_MECHANISMS = {
 
 class CertifierError(RuntimeError):
     pass
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 @dataclass(frozen=True)
@@ -73,6 +90,9 @@ class Config:
     runtime_version: str
     web_server: str
     persistent_data: tuple[PersistentDataPath, ...] = ()
+    rollback_kind: str = "exact-sha"
+    legacy_baseline_path: str = ""
+    repository: str = ""
 
 
 def validate_config(config: Config) -> None:
@@ -81,9 +101,38 @@ def validate_config(config: Config) -> None:
             "deploy_ref must be an exact 40-character lowercase SHA"
         )
 
-    if not SHA_RE.fullmatch(config.rollback_ref):
+    if config.rollback_kind == "exact-sha":
+        if not SHA_RE.fullmatch(config.rollback_ref):
+            raise CertifierError(
+                "rollback_ref must be an exact 40-character lowercase SHA"
+            )
+        if config.legacy_baseline_path or config.repository:
+            raise CertifierError(
+                "legacy baseline inputs are not valid for exact-sha rollback"
+            )
+    elif config.rollback_kind == "legacy-baseline":
+        if not SHA256_RE.fullmatch(config.rollback_ref):
+            raise CertifierError(
+                "legacy rollback_ref must be an exact 64-character lowercase SHA-256"
+            )
+        authorization_key = (
+            config.repository,
+            config.deploy_ref,
+            config.rollback_ref,
+            config.app_path,
+            config.legacy_baseline_path,
+        )
+        expires_at = LEGACY_BASELINE_AUTHORIZATIONS.get(authorization_key, "")
+        if not expires_at:
+            raise CertifierError(
+                "legacy baseline is not authorized for this repository, deploy SHA, hash, and path"
+            )
+        expiry = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+        if utc_now() > expiry:
+            raise CertifierError("legacy baseline authorization has expired")
+    else:
         raise CertifierError(
-            "rollback_ref must be an exact 40-character lowercase SHA"
+            "rollback_kind must be exact-sha or legacy-baseline"
         )
 
     parsed = urlparse(config.validation_url)
@@ -158,6 +207,13 @@ def normalize_persistence_mechanism(value: str) -> str:
 
 def build_remote_script(config: Config) -> str:
     validate_config(config)
+
+    if config.rollback_kind == "legacy-baseline":
+        if config.runtime_kind != "php-fpm" or config.web_server != "apache":
+            raise CertifierError(
+                "legacy-baseline rollback supports only php-fpm with apache"
+            )
+        return build_php_legacy_baseline_remote_script(config)
 
     if config.runtime_kind == "static-vite-apache":
         return build_static_vite_apache_remote_script(config)
@@ -364,6 +420,106 @@ else
 fi
 '''
 
+    return "\n".join(assignments) + "\n" + body
+
+
+def build_php_legacy_baseline_remote_script(config: Config) -> str:
+    host = urlparse(config.validation_url).hostname
+    assert host is not None
+    fpm_service = f"php{config.runtime_version}-fpm"
+    fpm_socket = f"/run/php/php{config.runtime_version}-fpm.sock"
+    assignments = [
+        "set -euo pipefail",
+        f"APP_PATH={shlex.quote(config.app_path)}",
+        f"APP_USER={shlex.quote(config.app_user)}",
+        f"VALIDATION_URL={shlex.quote(config.validation_url)}",
+        f"TARGET_HOST={shlex.quote(host)}",
+        f"DEPLOY_REF={shlex.quote(config.deploy_ref)}",
+        f"ROLLBACK_REF={shlex.quote(config.rollback_ref)}",
+        f"LEGACY_BASELINE_PATH={shlex.quote(config.legacy_baseline_path)}",
+        f"EXPECTED_RUNTIME_VERSION={shlex.quote(config.runtime_version)}",
+        f"FPM_SERVICE={shlex.quote(fpm_service)}",
+        f"FPM_SOCKET={shlex.quote(fpm_socket)}",
+        "APACHE_SITES_DIR=/etc/apache2/sites-enabled",
+        'CONSUMED_MARKER="$(dirname "$APP_PATH")/.legacy-baseline-consumed"',
+    ]
+    body = r'''
+cert_fail() {
+  echo "RUNTIME_CERTIFIER=FAIL"
+  echo "CERTIFIER_REASON=$1"
+  echo "READY_TO_DEPLOY=NO"
+  echo "DEPLOYMENT_STARTED=NO"
+  echo "PRODUCTION_MUTATED=NO"
+  exit 41
+}
+
+test -d "$APP_PATH" || cert_fail "legacy application path missing"
+test ! -L "$APP_PATH" || cert_fail "legacy application path must remain a physical directory"
+test ! -e "$APP_PATH/.release-sha" || cert_fail "legacy application path unexpectedly has a release marker"
+test ! -e "$CONSUMED_MARKER" || cert_fail "legacy baseline authorization was already consumed"
+if sudo -u "$APP_USER" -H git -C "$APP_PATH" rev-parse HEAD >/dev/null 2>&1; then
+  cert_fail "legacy application path unexpectedly resolves to a Git commit"
+fi
+
+test -f "$LEGACY_BASELINE_PATH" || cert_fail "legacy baseline artifact missing"
+ACTUAL_BASELINE_HASH="$(sha256sum "$LEGACY_BASELINE_PATH" | awk '{print $1}')"
+test "$ACTUAL_BASELINE_HASH" = "$ROLLBACK_REF" || cert_fail "legacy baseline artifact hash mismatch"
+BASELINE_REF="$(dirname "$LEGACY_BASELINE_PATH")/LEGACY_PRODUCTION_BASELINE.ref"
+test -f "$BASELINE_REF" || cert_fail "legacy baseline reference missing"
+grep -Fxq 'rollback_kind=legacy-baseline' "$BASELINE_REF" || cert_fail "legacy baseline kind marker missing"
+grep -Fxq 'source_kind=legacy-unversioned' "$BASELINE_REF" || cert_fail "legacy baseline source marker missing"
+grep -Fxq "artifact_sha256=$ROLLBACK_REF" "$BASELINE_REF" || cert_fail "legacy baseline reference hash mismatch"
+lsattr -d "$LEGACY_BASELINE_PATH" | awk '{print $1}' | grep -q i || cert_fail "legacy baseline artifact is not immutable"
+tar -tf "$LEGACY_BASELINE_PATH" >/dev/null || cert_fail "legacy baseline archive cannot be read"
+
+PHP_BIN=""
+CLI_RUNTIME_VERSION=""
+for candidate in "php$EXPECTED_RUNTIME_VERSION" php; do
+  command -v "$candidate" >/dev/null 2>&1 || continue
+  candidate_path="$(command -v "$candidate")" || continue
+  candidate_version="$("$candidate_path" -r 'echo PHP_VERSION;' 2>/dev/null)" || continue
+  "$candidate_path" -r 'exit(version_compare(PHP_VERSION, $argv[1], ">=") ? 0 : 1);' "$EXPECTED_RUNTIME_VERSION" || continue
+  PHP_BIN="$candidate_path"
+  CLI_RUNTIME_VERSION="$candidate_version"
+  break
+done
+test -n "$PHP_BIN" || cert_fail "required compatible PHP CLI is not installed"
+systemctl is-active "$FPM_SERVICE" >/dev/null || cert_fail "required PHP-FPM service is not active"
+test -S "$FPM_SOCKET" || cert_fail "required PHP-FPM socket is missing"
+apache2ctl configtest >/dev/null 2>&1 || cert_fail "Apache configuration test failed"
+
+VHOST=""
+for candidate in "$APACHE_SITES_DIR"/*; do
+  [ -f "$candidate" ] || continue
+  if awk -v host="$TARGET_HOST" '$1 == "ServerName" && $2 == host {found=1} END {exit !found}' "$candidate"; then
+    VHOST="$candidate"
+    break
+  fi
+done
+test -n "$VHOST" || cert_fail "target hostname is not mapped to an enabled Apache vhost"
+
+HTTP_STATUS="$(curl -k -sS -o /dev/null -w '%{http_code}' --max-time 30 "$VALIDATION_URL" || true)"
+case "$HTTP_STATUS" in 200|301|302|403) ;; *) cert_fail "pre-deployment endpoint smoke failed HTTP $HTTP_STATUS" ;; esac
+
+echo "=== LEGACY PRODUCTION BASELINE CERTIFICATION ==="
+echo "TARGET_IDENTITY=PASS"
+echo "TARGET_HOST=$TARGET_HOST"
+echo "SOURCE_KIND=legacy-unversioned"
+echo "DEPLOY_REF=$DEPLOY_REF"
+echo "ROLLBACK_KIND=legacy-baseline"
+echo "ROLLBACK_REF=$ROLLBACK_REF"
+echo "LEGACY_BASELINE_INTEGRITY=PASS"
+echo "CLI_RUNTIME_VERSION=$CLI_RUNTIME_VERSION"
+echo "FPM_SERVICE=$FPM_SERVICE"
+echo "FPM_SOCKET=$FPM_SOCKET"
+echo "VALIDATION_HTTP=$HTTP_STATUS"
+echo "DEPLOY_STATE=READY_FROM_LEGACY_BASELINE"
+echo "RUNTIME_CERTIFIER=PASS"
+echo "READY_TO_DEPLOY=YES"
+echo "DEPLOYMENT_REQUIRED=YES"
+echo "DEPLOYMENT_STARTED=NO"
+echo "PRODUCTION_MUTATED=NO"
+'''
     return "\n".join(assignments) + "\n" + body
 
 
@@ -1207,6 +1363,21 @@ def parse_args() -> Config:
     )
 
     parser.add_argument(
+        "--rollback-kind",
+        default="exact-sha",
+    )
+
+    parser.add_argument(
+        "--legacy-baseline-path",
+        default="",
+    )
+
+    parser.add_argument(
+        "--repository",
+        default="",
+    )
+
+    parser.add_argument(
         "--runtime-kind",
         default="php-fpm",
     )
@@ -1238,6 +1409,9 @@ def parse_args() -> Config:
         validation_url=args.validation_url,
         deploy_ref=args.deploy_ref,
         rollback_ref=args.rollback_ref,
+        rollback_kind=args.rollback_kind,
+        legacy_baseline_path=args.legacy_baseline_path,
+        repository=args.repository,
         runtime_kind=args.runtime_kind,
         runtime_version=args.runtime_version,
         web_server=args.web_server,
