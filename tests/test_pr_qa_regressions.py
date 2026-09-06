@@ -6644,7 +6644,7 @@ case "$args" in *"--log-opts"*) exit 0;; *) echo "missing history scan" >&2; exi
         self.assertEqual(baseline["base_ref"], "main")
         self.assertEqual(baseline["head_ref"], "staging")
         self.assertEqual(baseline["expected_base_sha"], "284bf644d39ffd63ee66891ced7960d011a532bf")
-        self.assertEqual(baseline["expected_head_sha"], "b6f457fdb5507cc032a4c1675a893669e99aca25")
+        self.assertEqual(baseline["expected_head_sha"], "93cda06cab5d5566cdba49bf9cebb394de0479d7")
         self.assertEqual(baseline["expires_after"], "2026-09-08T07:07:34Z")
         self.assertNotIn("confirmed_secret", baseline["relaxations"])
         self.assertIn("exact_approved_tree_secret_scan", baseline["relaxations"])

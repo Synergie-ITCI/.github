@@ -74,7 +74,7 @@
     "base_ref": "main",
     "head_ref": "staging",
     "expected_base_sha": "284bf644d39ffd63ee66891ced7960d011a532bf",
-    "expected_head_sha": "b6f457fdb5507cc032a4c1675a893669e99aca25",
+    "expected_head_sha": "93cda06cab5d5566cdba49bf9cebb394de0479d7",
     "expires_after": "2026-09-08T07:07:34Z",
     "minimum_changed_files": 2000,
     "required_pr_body_marker": "ONE-TIME JK CEMENT STAGING TO MAIN BASELINE AUTHORIZATION PR-7",
