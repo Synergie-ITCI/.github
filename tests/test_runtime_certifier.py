@@ -4,7 +4,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,6 +29,11 @@ spec.loader.exec_module(mod)
 
 DEPLOY = "a" * 40
 ROLLBACK = "b" * 40
+LEGACY_HASH = "50fdf0aba94f2d0c9cffa6e9647b85ba8e6a8efb337236a87b8f75c5bc297775"
+LEGACY_DEPLOY = "13f2badba1a24b3259fee718b97920b6eea50cad"
+LEGACY_APP_PATH = "/var/www/jkcementypsscholarship.synergieinsights.in/public_html"
+LEGACY_PATH = "/var/www/jkcementypsscholarship.synergieinsights.in/backups/legacy-production-baselines/50fdf0aba94f2d0c9cffa6e9647b85ba8e6a8efb337236a87b8f75c5bc297775/legacy-production-baseline.tar"
+LEGACY_REPOSITORY = "Synergie-ITCI/jkcementypsscholarship"
 
 
 def config(**overrides):
@@ -61,6 +68,82 @@ def persistent_path(
 
 
 class RuntimeCertifierTests(unittest.TestCase):
+
+    def legacy_config(self, **overrides):
+        values = dict(
+            app_path=LEGACY_APP_PATH,
+            deploy_ref=LEGACY_DEPLOY,
+            rollback_ref=LEGACY_HASH,
+            rollback_kind="legacy-baseline",
+            legacy_baseline_path=LEGACY_PATH,
+            repository=LEGACY_REPOSITORY,
+            runtime_version="8.3",
+        )
+        values.update(overrides)
+        return config(**values)
+
+    def test_exact_sha_behavior_remains_default(self):
+        mod.validate_config(config())
+
+    def test_exact_sha_rejects_legacy_inputs(self):
+        with self.assertRaises(mod.CertifierError):
+            mod.validate_config(config(repository=LEGACY_REPOSITORY))
+
+    def test_exact_legacy_baseline_authorization_passes_before_expiry(self):
+        with mock.patch.object(
+            mod,
+            "utc_now",
+            return_value=datetime(2026, 9, 7, tzinfo=timezone.utc),
+        ):
+            mod.validate_config(self.legacy_config())
+
+    def test_modified_legacy_hash_fails_closed(self):
+        with self.assertRaises(mod.CertifierError):
+            mod.validate_config(self.legacy_config(rollback_ref="c" * 64))
+
+    def test_modified_legacy_deploy_sha_fails_closed(self):
+        with self.assertRaises(mod.CertifierError):
+            mod.validate_config(self.legacy_config(deploy_ref="d" * 40))
+
+    def test_modified_legacy_artifact_path_fails_closed(self):
+        with self.assertRaises(mod.CertifierError):
+            mod.validate_config(
+                self.legacy_config(legacy_baseline_path=f"{LEGACY_PATH}.modified")
+            )
+
+    def test_noncanonical_legacy_repository_fails_closed(self):
+        with self.assertRaises(mod.CertifierError):
+            mod.validate_config(self.legacy_config(repository="Synergie-ITCI/other"))
+
+    def test_legacy_authorization_expires(self):
+        with mock.patch.object(
+            mod,
+            "utc_now",
+            return_value=datetime(2026, 9, 9, tzinfo=timezone.utc),
+        ):
+            with self.assertRaises(mod.CertifierError):
+                mod.validate_config(self.legacy_config())
+
+    def test_legacy_remote_script_is_read_only_and_one_time(self):
+        with mock.patch.object(
+            mod,
+            "utc_now",
+            return_value=datetime(2026, 9, 7, tzinfo=timezone.utc),
+        ):
+            script = mod.build_remote_script(self.legacy_config())
+        self.assertIn("READY_FROM_LEGACY_BASELINE", script)
+        self.assertIn("legacy baseline authorization was already consumed", script)
+        self.assertIn("LEGACY_BASELINE_INTEGRITY=PASS", script)
+        self.assertIn("PRODUCTION_MUTATED=NO", script)
+        self.assertIn("legacy baseline reference is not immutable", script)
+        subprocess.run(
+            ["bash", "-n"],
+            input=script,
+            text=True,
+            check=True,
+        )
+        for forbidden in ("systemctl reload", "systemctl restart", "rm -rf", "mv "):
+            self.assertNotIn(forbidden, script)
 
     def test_remote_script_is_generic_and_read_only(self):
         script = mod.build_remote_script(config())

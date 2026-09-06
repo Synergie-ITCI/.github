@@ -29,6 +29,9 @@ class RuntimeCertifierActionTests(unittest.TestCase):
             "validation-url:",
             "deploy-ref:",
             "rollback-ref:",
+            "rollback-kind:",
+            "legacy-baseline-path:",
+            "repository:",
             "runtime-version:",
             "governance-config:",
         ):
