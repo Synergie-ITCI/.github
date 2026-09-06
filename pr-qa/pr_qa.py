@@ -144,6 +144,7 @@ BASELINE_STATIC_ASSET_PATTERNS = [
     "public/**",
     "assets/**",
     "static/**",
+    "tcpdf/fonts/**",
     "resources/**/*.min.js",
     "resources/**/*.min.css",
     "**/*.min.js",
@@ -1537,9 +1538,9 @@ def baseline_tree_blob_ids(ctx: PRContext, ref: str) -> dict[str, str]:
     cache = context_cache(ctx)
     key = ("baseline_tree_blob_ids", ref)
     if key in cache:
-        return dict(cache[key])
+        return cache[key]
     entries: dict[str, str] = {}
-    if ref and commit_exists(ctx.repo, ref):
+    if ref and baseline_commit_exists(ctx, ref):
         completed = subprocess.run(["git", "ls-tree", "-r", "-z", ref], cwd=ctx.repo, capture_output=True, text=False, check=False)
         if completed.returncode == 0:
             for raw in completed.stdout.split(b"\0"):
@@ -1550,7 +1551,15 @@ def baseline_tree_blob_ids(ctx: PRContext, ref: str) -> dict[str, str]:
                 if len(parts) >= 3 and parts[1] == "blob":
                     entries[path.decode("utf-8", errors="replace")] = parts[2]
     cache[key] = dict(entries)
-    return entries
+    return cache[key]
+
+
+def baseline_commit_exists(ctx: PRContext, ref: str) -> bool:
+    cache = context_cache(ctx)
+    key = ("baseline_commit_exists", ref)
+    if key not in cache:
+        cache[key] = bool(ref and commit_exists(ctx.repo, ref))
+    return bool(cache.get(key))
 
 
 def baseline_read_tree_file(ctx: PRContext, ref: str, rel: str) -> str:
@@ -1561,6 +1570,15 @@ def baseline_read_tree_file(ctx: PRContext, ref: str, rel: str) -> str:
     return str(cache.get(key) or "")
 
 
+def baseline_source_lines(ctx: PRContext, ref: str, rel: str) -> set[str]:
+    cache = context_cache(ctx)
+    key = ("baseline_source_lines", ref, rel)
+    if key not in cache:
+        cache[key] = set(baseline_read_tree_file(ctx, ref, rel).splitlines())
+    cached_lines = cache.get(key)
+    return cached_lines if isinstance(cached_lines, set) else set()
+
+
 def baseline_overlay_allowed_paths(ctx: PRContext) -> set[str]:
     if not baseline_active(ctx):
         return set()
@@ -1569,7 +1587,7 @@ def baseline_overlay_allowed_paths(ctx: PRContext) -> set[str]:
 
 
 def baseline_finding_classification(ctx: PRContext, rel: str, category: str, *, line: str = "") -> dict[str, str]:
-    cache_key = ("baseline_finding_classification", rel, category, hashlib.sha256(line.encode("utf-8")).hexdigest() if line else "")
+    cache_key = ("baseline_finding_classification", rel, category, baseline_line_digest(ctx, line))
     cache = context_cache(ctx)
     if cache_key in cache:
         return dict(cache[cache_key])
@@ -1586,7 +1604,7 @@ def baseline_finding_classification(ctx: PRContext, rel: str, category: str, *, 
         return remember(baseline_overlay_classification(ctx, rel))
     source_sha = baseline_source_sha(ctx)
     head_sha = baseline_candidate_head_sha(ctx)
-    if not source_sha or not head_sha or not commit_exists(ctx.repo, source_sha):
+    if not source_sha or not head_sha or not baseline_commit_exists(ctx, source_sha):
         return remember({"classification": NEW_FINDING, "reason": "approved source unavailable"})
     source_blobs = baseline_tree_blob_ids(ctx, source_sha)
     head_blobs = baseline_tree_blob_ids(ctx, head_sha)
@@ -1598,7 +1616,7 @@ def baseline_finding_classification(ctx: PRContext, rel: str, category: str, *, 
         return remember({"classification": NEW_FINDING, "reason": "path absent from candidate"})
     if source_blob != head_blob:
         return remember({"classification": NEW_FINDING, "reason": "candidate blob differs from approved source"})
-    if line and line not in baseline_read_tree_file(ctx, source_sha, rel):
+    if line and line not in baseline_source_lines(ctx, source_sha, rel):
         return remember({"classification": NEW_FINDING, "reason": "finding line is not present in approved source blob"})
     return remember({
         "classification": INHERITED_BASELINE,
@@ -1607,6 +1625,16 @@ def baseline_finding_classification(ctx: PRContext, rel: str, category: str, *, 
         "approved_source_blob": source_blob,
         "category": category,
     })
+
+
+def baseline_line_digest(ctx: PRContext, line: str) -> str:
+    if not line:
+        return ""
+    cache = context_cache(ctx)
+    digests = cache.setdefault("baseline_line_digests", {})
+    if line not in digests:
+        digests[line] = hashlib.sha256(line.encode("utf-8")).hexdigest()
+    return str(digests[line])
 
 
 def baseline_overlay_classification(ctx: PRContext, rel: str) -> dict[str, str]:
@@ -1788,9 +1816,14 @@ def gate_repository_integrity(ctx: PRContext, git_context: dict[str, Any]) -> li
                     "Git LFS pointer changed; actual object is not available for local scanning.",
                 )
     if git_context.get("is_git_repo"):
+        baseline_modes = baseline_index_modes(ctx) if baseline_active(ctx) else {}
         for rel in ctx.changed_files:
-            mode = git_lines(ctx.repo, ["ls-files", "-s", "--", rel])
-            if mode and mode[0].startswith("160000 "):
+            if baseline_active(ctx):
+                is_submodule = baseline_modes.get(rel, "").startswith("160000 ")
+            else:
+                mode = git_lines(ctx.repo, ["ls-files", "-s", "--", rel])
+                is_submodule = bool(mode and mode[0].startswith("160000 "))
+            if is_submodule:
                 append_or_relax_baseline_finding(
                     ctx,
                     findings,
@@ -1804,6 +1837,19 @@ def gate_repository_integrity(ctx: PRContext, git_context: dict[str, Any]) -> li
     if relaxed:
         return [warning("Repository Integrity", None, "Baseline-only repository integrity relaxations applied; secret, binary safety, and path traversal checks remain active.", relaxed[:60])]
     return [passed("Repository Integrity", None, "No symlink, submodule, LFS, Unicode, hidden-file, generated-artifact, binary, or path traversal issues detected.")]
+
+
+def baseline_index_modes(ctx: PRContext) -> dict[str, str]:
+    cache = context_cache(ctx)
+    key = "baseline_index_modes"
+    if key not in cache:
+        modes: dict[str, str] = {}
+        for line in git_lines(ctx.repo, ["ls-files", "-s"]):
+            metadata, separator, rel = line.partition("\t")
+            if separator:
+                modes[rel] = metadata
+        cache[key] = modes
+    return dict(cache.get(key) or {})
 
 
 def is_lfs_pointer(path: Path) -> bool:
@@ -1842,7 +1888,8 @@ def is_baseline_allowed_binary(ctx: PRContext, rel: str) -> bool:
         return False
     settings = baseline_policy_settings(ctx).get("binary_assets", {}) or {}
     allowed = set(settings.get("safe_paths", []) or [])
-    if rel not in allowed:
+    safe_patterns = [str(pattern) for pattern in settings.get("safe_patterns", []) or []]
+    if rel not in allowed and not match_any(rel, safe_patterns):
         return False
     if not baseline_inherited_path(ctx, rel, "binary_asset"):
         return False
@@ -2250,7 +2297,12 @@ def run_gitleaks(ctx: PRContext, git_context: dict[str, Any], report_path: str) 
         "--exit-code",
         "1",
     ]
-    if long_lived_staging_to_main_promotion(ctx) and not baseline_active(ctx):
+    if baseline_allows(ctx, "exact_approved_tree_secret_scan"):
+        command[command.index(str(ctx.repo))] = "."
+        command.extend(["--no-git", "--timeout", "120"])
+        outcome = ctx.run(command, cwd=ctx.repo)
+        success_message = "Gitleaks bounded current-tree scan passed for the exact authorized baseline SHA."
+    elif long_lived_staging_to_main_promotion(ctx) and not baseline_active(ctx):
         with tempfile.TemporaryDirectory(prefix="pr-qa-gitleaks-content-") as scan_root:
             scan_source = Path(scan_root)
             populate_changed_file_scan_source(ctx, scan_source)
@@ -2334,11 +2386,18 @@ def matching_gitleaks_allowance(ctx: PRContext, item: dict[str, Any], allowlist:
         path = str(candidate.get("path", ""))
         if path and path != str(item.get("File", "")):
             continue
+        if path and not baseline_inherited_path(ctx, path, "secret_false_positive"):
+            continue
         line = candidate.get("line")
         expires_after = str(candidate.get("expires_after", ""))
         if expires_after and baseline_allowance_expired(expires_after):
             continue
         item_line = int(item.get("StartLine") or 0)
+        line_sha256 = str(candidate.get("line_sha256") or "")
+        if line_sha256:
+            current_line = source_line(ctx.repo, path, item_line)
+            if hashlib.sha256(current_line.strip().encode("utf-8")).hexdigest() != line_sha256:
+                continue
         if line is not None and int(line) != item_line:
             if baseline_inherited_gitleaks_false_positive(ctx, item):
                 inherited_match = candidate
@@ -2428,6 +2487,12 @@ def fallback_secret_scan(ctx: PRContext, git_context: dict[str, Any]) -> tuple[l
         if not path.is_file():
             findings.extend(rel_findings)
             continue
+        if (
+            not rel_findings
+            and baseline_reuses_approved_blob_fallback_classification(ctx, rel)
+            and rel not in baseline_exact_fallback_finding_paths(ctx)
+        ):
+            continue
         texts = decoded_text_variants(path)
         for text in texts:
             line_labels_found: set[str] = set()
@@ -2462,6 +2527,23 @@ def fallback_secret_scan(ctx: PRContext, git_context: dict[str, Any]) -> tuple[l
         else:
             findings.extend(rel_findings)
     return sorted(set(findings)), sorted(set(fixture_findings)), sorted(set(inherited_findings))
+
+
+def baseline_exact_fallback_finding_paths(ctx: PRContext) -> set[str]:
+    if not baseline_allows(ctx, "exact_secret_fallback_allowlist"):
+        return set()
+    return {
+        str(item.get("path") or "")
+        for item in baseline_policy_settings(ctx).get("fallback_secret_allowlist", []) or []
+        if isinstance(item, dict) and item.get("path")
+    }
+
+
+def baseline_reuses_approved_blob_fallback_classification(ctx: PRContext, rel: str) -> bool:
+    if not baseline_allows(ctx, "exact_approved_blob_fallback_cache"):
+        return False
+    classification = baseline_finding_classification(ctx, rel, "secret_false_positive")
+    return classification.get("classification") == INHERITED_BASELINE
 
 
 def classify_inherited_fallback_secret_findings(
@@ -2710,7 +2792,7 @@ def gate_executable_classification(ctx: PRContext, technologies: dict[str, dict[
     for rel in ctx.changed_files:
         suffix = Path(rel).suffix
         if suffix in executable_extensions and suffix not in covered:
-            if baseline_inherited_path(ctx, rel, "executable_static_asset") and match_any(rel, BASELINE_STATIC_ASSET_PATTERNS):
+            if baseline_inherited_path(ctx, rel, "executable_static_asset") and is_baseline_static_executable_asset(ctx, rel):
                 inherited.append(f"{rel}: INHERITED_BASELINE static executable asset.")
             elif is_bounded_static_browser_asset(rel):
                 static_assets.append(f"{rel}: STATIC_BROWSER_ASSET.")
@@ -2723,6 +2805,12 @@ def gate_executable_classification(ctx: PRContext, technologies: dict[str, dict[
     if static_assets:
         return [warning("Executable Classification", None, "Bounded static browser assets changed without requiring a Node project manifest.", static_assets[:50])]
     return [passed("Executable Classification", None, "All changed executable code is covered by detected technology adapters.")]
+
+
+def is_baseline_static_executable_asset(ctx: PRContext, rel: str) -> bool:
+    settings = baseline_policy_settings(ctx).get("static_executable_assets", {}) or {}
+    safe_paths = {str(path) for path in settings.get("safe_paths", []) or []}
+    return rel in safe_paths or match_any(rel, BASELINE_STATIC_ASSET_PATTERNS)
 
 
 def gate_protected_resources(ctx: PRContext, git_context: dict[str, Any]) -> list[CheckResult]:
@@ -3002,9 +3090,20 @@ def gate_persistent_data_safety(ctx: PRContext, git_context: dict[str, Any]) -> 
             failures.append(f"ROLLBACK_DECLARED: `{item.application_path}` has no rollback declaration or evidence reference.")
 
     if relevant:
-        for path in introduced_writable_paths(ctx, git_context):
+        for path, source_path, source_line in introduced_writable_path_references(ctx, git_context):
             if not path_covered_by_declarations(path, declared_paths):
-                failures.append(f"DEVELOPER_DECLARATION: `{path}` introduces a writable/runtime path that has not been classified.")
+                if source_path and baseline_inherited_path(
+                    ctx,
+                    source_path,
+                    "persistent_data_reference",
+                    line=source_line,
+                ):
+                    warnings.append(
+                        f"INHERITED_BASELINE: `{source_path}` contains a writable-token match that does not "
+                        "introduce a new runtime path; future modifications remain blocking."
+                    )
+                else:
+                    failures.append(f"DEVELOPER_DECLARATION: `{path}` introduces a writable/runtime path that has not been classified.")
 
     destructive = destructive_persistent_targets(ctx, declarations)
     if destructive:
@@ -3140,8 +3239,16 @@ def persistence_relevant_change(
 
 
 def introduced_writable_paths(ctx: PRContext, git_context: dict[str, Any]) -> list[str]:
-    found: list[str] = []
-    found.extend(path for path in ctx.changed_files if not skip_framework_persistent_data_fixture(ctx, path) and match_any(path, WRITABLE_PATH_PATTERNS))
+    return list(dict.fromkeys(item[0] for item in introduced_writable_path_references(ctx, git_context)))
+
+
+def introduced_writable_path_references(ctx: PRContext, git_context: dict[str, Any]) -> list[tuple[str, str, str]]:
+    found: list[tuple[str, str, str]] = []
+    found.extend(
+        (path, path, "")
+        for path in ctx.changed_files
+        if not skip_framework_persistent_data_fixture(ctx, path) and match_any(path, WRITABLE_PATH_PATTERNS)
+    )
     diff_range = str(git_context.get("diff_range") or "")
     if diff_range:
         current_file = ""
@@ -3159,10 +3266,18 @@ def introduced_writable_paths(ctx: PRContext, git_context: dict[str, Any]) -> li
             for match in QUOTED_PATH_PATTERN.finditer(added):
                 candidate = normalize_declared_path(match.group(1))
                 if candidate and not candidate.startswith(("http://", "https://")):
-                    found.append(candidate.lstrip("./"))
+                    found.append((candidate.lstrip("./"), current_file, added))
             if current_file and match_any(current_file, WRITABLE_PATH_PATTERNS):
-                found.append(current_file)
-    return list(dict.fromkeys(normalize_declared_path(path).lstrip("./") for path in found if normalize_declared_path(path)))
+                found.append((current_file, current_file, added))
+    normalized: list[tuple[str, str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for path, source_path, source_line in found:
+        normalized_path = normalize_declared_path(path).lstrip("./")
+        item = (normalized_path, source_path, source_line)
+        if normalized_path and item not in seen:
+            seen.add(item)
+            normalized.append(item)
+    return normalized
 
 
 def skip_framework_persistent_data_fixture(ctx: PRContext, rel: str) -> bool:
