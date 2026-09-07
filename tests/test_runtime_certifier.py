@@ -30,7 +30,7 @@ spec.loader.exec_module(mod)
 DEPLOY = "a" * 40
 ROLLBACK = "b" * 40
 LEGACY_HASH = "50fdf0aba94f2d0c9cffa6e9647b85ba8e6a8efb337236a87b8f75c5bc297775"
-LEGACY_DEPLOY = "13f2badba1a24b3259fee718b97920b6eea50cad"
+LEGACY_DEPLOY = "d5871e45fc010b1a2413a176f062fc32c6318e99"
 LEGACY_APP_PATH = "/var/www/jkcementypsscholarship.synergieinsights.in/public_html"
 LEGACY_PATH = "/var/www/jkcementypsscholarship.synergieinsights.in/backups/legacy-production-baselines/50fdf0aba94f2d0c9cffa6e9647b85ba8e6a8efb337236a87b8f75c5bc297775/legacy-production-baseline.tar"
 LEGACY_REPOSITORY = "Synergie-ITCI/jkcementypsscholarship"

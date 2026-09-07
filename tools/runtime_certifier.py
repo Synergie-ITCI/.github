@@ -45,7 +45,7 @@ DEPLOY_STATES = {
 LEGACY_BASELINE_AUTHORIZATIONS = {
     (
         "Synergie-ITCI/jkcementypsscholarship",
-        "13f2badba1a24b3259fee718b97920b6eea50cad",
+        "d5871e45fc010b1a2413a176f062fc32c6318e99",
         "50fdf0aba94f2d0c9cffa6e9647b85ba8e6a8efb337236a87b8f75c5bc297775",
         "/var/www/jkcementypsscholarship.synergieinsights.in/public_html",
         "/var/www/jkcementypsscholarship.synergieinsights.in/backups/legacy-production-baselines/50fdf0aba94f2d0c9cffa6e9647b85ba8e6a8efb337236a87b8f75c5bc297775/legacy-production-baseline.tar",
