@@ -4840,6 +4840,216 @@ jobs:
 
         return "\n".join(lines) + "\n"
 
+    def jkcement_authorized_recovery_steps(self) -> list[dict[str, str]]:
+        common = r'''set -euo pipefail
+SCRIPT_B64="$(base64 -w0 control/.github/scripts/jkcement-legacy-production-bootstrap.sh)"
+REMOTE_COMMAND="$(jq -nr --arg script "${SCRIPT_B64}" --arg root "${APP_ROOT}" --arg health "${HEALTH_URL}" --arg deploy "${DEPLOY_REF}" --arg baseline "${ROLLBACK_REF}" --arg run_id "${GITHUB_RUN_ID}" --arg run_attempt "${GITHUB_RUN_ATTEMPT}" '"tmp=$(mktemp /tmp/jkcement-legacy-gate-d.XXXXXX.sh); printf %s " + ($script|@sh) + " | base64 -d > $tmp; chmod 700 $tmp; APP_ROOT=" + ($root|@sh) + " HEALTH_URL=" + ($health|@sh) + " DEPLOY_REF=" + ($deploy|@sh) + " LEGACY_BASELINE_HASH=" + ($baseline|@sh) + " RUN_ID=" + ($run_id|@sh) + " RUN_ATTEMPT=" + ($run_attempt|@sh) + " PHASE=recover $tmp; rc=$?; rm -f $tmp; exit $rc"')"
+PARAMETERS="$(mktemp)"
+jq -n --arg command "${REMOTE_COMMAND}" '{commands:[$command]}' > "${PARAMETERS}"
+COMMAND_ID="$(aws ssm send-command --instance-ids "${SSM_TARGET}" --document-name AWS-RunShellScript --comment "Preflight recovery for JK one-time Gate D" --parameters "file://${PARAMETERS}" --timeout-seconds 1800 --query Command.CommandId --output text)"
+rm -f "${PARAMETERS}"
+INVOCATION="$(control/.github/scripts/ssm-wait-terminal.sh "${COMMAND_ID}" "${SSM_TARGET}" 1800)"
+OUTPUT="$(jq -r .StandardOutputContent <<<"${INVOCATION}")"
+test "$(jq -r .Status <<<"${INVOCATION}")" = Success
+grep -Eq '^RECOVERY=(PASS|NOT_REQUIRED|COMMITTED)$' <<<"${OUTPUT}"
+grep -q '^WRITE_SERVICE_RESTORED=PASS$' <<<"${OUTPUT}"
+printf '%s\n' "${OUTPUT}"'''
+        forced = common.replace(
+            'PHASE=recover $tmp',
+            'FORCE_ROLLBACK=yes PHASE=recover $tmp',
+        ).replace(
+            'Preflight recovery for JK one-time Gate D',
+            'Recover JK legacy service after incomplete Gate D',
+        ).replace(
+            "^RECOVERY=(PASS|NOT_REQUIRED|COMMITTED)$",
+            "^RECOVERY=(PASS|NOT_REQUIRED)$",
+        )
+        return [
+            {
+                "name": "Recover an interrupted one-time cutover before certification",
+                "if": "${{ inputs.operation == 'deploy' && inputs.rollback_kind == 'legacy-baseline' }}",
+                "run": common,
+            },
+            {
+                "name": "Recover legacy service after failed cutover or post-deploy certification",
+                "if": "${{ always() && inputs.operation == 'deploy' && inputs.rollback_kind == 'legacy-baseline' && steps.legacy_deploy.outcome != 'skipped' && (steps.legacy_deploy.outcome != 'success' || steps.postdeploy_runtime_certifier.outcome != 'success') }}",
+                "run": forced,
+            },
+        ]
+
+    def jkcement_recovery_authorization_context(self, module):
+        repo, _ = self.init_repo("jkcement-recovery-authorization")
+        script = repo / ".github" / "scripts" / "jkcement-legacy-production-bootstrap.sh"
+        self.write(script, "#!/usr/bin/env bash\nset -euo pipefail\n")
+        workflow_text = "\n".join(
+            [
+                'test "${DEPLOY_REF}" = "${LEGACY_MIGRATION_DEPLOY_SHA}"',
+                'test "${ROLLBACK_REF}" = "${LEGACY_BASELINE_HASH}"',
+            ]
+        )
+        parsed = {
+            "env": {
+                "SSM_TARGET": "mi-04a256fa549e372a8",
+                "LEGACY_MIGRATION_DEPLOY_SHA": "13f2badba1a24b3259fee718b97920b6eea50cad",
+                "LEGACY_BASELINE_HASH": "50fdf0aba94f2d0c9cffa6e9647b85ba8e6a8efb337236a87b8f75c5bc297775",
+            },
+            "jobs": {"gate-d": {"steps": self.jkcement_authorized_recovery_steps()}},
+        }
+        ctx = module.PRContext(repo=repo, config={}, policy={}, changed_files=[])
+        return ctx, parsed, workflow_text, hashlib.sha256(script.read_bytes()).hexdigest()
+
+    def test_jkcement_exact_legacy_recovery_ssm_steps_are_authorized(self) -> None:
+        module = load_engine_module()
+        ctx, parsed, workflow_text, script_hash = self.jkcement_recovery_authorization_context(module)
+        job = parsed["jobs"]["gate-d"]
+        env = {
+            "GITHUB_REPOSITORY": "Synergie-ITCI/jkcementypsscholarship",
+            "GITHUB_WORKSPACE": str(ctx.repo),
+        }
+        with mock.patch.dict(os.environ, env), mock.patch.dict(
+            module.JKCEMENT_LEGACY_RECOVERY_AUTHORIZATION,
+            {
+                "workflow_sha256": hashlib.sha256(workflow_text.encode()).hexdigest(),
+                "recovery_script_sha256": script_hash,
+                "expires_at": "2999-01-01T00:00:00Z",
+            },
+        ):
+            for step in job["steps"]:
+                self.assertTrue(
+                    module.is_authorized_jkcement_legacy_recovery_step(
+                        ctx,
+                        ".github/workflows/production-deploy.yml",
+                        parsed,
+                        job,
+                        step,
+                        workflow_text,
+                    ),
+                    step["name"],
+                )
+
+    def test_jkcement_recovery_authorization_rejects_forward_deploy(self) -> None:
+        module = load_engine_module()
+        ctx, parsed, workflow_text, script_hash = self.jkcement_recovery_authorization_context(module)
+        job = parsed["jobs"]["gate-d"]
+        step = dict(job["steps"][0])
+        step["run"] = step["run"].replace("PHASE=recover", "PHASE=deploy")
+        env = {"GITHUB_REPOSITORY": "Synergie-ITCI/jkcementypsscholarship", "GITHUB_WORKSPACE": str(ctx.repo)}
+        with mock.patch.dict(os.environ, env), mock.patch.dict(
+            module.JKCEMENT_LEGACY_RECOVERY_AUTHORIZATION,
+            {
+                "workflow_sha256": hashlib.sha256(workflow_text.encode()).hexdigest(),
+                "recovery_script_sha256": script_hash,
+                "expires_at": "2999-01-01T00:00:00Z",
+            },
+        ):
+            self.assertFalse(
+                module.is_authorized_jkcement_legacy_recovery_step(
+                    ctx, ".github/workflows/production-deploy.yml", parsed, job, step, workflow_text
+                )
+            )
+
+    def test_jkcement_recovery_authorization_rejects_other_target_or_document(self) -> None:
+        module = load_engine_module()
+        ctx, parsed, workflow_text, script_hash = self.jkcement_recovery_authorization_context(module)
+        job = parsed["jobs"]["gate-d"]
+        env = {"GITHUB_REPOSITORY": "Synergie-ITCI/jkcementypsscholarship", "GITHUB_WORKSPACE": str(ctx.repo)}
+        with mock.patch.dict(os.environ, env), mock.patch.dict(
+            module.JKCEMENT_LEGACY_RECOVERY_AUTHORIZATION,
+            {
+                "workflow_sha256": hashlib.sha256(workflow_text.encode()).hexdigest(),
+                "recovery_script_sha256": script_hash,
+                "expires_at": "2999-01-01T00:00:00Z",
+            },
+        ):
+            parsed["env"]["SSM_TARGET"] = "mi-00000000000000000"
+            self.assertFalse(
+                module.is_authorized_jkcement_legacy_recovery_step(
+                    ctx, ".github/workflows/production-deploy.yml", parsed, job, job["steps"][0], workflow_text
+                )
+            )
+            parsed["env"]["SSM_TARGET"] = "mi-04a256fa549e372a8"
+            wrong_document = dict(job["steps"][0])
+            wrong_document["run"] = wrong_document["run"].replace("AWS-RunShellScript", "AWS-RunPowerShellScript")
+            self.assertFalse(
+                module.is_authorized_jkcement_legacy_recovery_step(
+                    ctx, ".github/workflows/production-deploy.yml", parsed, job, wrong_document, workflow_text
+                )
+            )
+            self.assertFalse(
+                module.is_authorized_jkcement_legacy_recovery_step(
+                    ctx, ".github/workflows/other.yml", parsed, job, job["steps"][0], workflow_text
+                )
+            )
+            with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "Synergie-ITCI/other"}):
+                self.assertFalse(
+                    module.is_authorized_jkcement_legacy_recovery_step(
+                        ctx,
+                        ".github/workflows/production-deploy.yml",
+                        parsed,
+                        job,
+                        job["steps"][0],
+                        workflow_text,
+                    )
+                )
+
+    def test_jkcement_recovery_authorization_rejects_arbitrary_ssm(self) -> None:
+        module = load_engine_module()
+        ctx, parsed, workflow_text, script_hash = self.jkcement_recovery_authorization_context(module)
+        job = parsed["jobs"]["gate-d"]
+        arbitrary = dict(job["steps"][0])
+        arbitrary["run"] = (
+            'aws ssm send-command --instance-ids "${SSM_TARGET}" '
+            '--document-name AWS-RunShellScript --parameters commands="${{ inputs.command }}"'
+        )
+        env = {"GITHUB_REPOSITORY": "Synergie-ITCI/jkcementypsscholarship", "GITHUB_WORKSPACE": str(ctx.repo)}
+        with mock.patch.dict(os.environ, env), mock.patch.dict(
+            module.JKCEMENT_LEGACY_RECOVERY_AUTHORIZATION,
+            {
+                "workflow_sha256": hashlib.sha256(workflow_text.encode()).hexdigest(),
+                "recovery_script_sha256": script_hash,
+                "expires_at": "2999-01-01T00:00:00Z",
+            },
+        ):
+            self.assertFalse(
+                module.is_authorized_jkcement_legacy_recovery_step(
+                    ctx, ".github/workflows/production-deploy.yml", parsed, job, arbitrary, workflow_text
+                )
+            )
+
+    def test_jkcement_recovery_authorization_rejects_workflow_context_changes(self) -> None:
+        module = load_engine_module()
+        ctx, parsed, workflow_text, script_hash = self.jkcement_recovery_authorization_context(module)
+        job = parsed["jobs"]["gate-d"]
+        env = {"GITHUB_REPOSITORY": "Synergie-ITCI/jkcementypsscholarship", "GITHUB_WORKSPACE": str(ctx.repo)}
+        authorization = {
+            "workflow_sha256": hashlib.sha256(workflow_text.encode()).hexdigest(),
+            "recovery_script_sha256": script_hash,
+            "expires_at": "2999-01-01T00:00:00Z",
+        }
+        changed_workflows = [
+            workflow_text.replace(
+                'test "${DEPLOY_REF}" = "${LEGACY_MIGRATION_DEPLOY_SHA}"',
+                'true # test "${DEPLOY_REF}" = "${LEGACY_MIGRATION_DEPLOY_SHA}"',
+            ),
+            workflow_text + "\n# duplicate recovery step",
+            workflow_text + "\n# alternate job placement",
+        ]
+        with mock.patch.dict(os.environ, env), mock.patch.dict(
+            module.JKCEMENT_LEGACY_RECOVERY_AUTHORIZATION,
+            authorization,
+        ):
+            for changed_workflow in changed_workflows:
+                self.assertFalse(
+                    module.is_authorized_jkcement_legacy_recovery_step(
+                        ctx,
+                        ".github/workflows/production-deploy.yml",
+                        parsed,
+                        job,
+                        job["steps"][0],
+                        changed_workflow,
+                    )
+                )
+
     def test_controlled_manual_gate_d_safe_shape_warns_without_phase1_failure(self) -> None:
         repo, base = self.init_repo("controlled-gate-d")
         self.write(repo / ".github" / "workflows" / "production-deploy.yml", self.controlled_gate_d_workflow())
