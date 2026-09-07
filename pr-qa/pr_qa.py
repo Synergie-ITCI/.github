@@ -3506,7 +3506,7 @@ def classify_safe_deployment_workflows(ctx: PRContext, changed: list[str]) -> tu
         if not workflow_path.is_file():
             continue
         text = read_text(workflow_path)
-        gate_d = controlled_gate_d_workflow_details(path, text)
+        gate_d = controlled_gate_d_workflow_details(path, text, ctx=ctx)
         if gate_d:
             details.extend(gate_d)
             safe_paths.add(path)
@@ -3536,8 +3536,116 @@ RUNTIME_CERTIFIER_REQUIRED_INPUTS = {
     "runtime-version",
 }
 
+JKCEMENT_LEGACY_RECOVERY_AUTHORIZATION = {
+    "repository": "Synergie-ITCI/jkcementypsscholarship",
+    "workflow": ".github/workflows/production-deploy.yml",
+    "workflow_sha256": "b5ce2a389ba33eeecc9bf40233099c27ef38aa0ec6bd44edb60b8a5eed0bc440",
+    "instance_id": "mi-04a256fa549e372a8",
+    "document": "AWS-RunShellScript",
+    "deploy_ref": "13f2badba1a24b3259fee718b97920b6eea50cad",
+    "baseline_hash": "50fdf0aba94f2d0c9cffa6e9647b85ba8e6a8efb337236a87b8f75c5bc297775",
+    "recovery_script": ".github/scripts/jkcement-legacy-production-bootstrap.sh",
+    "recovery_script_sha256": "639c8ad4ac77751620571004b552055e6a6b88786b407fb86a4a9db2e9f234eb",
+    "expires_at": "2026-09-08T18:00:00Z",
+    "steps": {
+        "Recover an interrupted one-time cutover before certification": {
+            "condition_sha256": "62f73289cb36e73937369bed561714eb3888c23c52e6e5a9e5766124c47fe396",
+            "run_sha256": "e07e34c0ae94f6b4ffac274c3458a84db9ceb3de1d92a6c53f06b2a40c93c9a8",
+            "force_rollback": False,
+        },
+        "Recover legacy service after failed cutover or post-deploy certification": {
+            "condition_sha256": "ee43867c3ba805778f2021a67ac0d6287d7e86967d839b9a264b988bd7128ab7",
+            "run_sha256": "ab7393b3a61eee1a063c98370233f0f38a55f782f0da2d6f798a69bcc1eff641",
+            "force_rollback": True,
+        },
+    },
+}
 
-def workflow_has_runtime_certifier_guard(parsed: dict[str, Any], text: str) -> bool:
+
+def normalized_workflow_scalar(value: Any) -> str:
+    return "\n".join(line.rstrip() for line in str(value or "").strip().splitlines())
+
+
+def workflow_effective_env(parsed: dict[str, Any], job: dict[str, Any], step: dict[str, Any], name: str) -> str:
+    value = ""
+    for owner in (parsed, job, step):
+        env = owner.get("env", {})
+        if isinstance(env, dict) and name in env:
+            value = str(env[name])
+    return value
+
+
+def is_authorized_jkcement_legacy_recovery_step(
+    ctx: PRContext,
+    path: str,
+    parsed: dict[str, Any],
+    job: dict[str, Any],
+    step: dict[str, Any],
+    workflow_text: str,
+) -> bool:
+    authorization = JKCEMENT_LEGACY_RECOVERY_AUTHORIZATION
+    if resolve_repository_name(ctx) != authorization["repository"] or path != authorization["workflow"]:
+        return False
+    if hashlib.sha256(workflow_text.encode("utf-8")).hexdigest() != authorization["workflow_sha256"]:
+        return False
+
+    expiry = datetime.fromisoformat(str(authorization["expires_at"]).replace("Z", "+00:00"))
+    if datetime.now(timezone.utc) > expiry:
+        return False
+
+    step_authorization = authorization["steps"].get(str(step.get("name", "")))
+    if not isinstance(step_authorization, dict):
+        return False
+
+    condition = normalized_workflow_scalar(step.get("if", ""))
+    run_text = normalized_workflow_scalar(step.get("run", ""))
+    digest = lambda value: hashlib.sha256(value.encode("utf-8")).hexdigest()
+    if digest(condition) != step_authorization["condition_sha256"]:
+        return False
+    if digest(run_text) != step_authorization["run_sha256"]:
+        return False
+
+    if workflow_effective_env(parsed, job, step, "SSM_TARGET") != authorization["instance_id"]:
+        return False
+    if workflow_effective_env(parsed, job, step, "LEGACY_MIGRATION_DEPLOY_SHA") != authorization["deploy_ref"]:
+        return False
+    if workflow_effective_env(parsed, job, step, "LEGACY_BASELINE_HASH") != authorization["baseline_hash"]:
+        return False
+
+    required_validation = {
+        'test "${DEPLOY_REF}" = "${LEGACY_MIGRATION_DEPLOY_SHA}"',
+        'test "${ROLLBACK_REF}" = "${LEGACY_BASELINE_HASH}"',
+    }
+    if not all(line in workflow_text for line in required_validation):
+        return False
+
+    if run_text.count("aws ssm send-command") != 1:
+        return False
+    if run_text.count(f'--document-name {authorization["document"]}') != 1:
+        return False
+    if run_text.count('--instance-ids "${SSM_TARGET}"') != 1:
+        return False
+    if run_text.count("PHASE=recover") != 1 or "PHASE=deploy" in run_text:
+        return False
+    if any(token in run_text for token in ("ARTIFACT_URL", "ARTIFACT_SHA256", "PHASE=commission")):
+        return False
+    if ("FORCE_ROLLBACK=yes" in run_text) != bool(step_authorization["force_rollback"]):
+        return False
+
+    script_path = ctx.repo / str(authorization["recovery_script"])
+    if not script_path.is_file():
+        return False
+    script_hash = hashlib.sha256(script_path.read_bytes()).hexdigest()
+    return script_hash == authorization["recovery_script_sha256"]
+
+
+def workflow_has_runtime_certifier_guard(
+    parsed: dict[str, Any],
+    text: str,
+    *,
+    ctx: PRContext | None = None,
+    path: str = "",
+) -> bool:
     jobs = parsed.get("jobs", {})
     if not isinstance(jobs, dict):
         return False
@@ -3598,12 +3706,13 @@ def workflow_has_runtime_certifier_guard(parsed: dict[str, Any], text: str) -> b
                     break
 
             if not guarded:
-                return False
+                if ctx is None or not is_authorized_jkcement_legacy_recovery_step(ctx, path, parsed, job, step, text):
+                    return False
 
     return saw_valid_certifier and saw_remote_deploy
 
 
-def controlled_gate_d_workflow_details(path: str, text: str) -> list[str]:
+def controlled_gate_d_workflow_details(path: str, text: str, *, ctx: PRContext | None = None) -> list[str]:
     parsed = parse_workflow_yaml(text)
     checks = {
         "manual_only": workflow_dispatch_only(parsed, text),
@@ -3613,7 +3722,7 @@ def controlled_gate_d_workflow_details(path: str, text: str) -> list[str]:
         "approval_evidence": workflow_has_approval_evidence(parsed, text),
         "oidc": workflow_uses_oidc(parsed, text),
         "controlled_remote": workflow_uses_controlled_remote_execution(text),
-        "runtime_certifier": workflow_has_runtime_certifier_guard(parsed, text),
+        "runtime_certifier": workflow_has_runtime_certifier_guard(parsed, text, ctx=ctx, path=path),
         "no_static_credentials": not workflow_has_embedded_or_static_deployment_credentials(text),
         "no_main_push": not workflow_pushes_to_main_or_master(parsed, text),
     }
