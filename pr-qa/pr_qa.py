@@ -3540,7 +3540,7 @@ RUNTIME_CERTIFIER_REQUIRED_INPUTS = {
 JKCEMENT_LEGACY_RECOVERY_AUTHORIZATION = {
     "repository": "Synergie-ITCI/jkcementypsscholarship",
     "workflow": ".github/workflows/production-deploy.yml",
-    "workflow_sha256": "8a23cb09c1b3e9f8dfd1041924b635424a9e8cd58f5ab8916637d032c2bdb6b9",
+    "workflow_sha256": "83e62f03588d9fe9824dcae697969a135bbcdbc2c5f52024b8e92e7e53f78807",
     "instance_id": "mi-04a256fa549e372a8",
     "document": "AWS-RunShellScript",
     "deploy_ref": "d5871e45fc010b1a2413a176f062fc32c6318e99",
