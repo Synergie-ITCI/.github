@@ -4890,7 +4890,7 @@ printf '%s\n' "${OUTPUT}"'''
         parsed = {
             "env": {
                 "SSM_TARGET": "mi-04a256fa549e372a8",
-                "LEGACY_MIGRATION_DEPLOY_SHA": "13f2badba1a24b3259fee718b97920b6eea50cad",
+                "LEGACY_MIGRATION_DEPLOY_SHA": "d5871e45fc010b1a2413a176f062fc32c6318e99",
                 "LEGACY_BASELINE_HASH": "50fdf0aba94f2d0c9cffa6e9647b85ba8e6a8efb337236a87b8f75c5bc297775",
             },
             "jobs": {"gate-d": {"steps": self.jkcement_authorized_recovery_steps()}},
