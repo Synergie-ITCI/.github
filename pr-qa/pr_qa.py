@@ -3545,7 +3545,7 @@ JKCEMENT_LEGACY_RECOVERY_AUTHORIZATION = {
     "deploy_ref": "13f2badba1a24b3259fee718b97920b6eea50cad",
     "baseline_hash": "50fdf0aba94f2d0c9cffa6e9647b85ba8e6a8efb337236a87b8f75c5bc297775",
     "recovery_script": ".github/scripts/jkcement-legacy-production-bootstrap.sh",
-    "recovery_script_sha256": "5a08e2e22cdd1f26128f999bf1fdf8ada48762b5bc419e4a8f5a1e24d8d3424a",
+    "recovery_script_sha256": "f5bcfe1e561a666ab9763b1958ce09cec3e290dcf92c8287ca7428259ae5027d",
     "expires_at": "2026-09-08T18:00:00Z",
     "steps": {
         "Recover an interrupted one-time cutover before certification": {
