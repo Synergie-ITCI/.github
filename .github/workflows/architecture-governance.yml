@@ -28,6 +28,7 @@ jobs:
         run: |
           python3 -m json.tool policy/pr-qa-policy.json >/dev/null
           python3 -m json.tool policy/status-check-registry.json >/dev/null
+          python3 -m json.tool schemas/one-time-baseline.schema.json >/dev/null
 
       - name: Run PR QA regression tests
-        run: python3 -m unittest tests/test_pr_qa_regressions.py -q
+        run: python3 -m unittest discover -s tests -q
