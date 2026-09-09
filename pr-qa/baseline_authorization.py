@@ -108,6 +108,10 @@ def read_live_pr(repository: str, number: int, token: str) -> dict[str, Any]:
             if not isinstance(payload, dict):
                 raise TypeError("malformed response")
             return payload
+    except urllib.error.HTTPError as error:
+        # Close error responses so resource finalizers cannot emit their details.
+        error.close()
+        raise ValueError("Live GitHub PR verification unavailable") from None
     except (urllib.error.URLError, OSError, ValueError, TypeError):
         # Do not expose exception text: it may contain URLs, headers or response bodies.
         raise ValueError("Live GitHub PR verification unavailable") from None

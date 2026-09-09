@@ -284,7 +284,7 @@ class BaselineLiveBindingTests(unittest.TestCase):
                 response.read.return_value = body
                 with self.assertRaises(ValueError):
                     module.read_live_pr(self.repository, 125, "fixture")
-        with self.assertRaises(urllib.error.HTTPError):
+        with self.assertRaises(urllib.error.HTTPError) as redirect:
             module.NoRedirect().redirect_request(
                 mock.Mock(full_url="https://api.github.com"),
                 None,
@@ -293,6 +293,7 @@ class BaselineLiveBindingTests(unittest.TestCase):
                 {},
                 "https://untrusted.invalid",
             )
+        redirect.exception.close()
 
     def test_omitted_authorization_preserves_default_limits_and_makes_no_lookup(self):
         spec = importlib.util.spec_from_file_location(
