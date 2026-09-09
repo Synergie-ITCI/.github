@@ -82,7 +82,7 @@ class ProfileValidationTests(unittest.TestCase):
             lambda p: p["sites"][0].update(marker="Authorization: sensitive"),
             lambda p: p["sites"][0].update(marker="https://private.example.com/"),
             lambda p: p["sites"][0].update(marker="a" * 201),
-            lambda p: p["sites"][0].update(password="forbidden"),
+            lambda p: p["sites"][0].update({"password": None}),
             lambda p: p["sites"].append(copy.deepcopy(p["sites"][0])),
         ]
         for mutate in mutations:
