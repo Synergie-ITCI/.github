@@ -68,25 +68,6 @@
     "risk_warning": 40,
     "risk_fail": 85
   },
-  "one_time_baseline_alignment": {
-    "enabled": true,
-    "repository": "Synergie-ITCI/programme-management-platform",
-    "pr_number": 125,
-    "expected_head_sha": "17d32f62e4686acdcd6e613b8b99b23c0b1a4ac3",
-    "expected_base_sha": "c502dc88bd3f9288cf3cb6a2684523a7b89f78fa",
-    "head_ref": "chore/mobile-prettier-baseline-20260909",
-    "base_ref": "integration/mobile-household-sync-contract-20260909",
-    "allowed_effective_additions": 10857,
-    "allowed_changed_files": 107,
-    "relaxations": [
-      "diff_size"
-    ],
-    "authorization_id": "3b5d2047-cd80-46ff-9c7c-541f3eaf3b0c",
-    "purpose": "One-time pinned Prettier 2.8.8 baseline across 107 files plus exactly two inert test-sentinel replacements from unused-for-persisted-scope to token; no other semantic changes.",
-    "issued_at": "2026-09-09T09:29:17+00:00",
-    "expires_after": "2026-09-09T21:29:17+00:00",
-    "required_pr_body_marker": "ONE-TIME PMP PR125 PRETTIER BASELINE AUTHORIZATION"
-  },
   "defaults": {
     "version": 1,
     "repository": {
