@@ -4,13 +4,17 @@ import copy
 import io
 import json
 import os
+import runpy
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from tests.test_runtime_certifier import config, mod
+# Pytest's script entry point does not add the repository root to sys.path.
+# Reuse the unchanged v1.6 fixtures without requiring a tests package.
+baseline = runpy.run_path(str(Path(__file__).with_name("test_runtime_certifier.py")))
+config, mod = baseline["config"], baseline["mod"]
 
 
 def profile():
