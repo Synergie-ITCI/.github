@@ -17,6 +17,10 @@ the future, expiry must be later than issuance, and the entire window cannot
 exceed 24 hours. The two authorized size limits remain hard upper bounds even
 when the corresponding ordinary threshold is relaxed.
 
+`repository_id` optionally binds the trusted and live numeric GitHub repository
+identity to an explicit positive integer. A mismatched ID fails before live lookup.
+New one-time authorizations should include this bound identity.
+
 `expected_base_sha` and `required_pr_body_marker` remain optional additional
 constraints. Historical classification controls remain recognized by the schema;
 none is enabled implicitly. Old authorizations missing the new required fields

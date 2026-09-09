@@ -23,7 +23,7 @@ class ExactPr125AuthorizationTests(existing.BaselineLiveBindingTests):
             (existing.ROOT / "policy/pr-qa-policy.json").read_text()
         )
         authorization = self.central_policy.get("one_time_baseline_alignment")
-        if authorization is None:
+        if authorization is None or authorization.get("pr_number") != 125:
             # Cleanup removes the runtime policy, while this regression retains
             # the exact immutable rc101 artifact as historical test evidence.
             archived = subprocess.check_output(
