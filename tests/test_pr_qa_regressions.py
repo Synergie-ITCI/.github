@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from uuid import uuid4
 from unittest import mock
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
@@ -195,6 +196,41 @@ gates:
             env["GITHUB_ACTOR"] = actor
         if override_reason:
             args.extend(["--emergency-override-reason", override_reason, "--emergency-override-out", str(audit)])
+        # Historical baseline tests keep their gate assertions; provide the newly
+        # mandatory bounded schema and mocked live HTTP evidence in the test runner.
+        if policy_path is not None:
+            policy_data = json.loads(policy_path.read_text())
+            baseline = policy_data.get("one_time_baseline_alignment", {})
+            if baseline and "one_time_branch_alignment" not in policy_data:
+                from datetime import datetime, timedelta, timezone
+                now = datetime.now(timezone.utc)
+                baseline.update(pr_number=pr_number, authorization_id="00000000-0000-4000-8000-000000000001",
+                                purpose="Historical baseline regression fixture", issued_at=now.isoformat(),
+                                allowed_effective_additions=1000000, allowed_changed_files=10000)
+                if baseline.get("expires_after") == "2099-12-31T23:59:59Z":
+                    baseline["expires_after"] = (now + timedelta(hours=1)).isoformat()
+                if baseline.get("source_overlay"):
+                    baseline["expected_head_sha"] = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+                modern_policy = self.tmp / "live-baseline-test-policy.json"
+                modern_policy.write_text(json.dumps(policy_data))
+                args[args.index("--policy") + 1] = str(modern_policy)
+                resolved_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip() if head_sha == "HEAD" else head_sha
+                live = {"number": pr_number, "state": "open", "merged": False,
+                        "body": body_override if body_override is not None else body,
+                        "head": {"ref": head_ref, "sha": resolved_sha, "repo": {"id": 1234, "full_name": repository}},
+                        "base": {"ref": base_ref, "sha": base, "repo": {"id": 1234, "full_name": repository}}}
+                runner = self.tmp / "live-baseline-test-runner.py"
+                runner.write_text(
+                    "import runpy, sys\nfrom unittest import mock\n"
+                    + f"sys.path.insert(0, {str(ENGINE.parent)!r})\n"
+                    + "import baseline_authorization\n"
+                    + f"with mock.patch.object(baseline_authorization, 'read_live_pr', return_value={live!r}):\n"
+                    + f"    sys.argv = {[str(ENGINE), *args[2:]]!r}\n"
+                    + f"    runpy.run_path({str(ENGINE)!r}, run_name='__main__')\n"
+                )
+                args = ["python3", str(runner)]
+                env.update(GITHUB_ACTIONS="true", GITHUB_EVENT_NAME="pull_request",
+                           GITHUB_REPOSITORY_ID="1234", GITHUB_REF=f"refs/pull/{pr_number}/merge", GH_TOKEN="fixture")
         completed = subprocess.run(args, text=True, capture_output=True, env=env, check=False)
         report_text = report.read_text(encoding="utf-8") if report.exists() else completed.stdout
         parsed_json = json.loads(json_report.read_text(encoding="utf-8")) if json_report.exists() else {}
@@ -423,7 +459,7 @@ gates:
             "fallback_secret_allowlist": [],
             "gitleaks_allowlist": gitleaks_allowlist or [],
         }
-        path = self.tmp / f"policy-{head_sha[:8]}.json"
+        path = self.tmp / f"policy-{head_sha[:8]}-{uuid4()}.json"
         path.write_text(json.dumps(policy, indent=2) + "\n", encoding="utf-8")
         return path
 
@@ -520,7 +556,7 @@ gates:
                 },
             },
         }
-        path = self.tmp / f"policy-overlay-{source_sha[:8]}.json"
+        path = self.tmp / f"policy-overlay-{source_sha[:8]}-{uuid4()}.json"
         path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
         return path
 

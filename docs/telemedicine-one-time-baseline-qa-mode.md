@@ -1,5 +1,9 @@
 # Telemedicine One-Time Production Baseline QA Mode
 
+> Historical authorization record. New authorizations must meet the strict
+> [live single-PR contract](single-pr-baseline-authorization.md); old fields alone
+> no longer authorize baseline mode.
+
 ## Purpose
 
 Telemedicine backend predates the current Synergie lifecycle and its `main` branch is a governance shell rather than the real Laravel application baseline. The one-time baseline mode exists only to let `Synergie-ITCI/telemedicine-backend` establish the first application baseline on `main` through a reviewed pull request.

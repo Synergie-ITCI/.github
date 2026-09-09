@@ -91,6 +91,7 @@ REUSABLE_SANDBOXED_GATE_NAMES = {
     "Licence",
 }
 RELEASE_SENSITIVE_EXACT_FILES = {
+    "schemas/one-time-baseline.schema.json",
     "actions/runtime-certifier/action.yml",
     "policy/pr-qa-policy.json",
     "tools/runtime_certifier.py",
@@ -1012,6 +1013,11 @@ def run_sandboxed_validation(ctx: PRContext, technologies: dict[str, dict[str, A
 
 def run_governance(ctx: PRContext, existing_results: list[CheckResult], args: argparse.Namespace) -> list[CheckResult]:
     results: list[CheckResult] = []
+    if baseline_active(ctx) and context_cache(ctx).get("baseline_mode") == "baseline":
+        # A PR may close or change while repository-controlled validation runs.
+        # Recheck live identity before reporting PASS or reusing relaxed limits.
+        current_context = gather_git_context(ctx.repo, ctx.event, ctx.base_ref or "", ctx.head_ref or "")
+        results.extend(gate_baseline_alignment(ctx, current_context))
     results.extend(run_if_enabled(ctx, "documentation", lambda: gate_documentation(ctx)))
     results.extend(run_if_enabled(ctx, "advisory_review", lambda: gate_advisory_review(ctx)))
     results.extend(gate_release_drift(ctx))
@@ -1196,7 +1202,8 @@ def add_phase_skips(results: list[CheckResult], message: str) -> None:
 
 
 def baseline_policy(ctx: PRContext) -> dict[str, Any]:
-    return dict(ctx.policy.get("one_time_baseline_alignment", {}) or {})
+    value = ctx.policy.get("one_time_baseline_alignment")
+    return value if isinstance(value, dict) else {}
 
 
 def branch_alignment_policy(ctx: PRContext) -> dict[str, Any]:
@@ -1230,53 +1237,17 @@ def branch_alignment_requested(ctx: PRContext) -> bool:
 
 
 def baseline_authorization(ctx: PRContext, git_context: dict[str, Any]) -> tuple[bool, list[str], dict[str, Any]]:
-    policy = baseline_policy(ctx)
-    details: list[str] = []
+    from baseline_authorization import validate_authorization
+
+    raw_policy = ctx.policy.get("one_time_baseline_alignment")
+    policy = raw_policy if isinstance(raw_policy, dict) else {}
     if not baseline_requested(ctx):
         return False, ["Baseline alignment mode was not requested."], policy
-    if not policy.get("enabled", False):
-        return False, ["Central policy does not enable baseline alignment mode."], policy
-
-    repository = resolve_repository_name(ctx)
-    expected_repository = str(policy.get("repository", ""))
-    if repository != expected_repository:
-        details.append(f"repository `{repository}` is not authorized; expected `{expected_repository}`.")
-
-    head_ref = ctx.head_ref or ""
-    expected_head = str(policy.get("head_ref", ""))
-    if head_ref != expected_head:
-        details.append(f"source branch `{head_ref}` is not authorized; expected `{expected_head}`.")
-
-    base_ref = ctx.base_ref or ""
-    expected_base = str(policy.get("base_ref", ""))
-    if base_ref != expected_base:
-        details.append(f"target branch `{base_ref}` is not authorized; expected `{expected_base}`.")
-
-    base_sha = str(git_context.get("base_sha") or "")
-    expected_base_sha = str(policy.get("expected_base_sha", ""))
-    if expected_base_sha and base_sha != expected_base_sha:
-        details.append(f"destination SHA `{base_sha}` is not authorized; expected `{expected_base_sha}`.")
-
-    head_sha = resolve_head_sha(ctx.repo, git_context)
-    details.extend(baseline_source_overlay_authorization(ctx, git_context, policy, head_sha, base_sha))
-
-    expires_after = str(policy.get("expires_after", ""))
-    if expires_after:
-        try:
-            expires = datetime.fromisoformat(expires_after.replace("Z", "+00:00"))
-            if datetime.now(timezone.utc) > expires:
-                details.append(f"baseline authorization expired at `{expires_after}`.")
-        except ValueError:
-            details.append(f"baseline authorization expiry `{expires_after}` is invalid.")
-
-    minimum_changed = int(policy.get("minimum_changed_files", 0) or 0)
-    if len(ctx.changed_files) < minimum_changed:
-        details.append(f"changed-file count `{len(ctx.changed_files)}` is below baseline minimum `{minimum_changed}`.")
-
-    marker = str(policy.get("required_pr_body_marker", ""))
-    if marker and marker not in (ctx.pr_body or ""):
-        details.append(f"PR body is missing required baseline marker `{marker}`.")
-
+    details = validate_authorization(ctx, git_context, raw_policy, risk_size_accounting(ctx))
+    if not details:
+        details.extend(baseline_source_overlay_authorization(
+            ctx, git_context, policy, resolve_head_sha(ctx.repo, git_context), str(git_context.get("base_sha") or "")
+        ))
     return not details, details, policy
 
 
@@ -1724,6 +1695,11 @@ def gate_baseline_alignment(ctx: PRContext, git_context: dict[str, Any]) -> list
         f"deletions={ctx.deletions}",
         f"mode={mode_label}",
     ]
+    if mode == "baseline":
+        evidence.extend(f"{key}={policy[key]}" for key in (
+            "authorization_id", "pr_number", "issued_at", "expires_after",
+            "allowed_effective_additions", "allowed_changed_files",
+        ))
     evidence.extend(f"relaxed={item}" for item in sorted(baseline_relaxations(ctx)))
     return [passed("Baseline Alignment", None, f"{mode_label} authorized by central one-time policy.", evidence)]
 

@@ -1,0 +1,349 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Synergie-ITCI/.github/schemas/one-time-baseline.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "enabled": {
+      "type": "boolean"
+    },
+    "repository": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    },
+    "pr_number": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "expected_head_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "expected_base_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "head_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "base_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "allowed_effective_additions": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "allowed_changed_files": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "purpose": {
+      "type": "string",
+      "minLength": 1
+    },
+    "issued_at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "expires_after": {
+      "type": "string",
+      "minLength": 1
+    },
+    "authorization_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "required_pr_body_marker": {
+      "type": "string",
+      "minLength": 1
+    },
+    "minimum_changed_files": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "relaxations": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "diff_size",
+          "changed_file_count",
+          "historical_commit_volume",
+          "historical_migration_count",
+          "generated_static_baseline_content",
+          "baseline_binary_assets",
+          "exact_approved_tree_secret_scan",
+          "exact_approved_blob_fallback_cache",
+          "environment_fixture_classification",
+          "exact_gitleaks_fingerprint_allowlist",
+          "exact_secret_fallback_allowlist",
+          "historical_branch_name",
+          "historical_protected_resources"
+        ]
+      }
+    },
+    "environment_files": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "safe_paths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "required_markers": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "required_markers_by_path": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
+          }
+        },
+        "forbidden_patterns": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": []
+    },
+    "binary_assets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "safe_paths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "safe_patterns": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "max_file_bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": []
+    },
+    "static_executable_assets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "safe_paths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": []
+    },
+    "gitleaks_allowlist": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "rule_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "line_sha256": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fingerprint": {
+            "type": "string",
+            "minLength": 1
+          },
+          "justification": {
+            "type": "string",
+            "minLength": 1
+          },
+          "scope": {
+            "type": "string",
+            "minLength": 1
+          },
+          "expires_after": {
+            "type": "string",
+            "minLength": 1
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": []
+      }
+    },
+    "fallback_secret_allowlist": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "rule_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "line_sha256": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fingerprint": {
+            "type": "string",
+            "minLength": 1
+          },
+          "justification": {
+            "type": "string",
+            "minLength": 1
+          },
+          "scope": {
+            "type": "string",
+            "minLength": 1
+          },
+          "expires_after": {
+            "type": "string",
+            "minLength": 1
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": []
+      }
+    },
+    "fallback_secret_inherited_false_positive_paths": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "fallback_secret_inherited_false_positive_labels": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "source_overlay": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "approved_application_source_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "allowed_paths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "paths": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "source": {
+                "type": "string",
+                "minLength": 1
+              },
+              "candidate": {
+                "type": "string",
+                "minLength": 1
+              },
+              "old_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "new_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uses": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      "required": [
+        "approved_application_source_sha",
+        "allowed_paths",
+        "paths"
+      ]
+    }
+  },
+  "required": [
+    "enabled",
+    "repository",
+    "pr_number",
+    "expected_head_sha",
+    "head_ref",
+    "base_ref",
+    "allowed_effective_additions",
+    "allowed_changed_files",
+    "purpose",
+    "issued_at",
+    "expires_after",
+    "authorization_id",
+    "relaxations"
+  ]
+}
