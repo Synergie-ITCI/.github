@@ -15,6 +15,10 @@
       "type": "integer",
       "minimum": 1
     },
+    "repository_id": {
+      "type": "integer",
+      "minimum": 1
+    },
     "expected_head_sha": {
       "type": "string",
       "pattern": "^[0-9a-f]{40}$"

@@ -162,6 +162,8 @@ def validate_authorization(ctx, git_context, policy, size) -> list[str]:
         return ["Trusted GitHub pull-request execution context or token unavailable"]
     if repository != policy["repository"]:
         return [f"repository `{repository}` is not authorized"]
+    if policy.get("repository_id") is not None and int(repository_id) != policy["repository_id"]:
+        return ["Trusted GitHub repository ID differs from authorization"]
     if int(ref.group(1)) != policy["pr_number"]:
         return ["Current GitHub PR number differs from authorization"]
     event_pr = ctx.event.get("pull_request") or {}
