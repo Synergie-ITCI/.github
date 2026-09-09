@@ -8,8 +8,13 @@ import subprocess
 import sys
 from datetime import datetime, timedelta
 from unittest import mock
+from pathlib import Path
 
-from tests import test_baseline_live_binding as existing
+_spec = importlib.util.spec_from_file_location(
+    "pr125_binding_fixture", Path(__file__).with_name("test_baseline_live_binding.py")
+)
+existing = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(existing)
 
 
 class ExactPr125AuthorizationTests(existing.BaselineLiveBindingTests):
