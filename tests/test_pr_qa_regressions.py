@@ -4963,6 +4963,143 @@ printf '%s\n' "${OUTPUT}"'''
                     step["name"],
                 )
 
+    def test_jkcement_env_bootstrap_authorization_is_exact_and_fail_closed(self) -> None:
+        module = load_engine_module()
+        repo, _ = self.init_repo("jkcement-env-bootstrap-authorization")
+        workflow = repo / ".github/workflows/production-env-bootstrap.yml"
+        text = """name: Exact JK bootstrap
+on:
+  workflow_dispatch:
+permissions:
+  id-token: write
+env:
+  AWS_ROLE_ARN: arn:aws:iam::918870682888:role/SynergieJkCementProductionDeployRole
+  SSM_TARGET: mi-04a256fa549e372a8
+jobs:
+  bootstrap:
+    environment: production
+    steps:
+      - run: test "${GITHUB_ACTOR}" = SaurabhVermaIN
+      - run: test "${GITHUB_REF}" = refs/heads/main
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::918870682888:role/SynergieJkCementProductionDeployRole
+      - run: aws ssm send-command --instance-ids mi-04a256fa549e372a8 --document-name AWS-RunShellScript
+"""
+        self.write(workflow, text)
+        self.commit(repo, "ci: exact bootstrap")
+        head_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        event = {"pull_request": {"number": 90, "head": {"sha": head_sha}}}
+        ctx = module.PRContext(
+            repo=repo,
+            config={},
+            policy={},
+            changed_files=[workflow.relative_to(repo).as_posix()],
+            base_ref="development",
+            head_ref="feature/governed-env-bootstrap",
+            event=event,
+        )
+        env = {"GITHUB_REPOSITORY": "Synergie-ITCI/jkcementypsscholarship", "GITHUB_WORKSPACE": str(repo)}
+        exact = {
+            "head_sha": head_sha,
+            "workflow_sha256": hashlib.sha256(text.encode()).hexdigest(),
+            "expires_at": "2999-01-01T00:00:00Z",
+        }
+        with mock.patch.dict(os.environ, env), mock.patch.dict(module.JKCEMENT_ENV_BOOTSTRAP_AUTHORIZATION, exact):
+            self.assertTrue(module.is_authorized_jkcement_env_bootstrap_workflow(ctx, workflow.relative_to(repo).as_posix(), text))
+            self.assertFalse(module.is_authorized_jkcement_env_bootstrap_workflow(ctx, workflow.relative_to(repo).as_posix(), text + "# drift\n"))
+            outside_main = text.replace('      - run: test "${GITHUB_REF}" = refs/heads/main\n', "")
+            with mock.patch.dict(
+                module.JKCEMENT_ENV_BOOTSTRAP_AUTHORIZATION,
+                {"workflow_sha256": hashlib.sha256(outside_main.encode()).hexdigest()},
+            ):
+                self.assertFalse(
+                    module.is_authorized_jkcement_env_bootstrap_workflow(
+                        ctx,
+                        workflow.relative_to(repo).as_posix(),
+                        outside_main,
+                    )
+                )
+            ctx.event["pull_request"]["head"]["sha"] = "0" * 40
+            self.assertFalse(module.is_authorized_jkcement_env_bootstrap_workflow(ctx, workflow.relative_to(repo).as_posix(), text))
+
+    def test_jkcement_env_bootstrap_accepts_exact_canonical_descendant_only(self) -> None:
+        module = load_engine_module()
+        repo, _ = self.init_repo("jkcement-env-bootstrap-promotion")
+        workflow = repo / ".github/workflows/production-env-bootstrap.yml"
+        text = """name: Exact JK bootstrap
+on:
+  workflow_dispatch:
+permissions:
+  id-token: write
+env:
+  AWS_ROLE_ARN: arn:aws:iam::918870682888:role/SynergieJkCementProductionDeployRole
+  SSM_TARGET: mi-04a256fa549e372a8
+jobs:
+  bootstrap:
+    environment: production
+    steps:
+      - run: test "${GITHUB_ACTOR}" = SaurabhVermaIN
+      - run: test "${GITHUB_REF}" = refs/heads/main
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::918870682888:role/SynergieJkCementProductionDeployRole
+      - run: aws ssm send-command --instance-ids mi-04a256fa549e372a8 --document-name AWS-RunShellScript
+"""
+        self.write(workflow, text)
+        self.commit(repo, "ci: reviewed bootstrap")
+        approved_head = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.git(repo, "commit", "--allow-empty", "-q", "-m", "Merge governed PR 90")
+        ctx = module.PRContext(
+            repo=repo,
+            config={},
+            policy={},
+            changed_files=[workflow.relative_to(repo).as_posix()],
+            base_ref="staging",
+            head_ref="development",
+        )
+        env = {"GITHUB_REPOSITORY": "Synergie-ITCI/jkcementypsscholarship", "GITHUB_WORKSPACE": str(repo)}
+        exact = {
+            "head_sha": approved_head,
+            "workflow_sha256": hashlib.sha256(text.encode()).hexdigest(),
+            "expires_at": "2999-01-01T00:00:00Z",
+        }
+        relative = workflow.relative_to(repo).as_posix()
+        with mock.patch.dict(os.environ, env), mock.patch.dict(module.JKCEMENT_ENV_BOOTSTRAP_AUTHORIZATION, exact):
+            self.assertTrue(module.workflow_dispatch_only(module.parse_workflow_yaml(text), text))
+            self.assertTrue(module.workflow_has_actor_restriction(text))
+            self.assertTrue(module.workflow_uses_oidc(module.parse_workflow_yaml(text), text))
+            self.assertTrue(module.workflow_uses_controlled_remote_execution(text))
+            self.assertTrue(module.is_authorized_jkcement_env_bootstrap_workflow(ctx, relative, text))
+            ctx.head_ref = "feature/unapproved"
+            self.assertFalse(module.is_authorized_jkcement_env_bootstrap_workflow(ctx, relative, text))
+            ctx.head_ref = "development"
+            with mock.patch.dict(module.JKCEMENT_ENV_BOOTSTRAP_AUTHORIZATION, {"expires_at": "2000-01-01T00:00:00Z"}):
+                self.assertFalse(module.is_authorized_jkcement_env_bootstrap_workflow(ctx, relative, text))
+
+    def test_jkcement_env_bootstrap_authorization_does_not_change_gate_d_authorization(self) -> None:
+        module = load_engine_module()
+        authorization = module.JKCEMENT_ENV_BOOTSTRAP_AUTHORIZATION
+        self.assertEqual(authorization["repository"], "Synergie-ITCI/jkcementypsscholarship")
+        self.assertEqual(authorization["pr_number"], 90)
+        self.assertEqual(
+            authorization["promotion_edges"],
+            {
+                ("development", "feature/governed-env-bootstrap"),
+                ("staging", "development"),
+                ("main", "staging"),
+            },
+        )
+        self.assertRegex(authorization["head_sha"], r"^[0-9a-f]{40}$")
+        self.assertRegex(authorization["workflow_sha256"], r"^[0-9a-f]{64}$")
+        self.assertEqual(authorization["environment"], "production")
+        self.assertEqual(authorization["actor"], "SaurabhVermaIN")
+        self.assertEqual(authorization["instance_id"], "mi-04a256fa549e372a8")
+        self.assertEqual(
+            module.JKCEMENT_LEGACY_RECOVERY_AUTHORIZATION["workflow_sha256"],
+            "7b4b0528d83ac68fa7673c35efd4bb3e21939ec960fa4ab4f1ba6243fe0a551b",
+        )
+
     def test_jkcement_recovery_authorization_expiry_and_content_remain_fail_closed(self) -> None:
         module = load_engine_module()
         ctx, parsed, workflow_text, script_hash = self.jkcement_recovery_authorization_context(module)

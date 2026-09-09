@@ -3483,6 +3483,12 @@ def classify_safe_deployment_workflows(ctx: PRContext, changed: list[str]) -> tu
         if not workflow_path.is_file():
             continue
         text = read_text(workflow_path)
+        if is_authorized_jkcement_env_bootstrap_workflow(ctx, path, text):
+            details.append(
+                f"{path}: EXACT_JKCEMENT_ENV_BOOTSTRAP PR head, workflow SHA-256, production environment, actor, OIDC role, and SSM instance verified."
+            )
+            safe_paths.add(path)
+            continue
         gate_d = controlled_gate_d_workflow_details(path, text, ctx=ctx)
         if gate_d:
             details.extend(gate_d)
@@ -3538,6 +3544,85 @@ JKCEMENT_LEGACY_RECOVERY_AUTHORIZATION = {
         },
     },
 }
+
+JKCEMENT_ENV_BOOTSTRAP_AUTHORIZATION = {
+    "repository": "Synergie-ITCI/jkcementypsscholarship",
+    "pr_number": 90,
+    "head_sha": "b21960d7ad80eb1f37b8e576405b024de05f3a82",
+    "promotion_edges": {
+        ("development", "feature/governed-env-bootstrap"),
+        ("staging", "development"),
+        ("main", "staging"),
+    },
+    "workflow": ".github/workflows/production-env-bootstrap.yml",
+    "workflow_sha256": "1e60007f6728be355f6f18bfa29802de2037b4c72bb33cb06fb634b7fa65c4a0",
+    "environment": "production",
+    "actor": "SaurabhVermaIN",
+    "deploy_role": "arn:aws:iam::918870682888:role/SynergieJkCementProductionDeployRole",
+    "instance_id": "mi-04a256fa549e372a8",
+    "expires_at": "2026-09-10T14:15:51Z",
+}
+
+
+def is_authorized_jkcement_env_bootstrap_workflow(ctx: PRContext, path: str, text: str) -> bool:
+    authorization = JKCEMENT_ENV_BOOTSTRAP_AUTHORIZATION
+    if resolve_repository_name(ctx) != authorization["repository"] or path != authorization["workflow"]:
+        return False
+    current_head = run_git(ctx.repo, ["rev-parse", "HEAD"]).strip()
+    edge = (str(ctx.base_ref or ""), str(ctx.head_ref or ""))
+    if edge not in authorization["promotion_edges"]:
+        return False
+    if current_head == authorization["head_sha"]:
+        if edge != ("development", "feature/governed-env-bootstrap"):
+            return False
+    else:
+        if edge == ("development", "feature/governed-env-bootstrap"):
+            return False
+        if subprocess.run(
+            ["git", "merge-base", "--is-ancestor", authorization["head_sha"], current_head],
+            cwd=ctx.repo,
+            capture_output=True,
+            check=False,
+        ).returncode != 0:
+            return False
+    pull_request = ctx.event.get("pull_request", {}) if isinstance(ctx.event, dict) else {}
+    if pull_request and current_head == authorization["head_sha"]:
+        if int(pull_request.get("number") or 0) != authorization["pr_number"]:
+            return False
+        if str((pull_request.get("head") or {}).get("sha") or "") != authorization["head_sha"]:
+            return False
+    try:
+        expiry = datetime.fromisoformat(str(authorization["expires_at"]).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if datetime.now(timezone.utc) > expiry:
+        return False
+    if hashlib.sha256(text.encode("utf-8")).hexdigest() != authorization["workflow_sha256"]:
+        return False
+
+    exact_markers = {
+        f"environment: {authorization['environment']}",
+        f'test "${{GITHUB_ACTOR}}" = {authorization["actor"]}',
+        'test "${GITHUB_REF}" = refs/heads/main',
+        f"AWS_ROLE_ARN: {authorization['deploy_role']}",
+        f"SSM_TARGET: {authorization['instance_id']}",
+    }
+    if not all(marker in text for marker in exact_markers):
+        return False
+    parsed = parse_workflow_yaml(text)
+    if not workflow_dispatch_only(parsed, text):
+        return False
+    if text.count("environment: production") != 1:
+        return False
+    if not workflow_has_actor_restriction(text) or not workflow_uses_oidc(parsed, text):
+        return False
+    if not workflow_uses_controlled_remote_execution(text):
+        return False
+    if workflow_has_embedded_or_static_deployment_credentials(text):
+        return False
+    if "jkcement-production-remote.sh" in text or "operation: deploy" in text or "DEPLOY_PRODUCTION" in text:
+        return False
+    return True
 
 
 def normalized_workflow_scalar(value: Any) -> str:
