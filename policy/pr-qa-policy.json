@@ -70,74 +70,22 @@
   },
   "one_time_baseline_alignment": {
     "enabled": true,
-    "repository": "Synergie-ITCI/jkcementypsscholarship",
-    "base_ref": "main",
-    "head_ref": "staging",
-    "expected_base_sha": "284bf644d39ffd63ee66891ced7960d011a532bf",
-    "expected_head_sha": "93cda06cab5d5566cdba49bf9cebb394de0479d7",
-    "expires_after": "2026-09-08T07:07:34Z",
-    "minimum_changed_files": 2000,
-    "required_pr_body_marker": "ONE-TIME JK CEMENT STAGING TO MAIN BASELINE AUTHORIZATION PR-7",
+    "repository": "Synergie-ITCI/programme-management-platform",
+    "pr_number": 125,
+    "expected_head_sha": "17d32f62e4686acdcd6e613b8b99b23c0b1a4ac3",
+    "expected_base_sha": "c502dc88bd3f9288cf3cb6a2684523a7b89f78fa",
+    "head_ref": "chore/mobile-prettier-baseline-20260909",
+    "base_ref": "integration/mobile-household-sync-contract-20260909",
+    "allowed_effective_additions": 10857,
+    "allowed_changed_files": 107,
     "relaxations": [
-      "diff_size",
-      "changed_file_count",
-      "historical_commit_volume",
-      "historical_migration_count",
-      "generated_static_baseline_content",
-      "baseline_binary_assets",
-      "exact_approved_tree_secret_scan",
-      "exact_approved_blob_fallback_cache",
-      "exact_gitleaks_fingerprint_allowlist",
-      "exact_secret_fallback_allowlist"
+      "diff_size"
     ],
-    "binary_assets": {
-      "safe_patterns": [
-        "assets/**/*.eot",
-        "assets/**/*.ico",
-        "assets/**/*.ttf",
-        "assets/**/*.woff",
-        "assets/**/*.woff2",
-        "tcpdf/fonts/**"
-      ],
-      "max_file_bytes": 5242880
-    },
-    "static_executable_assets": {
-      "safe_paths": [
-        "user_guide/nav/moo.fx.js",
-        "user_guide/nav/nav.js",
-        "user_guide/nav/prototype.lite.js",
-        "user_guide/nav/user_guide_menu.js"
-      ]
-    },
-    "gitleaks_allowlist": [
-      {
-        "rule_id": "generic-api-key",
-        "path": "application/views/dashboard/dashboard.php",
-        "line": 2153,
-        "line_sha256": "5c510f5dd0f712be94bbfcb5ec165afae01af6468c1c917def14aba05e8bc3ac",
-        "fingerprint": "application/views/dashboard/dashboard.php:generic-api-key:2153",
-        "justification": "Exact inherited dashboard form-label false positive in the approved PR #7 source blob.",
-        "expires_after": "2026-09-08T07:07:34Z"
-      },
-      {
-        "rule_id": "generic-api-key",
-        "path": "application/views/dashboard/dashboard.php",
-        "line": 2160,
-        "line_sha256": "dae34c7feda68314f58baeb34f30027796f2f1297d1c9698aeddbee2134089fc",
-        "fingerprint": "application/views/dashboard/dashboard.php:generic-api-key:2160",
-        "justification": "Exact inherited dashboard form-label false positive in the approved PR #7 source blob.",
-        "expires_after": "2026-09-08T07:07:34Z"
-      }
-    ],
-    "fallback_secret_allowlist": [
-      {
-        "path": "user_guide/libraries/xmlrpc.html",
-        "label": "generic credential assignment",
-        "line_sha256": "4a01300547d4e0a68131d3c63d60d3a80316dafeeb723afd5ca12c6cef978893",
-        "justification": "Exact historical CodeIgniter XML-RPC user-guide example line in the approved PR #7 source tree; not runtime configuration.",
-        "expires_after": "2026-09-08T07:07:34Z"
-      }
-    ]
+    "authorization_id": "3b5d2047-cd80-46ff-9c7c-541f3eaf3b0c",
+    "purpose": "One-time pinned Prettier 2.8.8 baseline across 107 files plus exactly two inert test-sentinel replacements from unused-for-persisted-scope to token; no other semantic changes.",
+    "issued_at": "2026-09-09T09:29:17+00:00",
+    "expires_after": "2026-09-09T21:29:17+00:00",
+    "required_pr_body_marker": "ONE-TIME PMP PR125 PRETTIER BASELINE AUTHORIZATION"
   },
   "defaults": {
     "version": 1,
