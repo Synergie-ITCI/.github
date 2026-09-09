@@ -6894,8 +6894,10 @@ case "$args" in *"--log-opts"*) exit 0;; *) echo "missing history scan" >&2; exi
         self.assertNotEqual(code, 0)
         self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Integrity"], "FAIL")
 
-    def test_active_jkcement_baseline_is_exact_and_time_limited(self) -> None:
-        policy = json.loads((ROOT / "policy" / "pr-qa-policy.json").read_text(encoding="utf-8"))
+    def test_archived_rc99_jkcement_baseline_is_exact_and_time_limited(self) -> None:
+        archived = self.git(ROOT, "show", "pr-qa-v1-rc99:policy/pr-qa-policy.json")
+        self.assertEqual(archived.returncode, 0, archived.stderr)
+        policy = json.loads(archived.stdout)
         baseline = policy["one_time_baseline_alignment"]
 
         self.assertEqual(baseline["repository"], "Synergie-ITCI/jkcementypsscholarship")
