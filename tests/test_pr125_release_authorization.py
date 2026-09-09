@@ -14,7 +14,6 @@ from tests import test_baseline_live_binding as existing
 
 class ExactPr125AuthorizationTests(existing.BaselineLiveBindingTests):
     def setUp(self):
-        super().setUp()
         self.central_policy = json.loads(
             (existing.ROOT / "policy/pr-qa-policy.json").read_text()
         )
@@ -28,6 +27,7 @@ class ExactPr125AuthorizationTests(existing.BaselineLiveBindingTests):
                 text=True,
             )
             authorization = json.loads(archived)["one_time_baseline_alignment"]
+        super().setUp()
         self.policy = copy.deepcopy(authorization)
         self.sha = self.policy["expected_head_sha"]
         self.base = self.policy["expected_base_sha"]
