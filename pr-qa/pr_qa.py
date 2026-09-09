@@ -98,6 +98,7 @@ RELEASE_SENSITIVE_EXACT_FILES = {
 RELEASE_SENSITIVE_ROOTS = {
     "pr-qa",
 }
+HOST_PROFILE_ROOT = "actions/runtime-certifier/host-profiles"
 
 GATE_ORDER = [
     ("baseline_alignment", "Baseline Alignment"),
@@ -5039,8 +5040,9 @@ def release_sensitive_files(repo: Path, release: str) -> tuple[list[str], list[s
         if path.is_file()
     }
     current.update(rel for rel in RELEASE_SENSITIVE_EXACT_FILES if (repo / rel).is_file())
+    current.update(path.relative_to(repo).as_posix() for path in (repo / HOST_PROFILE_ROOT).rglob("*.json") if path.is_file())
     tagged = subprocess.run(
-        ["git", "ls-tree", "-r", "--name-only", release, "--", "pr-qa", *sorted(RELEASE_SENSITIVE_EXACT_FILES)],
+        ["git", "ls-tree", "-r", "--name-only", release, "--", "pr-qa", HOST_PROFILE_ROOT, *sorted(RELEASE_SENSITIVE_EXACT_FILES)],
         cwd=repo,
         text=True,
         capture_output=True,
@@ -5056,6 +5058,8 @@ def release_sensitive_files(repo: Path, release: str) -> tuple[list[str], list[s
 
 def is_release_sensitive_file(rel: str) -> bool:
     path = rel.strip("/")
+    if path.startswith(HOST_PROFILE_ROOT + "/") and path.endswith(".json"):
+        return True
     if path in RELEASE_SENSITIVE_EXACT_FILES:
         return True
     return path.startswith("pr-qa/") and path.endswith(".py")

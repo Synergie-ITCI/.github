@@ -20,6 +20,8 @@ edit configuration, or otherwise mutate production.
 from __future__ import annotations
 
 import argparse
+import base64
+import ipaddress
 import json
 import os
 import re
@@ -27,6 +29,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
@@ -93,6 +96,7 @@ class Config:
     rollback_kind: str = "exact-sha"
     legacy_baseline_path: str = ""
     repository: str = ""
+    host_profile: str = ""
 
 
 def validate_config(config: Config) -> None:
@@ -1197,8 +1201,237 @@ def write_github_outputs(state: str) -> None:
         )
 
 
+HOST_PROFILES = Path(__file__).resolve().parents[1] / "actions/runtime-certifier/host-profiles"
+SAFE_LABEL = re.compile(r"[a-z][a-z0-9-]{0,62}\Z")
+HOST_REASONS = {
+    "INVALID_PROFILE", "UNKNOWN_PROFILE", "HOST_MISMATCH", "TARGET_INCLUDED",
+    "UNAPPROVED_HOST", "APACHE_CONFIG", "VHOST_NOT_ENABLED", "LOCAL_IO",
+    "DNS_PERSISTENT", "CONNECTION_PERSISTENT", "TIMEOUT_PERSISTENT",
+    "TLS_TRANSPORT_PERSISTENT", "TLS_SECURITY", "CURL_OTHER", "HTTP_STATUS",
+    "CONTENT_MARKER", "INVALID_EVIDENCE", "RUNTIME_FAILED", "SSM_FAILED",
+}
+
+
+class HostCertificationError(CertifierError):
+    def __init__(self, reason: str, site: str = "host-profile") -> None:
+        self.reason = reason if reason in HOST_REASONS else "INVALID_EVIDENCE"
+        self.site = site if SAFE_LABEL.fullmatch(site) else "host-profile"
+        super().__init__(self.reason)
+
+
+def public_hostname(value: object) -> bool:
+    if not isinstance(value, str) or len(value) > 253:
+        return False
+    if not re.fullmatch(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}", value):
+        return False
+    if value.endswith((".localhost", ".local", ".internal", ".test", ".invalid")):
+        return False
+    try:
+        ipaddress.ip_address(value)
+        return False
+    except ValueError:
+        return True
+
+
+def load_host_profile(config: Config) -> dict:
+    # Caller-controlled paths, profile documents and URL overrides are never accepted.
+    if not SAFE_LABEL.fullmatch(config.host_profile):
+        raise HostCertificationError("UNKNOWN_PROFILE")
+    path = HOST_PROFILES / (config.host_profile + ".json")
+    if path.is_symlink() or not path.is_file():
+        raise HostCertificationError("UNKNOWN_PROFILE")
+    try:
+        def unique_keys(pairs):
+            result = {}
+            for key, value in pairs:
+                if key in result:
+                    raise ValueError("duplicate key")
+                result[key] = value
+            return result
+        profile = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_keys)
+        if not isinstance(profile, dict) or set(profile) != {
+            "schema_version", "instance_id", "region", "target_hostname", "sites"
+        }:
+            raise ValueError("schema")
+        if type(profile["schema_version"]) is not int or profile["schema_version"] != 1:
+            raise ValueError("version")
+        if not isinstance(profile["instance_id"], str) or not re.fullmatch(r"(?:mi|i)-[0-9a-f]{17}", profile["instance_id"]):
+            raise ValueError("identity")
+        if not isinstance(profile["region"], str) or not re.fullmatch(r"[a-z]{2}(?:-[a-z]+)+-[0-9]", profile["region"]):
+            raise ValueError("region")
+        if not public_hostname(profile["target_hostname"]):
+            raise ValueError("target")
+        if profile["instance_id"] != config.instance_id or profile["region"] != config.region:
+            raise HostCertificationError("HOST_MISMATCH")
+        if profile["target_hostname"] != urlparse(config.validation_url).hostname:
+            raise HostCertificationError("UNAPPROVED_HOST")
+        sites = profile["sites"]
+        if not isinstance(sites, list) or not 1 <= len(sites) <= 8:
+            raise ValueError("sites")
+        labels, hosts = set(), set()
+        for site in sites:
+            if not isinstance(site, dict) or set(site) != {"label", "hostname", "https_required", "accepted_status", "marker"}:
+                raise ValueError("site schema")
+            label, host, marker = site["label"], site["hostname"], site["marker"]
+            if not isinstance(label, str) or not SAFE_LABEL.fullmatch(label) or label == "host-profile":
+                raise ValueError("label")
+            if not public_hostname(host) or label in labels or host in hosts:
+                raise ValueError("hostname")
+            if host == profile["target_hostname"]:
+                raise HostCertificationError("TARGET_INCLUDED")
+            if site["https_required"] is not True or type(site["accepted_status"]) is not int or not 200 <= site["accepted_status"] <= 299:
+                raise ValueError("HTTP policy")
+            if not isinstance(marker, str) or not marker.strip() or len(marker) > 200 or not marker.isascii() or not marker.isprintable():
+                raise ValueError("marker")
+            if re.search(r"https?://|password|secret|token|authorization|cookie|api[_-]?key|private.key", marker, re.I):
+                raise ValueError("protected marker")
+            labels.add(label)
+            hosts.add(host)
+        return profile
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        raise HostCertificationError("INVALID_PROFILE") from exc
+
+
+def build_host_script(profile: dict) -> str:
+    # Only validated, immutable central metadata enters the remote script.
+    script = r'''
+set +x
+set -euo pipefail
+umask 077
+host_fail() {
+  printf 'HOST_CERTIFICATION=FAIL\nFAILED_SITE=%s\nFAILED_REASON=%s\n' "$1" "$2"
+  exit 42
+}
+apache2ctl configtest >/dev/null 2>&1 || host_fail host-profile APACHE_CONFIG
+host_check() (
+  local label="$1" host="$2" expected="$3" marker="$4"
+  local enabled=0 candidate attempt code rc category result
+  body=''
+  trap 'rm -f "$body"' EXIT
+  trap 'exit 42' INT TERM
+  for candidate in /etc/apache2/sites-enabled/*.conf; do
+    test -f "$candidate" || continue
+    if awk -v host="$host" '
+      tolower($1)=="<virtualhost" {inside=1; tls=($0 ~ /:443([[:space:]>]|$)/); name=0; ssl=0}
+      inside && tolower($1)=="servername" && $2==host {name=1}
+      inside && tolower($1)=="sslengine" && tolower($2)=="on" {ssl=1}
+      tolower($1)=="</virtualhost>" {if (inside && tls && name && ssl) found=1; inside=0}
+      END {exit !found}' "$candidate" 2>/dev/null; then enabled=1; break; fi
+  done
+  test "$enabled" = 1 || host_fail "$label" VHOST_NOT_ENABLED
+  for attempt in 1 2 3; do
+    body="$(mktemp 2>/dev/null)" || host_fail "$label" LOCAL_IO
+    # The function subshell removes its private body even on interruption.
+    if code="$(
+      curl -q --silent --proto '=https' --proto-redir '=https' --tlsv1.2 \
+        --noproxy '*' --connect-timeout 5 --max-time 15 --max-filesize 1048576 \
+        --output "$body" --write-out '%{http_code}' "https://${host}/" 2>/dev/null
+    )"; then rc=0; else rc=$?; fi
+    case "$code" in [0-9][0-9][0-9]) ;; *) code=000 ;; esac
+    category=NONE
+    result=NOT_CHECKED
+    if test "$rc" = 0; then
+      result=FAIL
+      grep -Fq -- "$marker" "$body" 2>/dev/null && result=PASS
+    else
+      case "$rc" in
+        5|6) category=DNS ;;
+        7|52|55|56) category=CONNECTION ;;
+        28) category=TIMEOUT ;;
+        35) category=TLS_TRANSPORT ;;
+        51|58|59|60|64|66|77|80|82|83|90|91) category=TLS_SECURITY ;;
+        *) category=CURL_OTHER ;;
+      esac
+    fi
+    rm -f "$body"
+    printf 'HOST_SITE label=%s status=%s marker=%s curl=%s attempt=%s\n' "$label" "$code" "$result" "$category" "$attempt"
+    if test "$rc" != 0; then
+      case "$category" in
+        DNS|CONNECTION|TIMEOUT|TLS_TRANSPORT)
+          if test "$attempt" -lt 3; then sleep "$attempt"; continue; fi
+          host_fail "$label" "${category}_PERSISTENT" ;;
+        *) host_fail "$label" "$category" ;;
+      esac
+    fi
+    test "$code" = "$expected" || host_fail "$label" HTTP_STATUS
+    test "$result" = PASS || host_fail "$label" CONTENT_MARKER
+    return 0
+  done
+)
+'''
+    for site in profile["sites"]:
+        script += "host_check " + " ".join(shlex.quote(str(site[key])) for key in ("label", "hostname", "accepted_status", "marker")) + "\n"
+    return script + "printf 'HOST_CERTIFICATION=PASS\\n'\n"
+
+
+def write_host_outputs(status: str, site: str = "", reason: str = "") -> None:
+    lines = f"host-certification={status}\nfailed-site={site}\nfailed-reason={reason}\n"
+    print(lines, end="")
+    output = os.getenv("GITHUB_OUTPUT", "").strip()
+    if output:
+        with Path(output).open("a", encoding="utf-8") as handle:
+            handle.write(lines)
+
+
+def verify_host_evidence(result: dict, profile: dict, command_id: str) -> str:
+    if not isinstance(result, dict) or not isinstance(result.get("StandardOutputContent"), str):
+        raise HostCertificationError("INVALID_EVIDENCE")
+    if result.get("InstanceId") != profile["instance_id"] or result.get("CommandId") != command_id:
+        raise HostCertificationError("HOST_MISMATCH")
+    lines = str(result.get("StandardOutputContent", "")).splitlines()
+    labels = {site["label"] for site in profile["sites"]}
+    if lines.count("HOST_CERTIFICATION=FAIL") == 1:
+        sites = [line.removeprefix("FAILED_SITE=") for line in lines if line.startswith("FAILED_SITE=")]
+        reasons = [line.removeprefix("FAILED_REASON=") for line in lines if line.startswith("FAILED_REASON=")]
+        if len(sites) == len(reasons) == 1 and sites[0] in labels | {"host-profile"} and reasons[0] in HOST_REASONS:
+            raise HostCertificationError(reasons[0], sites[0])
+        raise HostCertificationError("INVALID_EVIDENCE")
+    if result.get("Status") != "Success" or result.get("ResponseCode") != 0:
+        raise HostCertificationError("RUNTIME_FAILED")
+    if lines.count("HOST_CERTIFICATION=PASS") != 1:
+        raise HostCertificationError("INVALID_EVIDENCE")
+    if any(line.startswith(("FAILED_SITE=", "FAILED_REASON=")) for line in lines):
+        raise HostCertificationError("INVALID_EVIDENCE")
+    if sum(line.startswith("DEPLOY_STATE=") for line in lines) != 1:
+        raise HostCertificationError("INVALID_EVIDENCE")
+    probes = {label: [] for label in labels}
+    for line in lines:
+        if not line.startswith("HOST_SITE "):
+            continue
+        match = re.fullmatch(r"HOST_SITE label=([a-z][a-z0-9-]{0,62}) status=([0-9]{3}) marker=(PASS|FAIL|NOT_CHECKED) curl=(NONE|DNS|CONNECTION|TIMEOUT|TLS_TRANSPORT|TLS_SECURITY|CURL_OTHER) attempt=([123])", line)
+        if match is None or match[1] not in probes:
+            raise HostCertificationError("INVALID_EVIDENCE")
+        probes[match[1]].append(match.groups()[1:])
+    for site in profile["sites"]:
+        attempts = probes[site["label"]]
+        if not 1 <= len(attempts) <= 3:
+            raise HostCertificationError("INVALID_EVIDENCE")
+        for index, (code, marker, category, attempt) in enumerate(attempts, 1):
+            if attempt != str(index):
+                raise HostCertificationError("INVALID_EVIDENCE")
+            if index == len(attempts):
+                if (code, marker, category) != (str(site["accepted_status"]), "PASS", "NONE"):
+                    raise HostCertificationError("INVALID_EVIDENCE")
+            elif category not in {"DNS", "CONNECTION", "TIMEOUT", "TLS_TRANSPORT"} or marker != "NOT_CHECKED":
+                raise HostCertificationError("INVALID_EVIDENCE")
+    state = extract_deploy_state("\n".join(lines))
+    return state
+
+
 def certify(config: Config) -> int:
+    profile = load_host_profile(config) if config.host_profile else None
     remote_script = build_remote_script(config)
+    if profile:
+        # Keep legacy adapter output off SSM logs for opted-in calls. Only extract
+        # its deployment enum; failures never replay its stdout or stderr.
+        encoded = base64.b64encode(remote_script.encode()).decode()
+        remote_script = (
+            "set +x\nset -euo pipefail\n"
+            "if runtime_output=$(printf %s " + shlex.quote(encoded) + " | base64 -d | bash 2>/dev/null); then\n"
+            "  printf '%s\\n' \"$runtime_output\" | sed -n '/^DEPLOY_STATE=[A-Z_]*$/p'\n"
+            "else printf 'HOST_CERTIFICATION=FAIL\\nFAILED_SITE=host-profile\\nFAILED_REASON=RUNTIME_FAILED\\n'; exit 42; fi\n"
+            "unset runtime_output\n" + build_host_script(profile)
+        )
 
     payload = {
         "commands": [
@@ -1279,6 +1512,25 @@ def certify(config: Config) -> int:
 
         result = json.loads(invocation.stdout)
 
+        if profile:
+            if not isinstance(result, dict):
+                raise HostCertificationError("INVALID_EVIDENCE")
+            # The stock waiter can end before eight bounded co-host probes do.
+            # Poll the same invocation only; never resend a certification command.
+            deadline = time.monotonic() + 480
+            while result.get("Status") in {"Pending", "InProgress", "Delayed"}:
+                if time.monotonic() >= deadline:
+                    raise HostCertificationError("SSM_FAILED")
+                time.sleep(2)
+                invocation = run_command([
+                    "aws", "ssm", "get-command-invocation", "--region", config.region,
+                    "--command-id", command_id, "--instance-id", config.instance_id,
+                    "--cli-connect-timeout", "5", "--cli-read-timeout", "15", "--output", "json",
+                ])
+                result = json.loads(invocation.stdout)
+                if not isinstance(result, dict):
+                    raise HostCertificationError("INVALID_EVIDENCE")
+
         stdout = result.get(
             "StandardOutputContent",
             "",
@@ -1293,6 +1545,12 @@ def certify(config: Config) -> int:
             "Status",
             "UNKNOWN",
         )
+
+        if profile:
+            state = verify_host_evidence(result, profile, command_id)
+            write_host_outputs("PASS")
+            write_github_outputs(state)
+            return 0
 
         if stdout:
             print(
@@ -1327,6 +1585,7 @@ def certify(config: Config) -> int:
 
 def parse_args() -> Config:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--host-profile", default=os.getenv("RUNTIME_CERTIFIER_HOST_PROFILE", ""))
 
     parser.add_argument(
         "--instance-id",
@@ -1400,7 +1659,12 @@ def parse_args() -> Config:
     )
 
     args = parser.parse_args()
-    persistent_data = load_persistent_data_declarations(args.governance_config)
+    try:
+        persistent_data = load_persistent_data_declarations(args.governance_config)
+    except (CertifierError, ValueError, OSError) as exc:
+        if args.host_profile:
+            raise HostCertificationError("RUNTIME_FAILED") from exc
+        raise
 
     return Config(
         instance_id=args.instance_id,
@@ -1417,25 +1681,39 @@ def parse_args() -> Config:
         runtime_version=args.runtime_version,
         web_server=args.web_server,
         persistent_data=persistent_data,
+        host_profile=args.host_profile,
     )
 
 
 def main() -> int:
+    config = None
     try:
         config = parse_args()
         validate_config(config)
         return certify(config)
 
+    except HostCertificationError as exc:
+        write_host_outputs("FAIL", exc.site, exc.reason)
+        return 1
     except (
         CertifierError,
         json.JSONDecodeError,
         subprocess.CalledProcessError,
     ) as exc:
+        if config is not None and config.host_profile:
+            write_host_outputs("FAIL", "host-profile", "SSM_FAILED")
+            return 1
         print(
             f"RUNTIME_CERTIFIER=FAIL: {exc}",
             file=sys.stderr,
         )
         return 1
+
+    except OSError:
+        if config is not None and config.host_profile:
+            write_host_outputs("FAIL", "host-profile", "SSM_FAILED")
+            return 1
+        raise
 
 
 if __name__ == "__main__":

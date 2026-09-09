@@ -5419,6 +5419,16 @@ jobs:
         self.assertEqual(state["framework_main_matches_active_release"], "PASS")
         self.assertEqual(state["release_required"], "NO")
 
+    def test_host_profile_changes_require_a_new_immutable_release(self) -> None:
+        engine = load_engine_module()
+        repo = self.framework_release_repo("release-drift-host-profile")
+        profile = "actions/runtime-certifier/host-profiles/example.json"
+        self.write(repo / profile, '{"schema_version": 1}\n')
+        state = engine.framework_release_state(repo)
+        self.assertEqual(state["framework_main_matches_active_release"], "FAIL")
+        self.assertEqual(state["release_required"], "YES")
+        self.assertIn(profile, state["release_sensitive_files"])
+
     def test_release_drift_fails_when_pr_qa_engine_changes(self) -> None:
         engine = load_engine_module()
         repo = self.framework_release_repo("release-drift-engine")
