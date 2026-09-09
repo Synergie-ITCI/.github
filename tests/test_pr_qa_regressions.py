@@ -4963,6 +4963,44 @@ printf '%s\n' "${OUTPUT}"'''
                     step["name"],
                 )
 
+    def test_jkcement_recovery_authorization_expiry_and_content_remain_fail_closed(self) -> None:
+        module = load_engine_module()
+        ctx, parsed, workflow_text, script_hash = self.jkcement_recovery_authorization_context(module)
+        job = parsed["jobs"]["gate-d"]
+        expiry = module.datetime.fromisoformat(
+            module.JKCEMENT_LEGACY_RECOVERY_AUTHORIZATION["expires_at"].replace("Z", "+00:00")
+        )
+        env = {"GITHUB_REPOSITORY": "Synergie-ITCI/jkcementypsscholarship", "GITHUB_WORKSPACE": str(ctx.repo)}
+        with mock.patch.dict(os.environ, env), mock.patch.dict(
+            module.JKCEMENT_LEGACY_RECOVERY_AUTHORIZATION,
+            {
+                "workflow_sha256": hashlib.sha256(workflow_text.encode()).hexdigest(),
+                "recovery_script_sha256": script_hash,
+            },
+        ), mock.patch.object(module, "datetime", wraps=module.datetime) as clock:
+            for current_time, accepted in (
+                (expiry.replace(day=expiry.day - 1), True),
+                (expiry, True),
+                (expiry.replace(second=1), False),
+            ):
+                clock.now.return_value = current_time
+                for step in job["steps"]:
+                    self.assertEqual(
+                        module.is_authorized_jkcement_legacy_recovery_step(
+                            ctx, ".github/workflows/production-deploy.yml", parsed, job, step, workflow_text
+                        ),
+                        accepted,
+                    )
+            clock.now.return_value = expiry
+            script = ctx.repo / module.JKCEMENT_LEGACY_RECOVERY_AUTHORIZATION["recovery_script"]
+            script.write_bytes(script.read_bytes() + b"# changed artifact\n")
+            for step in job["steps"]:
+                self.assertFalse(
+                    module.is_authorized_jkcement_legacy_recovery_step(
+                        ctx, ".github/workflows/production-deploy.yml", parsed, job, step, workflow_text
+                    )
+                )
+
     def test_jkcement_recovery_authorization_rejects_forward_deploy(self) -> None:
         module = load_engine_module()
         ctx, parsed, workflow_text, script_hash = self.jkcement_recovery_authorization_context(module)

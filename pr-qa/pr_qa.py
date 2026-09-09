@@ -3517,14 +3517,14 @@ RUNTIME_CERTIFIER_REQUIRED_INPUTS = {
 JKCEMENT_LEGACY_RECOVERY_AUTHORIZATION = {
     "repository": "Synergie-ITCI/jkcementypsscholarship",
     "workflow": ".github/workflows/production-deploy.yml",
-    "workflow_sha256": "83e62f03588d9fe9824dcae697969a135bbcdbc2c5f52024b8e92e7e53f78807",
+    "workflow_sha256": "7b4b0528d83ac68fa7673c35efd4bb3e21939ec960fa4ab4f1ba6243fe0a551b",
     "instance_id": "mi-04a256fa549e372a8",
     "document": "AWS-RunShellScript",
     "deploy_ref": "d5871e45fc010b1a2413a176f062fc32c6318e99",
     "baseline_hash": "50fdf0aba94f2d0c9cffa6e9647b85ba8e6a8efb337236a87b8f75c5bc297775",
     "recovery_script": ".github/scripts/jkcement-legacy-production-bootstrap.sh",
-    "recovery_script_sha256": "a2653896e43d21b43506dcdb3ed6529abad4c2d19e1c5d497f5b7cc6fd856d26",
-    "expires_at": "2026-09-08T18:00:00Z",
+    "recovery_script_sha256": "63daf6860d33a3b6e31c31ccdfd42a2b8e85112c09f06602ef04efa2275d8d21",
+    "expires_at": "2026-09-10T18:00:00Z",
     "steps": {
         "Recover an interrupted one-time cutover before certification": {
             "condition_sha256": "62f73289cb36e73937369bed561714eb3888c23c52e6e5a9e5766124c47fe396",
