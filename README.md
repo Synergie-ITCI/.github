@@ -1,4 +1,4 @@
-# Synergie Organisation PR QA Framework
+# Synergie Organisation PR QA Framework (Synergie Central Governance)
 
 This bundle implements a reusable Pull Request Quality Assurance framework for Synergie GitHub repositories.
 
