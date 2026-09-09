@@ -4876,6 +4876,275 @@ jobs:
 
         return "\n".join(lines) + "\n"
 
+    def legacy_onboarding_fixture(self, module, name: str = "legacy-onboarding"):
+        repo, _ = self.init_repo(name)
+        workflow = repo / ".github" / "workflows" / "production-deploy.yml"
+        self.write(workflow, "name: governed production deployment\n")
+        self.commit(repo, "ci: add governed deployment workflow")
+        candidate_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        coupled = {
+            "target_identity": "ssm:mi-fixture:/srv/legacy-app",
+            "deployment_workflow_path": ".github/workflows/production-deploy.yml",
+            "deployment_workflow_sha256": hashlib.sha256(workflow.read_bytes()).hexdigest(),
+            "runtime_release": "php-8.3.33",
+            "runtime_config_sha256": "1" * 64,
+            "persistence_mapping_sha256": "2" * 64,
+        }
+        evidence = {
+            "mode": "LEGACY_ONBOARDING",
+            "repository": "Synergie-ITCI/legacy-fixture",
+            "candidate_sha": candidate_sha,
+            "target_identity": coupled["target_identity"],
+            "production_state": {
+                "evidence_reference": "ssm-discovery:run-123",
+                "has_deployed_sha_marker": False,
+                "matches_reachable_governed_commit": False,
+                "governed_release_model_established": False,
+                "requires_persistence_sanitation": True,
+            },
+            "discovery": {
+                "production_target": "ssm:mi-fixture",
+                "webroot_runtime": "/srv/legacy-app/public_html;php-7.4",
+                "production_health": "HTTP 200; content marker present",
+                "db_storage_dependencies": "mysql:legacy;local uploads",
+                "persistent_paths": "/srv/legacy-app/public_html/uploads",
+                "runtime_config_paths": "/srv/legacy-app/shared/.env",
+                "legacy_baseline": "baseline-artifact:fixture",
+                "rollback_capability": "restore-test:run-122",
+            },
+            "baseline": {
+                "rollback_kind": "legacy-baseline",
+                "source_kind": "UNVERSIONED/LEGACY",
+                "artifact_sha256": "3" * 64,
+                "tree_sha256": "4" * 64,
+                "immutable": True,
+                "database_backup_evidence": "backup:db-123",
+                "persistence_backup_evidence": "backup:uploads-123",
+                "restore_evidence": "restore:test-123",
+                "restore_tested": True,
+            },
+            "commissioning": {
+                "isolated": True,
+                "public_traffic_switched": False,
+                "candidate_path": "/srv/legacy-app/releases/candidate",
+                "exact_artifact_sha256": "5" * 64,
+                **{name: "PASS" for name in module.LEGACY_ONBOARDING_COMMISSIONING_CHECKS},
+            },
+            "migration_validation": {
+                "mode": "dry-run",
+                "target_classification": "NON_PRODUCTION",
+                "live_production_mutation": False,
+                "production_migration_requested": False,
+                "evidence_reference": "migration-dry-run:copy-123",
+            },
+            "health": {
+                "expected_status": 200,
+                "actual_status": 200,
+                "minimum_body_bytes": 1024,
+                "actual_body_bytes": 68123,
+                "expected_marker": "Legacy Fixture",
+                "marker_present": True,
+                "critical_routes": "PASS",
+            },
+            "coupled_inputs": coupled,
+            "coupled_inputs_sha256": hashlib.sha256(
+                json.dumps(coupled, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest(),
+            "cutover": {
+                "status": "PENDING",
+                "public_traffic_switched": False,
+                "legacy_authorization_active": True,
+            },
+        }
+        ctx = module.PRContext(
+            repo=repo,
+            config={},
+            policy={},
+            changed_files=[],
+            event={
+                "repository": {"full_name": evidence["repository"]},
+                "pull_request": {"head": {"sha": candidate_sha}},
+            },
+        )
+        return ctx, evidence
+
+    def run_legacy_onboarding_gate(self, module, ctx, evidence, commit_shas=None):
+        ctx.pr_body = "```legacy-onboarding\n" + json.dumps(evidence) + "\n```"
+        return module.gate_legacy_onboarding(ctx, {"commit_shas": commit_shas or [evidence["candidate_sha"]]})[0]
+
+    def test_legacy_onboarding_01_normal_governed_repo_does_not_invoke_mode(self) -> None:
+        module = load_engine_module()
+        repo, _ = self.init_repo("ordinary-governed")
+        ctx = module.PRContext(repo=repo, config={}, policy={}, changed_files=[])
+        result = module.gate_legacy_onboarding(ctx, {"commit_shas": []})[0]
+        self.assertEqual(result.status, module.SKIP)
+
+    def test_legacy_onboarding_02_unversioned_healthy_production_is_recognized(self) -> None:
+        module = load_engine_module()
+        ctx, evidence = self.legacy_onboarding_fixture(module, "legacy-recognized")
+        result = self.run_legacy_onboarding_gate(module, ctx, evidence)
+        self.assertEqual(result.status, module.PASS, result.details)
+        self.assertIn("LEGACY_ONBOARDING=RECOGNIZED", result.details)
+
+    def test_legacy_onboarding_03_immutable_baseline_with_restore_evidence_passes(self) -> None:
+        module = load_engine_module()
+        ctx, evidence = self.legacy_onboarding_fixture(module, "legacy-baseline")
+        result = self.run_legacy_onboarding_gate(module, ctx, evidence)
+        self.assertEqual(result.status, module.PASS, result.details)
+        self.assertIn("LEGACY_BASELINE=IMMUTABLE_UNVERSIONED", result.details)
+
+    def test_legacy_onboarding_04_fake_rollback_git_sha_fails(self) -> None:
+        module = load_engine_module()
+        ctx, evidence = self.legacy_onboarding_fixture(module, "legacy-fake-sha")
+        evidence["baseline"]["artifact_sha256"] = "a" * 40
+        result = self.run_legacy_onboarding_gate(module, ctx, evidence)
+        self.assertEqual(result.status, module.FAIL)
+        self.assertTrue(any("SHA-256" in detail for detail in result.details))
+
+    def test_legacy_onboarding_05_isolated_candidate_without_traffic_switch_passes(self) -> None:
+        module = load_engine_module()
+        ctx, evidence = self.legacy_onboarding_fixture(module, "legacy-isolated")
+        result = self.run_legacy_onboarding_gate(module, ctx, evidence)
+        self.assertEqual(result.status, module.PASS, result.details)
+        self.assertIn("PUBLIC_TRAFFIC_SWITCH=NOT_PERFORMED", result.details)
+
+    def test_legacy_onboarding_06_nonproduction_migration_dry_run_passes(self) -> None:
+        module = load_engine_module()
+        ctx, evidence = self.legacy_onboarding_fixture(module, "legacy-dry-run")
+        result = self.run_legacy_onboarding_gate(module, ctx, evidence)
+        self.assertEqual(result.status, module.PASS, result.details)
+
+    def test_legacy_onboarding_07_live_production_migration_is_hard_failure(self) -> None:
+        module = load_engine_module()
+        ctx, evidence = self.legacy_onboarding_fixture(module, "legacy-live-migration")
+        evidence["migration_validation"]["target_classification"] = "PRODUCTION"
+        evidence["migration_validation"]["live_production_mutation"] = True
+        result = self.run_legacy_onboarding_gate(module, ctx, evidence)
+        self.assertEqual(result.status, module.FAIL)
+        self.assertIn("HARD FAIL", result.message)
+
+    def test_legacy_onboarding_07_static_live_commissioning_migration_is_hard_failure(self) -> None:
+        module = load_engine_module()
+        repo, _ = self.init_repo("legacy-static-live-migration")
+        path = repo / ".github" / "workflows" / "production-deploy.yml"
+        self.write(path, "name: production commissioning\nrun: php artisan migrate\n")
+        ctx = module.PRContext(repo=repo, config={}, policy={}, changed_files=[".github/workflows/production-deploy.yml"])
+        result = module.gate_legacy_onboarding(ctx, {"commit_shas": []})[0]
+        self.assertEqual(result.status, module.FAIL)
+        self.assertIn("HARD FAIL", result.message)
+
+    def test_legacy_onboarding_08_http_200_with_zero_body_fails(self) -> None:
+        module = load_engine_module()
+        ctx, evidence = self.legacy_onboarding_fixture(module, "legacy-empty-body")
+        evidence["health"]["actual_body_bytes"] = 0
+        result = self.run_legacy_onboarding_gate(module, ctx, evidence)
+        self.assertEqual(result.status, module.FAIL)
+        self.assertTrue(any("empty body" in detail for detail in result.details))
+
+    def test_legacy_onboarding_09_valid_content_and_routes_pass(self) -> None:
+        module = load_engine_module()
+        ctx, evidence = self.legacy_onboarding_fixture(module, "legacy-valid-content")
+        result = self.run_legacy_onboarding_gate(module, ctx, evidence)
+        self.assertEqual(result.status, module.PASS, result.details)
+        self.assertIn("CONTENT_AWARE_HEALTH=PASS", result.details)
+
+    def test_legacy_onboarding_10_same_pr_batch_remediation_is_allowed(self) -> None:
+        module = load_engine_module()
+        ctx, evidence = self.legacy_onboarding_fixture(module, "legacy-batch")
+        result = self.run_legacy_onboarding_gate(module, ctx, evidence, ["a" * 40, "b" * 40, "c" * 40])
+        self.assertEqual(result.status, module.PASS, result.details)
+        self.assertTrue(any("3 linear commit" in detail for detail in result.details))
+
+    def test_legacy_onboarding_commissioning_evidence_survives_unrelated_docs_only(self) -> None:
+        module = load_engine_module()
+        ctx, evidence = self.legacy_onboarding_fixture(module, "legacy-doc-only")
+        self.write(ctx.repo / "docs" / "notes.md", "commissioning notes\n")
+        self.commit(ctx.repo, "docs: record commissioning notes")
+        ctx.event["pull_request"]["head"]["sha"] = self.git(ctx.repo, "rev-parse", "HEAD").stdout.strip()
+        result = self.run_legacy_onboarding_gate(module, ctx, evidence)
+        self.assertEqual(result.status, module.PASS, result.details)
+
+    def test_legacy_onboarding_commissioning_evidence_invalidates_material_change(self) -> None:
+        module = load_engine_module()
+        ctx, evidence = self.legacy_onboarding_fixture(module, "legacy-material-change")
+        self.write(ctx.repo / ".github" / "workflows" / "production-deploy.yml", "name: materially changed deployment\n")
+        self.commit(ctx.repo, "ci: change deployment path")
+        ctx.event["pull_request"]["head"]["sha"] = self.git(ctx.repo, "rev-parse", "HEAD").stdout.strip()
+        result = self.run_legacy_onboarding_gate(module, ctx, evidence)
+        self.assertEqual(result.status, module.FAIL)
+
+    def test_legacy_onboarding_17_successful_cutover_expires_mode(self) -> None:
+        module = load_engine_module()
+        ctx, evidence = self.legacy_onboarding_fixture(module, "legacy-cutover-complete")
+        evidence["cutover"] = {
+            "status": "COMPLETE",
+            "public_traffic_switched": True,
+            "deployed_sha_marker": True,
+            "deployed_sha": evidence["candidate_sha"],
+            "current_release_established": True,
+            "legacy_authorization_active": False,
+        }
+        result = self.run_legacy_onboarding_gate(module, ctx, evidence)
+        self.assertEqual(result.status, module.PASS, result.details)
+        self.assertIn("LEGACY_ONBOARDING=EXPIRED", result.details)
+
+    def test_legacy_onboarding_pending_evidence_supports_first_cutover_baseline(self) -> None:
+        module = load_engine_module()
+        ctx, evidence = self.legacy_onboarding_fixture(module, "legacy-first-cutover")
+        baseline_hash = evidence["baseline"]["artifact_sha256"]
+        workflow_text = f'''name: first governed cutover
+on:
+  workflow_dispatch:
+    inputs:
+      rollback_ref:
+        required: true
+      rollback_kind:
+        required: true
+env:
+  LEGACY_BASELINE_HASH: {baseline_hash}
+jobs:
+  cutover:
+    steps:
+      - run: |
+          test "${{ROLLBACK_KIND}}" = legacy-baseline
+          [[ "${{ROLLBACK_REF}}" =~ ^[0-9a-f]{{64}}$ ]]
+          test "${{ROLLBACK_REF}}" = "${{LEGACY_BASELINE_HASH}}"
+'''
+        workflow = ctx.repo / ".github" / "workflows" / "production-deploy.yml"
+        self.write(workflow, workflow_text)
+        self.commit(ctx.repo, "ci: establish first cutover baseline validation")
+        head = self.git(ctx.repo, "rev-parse", "HEAD").stdout.strip()
+        evidence["candidate_sha"] = head
+        evidence["coupled_inputs"]["deployment_workflow_sha256"] = hashlib.sha256(workflow.read_bytes()).hexdigest()
+        evidence["coupled_inputs_sha256"] = hashlib.sha256(
+            json.dumps(evidence["coupled_inputs"], sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        ctx.event["pull_request"]["head"]["sha"] = head
+        self.run_legacy_onboarding_gate(module, ctx, evidence)
+        parsed = module.parse_workflow_yaml(workflow_text)
+        self.assertTrue(
+            module.workflow_has_rollback_ref_validation(
+                parsed, workflow_text, ctx=ctx, path=".github/workflows/production-deploy.yml"
+            )
+        )
+
+    def test_legacy_onboarding_18_subsequent_feature_pr_uses_ordinary_gates(self) -> None:
+        module = load_engine_module()
+        repo, _ = self.init_repo("legacy-subsequent-normal")
+        ctx = module.PRContext(repo=repo, config={}, policy={}, changed_files=["README.md"])
+        result = module.gate_legacy_onboarding(ctx, {"commit_shas": ["a" * 40]})[0]
+        self.assertEqual(result.status, module.SKIP)
+        self.assertIn(("deployment_safety", "Deployment Risk"), module.GATE_ORDER)
+
+    def test_legacy_onboarding_19_security_and_runtime_certifier_controls_remain(self) -> None:
+        module = load_engine_module()
+        self.assertIn("Secrets", module.TECHNICAL_GATE_NAMES)
+        self.assertIn("Deployment Risk", module.TECHNICAL_GATE_NAMES)
+        self.assertIn(
+            "Synergie-ITCI/.github/actions/runtime-certifier@runtime-certifier-action-v1.6",
+            module.APPROVED_RUNTIME_CERTIFIER_ACTIONS,
+        )
+
     def jkcement_authorized_recovery_steps(self) -> list[dict[str, str]]:
         common = r'''set -euo pipefail
 SCRIPT_B64="$(base64 -w0 control/.github/scripts/jkcement-legacy-production-bootstrap.sh)"
@@ -4916,7 +5185,10 @@ printf '%s\n' "${OUTPUT}"'''
     def jkcement_recovery_authorization_context(self, module):
         repo, _ = self.init_repo("jkcement-recovery-authorization")
         script = repo / ".github" / "scripts" / "jkcement-legacy-production-bootstrap.sh"
-        self.write(script, "#!/usr/bin/env bash\nset -euo pipefail\n")
+        self.write(
+            script,
+            '#!/usr/bin/env bash\nset -euo pipefail\necho "Starting recovery" >&2\ntouch "${APP_ROOT}/recovery-marker"\n',
+        )
         workflow_text = "\n".join(
             [
                 'test "${DEPLOY_REF}" = "${LEGACY_MIGRATION_DEPLOY_SHA}"',
@@ -4934,7 +5206,7 @@ printf '%s\n' "${OUTPUT}"'''
         ctx = module.PRContext(repo=repo, config={}, policy={}, changed_files=[])
         return ctx, parsed, workflow_text, hashlib.sha256(script.read_bytes()).hexdigest()
 
-    def test_jkcement_exact_legacy_recovery_ssm_steps_are_authorized(self) -> None:
+    def test_legacy_onboarding_11_exact_governed_recovery_ssm_is_authorized(self) -> None:
         module = load_engine_module()
         ctx, parsed, workflow_text, script_hash = self.jkcement_recovery_authorization_context(module)
         job = parsed["jobs"]["gate-d"]
@@ -4962,6 +5234,55 @@ printf '%s\n' "${OUTPUT}"'''
                     ),
                     step["name"],
                 )
+
+    def recovery_script_safe_shape_result(self, module, transform) -> bool:
+        ctx, parsed, workflow_text, script_hash = self.jkcement_recovery_authorization_context(module)
+        script = ctx.repo / ".github" / "scripts" / "jkcement-legacy-production-bootstrap.sh"
+        original = script.read_text(encoding="utf-8")
+        semantic_hash = module.recovery_script_semantic_sha256(original)
+        self.write(script, transform(original))
+        job = parsed["jobs"]["gate-d"]
+        env = {"GITHUB_REPOSITORY": "Synergie-ITCI/jkcementypsscholarship", "GITHUB_WORKSPACE": str(ctx.repo)}
+        with mock.patch.dict(os.environ, env), mock.patch.dict(
+            module.JKCEMENT_LEGACY_RECOVERY_AUTHORIZATION,
+            {
+                "workflow_sha256": hashlib.sha256(workflow_text.encode()).hexdigest(),
+                "recovery_script_sha256": script_hash,
+                "recovery_script_semantic_sha256": semantic_hash,
+                "expires_at": "2999-01-01T00:00:00Z",
+            },
+        ):
+            return module.is_authorized_jkcement_legacy_recovery_step(
+                ctx, ".github/workflows/production-deploy.yml", parsed, job, job["steps"][0], workflow_text
+            )
+
+    def test_legacy_onboarding_13_recovery_comment_and_safe_logging_change_passes(self) -> None:
+        module = load_engine_module()
+
+        def wording_only(original: str) -> str:
+            return ("# wording-only maintenance note\n" + original).replace("Starting recovery", "Beginning safe recovery")
+
+        self.assertTrue(self.recovery_script_safe_shape_result(module, wording_only))
+
+    def test_legacy_onboarding_14_recovery_additional_command_fails(self) -> None:
+        module = load_engine_module()
+        self.assertFalse(self.recovery_script_safe_shape_result(module, lambda original: original + "id\n"))
+
+    def test_legacy_onboarding_15_recovery_command_argument_change_fails(self) -> None:
+        module = load_engine_module()
+        self.assertFalse(
+            self.recovery_script_safe_shape_result(
+                module, lambda original: original.replace("recovery-marker", "different-marker")
+            )
+        )
+
+    def test_legacy_onboarding_16_recovery_target_scope_change_fails(self) -> None:
+        module = load_engine_module()
+        self.assertFalse(
+            self.recovery_script_safe_shape_result(
+                module, lambda original: original.replace('${APP_ROOT}/recovery-marker', '/tmp/recovery-marker')
+            )
+        )
 
     def test_jkcement_recovery_authorization_rejects_forward_deploy(self) -> None:
         module = load_engine_module()
@@ -5028,7 +5349,7 @@ printf '%s\n' "${OUTPUT}"'''
                     )
                 )
 
-    def test_jkcement_recovery_authorization_rejects_arbitrary_ssm(self) -> None:
+    def test_legacy_onboarding_12_arbitrary_recovery_ssm_is_rejected(self) -> None:
         module = load_engine_module()
         ctx, parsed, workflow_text, script_hash = self.jkcement_recovery_authorization_context(module)
         job = parsed["jobs"]["gate-d"]

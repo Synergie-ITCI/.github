@@ -45,6 +45,12 @@ in the deployment workflow.
 
 ## Release Integrity
 
+For a first transition from production that has no trustworthy deployed Git SHA,
+follow [Legacy production onboarding](legacy-production-onboarding.md). That
+policy permits `rollback_kind=legacy-baseline` only with an immutable artifact
+and tree hash plus applicable backup and restore evidence. It does not weaken the
+Gate D production approval or exact candidate verification requirements.
+
 Every deployment must identify:
 
 - `deploy_ref` — exact approved SHA/artifact

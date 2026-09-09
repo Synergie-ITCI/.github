@@ -72,6 +72,7 @@ TECHNICAL_GATE_NAMES = {
     "Secrets",
     "Executable Classification",
     "Protected Resources",
+    "Legacy Onboarding",
     "Persistent Data Safety",
     "Deployment Risk",
     "Migration Risk",
@@ -110,6 +111,7 @@ GATE_ORDER = [
     ("secrets", "Secrets"),
     ("executable_classification", "Executable Classification"),
     ("protected_resources", "Protected Resources"),
+    ("legacy_onboarding", "Legacy Onboarding"),
     ("persistent_data_safety", "Persistent Data Safety"),
     ("deployment_safety", "Deployment Risk"),
     ("database_safety", "Migration Risk"),
@@ -994,6 +996,7 @@ def run_static_preflight(ctx: PRContext, git_context: dict[str, Any], technologi
     results.extend(gate_secrets(ctx, git_context, report_path))
     results.extend(gate_executable_classification(ctx, technologies))
     results.extend(gate_protected_resources(ctx, git_context))
+    results.extend(gate_legacy_onboarding(ctx, git_context))
     results.extend(gate_persistent_data_safety(ctx, git_context))
     results.extend(gate_deployment_safety(ctx, git_context))
     results.extend(gate_database_safety(ctx))
@@ -3052,6 +3055,393 @@ def codeowners_covers(path: str, patterns: list[str]) -> bool:
     return False
 
 
+LEGACY_ONBOARDING_MODE = "LEGACY_ONBOARDING"
+LEGACY_ONBOARDING_BLOCK_RE = re.compile(
+    r"```legacy-onboarding\s*\n(?P<payload>\{.*?\})\s*\n```",
+    re.IGNORECASE | re.DOTALL,
+)
+LEGACY_ONBOARDING_PASS_STATES = {"PASS", "NOT_APPLICABLE"}
+LEGACY_ONBOARDING_COMMISSIONING_CHECKS = (
+    "package_runtime",
+    "runtime_compatibility",
+    "runtime_config",
+    "persistent_mappings",
+    "db_connectivity",
+    "web_application_path",
+    "workers_services",
+    "critical_routes",
+    "backup_rollback",
+    "ssm_execution",
+    "readiness",
+)
+LEGACY_ONBOARDING_DISCOVERY_FIELDS = (
+    "production_target",
+    "webroot_runtime",
+    "production_health",
+    "db_storage_dependencies",
+    "persistent_paths",
+    "runtime_config_paths",
+    "legacy_baseline",
+    "rollback_capability",
+)
+LEGACY_ONBOARDING_SHA256_FIELDS = (
+    "deployment_workflow_sha256",
+    "runtime_config_sha256",
+    "persistence_mapping_sha256",
+)
+COMMISSIONING_MIGRATION_RE = re.compile(
+    r"(?i)\b(?:artisan\s+migrate|manage\.py\s+migrate|alembic\s+upgrade|"
+    r"flyway\b|liquibase\b|run_migrations?|migrate(?:\s|$))"
+)
+LIVE_PRODUCTION_RE = re.compile(r"(?i)\b(?:production|prod|live)\b")
+
+
+def gate_legacy_onboarding(ctx: PRContext, git_context: dict[str, Any]) -> list[CheckResult]:
+    evidence, parse_errors, present = legacy_onboarding_evidence(ctx.pr_body)
+    static_live_migrations = commissioning_live_migration_attempts(ctx)
+
+    if not present and not static_live_migrations:
+        return [skipped("Legacy Onboarding", None, "No governed LEGACY_ONBOARDING evidence was supplied; ordinary PR governance remains active.")]
+
+    if static_live_migrations:
+        return [
+            failed(
+                "Legacy Onboarding",
+                None,
+                "HARD FAIL: live production migrations are forbidden during commissioning.",
+                static_live_migrations,
+                score=50,
+            )
+        ]
+
+    if parse_errors or not isinstance(evidence, dict):
+        return [failed("Legacy Onboarding", None, "LEGACY_ONBOARDING evidence is malformed.", parse_errors, score=25)]
+
+    if str(evidence.get("mode") or "") != LEGACY_ONBOARDING_MODE:
+        return [failed("Legacy Onboarding", None, "Unsupported legacy onboarding mode.", [f"mode must be `{LEGACY_ONBOARDING_MODE}`."], score=25)]
+
+    production = evidence.get("production_state", {})
+    if not isinstance(production, dict):
+        return [failed("Legacy Onboarding", None, "LEGACY_ONBOARDING production evidence is malformed.", ["`production_state` must be a mapping."], score=25)]
+
+    legacy_reasons = legacy_onboarding_recognition_reasons(production)
+    if not legacy_reasons:
+        return [
+            failed(
+                "Legacy Onboarding",
+                None,
+                "LEGACY_ONBOARDING was requested for a normally governed production state.",
+                ["No authoritative legacy condition was declared; normal Gate C/Gate D governance remains mandatory."],
+                score=30,
+            )
+        ]
+
+    migration = evidence.get("migration_validation", {})
+    migration_failures = legacy_migration_failures(migration)
+    if migration_failures:
+        return [
+            failed(
+                "Legacy Onboarding",
+                None,
+                "HARD FAIL: live production migrations are forbidden during commissioning.",
+                migration_failures,
+                score=50,
+            )
+        ]
+
+    failures: list[str] = []
+    repository = str(evidence.get("repository") or "").strip()
+    actual_repository = resolve_repository_name(ctx)
+    if not repository or repository != actual_repository:
+        failures.append(f"repository must match authoritative repository `{actual_repository}`.")
+
+    candidate_sha = str(evidence.get("candidate_sha") or "").strip()
+    authoritative_head = pull_request_head_sha(ctx)
+    checked_out_head = run_git(ctx.repo, ["rev-parse", "HEAD"]).strip()
+    if not re.fullmatch(r"[0-9a-f]{40}", candidate_sha):
+        failures.append("candidate_sha must be an exact lowercase 40-character Git SHA.")
+    elif not authoritative_head:
+        failures.append("authoritative pull-request head SHA is unavailable; commissioning evidence cannot be bound.")
+    elif authoritative_head != checked_out_head:
+        failures.append("checked-out repository HEAD does not match the authoritative pull-request head SHA.")
+    elif candidate_sha != authoritative_head:
+        unrelated = legacy_unrelated_changes_since_candidate(ctx.repo, candidate_sha, authoritative_head)
+        if unrelated is None:
+            failures.append(f"candidate_sha is stale; expected exact current PR head `{authoritative_head}`.")
+
+    target_identity = str(evidence.get("target_identity") or "").strip()
+    if not target_identity:
+        failures.append("target_identity is required.")
+    if not str(production.get("evidence_reference") or "").strip():
+        failures.append("production_state.evidence_reference is required.")
+
+    discovery = evidence.get("discovery", {})
+    if not isinstance(discovery, dict):
+        failures.append("discovery must be a mapping.")
+    else:
+        for field in LEGACY_ONBOARDING_DISCOVERY_FIELDS:
+            if not str(discovery.get(field) or "").strip():
+                failures.append(f"discovery.{field} is required.")
+
+    failures.extend(legacy_baseline_failures(evidence.get("baseline", {})))
+    failures.extend(legacy_commissioning_failures(evidence.get("commissioning", {})))
+    failures.extend(legacy_health_failures(evidence.get("health", {})))
+    failures.extend(legacy_binding_failures(ctx, evidence, target_identity))
+    failures.extend(legacy_cutover_failures(evidence.get("cutover", {}), candidate_sha))
+
+    if failures:
+        return [
+            failed(
+                "Legacy Onboarding",
+                None,
+                "LEGACY_ONBOARDING evidence is incomplete, stale, or unsafe.",
+                failures[:80],
+                score=35,
+            )
+        ]
+
+    cutover = evidence.get("cutover", {})
+    cutover_status = str(cutover.get("status") or "PENDING").upper()
+    commit_count = len(git_context.get("commit_shas", []) or [])
+    details = [
+        "LEGACY_ONBOARDING=RECOGNIZED",
+        *legacy_reasons,
+        "LEGACY_BASELINE=IMMUTABLE_UNVERSIONED",
+        "NON_PUBLIC_COMMISSIONING=PASS",
+        "LIVE_DB_MIGRATION=PROHIBITED",
+        "CONTENT_AWARE_HEALTH=PASS",
+        f"BATCH_REMEDIATION=ALLOWED_ON_SAME_PR ({commit_count} linear commit(s) observed)",
+        "COMMISSIONING_EVIDENCE=BOUND_TO_EXACT_HEAD_TARGET_AND_MATERIAL_INPUTS",
+        "GATE_C=UNCHANGED",
+        "GATE_D=UNCHANGED",
+    ]
+    if cutover_status == "COMPLETE":
+        details.extend(["LEGACY_ONBOARDING=EXPIRED", "FUTURE_GOVERNANCE=NORMAL_EXACT_SHA"])
+        message = "First governed cutover evidence is complete; legacy onboarding authorization is expired."
+    else:
+        details.append("PUBLIC_TRAFFIC_SWITCH=NOT_PERFORMED")
+        message = "Legacy production candidate is fully commissioned non-publicly and ready for normal governed promotion."
+    return [passed("Legacy Onboarding", None, message, details)]
+
+
+def legacy_onboarding_evidence(pr_body: str) -> tuple[dict[str, Any] | None, list[str], bool]:
+    matches = list(LEGACY_ONBOARDING_BLOCK_RE.finditer(pr_body or ""))
+    if not matches:
+        return None, [], False
+    if len(matches) != 1:
+        return None, ["Exactly one fenced `legacy-onboarding` JSON block is allowed."], True
+    try:
+        parsed = json.loads(matches[0].group("payload"))
+    except json.JSONDecodeError as exc:
+        return None, [f"legacy-onboarding JSON is invalid: {exc.msg}."], True
+    if not isinstance(parsed, dict):
+        return None, ["legacy-onboarding JSON must be an object."], True
+    return parsed, [], True
+
+
+def pull_request_head_sha(ctx: PRContext) -> str:
+    pull_request = ctx.event.get("pull_request", {}) if isinstance(ctx.event, dict) else {}
+    head = pull_request.get("head", {}) if isinstance(pull_request, dict) else {}
+    value = str(head.get("sha") or "") if isinstance(head, dict) else ""
+    return value if re.fullmatch(r"[0-9a-f]{40}", value) else ""
+
+
+def legacy_unrelated_changes_since_candidate(repo: Path, candidate_sha: str, head_sha: str) -> list[str] | None:
+    """Return harmless post-commissioning paths, or None when evidence must be invalidated."""
+    if not commit_exists(repo, candidate_sha) or not commit_exists(repo, head_sha):
+        return None
+    ancestor = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", candidate_sha, head_sha],
+        cwd=repo,
+        capture_output=True,
+        check=False,
+    )
+    if ancestor.returncode != 0:
+        return None
+    changed = git_lines(repo, ["diff", "--name-only", "--diff-filter=ACMRTUXB", f"{candidate_sha}..{head_sha}"])
+    harmless = [
+        rel
+        for rel in changed
+        if rel == "LICENSE"
+        or rel.startswith("docs/")
+        or (rel.lower().endswith((".md", ".txt")) and not rel.startswith(".github/workflows/"))
+    ]
+    return harmless if len(harmless) == len(changed) else None
+
+
+def legacy_onboarding_recognition_reasons(production: dict[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    if production.get("has_deployed_sha_marker") is False:
+        reasons.append("LEGACY_REASON=NO_DEPLOYED_SHA_MARKER")
+    if production.get("matches_reachable_governed_commit") is False:
+        reasons.append("LEGACY_REASON=NO_REACHABLE_GOVERNED_COMMIT")
+    if production.get("governed_release_model_established") is False:
+        reasons.append("LEGACY_REASON=FIRST_RELEASE_CURRENT_SHARED_MODEL")
+    if production.get("requires_persistence_sanitation") is True:
+        reasons.append("LEGACY_REASON=PERSISTENCE_SANITATION_REQUIRED")
+    return reasons
+
+
+def legacy_baseline_failures(raw: Any) -> list[str]:
+    if not isinstance(raw, dict):
+        return ["baseline must be a mapping."]
+    failures: list[str] = []
+    if raw.get("rollback_kind") != "legacy-baseline":
+        failures.append("baseline.rollback_kind must be `legacy-baseline`; never invent a rollback Git SHA.")
+    source_kind = str(raw.get("source_kind") or "").strip().upper()
+    if source_kind not in {"UNVERSIONED", "LEGACY", "UNVERSIONED/LEGACY"}:
+        failures.append("baseline.source_kind must explicitly identify UNVERSIONED/LEGACY production.")
+    for field in ("artifact_sha256", "tree_sha256"):
+        if not re.fullmatch(r"[0-9a-f]{64}", str(raw.get(field) or "")):
+            failures.append(f"baseline.{field} must be an exact lowercase SHA-256, not a Git SHA.")
+    if raw.get("immutable") is not True:
+        failures.append("baseline.immutable must be true.")
+    for field in ("database_backup_evidence", "persistence_backup_evidence", "restore_evidence"):
+        if not str(raw.get(field) or "").strip():
+            failures.append(f"baseline.{field} is required; use `NOT_APPLICABLE` only when genuinely inapplicable.")
+    if raw.get("restore_tested") is not True:
+        failures.append("baseline.restore_tested must be true.")
+    return failures
+
+
+def legacy_commissioning_failures(raw: Any) -> list[str]:
+    if not isinstance(raw, dict):
+        return ["commissioning must be a mapping."]
+    failures: list[str] = []
+    if raw.get("isolated") is not True:
+        failures.append("commissioning.isolated must be true.")
+    if raw.get("public_traffic_switched") is not False:
+        failures.append("commissioning.public_traffic_switched must be false.")
+    if not str(raw.get("candidate_path") or "").startswith("/"):
+        failures.append("commissioning.candidate_path must be an absolute isolated path.")
+    if not re.fullmatch(r"[0-9a-f]{64}", str(raw.get("exact_artifact_sha256") or "")):
+        failures.append("commissioning.exact_artifact_sha256 must be an exact lowercase SHA-256.")
+    for field in LEGACY_ONBOARDING_COMMISSIONING_CHECKS:
+        status = str(raw.get(field) or "").strip().upper()
+        if status not in LEGACY_ONBOARDING_PASS_STATES:
+            failures.append(f"commissioning.{field} must be PASS or NOT_APPLICABLE.")
+    return failures
+
+
+def legacy_migration_failures(raw: Any) -> list[str]:
+    if not isinstance(raw, dict):
+        return ["migration_validation must be a mapping and prove no live production mutation."]
+    failures: list[str] = []
+    mode = str(raw.get("mode") or "").strip().lower()
+    target = str(raw.get("target_classification") or "").strip().upper()
+    if mode not in {"none", "dry-run", "explain-plan", "non-production-copy"}:
+        failures.append("migration_validation.mode must be none, dry-run, explain-plan, or non-production-copy.")
+    if target not in {"NONE", "NON_PRODUCTION"}:
+        failures.append("migration_validation.target_classification must be NONE or NON_PRODUCTION.")
+    if raw.get("live_production_mutation") is not False:
+        failures.append("migration_validation.live_production_mutation must be false.")
+    if raw.get("production_migration_requested") is not False:
+        failures.append("migration_validation.production_migration_requested must be false during commissioning.")
+    if not str(raw.get("evidence_reference") or "").strip():
+        failures.append("migration_validation.evidence_reference is required.")
+    return failures
+
+
+def legacy_health_failures(raw: Any) -> list[str]:
+    if not isinstance(raw, dict):
+        return ["health must be a mapping."]
+    failures: list[str] = []
+    expected_status = raw.get("expected_status")
+    actual_status = raw.get("actual_status")
+    minimum_size = raw.get("minimum_body_bytes")
+    actual_size = raw.get("actual_body_bytes")
+    if not isinstance(expected_status, int) or expected_status < 100 or expected_status > 599:
+        failures.append("health.expected_status must be a valid HTTP status.")
+    if actual_status != expected_status:
+        failures.append("health.actual_status must equal health.expected_status.")
+    if not isinstance(minimum_size, int) or minimum_size < 1:
+        failures.append("health.minimum_body_bytes must be at least 1.")
+    if not isinstance(actual_size, int) or not isinstance(minimum_size, int) or actual_size < minimum_size:
+        failures.append("health.actual_body_bytes must meet the declared sane minimum; HTTP 200 with an empty body fails.")
+    if not str(raw.get("expected_marker") or "").strip() or raw.get("marker_present") is not True:
+        failures.append("health expected stable application marker must be present.")
+    if str(raw.get("critical_routes") or "").strip().upper() != "PASS":
+        failures.append("health.critical_routes must be PASS.")
+    return failures
+
+
+def legacy_binding_failures(ctx: PRContext, evidence: dict[str, Any], target_identity: str) -> list[str]:
+    raw = evidence.get("coupled_inputs", {})
+    if not isinstance(raw, dict):
+        return ["coupled_inputs must be a mapping."]
+    failures: list[str] = []
+    if str(raw.get("target_identity") or "").strip() != target_identity:
+        failures.append("coupled_inputs.target_identity must match the authoritative target identity.")
+    for field in LEGACY_ONBOARDING_SHA256_FIELDS:
+        if not re.fullmatch(r"[0-9a-f]{64}", str(raw.get(field) or "")):
+            failures.append(f"coupled_inputs.{field} must be an exact lowercase SHA-256.")
+    if not str(raw.get("runtime_release") or "").strip():
+        failures.append("coupled_inputs.runtime_release is required.")
+    workflow_path = normalize_declared_path(raw.get("deployment_workflow_path")).lstrip("/")
+    if not workflow_path or not workflow_path.startswith(".github/workflows/"):
+        failures.append("coupled_inputs.deployment_workflow_path must identify a repository workflow.")
+    else:
+        path = ctx.repo / workflow_path
+        if not path.is_file():
+            failures.append("coupled deployment workflow is missing from the exact candidate.")
+        else:
+            actual = hashlib.sha256(path.read_bytes()).hexdigest()
+            if actual != str(raw.get("deployment_workflow_sha256") or ""):
+                failures.append("commissioning evidence is stale because the deployment workflow changed.")
+    declared_digest = str(evidence.get("coupled_inputs_sha256") or "")
+    actual_digest = hashlib.sha256(json.dumps(raw, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    if declared_digest != actual_digest:
+        failures.append("coupled_inputs_sha256 does not match the canonical materially coupled input set.")
+    return failures
+
+
+def legacy_cutover_failures(raw: Any, candidate_sha: str) -> list[str]:
+    if not isinstance(raw, dict):
+        return ["cutover must be a mapping."]
+    failures: list[str] = []
+    status = str(raw.get("status") or "").strip().upper()
+    if status not in {"PENDING", "COMPLETE"}:
+        return ["cutover.status must be PENDING or COMPLETE."]
+    if status == "PENDING":
+        if raw.get("public_traffic_switched") is not False:
+            failures.append("pending commissioning must not switch public traffic.")
+        if raw.get("legacy_authorization_active") is not True:
+            failures.append("pending first cutover must explicitly bind the narrow legacy authorization.")
+    else:
+        if raw.get("public_traffic_switched") is not True:
+            failures.append("complete cutover evidence must record the public traffic switch.")
+        if raw.get("deployed_sha_marker") is not True:
+            failures.append("complete cutover evidence requires an exact deployed SHA marker.")
+        if str(raw.get("deployed_sha") or "") != candidate_sha:
+            failures.append("complete cutover deployed_sha must equal the commissioned candidate SHA.")
+        if raw.get("current_release_established") is not True:
+            failures.append("complete cutover evidence must establish the release/current/shared model.")
+        if raw.get("legacy_authorization_active") is not False:
+            failures.append("legacy onboarding authorization must expire after the first successful cutover.")
+    return failures
+
+
+def commissioning_live_migration_attempts(ctx: PRContext) -> list[str]:
+    findings: list[str] = []
+    deployment_paths = [
+        rel
+        for rel in ctx.changed_files
+        if match_any(rel, [".github/workflows/**", "deploy/**", "deployment/**", "scripts/deploy*", "scripts/*commission*"])
+    ]
+    for rel in deployment_paths:
+        path = ctx.repo / rel
+        if not path.is_file() or is_binary_file(path):
+            continue
+        lines = read_text(path).splitlines()
+        for index, line in enumerate(lines):
+            if not line.strip() or line.lstrip().startswith("#") or not COMMISSIONING_MIGRATION_RE.search(line):
+                continue
+            context = "\n".join(lines[max(0, index - 8): min(len(lines), index + 9)])
+            if re.search(r"(?i)commission", context) and LIVE_PRODUCTION_RE.search(context):
+                findings.append(f"{rel}:{index + 1}: commissioning path attempts a migration against live production.")
+    return findings[:40]
+
+
 GOVERNANCE_MANIFEST_PATH = ".github/synergie-governance.yml"
 WRITABLE_PATH_PATTERNS = [
     "storage/**",
@@ -3524,6 +3914,7 @@ JKCEMENT_LEGACY_RECOVERY_AUTHORIZATION = {
     "baseline_hash": "50fdf0aba94f2d0c9cffa6e9647b85ba8e6a8efb337236a87b8f75c5bc297775",
     "recovery_script": ".github/scripts/jkcement-legacy-production-bootstrap.sh",
     "recovery_script_sha256": "a2653896e43d21b43506dcdb3ed6529abad4c2d19e1c5d497f5b7cc6fd856d26",
+    "recovery_script_semantic_sha256": "abbc3e68a93e3a0257eeb4f42b4f1ab8a9aba02c7dd953ce5b35b1431a555a16",
     "expires_at": "2026-09-08T18:00:00Z",
     "steps": {
         "Recover an interrupted one-time cutover before certification": {
@@ -3542,6 +3933,56 @@ JKCEMENT_LEGACY_RECOVERY_AUTHORIZATION = {
 
 def normalized_workflow_scalar(value: Any) -> str:
     return "\n".join(line.rstrip() for line in str(value or "").strip().splitlines())
+
+
+SAFE_LITERAL_LOG_RE = re.compile(
+    r'''^echo\s+(?P<quote>["'])(?P<message>[^"'$`\\]*)\1\s+(?:1?>&2)\s*(?:#.*)?$'''
+)
+SHELL_HEREDOC_RE = re.compile(r'''<<-?\s*(?P<quote>["']?)(?P<delimiter>[A-Za-z_][A-Za-z0-9_]*)\1''')
+
+
+def recovery_script_semantic_text(value: str) -> str:
+    """Conservatively canonicalize comments, indentation, and literal human log wording.
+
+    Heredoc bodies and all executable command/argument text remain byte-sensitive. A
+    safe log is a standalone literal `echo` with no expansion; adding or removing it
+    still changes the canonical command sequence.
+    """
+    normalized: list[str] = []
+    heredoc_delimiter = ""
+    heredoc_strip_tabs = False
+    for raw_line in str(value or "").splitlines():
+        if heredoc_delimiter:
+            normalized.append(raw_line)
+            candidate = raw_line.lstrip("\t") if heredoc_strip_tabs else raw_line
+            if candidate == heredoc_delimiter:
+                heredoc_delimiter = ""
+                heredoc_strip_tabs = False
+            continue
+
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("#!"):
+            normalized.append(line)
+            continue
+        if line.startswith("#"):
+            continue
+        safe_log = SAFE_LITERAL_LOG_RE.fullmatch(line)
+        if safe_log and not safe_log.group("message").startswith("-"):
+            normalized.append("echo <SAFE_LITERAL_LOG> >&2")
+        else:
+            normalized.append(line)
+
+        heredoc = SHELL_HEREDOC_RE.search(line)
+        if heredoc:
+            heredoc_delimiter = heredoc.group("delimiter")
+            heredoc_strip_tabs = "<<-" in heredoc.group(0)
+    return "\n".join(normalized)
+
+
+def recovery_script_semantic_sha256(value: str) -> str:
+    return hashlib.sha256(recovery_script_semantic_text(value).encode("utf-8")).hexdigest()
 
 
 def workflow_effective_env(parsed: dict[str, Any], job: dict[str, Any], step: dict[str, Any], name: str) -> str:
@@ -3613,8 +4054,15 @@ def is_authorized_jkcement_legacy_recovery_step(
     script_path = ctx.repo / str(authorization["recovery_script"])
     if not script_path.is_file():
         return False
-    script_hash = hashlib.sha256(script_path.read_bytes()).hexdigest()
-    return script_hash == authorization["recovery_script_sha256"]
+    script_bytes = script_path.read_bytes()
+    script_hash = hashlib.sha256(script_bytes).hexdigest()
+    if script_hash == authorization["recovery_script_sha256"]:
+        return True
+    try:
+        semantic_hash = recovery_script_semantic_sha256(script_bytes.decode("utf-8", errors="strict"))
+    except UnicodeDecodeError:
+        return False
+    return semantic_hash == authorization["recovery_script_semantic_sha256"]
 
 
 def workflow_has_runtime_certifier_guard(
@@ -3696,7 +4144,7 @@ def controlled_gate_d_workflow_details(path: str, text: str, *, ctx: PRContext |
         "manual_only": workflow_dispatch_only(parsed, text),
         "actor_restricted": workflow_has_actor_restriction(text),
         "deploy_ref_validated": workflow_has_exact_deploy_ref_validation(parsed, text),
-        "rollback_ref_validated": workflow_has_rollback_ref_validation(parsed, text),
+        "rollback_ref_validated": workflow_has_rollback_ref_validation(parsed, text, ctx=ctx, path=path),
         "approval_evidence": workflow_has_approval_evidence(parsed, text),
         "oidc": workflow_uses_oidc(parsed, text),
         "controlled_remote": workflow_uses_controlled_remote_execution(text),
@@ -3845,18 +4293,67 @@ def workflow_has_exact_deploy_ref_validation(parsed: dict[str, Any], text: str) 
     )
 
 
-def workflow_has_rollback_ref_validation(parsed: dict[str, Any], text: str) -> bool:
+def workflow_has_rollback_ref_validation(
+    parsed: dict[str, Any],
+    text: str,
+    *,
+    ctx: PRContext | None = None,
+    path: str = "",
+) -> bool:
     inputs = workflow_inputs(parsed)
-    return (
+    ordinary = (
         "rollback_ref" in inputs
         and "ROLLBACK_REF" in text
         and workflow_contains_sha40_validation(text)
         and bool(re.search(r"ROLLBACK_REF.{0,120}(CURRENT_SHA|reset --hard)|(?:CURRENT_SHA|reset --hard).{0,120}ROLLBACK_REF", text, re.DOTALL))
     )
+    if ordinary:
+        return True
+    if ctx is None or not legacy_onboarding_authorizes_first_cutover(ctx, path):
+        return False
+    evidence, _, _ = legacy_onboarding_evidence(ctx.pr_body)
+    baseline = evidence.get("baseline", {}) if isinstance(evidence, dict) else {}
+    baseline_hash = str(baseline.get("artifact_sha256") or "") if isinstance(baseline, dict) else ""
+    return (
+        "rollback_ref" in inputs
+        and "rollback_kind" in inputs
+        and "legacy-baseline" in text
+        and "ROLLBACK_REF" in text
+        and "LEGACY_BASELINE_HASH" in text
+        and baseline_hash in text
+        and workflow_contains_sha64_validation(text)
+        and bool(
+            re.search(
+                r"ROLLBACK_REF.{0,120}LEGACY_BASELINE_HASH|LEGACY_BASELINE_HASH.{0,120}ROLLBACK_REF",
+                text,
+                re.DOTALL,
+            )
+        )
+    )
+
+
+def legacy_onboarding_authorizes_first_cutover(ctx: PRContext, path: str) -> bool:
+    evidence, errors, present = legacy_onboarding_evidence(ctx.pr_body)
+    if errors or not present or not isinstance(evidence, dict):
+        return False
+    cutover = evidence.get("cutover", {})
+    coupled = evidence.get("coupled_inputs", {})
+    if not isinstance(cutover, dict) or not isinstance(coupled, dict):
+        return False
+    if str(cutover.get("status") or "").upper() != "PENDING":
+        return False
+    if normalize_declared_path(coupled.get("deployment_workflow_path")).lstrip("/") != path:
+        return False
+    result = gate_legacy_onboarding(ctx, {"commit_shas": []})[0]
+    return result.status == PASS
 
 
 def workflow_contains_sha40_validation(text: str) -> bool:
     return bool(re.search(r"\[0-9a-f\]\{40\}", text) or re.search(r"\[0-9a-f\]\{40\}", text.replace("\\{", "{").replace("\\}", "}")))
+
+
+def workflow_contains_sha64_validation(text: str) -> bool:
+    return bool(re.search(r"\[0-9a-f\]\{64\}", text) or re.search(r"\[0-9a-f\]\{64\}", text.replace("\\{", "{").replace("\\}", "}")))
 
 
 def workflow_has_approval_evidence(parsed: dict[str, Any], text: str) -> bool:
