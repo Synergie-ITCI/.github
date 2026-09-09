@@ -65,7 +65,24 @@ inputs:
     required: false
     default: .github/synergie-governance.yml
 
+  host-profile:
+    description: Optional centrally bundled, instance-bound co-host profile ID. Empty preserves the existing application-only contract.
+    required: false
+    default: ""
+
 outputs:
+  host-certification:
+    description: PASS only after all requested host checks pass; FAIL on failure; empty when not requested.
+    value: ${{ steps.certify.outputs.host-certification }}
+
+  failed-site:
+    description: Safe site label on opted-in failure, otherwise empty.
+    value: ${{ steps.certify.outputs.failed-site }}
+
+  failed-reason:
+    description: Fixed failure category on opted-in failure, otherwise empty.
+    value: ${{ steps.certify.outputs.failed-reason }}
+
   deploy-state:
     description: Validated deployment state, including an explicitly authorized legacy baseline.
     value: ${{ steps.certify.outputs.deploy_state }}
@@ -81,6 +98,8 @@ runs:
     - name: Certify target runtime
       id: certify
       shell: bash
+      env:
+        RUNTIME_CERTIFIER_HOST_PROFILE: ${{ inputs.host-profile }}
       run: |
         set -euo pipefail
 

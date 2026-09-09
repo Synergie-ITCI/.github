@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "instance_id": "mi-04a256fa549e372a8",
+  "region": "ap-south-1",
+  "target_hostname": "jkcementypsscholarship.synergieinsights.in",
+  "sites": [
+    {
+      "label": "bdpp-admin-auth",
+      "hostname": "adminauth.bdppapp.synergieinsights.in",
+      "https_required": true,
+      "accepted_status": 200,
+      "marker": "<title>bdpp-admin-auth</title>"
+    }
+  ]
+}
