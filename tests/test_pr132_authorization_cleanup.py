@@ -1,4 +1,4 @@
-"""Regression proof that the temporary PR132 authorization remains isolated."""
+"""Regression proof that the temporary PR132 authorization is absent."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ def load_engine():
     return module
 
 
-class Pr132AuthorizationIsolationTests(unittest.TestCase):
+class Pr132AuthorizationCleanupTests(unittest.TestCase):
     def setUp(self) -> None:
         self.engine = load_engine()
         self.policy = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())
@@ -48,27 +48,22 @@ class Pr132AuthorizationIsolationTests(unittest.TestCase):
                 "repository": {"full_name": repository},
                 "pull_request": {
                     "number": number,
-                    "body": "one-time-baseline-pr132-fb31d4ab-3d6e-423d-b2f0-8e0a28ecbda8",
+                    "body": "one-time-baseline-pr132-4f22e29f-ce07-4db3-b674-0e5bc7af5fe0",
                     "labels": [],
                 },
             },
         )
 
-    def test_current_policy_contains_only_the_fresh_exact_authorization(self) -> None:
-        authorization = self.policy["one_time_baseline_alignment"]
-        self.assertEqual(authorization["repository"], "Synergie-ITCI/programme-management-platform")
-        self.assertEqual(authorization["repository_id"], 1315697868)
-        self.assertEqual(authorization["pr_number"], 132)
-        self.assertEqual(authorization["expected_head_sha"], "1f2e18a3b58a5520b3981e86445d2b4023018223")
-        self.assertEqual(authorization["allowed_effective_additions"], 25492)
-        self.assertEqual(authorization["allowed_changed_files"], 182)
-        self.assertEqual(authorization["relaxations"], ["diff_size", "exact_gitleaks_fingerprint_allowlist"])
+    def test_current_policy_contains_no_pr132_or_repository_authorization(self) -> None:
+        self.assertNotIn("one_time_baseline_alignment", self.policy)
         serialized = json.dumps(self.policy, sort_keys=True)
+        self.assertNotIn("4f22e29f-ce07-4db3-b674-0e5bc7af5fe0", serialized)
         self.assertNotIn("fb31d4ab-3d6e-423d-b2f0-8e0a28ecbda8", serialized)
         self.assertNotIn("dcc05ff1-e09c-4a90-85a8-f3a538991444", serialized)
-        self.assertEqual(serialized.count("one-time-baseline-pr132-"), 1)
+        self.assertNotIn("Synergie-ITCI/programme-management-platform", serialized)
+        self.assertNotIn("one-time-baseline-pr132-", serialized)
 
-    def test_obsolete_pr132_marker_request_fails_closed(self) -> None:
+    def test_explicit_pr132_authorization_request_fails_closed(self) -> None:
         ctx = self.context("Synergie-ITCI/programme-management-platform")
         with mock.patch.dict(
             os.environ,

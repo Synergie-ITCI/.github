@@ -1,51 +1,6 @@
 {
   "version": 1,
   "policy_id": "synergie-pr-qa-enterprise-v1",
-  "one_time_baseline_alignment": {
-    "enabled": true,
-    "repository": "Synergie-ITCI/programme-management-platform",
-    "repository_id": 1315697868,
-    "pr_number": 132,
-    "expected_head_sha": "1f2e18a3b58a5520b3981e86445d2b4023018223",
-    "expected_base_sha": "0c3185b2ec1846e193e71b2a3b54d2bea6d11e56",
-    "head_ref": "release/mobile-household-sync-alignment-20260909",
-    "base_ref": "development",
-    "allowed_effective_additions": 25492,
-    "allowed_changed_files": 182,
-    "purpose": "One-time dependency-remediated mobile alignment for PR 132; exact diff size and two verified deterministic CocoaPods SPEC CHECKSUM false positives only.",
-    "issued_at": "2026-09-10T06:35:10+00:00",
-    "expires_after": "2026-09-10T12:35:10+00:00",
-    "authorization_id": "4f22e29f-ce07-4db3-b674-0e5bc7af5fe0",
-    "required_pr_body_marker": "one-time-baseline-pr132-4f22e29f-ce07-4db3-b674-0e5bc7af5fe0",
-    "relaxations": [
-      "diff_size",
-      "exact_gitleaks_fingerprint_allowlist"
-    ],
-    "gitleaks_allowlist": [
-      {
-        "line": 2182,
-        "line_sha256": "487a316d262ee58fd9e5dcfd6244c47de79033d8b125e0968e9d1db3018b89b0",
-        "label": "React-cxxstableapi",
-        "rule_id": "generic-api-key",
-        "path": "apps/mobile/ios/Podfile.lock",
-        "fingerprint": "d48465b9194d3068cf59918c04762c30809db243:apps/mobile/ios/Podfile.lock:generic-api-key:2182",
-        "justification": "React-cxxstableapi CocoaPods SPEC CHECKSUM; stable across pinned deterministic resolutions and unchanged on the dependency-remediated head; not a credential.",
-        "scope": "PR 132 exact authorized dependency-remediated head only",
-        "expires_after": "2026-09-10T12:35:10+00:00"
-      },
-      {
-        "line": 2253,
-        "line_sha256": "b4189c887b980d0e2bf873fd159be426cfdae5cf148acbbfee07d0901795eacb",
-        "label": "RNKeychain",
-        "rule_id": "generic-api-key",
-        "path": "apps/mobile/ios/Podfile.lock",
-        "fingerprint": "d48465b9194d3068cf59918c04762c30809db243:apps/mobile/ios/Podfile.lock:generic-api-key:2253",
-        "justification": "RNKeychain CocoaPods SPEC CHECKSUM; stable across pinned deterministic resolutions and unchanged on the dependency-remediated head; not a credential.",
-        "scope": "PR 132 exact authorized dependency-remediated head only",
-        "expires_after": "2026-09-10T12:35:10+00:00"
-      }
-    ]
-  },
   "mandatory_gates": [
     "baseline_alignment",
     "repository_hygiene",
