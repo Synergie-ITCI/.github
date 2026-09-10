@@ -5633,6 +5633,42 @@ jobs:
         self.assertEqual(state["framework_main_matches_active_release"], "PASS")
         self.assertEqual(state["release_required"], "NO")
 
+    def test_audited_migration_policy_and_schema_changes_require_release(self) -> None:
+        engine = load_engine_module()
+        paths = (
+            "policy/audited-migration-authorizations.json",
+            "schemas/audited-migration-authorizations.schema.json",
+        )
+        for index, path in enumerate(paths):
+            with self.subTest(path=path):
+                repo = self.framework_release_repo(f"release-drift-audited-migration-change-{index}")
+                self.write(repo / path, '{"changed": true}\n')
+
+                state = engine.framework_release_state(repo)
+
+                self.assertEqual(state["framework_main_matches_active_release"], "FAIL")
+                self.assertEqual(state["release_required"], "YES")
+                self.assertIn(path, state["release_sensitive_files"])
+                self.assertIn(path, "\n".join(state["details"]))
+
+    def test_missing_audited_migration_policy_and_schema_require_release(self) -> None:
+        engine = load_engine_module()
+        paths = (
+            "policy/audited-migration-authorizations.json",
+            "schemas/audited-migration-authorizations.schema.json",
+        )
+        for index, path in enumerate(paths):
+            with self.subTest(path=path):
+                repo = self.framework_release_repo(f"release-drift-audited-migration-missing-{index}")
+                (repo / path).unlink()
+
+                state = engine.framework_release_state(repo)
+
+                self.assertEqual(state["framework_main_matches_active_release"], "FAIL")
+                self.assertEqual(state["release_required"], "YES")
+                self.assertIn(path, state["release_sensitive_files"])
+                self.assertIn(path, "\n".join(state["details"]))
+
     def test_host_profile_changes_require_a_new_immutable_release(self) -> None:
         engine = load_engine_module()
         repo = self.framework_release_repo("release-drift-host-profile")
@@ -5762,7 +5798,12 @@ jobs:
         self.write(repo / ".github" / "workflows" / "pr-qa.yml", 'env:\n  PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-test"\n')
         self.write(repo / ".github" / "pr-qa.yml", self.base_config(profile="framework"))
         self.write(repo / ".github" / "CODEOWNERS", "* @synergie/security\n")
+        self.write(repo / "policy" / "audited-migration-authorizations.json", "[]\n")
         self.write(repo / "policy" / "pr-qa-policy.json", "{\"version\": 1}\n")
+        self.write(
+            repo / "schemas" / "audited-migration-authorizations.schema.json",
+            "{\"type\": \"array\"}\n",
+        )
         self.write(repo / "pr-qa" / "pr_qa.py", "print('engine')\n")
         self.write(repo / "pr-qa" / "resolve_node_version.py", "print('node')\n")
         self.write(repo / "pr-qa" / "resolve_php_version.py", "print('php')\n")
