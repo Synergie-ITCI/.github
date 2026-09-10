@@ -4,7 +4,9 @@
   "releases": {
     "pr-qa-v1-rc103": {
       "commit": "82268704a1b007d890ab94b9544bea892efd4c82",
-      "ruleset_id": 22630429
+      "ruleset_id": 22630429,
+      "ruleset_updated_at": "2026-09-09T15:38:30.583+05:30",
+      "bypass_actors": []
     }
   }
 }

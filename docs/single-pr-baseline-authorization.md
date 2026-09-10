@@ -69,7 +69,8 @@ before cleanup, a merged/closed PR or expired window cannot reuse authorization.
 ## Governed framework release registration
 
 The shared workflow pin must occur in `policy/framework-releases.json` with an
-exact commit and the numeric ID of its tag-protection ruleset. Register a newly
+exact commit, the numeric ID and exact `updated_at` value of its tag-protection
+ruleset, and an explicitly empty reviewed `bypass_actors` list. Register a newly
 published release in the same governed PR that activates its pin. Do not register
 expired authorization releases for activation. The manifest does not authorize
 branches, arbitrary commit references, user overrides, or persistent checkout
@@ -79,3 +80,12 @@ Architecture Governance verifies the selected tag directly against GitHub and
 requires an active, exact-tag ruleset prohibiting updates and deletion with no
 bypass actors. Both reusable-workflow framework checkouts must use that pin.
 Tag protection and GitHub Release API immutability are separate evidence.
+
+GitHub hides ruleset bypass actors from read-only workflow tokens. Registration
+therefore requires privileged read-only inspection of the complete ruleset and
+records its exact modification timestamp alongside the empty bypass list. CI
+checks that timestamp against live GitHub data; missing or changed timestamps
+fail closed. Any visible nonempty bypass list also fails. A changed ruleset must
+be inspected and registered again through central review. Before release
+activation or merge, independently repeat the full privileged read-only check.
+CI does not receive administration credentials or permission to mutate rulesets.

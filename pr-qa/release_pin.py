@@ -32,6 +32,8 @@ def validate_workflow(workflow: str, manifest: dict) -> tuple[str, dict]:
         raise ValueError("Release must bind an exact commit")
     if type(entry.get("ruleset_id")) is not int or entry["ruleset_id"] < 1:
         raise ValueError("Release must bind a tag-protection ruleset")
+    if not entry.get("ruleset_updated_at") or entry.get("bypass_actors") != []:
+        raise ValueError("Release requires reviewed no-bypass ruleset evidence")
     if workflow.count(PIN) != 3 or "framework-ref" in workflow:
         raise ValueError("Framework overrides are forbidden")
     checkout_count = 0
@@ -86,7 +88,11 @@ def verify_live_release(release: str, entry: dict, lookup=github_json) -> None:
         ruleset.get("id") != entry["ruleset_id"]
         or ruleset.get("target") != "tag"
         or ruleset.get("enforcement") != "active"
-        or ruleset.get("bypass_actors") != []
+        # GitHub omits bypass_actors for read-only tokens. Bind the reviewed
+        # no-bypass snapshot to the exact live modification timestamp; any
+        # ruleset change requires renewed privileged inspection and central review.
+        or ruleset.get("updated_at") != entry["ruleset_updated_at"]
+        or ("bypass_actors" in ruleset and ruleset["bypass_actors"] != [])
         or ruleset.get("conditions", {}).get("ref_name") != expected_refs
         or not {"update", "deletion"}.issubset(
             {rule.get("type") for rule in ruleset.get("rules", [])}

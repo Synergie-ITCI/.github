@@ -20,6 +20,7 @@ class ReleasePinTests(unittest.TestCase):
                     "object": {"type": "tag", "sha": "a" * 40}}
         self.tag = {"object": {"type": "commit", "sha": self.entry["commit"]}}
         self.ruleset = {
+            "updated_at": self.entry["ruleset_updated_at"],
             "id": self.entry["ruleset_id"], "target": "tag", "enforcement": "active",
             "bypass_actors": [], "conditions": {"ref_name": {
                 "include": [f"refs/tags/{self.release}"], "exclude": []}},
@@ -35,6 +36,23 @@ class ReleasePinTests(unittest.TestCase):
 
     def test_registered_protected_annotated_tag(self):
         verify_live_release(self.release, self.entry, self.lookup)
+
+    def test_read_only_response_requires_exact_reviewed_ruleset_timestamp(self):
+        del self.ruleset["bypass_actors"]
+        verify_live_release(self.release, self.entry, self.lookup)
+        self.ruleset["updated_at"] = "2026-09-10T00:00:00Z"
+        with self.assertRaises(ValueError):
+            verify_live_release(self.release, self.entry, self.lookup)
+        del self.ruleset["updated_at"]
+        with self.assertRaises(ValueError):
+            verify_live_release(self.release, self.entry, self.lookup)
+
+    def test_manifest_requires_explicit_no_bypass_evidence(self):
+        for change in ({"bypass_actors": [{"actor_id": 1}]}, {"ruleset_updated_at": ""}):
+            manifest = copy.deepcopy(self.manifest)
+            manifest["releases"][self.release].update(change)
+            with self.assertRaises(ValueError):
+                validate_workflow(self.workflow, manifest)
 
     def test_unregistered_branches_shas_mutable_and_arbitrary_tags_rejected(self):
         for ref in ("main", "development", "a" * 40, "latest", "pr-qa-v1-rc999999",
