@@ -59,7 +59,13 @@
         "requires_reason": true,
         "preserve_qa_evidence": true
       }
-    }
+    },
+    "migration_sql_reviewers": [
+      {
+        "login": "SaurabhVermaIN",
+        "id": 52234089
+      }
+    ]
   },
   "minimum_thresholds": {
     "max_file_bytes": 5242880,

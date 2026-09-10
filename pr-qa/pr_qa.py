@@ -1018,6 +1018,9 @@ def run_governance(ctx: PRContext, existing_results: list[CheckResult], args: ar
         # Recheck live identity before reporting PASS or reusing relaxed limits.
         current_context = gather_git_context(ctx.repo, ctx.event, ctx.base_ref or "", ctx.head_ref or "")
         results.extend(gate_baseline_alignment(ctx, current_context))
+    # Authorization cannot survive expiry, merge, or a base/head move during QA.
+    if context_cache(ctx).get("audited_migration_used"):
+        results.extend(gate_database_safety(ctx))
     results.extend(run_if_enabled(ctx, "documentation", lambda: gate_documentation(ctx)))
     results.extend(run_if_enabled(ctx, "advisory_review", lambda: gate_advisory_review(ctx)))
     results.extend(gate_release_drift(ctx))
@@ -3998,12 +4001,19 @@ def final_tree_deployment_changes(ctx: PRContext, paths: list[str]) -> tuple[lis
 
 
 def gate_database_safety(ctx: PRContext) -> list[CheckResult]:
+    from migration_authorization import reviewed_migration_texts
+
+    reviewed, review_errors = reviewed_migration_texts(ctx)
+    if reviewed:
+        context_cache(ctx)["audited_migration_used"] = True
+    if review_errors:
+        return [failed("Migration Risk", None, "Audited migration approval failed closed.", review_errors, score=30)]
     migration_patterns = ["**/migrations/**", "**/migration/**", "database/**", "db/migrate/**", "**/*.sql"]
     migrations = [path for path in ctx.changed_files if match_any(path, migration_patterns)]
     if not migrations:
         return [passed("Migration Risk", None, "No database migration files changed.")]
     if baseline_allows(ctx, "historical_migration_count"):
-        critical, high, medium = classify_migration_risk(ctx, migrations)
+        critical, high, medium = classify_migration_risk(ctx, migrations, reviewed)
         if critical:
             return [failed("Migration Risk", None, "CRITICAL migration risk: destructive database operations detected.", critical[:30], score=30)]
         rollback_destructive = baseline_rollback_destructive_migrations(ctx, migrations)
@@ -4016,7 +4026,7 @@ def gate_database_safety(ctx: PRContext) -> list[CheckResult]:
             details.append(f"rollback_destructive_count={len(rollback_destructive)}")
         details.extend((high or medium or migrations)[:30])
         return [warning("Migration Risk", None, "Historical baseline migration volume classified for one-time review; migration execution remains mandatory.", details)]
-    critical, high, medium = classify_migration_risk(ctx, migrations)
+    critical, high, medium = classify_migration_risk(ctx, migrations, reviewed)
     if critical:
         return [failed("Migration Risk", None, "CRITICAL migration risk: destructive database operations detected.", critical[:30], score=30)]
     if high:
@@ -4026,13 +4036,13 @@ def gate_database_safety(ctx: PRContext) -> list[CheckResult]:
     return [warning("Migration Risk", None, "LOW migration risk: migration files changed without obvious destructive operations.", migrations[:30])]
 
 
-def classify_migration_risk(ctx: PRContext, migrations: list[str]) -> tuple[list[str], list[str], list[str]]:
+def classify_migration_risk(ctx: PRContext, migrations: list[str], reviewed: dict[str, str] | None = None) -> tuple[list[str], list[str], list[str]]:
     critical = []
     high = []
     medium = []
     for rel in migrations:
         text = read_text(ctx.repo / rel)
-        risk_text = migration_risk_text(ctx, text)
+        risk_text = migration_risk_text(ctx, (reviewed or {}).get(rel, text))
         upper = risk_text.upper()
         collapsed = re.sub(r"[^A-Z]+", "", upper)
         if any(token in collapsed for token in ["DROPTABLE", "DROPDATABASE", "DROPSCHEMA", "TRUNCATE", "DELETEFROM"]) or re.search(r"drop(Column|IfExists|Table|Database|Schema)", risk_text):
@@ -5023,6 +5033,9 @@ def framework_technical_digest(policy_path: Path) -> str:
     paths: list[Path] = [policy_path]
     for rel in [
         "pr-qa/pr_qa.py",
+        "pr-qa/migration_authorization.py",
+        "policy/audited-migration-authorizations.json",
+        "schemas/audited-migration-authorizations.schema.json",
         ".github/workflows/pr-qa.yml",
     ]:
         candidate = FRAMEWORK_ROOT / rel
