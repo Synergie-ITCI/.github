@@ -215,7 +215,7 @@ gates:
                 modern_policy.write_text(json.dumps(policy_data))
                 args[args.index("--policy") + 1] = str(modern_policy)
                 resolved_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip() if head_sha == "HEAD" else head_sha
-                live = {"number": pr_number, "state": "open", "merged": False,
+                live = {"number": pr_number, "state": "open", "merged": False, "draft": False,
                         "body": body_override if body_override is not None else body,
                         "head": {"ref": head_ref, "sha": resolved_sha, "repo": {"id": 1234, "full_name": repository}},
                         "base": {"ref": base_ref, "sha": base, "repo": {"id": 1234, "full_name": repository}}}
@@ -5558,7 +5558,10 @@ jobs:
         self.assertIn("persist-credentials: false", workflow)
         self.assertIn("Fetch current pull request base branch", workflow)
         self.assertIn("refs/remotes/origin/${BASE_REF}", workflow)
-        self.assertRegex(workflow, r'PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc(?:85|86|87|88|89|90|91|92|93|94|95|96|97|98|99|101|102|103)"')
+        from release_pin import validate_workflow
+
+        manifest = json.loads((ROOT / "policy/framework-releases.json").read_text())
+        validate_workflow(workflow, manifest)
         self.assertIn("issues: write", workflow)
         self.assertIn("issues: write", self_workflow)
         self.assertIn("issues: write", caller)
