@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+from datetime import datetime
 from pathlib import Path
 
 from pr_qa import parse_workflow_yaml
@@ -72,6 +73,16 @@ def github_json(path: str) -> dict:
     return json.loads(result.stdout)
 
 
+def same_timestamp(actual: object, expected: object) -> bool:
+    """Compare exact timezone-aware instants without discarding subsecond precision."""
+    try:
+        left = datetime.fromisoformat(actual)
+        right = datetime.fromisoformat(expected)
+        return left.tzinfo is not None and right.tzinfo is not None and left == right
+    except (TypeError, ValueError):
+        return False
+
+
 def verify_live_release(release: str, entry: dict, lookup=github_json) -> None:
     """Freshly verify tag resolution and exact, non-bypassable update/delete protection."""
     ref = lookup(f"git/ref/tags/{release}")
@@ -91,7 +102,7 @@ def verify_live_release(release: str, entry: dict, lookup=github_json) -> None:
         # GitHub omits bypass_actors for read-only tokens. Bind the reviewed
         # no-bypass snapshot to the exact live modification timestamp; any
         # ruleset change requires renewed privileged inspection and central review.
-        or ruleset.get("updated_at") != entry["ruleset_updated_at"]
+        or not same_timestamp(ruleset.get("updated_at"), entry["ruleset_updated_at"])
         or ("bypass_actors" in ruleset and ruleset["bypass_actors"] != [])
         or ruleset.get("conditions", {}).get("ref_name") != expected_refs
         or not {"update", "deletion"}.issubset(
@@ -102,7 +113,7 @@ def verify_live_release(release: str, entry: dict, lookup=github_json) -> None:
             "ruleset_id": ruleset.get("id") == entry["ruleset_id"],
             "tag_target": ruleset.get("target") == "tag",
             "active": ruleset.get("enforcement") == "active",
-            "reviewed_timestamp": ruleset.get("updated_at") == entry["ruleset_updated_at"],
+            "reviewed_timestamp": same_timestamp(ruleset.get("updated_at"), entry["ruleset_updated_at"]),
             "visible_bypass_empty": "bypass_actors" not in ruleset or ruleset["bypass_actors"] == [],
             "exact_tag_scope": ruleset.get("conditions", {}).get("ref_name") == expected_refs,
             "update_delete_rules": {"update", "deletion"}.issubset(

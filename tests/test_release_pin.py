@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pr-qa"))
-from release_pin import validate_workflow, verify_live_release
+from release_pin import same_timestamp, validate_workflow, verify_live_release
 
 
 class ReleasePinTests(unittest.TestCase):
@@ -33,6 +33,12 @@ class ReleasePinTests(unittest.TestCase):
         if path.startswith("git/tags/"):
             return self.tag
         return self.ruleset
+
+    def test_ruleset_timestamp_offsets_preserve_exact_instant(self):
+        self.assertTrue(same_timestamp("2026-09-09T10:08:30.583Z", "2026-09-09T15:38:30.583+05:30"))
+        for value in (None, "", "2026-09-09T10:08:30.583", "2026-09-09T10:08:30.584Z",
+                      "2026-09-09T10:08:30Z", "2026-09-09T10:08:30.583001Z"):
+            self.assertFalse(same_timestamp(value, "2026-09-09T15:38:30.583+05:30"))
 
     def test_registered_protected_annotated_tag(self):
         verify_live_release(self.release, self.entry, self.lookup)
