@@ -39,11 +39,11 @@ class ExactPr132AuthorizationTests(unittest.TestCase):
         self.ctx.base_ref = self.policy["base_ref"]
         self.ctx.pr_body = self.policy["required_pr_body_marker"]
         self.ctx.changed_files = [f"file-{i}.py" for i in range(182)]
-        self.ctx.additions = 25489
+        self.ctx.additions = 25492
         self.ctx.event["repository"]["full_name"] = self.repository
         self.ctx.event["pull_request"].update(number=132, body=self.ctx.pr_body)
         self.gc = {"head_sha": self.sha, "base_sha": self.base}
-        self.size = {"effective_additions": 25489}
+        self.size = {"effective_additions": 25492}
         self.git.return_value.stdout = self.sha + "\n"
         self.live.update(number=132, body=self.ctx.pr_body)
         self.live["head"].update(sha=self.sha, ref=self.ctx.head_ref)
@@ -65,9 +65,9 @@ class ExactPr132AuthorizationTests(unittest.TestCase):
         self.assertEqual(self.validate(), [])
         self.assertEqual(self.http.call_count, 2)
         self.assertEqual(self.policy["repository_id"], 1315697868)
-        self.assertEqual(self.sha, "28f56cc00b941f5ba791323acffc6fe483f95879")
+        self.assertEqual(self.sha, "1f2e18a3b58a5520b3981e86445d2b4023018223")
         self.assertEqual(self.base, "0c3185b2ec1846e193e71b2a3b54d2bea6d11e56")
-        self.assertEqual(self.policy["allowed_effective_additions"], 25489)
+        self.assertEqual(self.policy["allowed_effective_additions"], 25492)
         self.assertEqual(self.policy["allowed_changed_files"], 182)
         self.assertEqual(self.policy["relaxations"], ["diff_size", "exact_gitleaks_fingerprint_allowlist"])
         self.assertEqual(len(self.policy["gitleaks_allowlist"]), 2)
