@@ -1,0 +1,119 @@
+{
+  "type": "array",
+  "uniqueItems": true,
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "authorization_id",
+      "repository",
+      "repository_id",
+      "pr_number",
+      "head_ref",
+      "base_ref",
+      "expected_head_sha",
+      "expected_base_sha",
+      "migration_path",
+      "migration_sha256",
+      "delete_fingerprints",
+      "approved_reviewer",
+      "issued_at",
+      "expires_at",
+      "purpose"
+    ],
+    "properties": {
+      "authorization_id": {
+        "type": "string",
+        "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
+      },
+      "repository": {
+        "type": "string",
+        "pattern": "[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"
+      },
+      "repository_id": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "pr_number": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "head_ref": {
+        "type": "string",
+        "minLength": 1
+      },
+      "base_ref": {
+        "type": "string",
+        "minLength": 1
+      },
+      "expected_head_sha": {
+        "type": "string",
+        "pattern": "[0-9a-f]{40}"
+      },
+      "expected_base_sha": {
+        "type": "string",
+        "pattern": "[0-9a-f]{40}"
+      },
+      "migration_path": {
+        "type": "string",
+        "minLength": 1
+      },
+      "migration_sha256": {
+        "type": "string",
+        "pattern": "[0-9a-f]{64}"
+      },
+      "delete_fingerprints": {
+        "type": "array",
+        "uniqueItems": true,
+        "items": {
+          "type": "object",
+          "required": [
+            "line",
+            "sha256"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "line": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "[0-9a-f]{64}"
+            }
+          }
+        }
+      },
+      "approved_reviewer": {
+        "type": "object",
+        "required": [
+          "login",
+          "id"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "login": {
+            "type": "string",
+            "minLength": 1
+          },
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "issued_at": {
+        "type": "string",
+        "minLength": 1
+      },
+      "expires_at": {
+        "type": "string",
+        "minLength": 1
+      },
+      "purpose": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}
