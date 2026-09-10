@@ -92,7 +92,9 @@ REUSABLE_SANDBOXED_GATE_NAMES = {
 }
 RELEASE_SENSITIVE_EXACT_FILES = {
     "schemas/one-time-baseline.schema.json",
+    "schemas/audited-migration-authorizations.schema.json",
     "actions/runtime-certifier/action.yml",
+    "policy/audited-migration-authorizations.json",
     "policy/pr-qa-policy.json",
     "tools/runtime_certifier.py",
 }
