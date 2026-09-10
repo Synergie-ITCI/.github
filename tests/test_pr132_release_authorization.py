@@ -24,7 +24,7 @@ class ExactPr132AuthorizationTests(unittest.TestCase):
         authorization = self.central.get("one_time_baseline_alignment")
         if authorization is None or authorization.get("pr_number") != 132:
             archived = subprocess.check_output(
-                ["git", "show", "pr-qa-v1-rc105:policy/pr-qa-policy.json"],
+                ["git", "show", "pr-qa-v1-rc108:policy/pr-qa-policy.json"],
                 cwd=existing.ROOT, text=True,
             )
             authorization = json.loads(archived)["one_time_baseline_alignment"]
