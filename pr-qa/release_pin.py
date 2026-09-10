@@ -98,7 +98,22 @@ def verify_live_release(release: str, entry: dict, lookup=github_json) -> None:
             {rule.get("type") for rule in ruleset.get("rules", [])}
         )
     ):
-        raise ValueError("Release tag lacks exact non-bypassable protection")
+        checks = {
+            "ruleset_id": ruleset.get("id") == entry["ruleset_id"],
+            "tag_target": ruleset.get("target") == "tag",
+            "active": ruleset.get("enforcement") == "active",
+            "reviewed_timestamp": ruleset.get("updated_at") == entry["ruleset_updated_at"],
+            "visible_bypass_empty": "bypass_actors" not in ruleset or ruleset["bypass_actors"] == [],
+            "exact_tag_scope": ruleset.get("conditions", {}).get("ref_name") == expected_refs,
+            "update_delete_rules": {"update", "deletion"}.issubset(
+                {rule.get("type") for rule in ruleset.get("rules", [])}
+            ),
+        }
+        failed = ", ".join(name for name, passed in checks.items() if not passed)
+        raise ValueError(
+            f"Release tag protection verification failed: {failed}; "
+            f"live updated_at={ruleset.get('updated_at')!r}"
+        )
 
 
 if __name__ == "__main__":
