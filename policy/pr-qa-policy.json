@@ -13,10 +13,10 @@
     "allowed_effective_additions": 25489,
     "allowed_changed_files": 182,
     "purpose": "One-time linear mobile alignment for PR 132; two verified deterministic CocoaPods SPEC CHECKSUM false positives only.",
-    "issued_at": "2026-09-09T18:32:35+00:00",
-    "expires_after": "2026-09-10T00:32:35+00:00",
-    "authorization_id": "dcc05ff1-e09c-4a90-85a8-f3a538991444",
-    "required_pr_body_marker": "one-time-baseline-pr132-dcc05ff1-e09c-4a90-85a8-f3a538991444",
+    "issued_at": "2026-09-10T03:43:59+00:00",
+    "expires_after": "2026-09-10T09:43:59+00:00",
+    "authorization_id": "fb31d4ab-3d6e-423d-b2f0-8e0a28ecbda8",
+    "required_pr_body_marker": "one-time-baseline-pr132-fb31d4ab-3d6e-423d-b2f0-8e0a28ecbda8",
     "relaxations": [
       "diff_size",
       "exact_gitleaks_fingerprint_allowlist"
@@ -31,7 +31,7 @@
         "fingerprint": "d48465b9194d3068cf59918c04762c30809db243:apps/mobile/ios/Podfile.lock:generic-api-key:2182",
         "justification": "React-cxxstableapi CocoaPods SPEC CHECKSUM; stable across two pinned deterministic resolutions; not a credential.",
         "scope": "PR 132 exact authorized head only",
-        "expires_after": "2026-09-10T00:32:35+00:00"
+        "expires_after": "2026-09-10T09:43:59+00:00"
       },
       {
         "line": 2253,
@@ -42,7 +42,7 @@
         "fingerprint": "d48465b9194d3068cf59918c04762c30809db243:apps/mobile/ios/Podfile.lock:generic-api-key:2253",
         "justification": "RNKeychain CocoaPods SPEC CHECKSUM; stable across two pinned deterministic resolutions; not a credential.",
         "scope": "PR 132 exact authorized head only",
-        "expires_after": "2026-09-10T00:32:35+00:00"
+        "expires_after": "2026-09-10T09:43:59+00:00"
       }
     ]
   },

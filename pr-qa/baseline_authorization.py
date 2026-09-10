@@ -206,6 +206,7 @@ def validate_authorization(ctx, git_context, policy, size) -> list[str]:
             and live["number"] == policy["pr_number"]
             and live["state"] == "open"
             and live["merged"] is False
+            and live["draft"] is False
             and live_head["sha"] == policy["expected_head_sha"]
             and live_head["ref"] == policy["head_ref"]
             and live_base["ref"] == policy["base_ref"]

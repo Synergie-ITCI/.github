@@ -36,7 +36,7 @@ An event or CLI-supplied repository cannot select a different API repository.
 The validator uses the existing read-only `pull-requests: read` token permission
 and fixed `https://api.github.com` endpoint. It rejects forks for this privileged
 baseline mode, mismatched numeric repository identity, another PR number,
-changed source/base branches, a changed checked-out SHA, and live closed or
+changed source/base branches, a changed checked-out SHA, and live draft, closed or
 merged state. API errors, missing credentials, rate limits, malformed responses,
 and redirects fail closed. Credentials and response bodies are not logged.
 
@@ -65,3 +65,17 @@ subsequent governed central pin update after the immutable tag exists; applicati
 caller files do not change. Verify tag SHA and protection from GitHub after publication.
 Remove obsolete authorization entries through central review after use; even
 before cleanup, a merged/closed PR or expired window cannot reuse authorization.
+
+## Governed framework release registration
+
+The shared workflow pin must occur in `policy/framework-releases.json` with an
+exact commit and the numeric ID of its tag-protection ruleset. Register a newly
+published release in the same governed PR that activates its pin. Do not register
+expired authorization releases for activation. The manifest does not authorize
+branches, arbitrary commit references, user overrides, or persistent checkout
+credentials.
+
+Architecture Governance verifies the selected tag directly against GitHub and
+requires an active, exact-tag ruleset prohibiting updates and deletion with no
+bypass actors. Both reusable-workflow framework checkouts must use that pin.
+Tag protection and GitHub Release API immutability are separate evidence.

@@ -73,7 +73,7 @@ class ExactPr132AuthorizationTests(unittest.TestCase):
         self.assertEqual(len(self.policy["gitleaks_allowlist"]), 2)
 
     def test_live_repository_pr_refs_shas_and_state_changes_rejected(self):
-        for field, value in [("number", 133), ("state", "closed"), ("merged", True),
+        for field, value in [("number", 133), ("state", "closed"), ("merged", True), ("draft", True),
                              ("head.sha", "c" * 40), ("base.sha", "d" * 40),
                              ("head.ref", "other"), ("base.ref", "main"),
                              ("head.repo.id", 77), ("base.repo.id", 77),
@@ -88,6 +88,14 @@ class ExactPr132AuthorizationTests(unittest.TestCase):
                 target[parts[-1]] = value
                 self.http.return_value = live
                 self.assertTrue(self.validate())
+
+    def test_missing_or_changed_live_marker_and_missing_draft_state_rejected(self):
+        for body in ("", "one-time-baseline-pr132-00000000-0000-4000-8000-000000000002"):
+            with self.subTest(body=body):
+                self.http.return_value = {**self.live, "body": body}
+                self.assertTrue(self.validate())
+        self.http.return_value = {key: value for key, value in self.live.items() if key != "draft"}
+        self.assertTrue(self.validate())
 
     def test_coherent_other_repository_id_cannot_reuse_named_authorization(self):
         for side in ("head", "base"):

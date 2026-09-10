@@ -57,7 +57,7 @@ class BaselineLiveBindingTests(unittest.TestCase):
         self.live = {
             "number": 125,
             "state": "open",
-            "merged": False,
+            "merged": False, "draft": False,
             "head": {
                 "sha": self.sha,
                 "ref": "chore/baseline",
