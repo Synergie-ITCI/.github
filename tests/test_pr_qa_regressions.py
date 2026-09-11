@@ -4223,6 +4223,49 @@ exit 0
         self.assertNotEqual(code, 0)
         self.assertIn("CODEOWNERS maintenance PRs may change only one CODEOWNERS file", report)
 
+    def test_programme_platform_governed_aws_iac_requires_review_without_blocking_static_qa(self) -> None:
+        repo, base = self.init_repo("programme-platform-aws-iac")
+        self.write(repo / "infra" / "aws" / "main.tf", 'terraform {\n  required_version = ">= 1.6.0"\n}\n')
+        self.write(
+            repo / "infra" / "aws" / "README.md",
+            "Plan only in PRs. Do not run `tofu apply` from a workstation. Production needs approval.\n",
+        )
+        self.commit(repo, "chore: add governed aws iac")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            static_only=True,
+            base_ref="development",
+            head_ref="infra/aws-env-governance-20260911",
+            repository="Synergie-ITCI/programme-management-platform",
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Protected Resources"], "WARNING")
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Deployment Risk"], "WARNING")
+        self.assertIn("GOVERNED_CRITICAL_INFRASTRUCTURE", report)
+        self.assertIn("authorized reviewers and required status checks remain mandatory", report)
+        self.assertIn("PR-QA does not authorize apply or deployment", report)
+
+    def test_governed_aws_iac_exception_is_repository_scoped(self) -> None:
+        repo, base = self.init_repo_with_migration_protection("other-aws-iac")
+        self.write(repo / "infra" / "aws" / "main.tf", 'terraform {\n  required_version = ">= 1.6.0"\n}\n')
+        self.commit(repo, "chore: add aws iac")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            static_only=True,
+            base_ref="development",
+            head_ref="infra/aws-env-governance-20260911",
+            repository="Synergie-ITCI/other-application",
+        )
+
+        self.assertNotEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Protected Resources"], "FAIL")
+        self.assertNotIn("GOVERNED_CRITICAL_INFRASTRUCTURE", report)
+
     def test_codeowners_bootstrap_allows_pr_qa_caller_recovery(self) -> None:
         repo = self.tmp / "codeowners-bootstrap"
         repo.mkdir()

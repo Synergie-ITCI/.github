@@ -2775,6 +2775,40 @@ def is_approved_deployment_sensitive_asset(ctx: PRContext, rel: str) -> bool:
     return match_any(rel, patterns)
 
 
+def governed_critical_infrastructure_authorization(ctx: PRContext, rel: str) -> dict[str, Any] | None:
+    repository = resolve_repository_name(ctx)
+    governance = ctx.policy.get("governance", {}) or {}
+    for item in governance.get("critical_infrastructure_paths", []) or []:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("repository") or "") != repository:
+            continue
+        patterns = [str(pattern) for pattern in item.get("paths", []) or []]
+        if match_any(rel, patterns):
+            return item
+    return None
+
+
+def governed_critical_infrastructure_details(ctx: PRContext, paths: list[str]) -> list[str]:
+    details: list[str] = []
+    seen: set[str] = set()
+    for path in paths:
+        authorization = governed_critical_infrastructure_authorization(ctx, path)
+        if not authorization:
+            continue
+        reviewers = ",".join(str(item) for item in authorization.get("required_reviewers", []) or [])
+        controls = ",".join(str(item) for item in authorization.get("required_controls", []) or [])
+        detail = (
+            f"{path}: GOVERNED_CRITICAL_INFRASTRUCTURE"
+            + (f" reviewers={reviewers}" if reviewers else "")
+            + (f" controls={controls}" if controls else "")
+        )
+        if detail not in seen:
+            details.append(detail)
+            seen.add(detail)
+    return details
+
+
 def decoded_text_variants(path: Path) -> list[str]:
     try:
         raw = path.read_bytes()
@@ -2844,11 +2878,18 @@ def gate_protected_resources(ctx: PRContext, git_context: dict[str, Any]) -> lis
     protected_patterns = ctx.config.get("repository", {}).get("protected_paths", [])
     changed = [path for path in ctx.changed_files if match_any(path, protected_patterns)]
     authorized_overlay = [path for path in changed if baseline_authorized_overlay_path(ctx, path)]
+    governed_infra = [
+        path
+        for path in changed
+        if path not in set(authorized_overlay)
+        and governed_critical_infrastructure_authorization(ctx, path)
+    ]
     inherited_protected = [
         path
         for path in changed
         if baseline_allows(ctx, "historical_protected_resources")
         and path not in set(authorized_overlay)
+        and path not in set(governed_infra)
         and baseline_inherited_path(ctx, path, "protected_resource")
     ]
     inherited_codeowners = [
@@ -2861,7 +2902,8 @@ def gate_protected_resources(ctx: PRContext, git_context: dict[str, Any]) -> lis
     changed_for_standard_policy = [
         path
         for path in changed
-        if path not in set(authorized_overlay + inherited_protected + inherited_codeowners)
+        if path
+        not in set(authorized_overlay + governed_infra + inherited_protected + inherited_codeowners)
     ]
     codeowners_changed = any(path in CODEOWNERS_PATHS for path in ctx.changed_files)
     codeowners_changed_for_standard_policy = any(path in CODEOWNERS_PATHS for path in changed_for_standard_policy)
@@ -2878,6 +2920,15 @@ def gate_protected_resources(ctx: PRContext, git_context: dict[str, Any]) -> lis
     if not changed_for_standard_policy:
         if authorized_overlay:
             return [warning("Protected Resources", None, "Authorized governance overlay passed exact source+overlay validation; required status checks and Review Policy gate remain mandatory.", authorized_overlay[:30])]
+        if governed_infra:
+            return [
+                warning(
+                    "Protected Resources",
+                    None,
+                    "Governed critical infrastructure paths changed; authorized reviewers and required status checks remain mandatory.",
+                    governed_critical_infrastructure_details(ctx, governed_infra)[:30],
+                )
+            ]
         if inherited_protected:
             return [warning("Protected Resources", None, "Inherited baseline protected resources match the exact approved source; future changes require normal CODEOWNERS coverage.", inherited_protected[:30])]
         return [passed("Protected Resources", None, "No protected resources changed.")]
@@ -2893,6 +2944,7 @@ def gate_protected_resources(ctx: PRContext, git_context: dict[str, Any]) -> lis
         + [f"{path}: INHERITED_BASELINE protected_resource" for path in inherited_protected[:30]]
         + [f"{path}: INHERITED_BASELINE codeowners" for path in inherited_codeowners[:30]]
         + [f"{path}: AUTHORIZED_OVERLAY" for path in authorized_overlay[:30]]
+        + governed_critical_infrastructure_details(ctx, governed_infra)[:30]
     )
     return [warning("Protected Resources", None, "Protected resources changed; required status checks and Review Policy gate must enforce governance.", details)]
 
@@ -3385,6 +3437,21 @@ def gate_deployment_safety(ctx: PRContext, git_context: dict[str, Any]) -> list[
             ]
     if not changed:
         return [passed("Deployment Risk", None, "No deployment-sensitive files changed.")]
+    governed_infra = [
+        path for path in changed if governed_critical_infrastructure_authorization(ctx, path)
+    ]
+    changed_without_governed_infra = [
+        path for path in changed if path not in set(governed_infra)
+    ]
+    if governed_infra and not changed_without_governed_infra:
+        return [
+            warning(
+                "Deployment Risk",
+                None,
+                "Governed critical infrastructure changes require plan/apply separation and authorized review; PR-QA does not authorize apply or deployment.",
+                governed_critical_infrastructure_details(ctx, governed_infra)[:60],
+            )
+        ]
     if baseline_active(ctx):
         blocking: list[str] = []
         inherited: list[str] = []
