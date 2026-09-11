@@ -65,6 +65,24 @@
         "login": "SaurabhVermaIN",
         "id": 52234089
       }
+    ],
+    "critical_infrastructure_paths": [
+      {
+        "repository": "Synergie-ITCI/programme-management-platform",
+        "paths": [
+          "infra/aws/**"
+        ],
+        "required_reviewers": [
+          "SaurabhVermaIN"
+        ],
+        "required_controls": [
+          "github-actions-oidc-only",
+          "plan-apply-separation",
+          "no-apply-from-pull-request",
+          "environment-approval-before-apply"
+        ],
+        "risk": "critical"
+      }
     ]
   },
   "minimum_thresholds": {
