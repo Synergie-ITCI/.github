@@ -41,6 +41,24 @@ inputs:
   plan-path:
     required: false
     description: OpenTofu plan path for verify-plan.
+  source-run-id:
+    required: false
+    description: GitHub Actions run ID that generated the approved plan artifact.
+  artifact-id:
+    required: false
+    description: Approved GitHub Actions artifact ID.
+  artifact-name:
+    required: false
+    description: Approved GitHub Actions artifact name.
+  expected-artifact-digest:
+    required: false
+    description: Expected GitHub artifact digest.
+  artifact-dir:
+    required: false
+    description: Directory containing the downloaded plan artifact.
+  plan-json-path:
+    required: false
+    description: JSON OpenTofu plan path for safety verification.
 
 runs:
   using: composite
@@ -61,6 +79,12 @@ runs:
         JOB_WORKFLOW_REF: ${{ inputs.job-workflow-ref }}
         TOKEN_FILE: ${{ inputs.token-file }}
         PLAN_PATH: ${{ inputs.plan-path }}
+        SOURCE_RUN_ID: ${{ inputs.source-run-id }}
+        ARTIFACT_ID: ${{ inputs.artifact-id }}
+        ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        EXPECTED_ARTIFACT_DIGEST: ${{ inputs.expected-artifact-digest }}
+        ARTIFACT_DIR: ${{ inputs.artifact-dir }}
+        PLAN_JSON_PATH: ${{ inputs.plan-json-path }}
         SCRIPT_PATH: ${{ github.action_path }}/opentofu_plan_authorization.py
       run: |
         set -euo pipefail
@@ -83,10 +107,49 @@ runs:
               --token-file "${TOKEN_FILE}" \
               --job-workflow-ref "${JOB_WORKFLOW_REF}"
             ;;
+          verify-native-reviewers)
+            python3 "${SCRIPT_PATH}" verify-native-reviewers \
+              --native-reviewers-available "${NATIVE_REVIEWERS_AVAILABLE}"
+            ;;
           verify-plan)
             python3 "${SCRIPT_PATH}" verify-plan \
               --plan-path "${PLAN_PATH}" \
               --expected-plan-sha256 "${EXPECTED_PLAN_SHA256}"
+            ;;
+          verify-source-artifact)
+            python3 "${SCRIPT_PATH}" verify-source-artifact \
+              --actor "${ACTOR}" \
+              --repository "${REPOSITORY}" \
+              --environment "${ENVIRONMENT}" \
+              --expected-sha "${EXPECTED_SHA}" \
+              --github-sha "${GITHUB_SHA_INPUT}" \
+              --expected-plan-sha256 "${EXPECTED_PLAN_SHA256}" \
+              --expires-at "${EXPIRES_AT}" \
+              --authorization-id "${AUTHORIZATION_ID}" \
+              --native-reviewers-available "${NATIVE_REVIEWERS_AVAILABLE}" \
+              --job-workflow-ref "${JOB_WORKFLOW_REF}" \
+              --source-run-id "${SOURCE_RUN_ID}" \
+              --artifact-id "${ARTIFACT_ID}" \
+              --artifact-name "${ARTIFACT_NAME}" \
+              --expected-artifact-digest "${EXPECTED_ARTIFACT_DIGEST}"
+            ;;
+          verify-artifact-metadata)
+            python3 "${SCRIPT_PATH}" verify-artifact-metadata \
+              --artifact-dir "${ARTIFACT_DIR}" \
+              --expected-sha "${EXPECTED_SHA}" \
+              --expected-plan-sha256 "${EXPECTED_PLAN_SHA256}" \
+              --source-run-id "${SOURCE_RUN_ID}" \
+              --artifact-id "${ARTIFACT_ID}" \
+              --artifact-name "${ARTIFACT_NAME}" \
+              --expected-artifact-digest "${EXPECTED_ARTIFACT_DIGEST}"
+            ;;
+          verify-artifact-files)
+            python3 "${SCRIPT_PATH}" verify-artifact-files \
+              --artifact-dir "${ARTIFACT_DIR}"
+            ;;
+          verify-plan-safety)
+            python3 "${SCRIPT_PATH}" verify-plan-safety \
+              --plan-json-path "${PLAN_JSON_PATH}"
             ;;
           *)
             echo "unsupported verifier command" >&2

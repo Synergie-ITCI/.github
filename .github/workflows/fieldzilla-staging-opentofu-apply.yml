@@ -8,35 +8,145 @@ on:
         required: true
         type: string
       expected-plan-sha256:
-        description: Exact SHA-256 of the approved OpenTofu plan file.
-        required: true
+        description: Exact SHA-256 of the approved OpenTofu binary plan file.
+        required: false
+        type: string
+      source-plan-run-id:
+        description: Successful GitHub Actions run ID that generated the approved plan artifact.
+        required: false
+        type: string
+      artifact-id:
+        description: Approved immutable GitHub Actions artifact ID.
+        required: false
+        type: string
+      artifact-name:
+        description: Approved immutable GitHub Actions artifact name.
+        required: false
+        type: string
+      expected-artifact-digest:
+        description: Expected GitHub artifact digest when available.
+        required: false
         type: string
       expires-at:
         description: ISO-8601 expiry, at most 60 minutes after approval.
-        required: true
+        required: false
         type: string
       authorization-id:
         description: Single-use authorization id.
-        required: true
+        required: false
         type: string
       native-reviewers-available:
         description: Must be false; native environment reviewers take precedence when available.
         required: true
         type: boolean
       apply:
-        description: Apply the exact regenerated plan after all fallback checks pass.
+        description: Apply the exact approved artifact without regenerating a plan.
         required: false
         type: boolean
         default: false
 
 permissions:
+  actions: read
   contents: read
   deployments: write
   id-token: write
 
 jobs:
+  plan:
+    name: Generate Exact Plan Artifact
+    if: ${{ !inputs.apply }}
+    runs-on: ubuntu-latest
+    environment: synergie-app-staging
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout caller repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.expected-sha }}
+          persist-credentials: false
+
+      - name: Configure AWS read-only credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::918870682888:role/SynergieProgrammeManagementPlatformStagingInfraApplyRole
+          aws-region: ap-south-1
+
+      - name: Set up OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.12.5
+          tofu_wrapper: false
+
+      - name: Generate reviewed OpenTofu plan files
+        env:
+          ARTIFACT_NAME: fieldzilla-staging-plan-${{ inputs.expected-sha }}-${{ github.run_id }}
+          EXPECTED_SHA: ${{ inputs.expected-sha }}
+        run: |
+          set -euo pipefail
+          plan_dir="${RUNNER_TEMP}/fieldzilla-plan"
+          mkdir -p "${plan_dir}"
+          tofu -chdir=infra/aws fmt -check
+          tofu -chdir=infra/aws init -backend=false -lockfile=readonly
+          tofu -chdir=infra/aws validate
+          tofu -chdir=infra/aws plan -out="${plan_dir}/fieldzilla-staging.tfplan"
+          tofu -chdir=infra/aws show -no-color "${plan_dir}/fieldzilla-staging.tfplan" > "${plan_dir}/fieldzilla-staging.plan.txt"
+          tofu -chdir=infra/aws show -json "${plan_dir}/fieldzilla-staging.tfplan" > "${plan_dir}/fieldzilla-staging.plan.json"
+          plan_sha="$(sha256sum "${plan_dir}/fieldzilla-staging.tfplan" | awk '{print $1}')"
+          lock_sha="$(sha256sum infra/aws/.terraform.lock.hcl | awk '{print $1}')"
+          tofu_version="$(tofu version -json | python3 -c 'import json,sys; print(json.load(sys.stdin)["terraform_version"])')"
+          export PLAN_SHA="${plan_sha}"
+          export LOCK_SHA="${lock_sha}"
+          export TOFU_VERSION="${tofu_version}"
+          python3 -c 'import json,os; from datetime import datetime, timezone; print(json.dumps({"repository":"Synergie-ITCI/programme-management-platform","environment":"synergie-app-staging","commit_sha":os.environ["EXPECTED_SHA"],"workflow_run_id":os.environ["GITHUB_RUN_ID"],"workflow_run_attempt":os.environ["GITHUB_RUN_ATTEMPT"],"artifact_name":os.environ["ARTIFACT_NAME"],"generated_at":datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),"opentofu_version":os.environ["TOFU_VERSION"],"provider_lock_sha256":os.environ["LOCK_SHA"],"plan_sha256":os.environ["PLAN_SHA"]}, indent=2, sort_keys=True))' > "${plan_dir}/metadata.json"
+          {
+            echo "${plan_sha}  fieldzilla-staging.tfplan"
+            sha256sum "${plan_dir}/fieldzilla-staging.plan.txt" | sed "s#${plan_dir}/##"
+            sha256sum "${plan_dir}/fieldzilla-staging.plan.json" | sed "s#${plan_dir}/##"
+            sha256sum "${plan_dir}/metadata.json" | sed "s#${plan_dir}/##"
+          } > "${plan_dir}/SHA256SUMS"
+          echo "PLAN_DIR=${plan_dir}" >> "${GITHUB_ENV}"
+          echo "PLAN_SHA256=${plan_sha}" >> "${GITHUB_ENV}"
+          echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> "${GITHUB_ENV}"
+
+      - name: Verify plan safety
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc118
+        with:
+          command: verify-plan-safety
+          plan-json-path: ${{ runner.temp }}/fieldzilla-plan/fieldzilla-staging.plan.json
+
+      - name: Verify artifact contents
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc118
+        with:
+          command: verify-artifact-files
+          artifact-dir: ${{ runner.temp }}/fieldzilla-plan
+
+      - name: Upload immutable plan artifact
+        id: upload-plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: fieldzilla-staging-plan-${{ inputs.expected-sha }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/fieldzilla-plan
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+
+      - name: Summarize plan artifact
+        run: |
+          {
+            echo "### FieldZilla staging plan artifact"
+            echo ""
+            echo "- Commit: \`${{ inputs.expected-sha }}\`"
+            echo "- Plan SHA-256: \`${PLAN_SHA256}\`"
+            echo "- Artifact name: \`${ARTIFACT_NAME}\`"
+            echo "- Artifact ID: \`${{ steps.upload-plan.outputs.artifact-id }}\`"
+            echo "- Artifact digest: \`${{ steps.upload-plan.outputs.artifact-digest }}\`"
+            echo "- Artifact URL: ${{ steps.upload-plan.outputs.artifact-url }}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
   authorize-and-apply:
-    name: Authorize Exact Plan
+    name: Authorize Exact Plan Artifact
+    if: ${{ inputs.apply }}
     runs-on: ubuntu-latest
     environment: synergie-app-staging
     timeout-minutes: 30
@@ -50,8 +160,8 @@ jobs:
 
       - name: Validate fallback authorization
         env:
-          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc117
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc117
+          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc118
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc118
         with:
           command: verify-inputs
           actor: ${{ github.actor }}
@@ -67,7 +177,7 @@ jobs:
 
       - name: Verify central workflow OIDC identity
         env:
-          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc117
+          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc118
         run: |
           set -euo pipefail
           token_path="${RUNNER_TEMP}/fieldzilla-oidc.jwt"
@@ -79,8 +189,8 @@ jobs:
 
       - name: Verify OIDC token claims
         env:
-          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc117
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc117
+          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc118
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc118
         with:
           command: verify-oidc
           token-file: ${{ env.TOKEN_PATH }}
@@ -93,8 +203,8 @@ jobs:
       - name: Check authorization has not been used
         env:
           GH_TOKEN: ${{ github.token }}
-          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc117
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc117
+          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc118
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc118
         with:
           command: check-single-use
           actor: ${{ github.actor }}
@@ -108,6 +218,45 @@ jobs:
           native-reviewers-available: ${{ inputs.native-reviewers-available }}
           job-workflow-ref: ${{ env.JOB_WORKFLOW_REF }}
 
+      - name: Verify native reviewer fallback is available
+        env:
+          GH_TOKEN: ${{ github.token }}
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc118
+        with:
+          command: verify-native-reviewers
+          native-reviewers-available: ${{ inputs.native-reviewers-available }}
+
+      - name: Verify approved source artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc118
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc118
+        with:
+          command: verify-source-artifact
+          actor: ${{ github.actor }}
+          repository: ${{ github.repository }}
+          environment: synergie-app-staging
+          expected-sha: ${{ inputs.expected-sha }}
+          github-sha: ${{ github.sha }}
+          expected-plan-sha256: ${{ inputs.expected-plan-sha256 }}
+          expires-at: ${{ inputs.expires-at }}
+          authorization-id: ${{ inputs.authorization-id }}
+          native-reviewers-available: ${{ inputs.native-reviewers-available }}
+          job-workflow-ref: ${{ env.JOB_WORKFLOW_REF }}
+          source-run-id: ${{ inputs.source-plan-run-id }}
+          artifact-id: ${{ inputs.artifact-id }}
+          artifact-name: ${{ inputs.artifact-name }}
+          expected-artifact-digest: ${{ inputs.expected-artifact-digest }}
+
+      - name: Download approved plan artifact
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ inputs.artifact-id }}
+          path: ${{ runner.temp }}/approved-plan/${{ inputs.artifact-name }}
+          github-token: ${{ github.token }}
+          repository: Synergie-ITCI/programme-management-platform
+          run-id: ${{ inputs.source-plan-run-id }}
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -116,27 +265,47 @@ jobs:
 
       - name: Set up OpenTofu
         uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.12.5
+          tofu_wrapper: false
 
-      - name: Regenerate exact OpenTofu plan
+      - name: Render downloaded plan
+        env:
+          ARTIFACT_DIR: ${{ runner.temp }}/approved-plan/${{ inputs.artifact-name }}
         run: |
           set -euo pipefail
-          tofu -chdir=infra/aws init -backend=false
-          tofu -chdir=infra/aws validate
-          tofu -chdir=infra/aws plan -out="${RUNNER_TEMP}/fieldzilla-staging.tfplan"
+          tofu -chdir=infra/aws init -backend=false -lockfile=readonly
+          tofu -chdir=infra/aws show -json "${ARTIFACT_DIR}/fieldzilla-staging.tfplan" > "${RUNNER_TEMP}/approved-plan.json"
 
-      - name: Verify unchanged plan
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc117
+      - name: Verify downloaded artifact contents
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc118
         with:
-          command: verify-plan
-          plan-path: ${{ runner.temp }}/fieldzilla-staging.tfplan
+          command: verify-artifact-files
+          artifact-dir: ${{ runner.temp }}/approved-plan/${{ inputs.artifact-name }}
+
+      - name: Verify downloaded artifact metadata
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc118
+        with:
+          command: verify-artifact-metadata
+          artifact-dir: ${{ runner.temp }}/approved-plan/${{ inputs.artifact-name }}
+          expected-sha: ${{ inputs.expected-sha }}
           expected-plan-sha256: ${{ inputs.expected-plan-sha256 }}
+          source-run-id: ${{ inputs.source-plan-run-id }}
+          artifact-id: ${{ inputs.artifact-id }}
+          artifact-name: ${{ inputs.artifact-name }}
+          expected-artifact-digest: ${{ inputs.expected-artifact-digest }}
+
+      - name: Verify downloaded plan safety
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc118
+        with:
+          command: verify-plan-safety
+          plan-json-path: ${{ runner.temp }}/approved-plan.json
 
       - name: Mark authorization used
-        if: ${{ inputs.apply }}
         env:
           GH_TOKEN: ${{ github.token }}
-          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc117
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc117
+          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc118
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc118
         with:
           command: mark-used
           actor: ${{ github.actor }}
@@ -150,6 +319,5 @@ jobs:
           native-reviewers-available: ${{ inputs.native-reviewers-available }}
           job-workflow-ref: ${{ env.JOB_WORKFLOW_REF }}
 
-      - name: Apply exact reviewed plan
-        if: ${{ inputs.apply }}
-        run: tofu -chdir=infra/aws apply -input=false "${RUNNER_TEMP}/fieldzilla-staging.tfplan"
+      - name: Apply exact approved plan artifact
+        run: tofu -chdir=infra/aws apply -input=false "${RUNNER_TEMP}/approved-plan/${{ inputs.artifact-name }}/fieldzilla-staging.tfplan"
