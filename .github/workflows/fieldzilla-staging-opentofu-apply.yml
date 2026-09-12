@@ -87,7 +87,7 @@ jobs:
           plan_dir="${RUNNER_TEMP}/fieldzilla-plan"
           mkdir -p "${plan_dir}"
           tofu -chdir=infra/aws fmt -check
-          tofu -chdir=infra/aws init -backend=false -lockfile=readonly
+          tofu -chdir=infra/aws init -backend=false
           tofu -chdir=infra/aws validate
           tofu -chdir=infra/aws plan -out="${plan_dir}/fieldzilla-staging.tfplan"
           tofu -chdir=infra/aws show -no-color "${plan_dir}/fieldzilla-staging.tfplan" > "${plan_dir}/fieldzilla-staging.plan.txt"
@@ -110,13 +110,13 @@ jobs:
           echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> "${GITHUB_ENV}"
 
       - name: Verify plan safety
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc118
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc119
         with:
           command: verify-plan-safety
           plan-json-path: ${{ runner.temp }}/fieldzilla-plan/fieldzilla-staging.plan.json
 
       - name: Verify artifact contents
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc118
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc119
         with:
           command: verify-artifact-files
           artifact-dir: ${{ runner.temp }}/fieldzilla-plan
@@ -160,8 +160,8 @@ jobs:
 
       - name: Validate fallback authorization
         env:
-          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc118
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc118
+          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc119
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc119
         with:
           command: verify-inputs
           actor: ${{ github.actor }}
@@ -177,7 +177,7 @@ jobs:
 
       - name: Verify central workflow OIDC identity
         env:
-          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc118
+          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc119
         run: |
           set -euo pipefail
           token_path="${RUNNER_TEMP}/fieldzilla-oidc.jwt"
@@ -189,8 +189,8 @@ jobs:
 
       - name: Verify OIDC token claims
         env:
-          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc118
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc118
+          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc119
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc119
         with:
           command: verify-oidc
           token-file: ${{ env.TOKEN_PATH }}
@@ -203,8 +203,8 @@ jobs:
       - name: Check authorization has not been used
         env:
           GH_TOKEN: ${{ github.token }}
-          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc118
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc118
+          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc119
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc119
         with:
           command: check-single-use
           actor: ${{ github.actor }}
@@ -221,7 +221,7 @@ jobs:
       - name: Verify native reviewer fallback is available
         env:
           GH_TOKEN: ${{ github.token }}
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc118
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc119
         with:
           command: verify-native-reviewers
           native-reviewers-available: ${{ inputs.native-reviewers-available }}
@@ -229,8 +229,8 @@ jobs:
       - name: Verify approved source artifact
         env:
           GH_TOKEN: ${{ github.token }}
-          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc118
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc118
+          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc119
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc119
         with:
           command: verify-source-artifact
           actor: ${{ github.actor }}
@@ -274,17 +274,17 @@ jobs:
           ARTIFACT_DIR: ${{ runner.temp }}/approved-plan/${{ inputs.artifact-name }}
         run: |
           set -euo pipefail
-          tofu -chdir=infra/aws init -backend=false -lockfile=readonly
+          tofu -chdir=infra/aws init -backend=false
           tofu -chdir=infra/aws show -json "${ARTIFACT_DIR}/fieldzilla-staging.tfplan" > "${RUNNER_TEMP}/approved-plan.json"
 
       - name: Verify downloaded artifact contents
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc118
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc119
         with:
           command: verify-artifact-files
           artifact-dir: ${{ runner.temp }}/approved-plan/${{ inputs.artifact-name }}
 
       - name: Verify downloaded artifact metadata
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc118
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc119
         with:
           command: verify-artifact-metadata
           artifact-dir: ${{ runner.temp }}/approved-plan/${{ inputs.artifact-name }}
@@ -296,7 +296,7 @@ jobs:
           expected-artifact-digest: ${{ inputs.expected-artifact-digest }}
 
       - name: Verify downloaded plan safety
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc118
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc119
         with:
           command: verify-plan-safety
           plan-json-path: ${{ runner.temp }}/approved-plan.json
@@ -304,8 +304,8 @@ jobs:
       - name: Mark authorization used
         env:
           GH_TOKEN: ${{ github.token }}
-          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc118
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc118
+          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc119
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc119
         with:
           command: mark-used
           actor: ${{ github.actor }}
