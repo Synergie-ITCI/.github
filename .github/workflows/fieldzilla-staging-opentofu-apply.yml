@@ -47,33 +47,26 @@ jobs:
           ref: ${{ inputs.expected-sha }}
           persist-credentials: false
 
-      - name: Checkout immutable central workflow tooling
-        uses: actions/checkout@v4
-        with:
-          repository: Synergie-ITCI/.github
-          ref: ${{ github.action_ref }}
-          path: .synergie-governance
-          persist-credentials: false
-
       - name: Validate fallback authorization
         env:
-          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@${{ github.action_ref }}
-        run: |
-          python3 .synergie-governance/tools/opentofu_plan_authorization.py verify-inputs \
-            --actor "${{ github.actor }}" \
-            --repository "${{ github.repository }}" \
-            --environment "synergie-app-staging" \
-            --expected-sha "${{ inputs.expected-sha }}" \
-            --github-sha "${{ github.sha }}" \
-            --expected-plan-sha256 "${{ inputs.expected-plan-sha256 }}" \
-            --expires-at "${{ inputs.expires-at }}" \
-            --authorization-id "${{ inputs.authorization-id }}" \
-            --native-reviewers-available "${{ inputs.native-reviewers-available }}" \
-            --job-workflow-ref "${JOB_WORKFLOW_REF}"
+          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@pr-qa-v1-rc115
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc115
+        with:
+          command: verify-inputs
+          actor: ${{ github.actor }}
+          repository: ${{ github.repository }}
+          environment: synergie-app-staging
+          expected-sha: ${{ inputs.expected-sha }}
+          github-sha: ${{ github.sha }}
+          expected-plan-sha256: ${{ inputs.expected-plan-sha256 }}
+          expires-at: ${{ inputs.expires-at }}
+          authorization-id: ${{ inputs.authorization-id }}
+          native-reviewers-available: ${{ inputs.native-reviewers-available }}
+          job-workflow-ref: ${{ env.JOB_WORKFLOW_REF }}
 
       - name: Verify central workflow OIDC identity
         env:
-          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@${{ github.action_ref }}
+          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@pr-qa-v1-rc115
         run: |
           set -euo pipefail
           token_path="${RUNNER_TEMP}/fieldzilla-oidc.jwt"
@@ -81,33 +74,47 @@ jobs:
             -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" \
             | python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])' > "${token_path}"
-          python3 .synergie-governance/tools/opentofu_plan_authorization.py verify-oidc \
-            --token-file "${token_path}" \
-            --job-workflow-ref "${JOB_WORKFLOW_REF}"
-          rm -f "${token_path}"
+          echo "TOKEN_PATH=${token_path}" >> "${GITHUB_ENV}"
+
+      - name: Verify OIDC token claims
+        env:
+          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@pr-qa-v1-rc115
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc115
+        with:
+          command: verify-oidc
+          token-file: ${{ env.TOKEN_PATH }}
+          job-workflow-ref: ${{ env.JOB_WORKFLOW_REF }}
+
+      - name: Remove OIDC token
+        if: ${{ always() && env.TOKEN_PATH != '' }}
+        run: rm -f "${TOKEN_PATH}"
 
       - name: Check authorization has not been used
         env:
           GH_TOKEN: ${{ github.token }}
-          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@${{ github.action_ref }}
-        run: |
-          python3 .synergie-governance/tools/opentofu_plan_authorization.py check-single-use \
-            --actor "${{ github.actor }}" \
-            --repository "${{ github.repository }}" \
-            --environment "synergie-app-staging" \
-            --expected-sha "${{ inputs.expected-sha }}" \
-            --github-sha "${{ github.sha }}" \
-            --expected-plan-sha256 "${{ inputs.expected-plan-sha256 }}" \
-            --expires-at "${{ inputs.expires-at }}" \
-            --authorization-id "${{ inputs.authorization-id }}" \
-            --native-reviewers-available "${{ inputs.native-reviewers-available }}" \
-            --job-workflow-ref "${JOB_WORKFLOW_REF}"
+          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@pr-qa-v1-rc115
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc115
+        with:
+          command: check-single-use
+          actor: ${{ github.actor }}
+          repository: ${{ github.repository }}
+          environment: synergie-app-staging
+          expected-sha: ${{ inputs.expected-sha }}
+          github-sha: ${{ github.sha }}
+          expected-plan-sha256: ${{ inputs.expected-plan-sha256 }}
+          expires-at: ${{ inputs.expires-at }}
+          authorization-id: ${{ inputs.authorization-id }}
+          native-reviewers-available: ${{ inputs.native-reviewers-available }}
+          job-workflow-ref: ${{ env.JOB_WORKFLOW_REF }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::918870682888:role/SynergieProgrammeManagementPlatformStagingInfraApplyRole
           aws-region: ap-south-1
+
+      - name: Set up OpenTofu
+        uses: opentofu/setup-opentofu@v1
 
       - name: Regenerate exact OpenTofu plan
         run: |
@@ -117,28 +124,30 @@ jobs:
           tofu -chdir=infra/aws plan -out="${RUNNER_TEMP}/fieldzilla-staging.tfplan"
 
       - name: Verify unchanged plan
-        run: |
-          python3 .synergie-governance/tools/opentofu_plan_authorization.py verify-plan \
-            --plan-path "${RUNNER_TEMP}/fieldzilla-staging.tfplan" \
-            --expected-plan-sha256 "${{ inputs.expected-plan-sha256 }}"
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc115
+        with:
+          command: verify-plan
+          plan-path: ${{ runner.temp }}/fieldzilla-staging.tfplan
+          expected-plan-sha256: ${{ inputs.expected-plan-sha256 }}
 
       - name: Mark authorization used
         if: ${{ inputs.apply }}
         env:
           GH_TOKEN: ${{ github.token }}
-          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@${{ github.action_ref }}
-        run: |
-          python3 .synergie-governance/tools/opentofu_plan_authorization.py mark-used \
-            --actor "${{ github.actor }}" \
-            --repository "${{ github.repository }}" \
-            --environment "synergie-app-staging" \
-            --expected-sha "${{ inputs.expected-sha }}" \
-            --github-sha "${{ github.sha }}" \
-            --expected-plan-sha256 "${{ inputs.expected-plan-sha256 }}" \
-            --expires-at "${{ inputs.expires-at }}" \
-            --authorization-id "${{ inputs.authorization-id }}" \
-            --native-reviewers-available "${{ inputs.native-reviewers-available }}" \
-            --job-workflow-ref "${JOB_WORKFLOW_REF}"
+          JOB_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@pr-qa-v1-rc115
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc115
+        with:
+          command: mark-used
+          actor: ${{ github.actor }}
+          repository: ${{ github.repository }}
+          environment: synergie-app-staging
+          expected-sha: ${{ inputs.expected-sha }}
+          github-sha: ${{ github.sha }}
+          expected-plan-sha256: ${{ inputs.expected-plan-sha256 }}
+          expires-at: ${{ inputs.expires-at }}
+          authorization-id: ${{ inputs.authorization-id }}
+          native-reviewers-available: ${{ inputs.native-reviewers-available }}
+          job-workflow-ref: ${{ env.JOB_WORKFLOW_REF }}
 
       - name: Apply exact reviewed plan
         if: ${{ inputs.apply }}

@@ -1,0 +1,95 @@
+name: FieldZilla OpenTofu Plan Authorizer
+description: Run central fail-closed FieldZilla exact-plan authorization checks.
+
+inputs:
+  command:
+    required: true
+    description: Authorization verifier subcommand.
+  actor:
+    required: false
+    description: GitHub actor requesting approval.
+  repository:
+    required: false
+    description: Repository being applied.
+  environment:
+    required: false
+    description: GitHub environment name.
+  expected-sha:
+    required: false
+    description: Exact approved caller commit SHA.
+  github-sha:
+    required: false
+    description: Executing caller commit SHA.
+  expected-plan-sha256:
+    required: false
+    description: Exact approved OpenTofu plan SHA-256.
+  expires-at:
+    required: false
+    description: Authorization expiry.
+  authorization-id:
+    required: false
+    description: Single-use authorization id.
+  native-reviewers-available:
+    required: false
+    description: Whether native environment reviewers are available.
+  job-workflow-ref:
+    required: false
+    description: Immutable central workflow identity.
+  token-file:
+    required: false
+    description: OIDC token file for verify-oidc.
+  plan-path:
+    required: false
+    description: OpenTofu plan path for verify-plan.
+
+runs:
+  using: composite
+  steps:
+    - name: Run authorization verifier
+      shell: bash
+      env:
+        COMMAND: ${{ inputs.command }}
+        ACTOR: ${{ inputs.actor }}
+        REPOSITORY: ${{ inputs.repository }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        EXPECTED_SHA: ${{ inputs.expected-sha }}
+        GITHUB_SHA_INPUT: ${{ inputs.github-sha }}
+        EXPECTED_PLAN_SHA256: ${{ inputs.expected-plan-sha256 }}
+        EXPIRES_AT: ${{ inputs.expires-at }}
+        AUTHORIZATION_ID: ${{ inputs.authorization-id }}
+        NATIVE_REVIEWERS_AVAILABLE: ${{ inputs.native-reviewers-available }}
+        JOB_WORKFLOW_REF: ${{ inputs.job-workflow-ref }}
+        TOKEN_FILE: ${{ inputs.token-file }}
+        PLAN_PATH: ${{ inputs.plan-path }}
+        SCRIPT_PATH: ${{ github.action_path }}/opentofu_plan_authorization.py
+      run: |
+        set -euo pipefail
+        case "${COMMAND}" in
+          verify-inputs|check-single-use|mark-used)
+            python3 "${SCRIPT_PATH}" "${COMMAND}" \
+              --actor "${ACTOR}" \
+              --repository "${REPOSITORY}" \
+              --environment "${ENVIRONMENT}" \
+              --expected-sha "${EXPECTED_SHA}" \
+              --github-sha "${GITHUB_SHA_INPUT}" \
+              --expected-plan-sha256 "${EXPECTED_PLAN_SHA256}" \
+              --expires-at "${EXPIRES_AT}" \
+              --authorization-id "${AUTHORIZATION_ID}" \
+              --native-reviewers-available "${NATIVE_REVIEWERS_AVAILABLE}" \
+              --job-workflow-ref "${JOB_WORKFLOW_REF}"
+            ;;
+          verify-oidc)
+            python3 "${SCRIPT_PATH}" verify-oidc \
+              --token-file "${TOKEN_FILE}" \
+              --job-workflow-ref "${JOB_WORKFLOW_REF}"
+            ;;
+          verify-plan)
+            python3 "${SCRIPT_PATH}" verify-plan \
+              --plan-path "${PLAN_PATH}" \
+              --expected-plan-sha256 "${EXPECTED_PLAN_SHA256}"
+            ;;
+          *)
+            echo "unsupported verifier command" >&2
+            exit 1
+            ;;
+        esac

@@ -45,6 +45,21 @@ def valid_args(**overrides: object) -> Namespace:
 
 
 class FieldZillaPlanAuthorizationTests(unittest.TestCase):
+    def test_release_action_verifier_matches_tool(self) -> None:
+        tool = ROOT / "tools" / "opentofu_plan_authorization.py"
+        action = ROOT / "actions" / "opentofu-plan-authorizer" / "opentofu_plan_authorization.py"
+        self.assertEqual(tool.read_text(encoding="utf-8"), action.read_text(encoding="utf-8"))
+
+    def test_workflow_uses_release_action_without_private_central_checkout(self) -> None:
+        workflow = ROOT / ".github" / "workflows" / "fieldzilla-staging-opentofu-apply.yml"
+        content = workflow.read_text(encoding="utf-8")
+        self.assertNotIn("Checkout immutable central workflow tooling", content)
+        self.assertNotIn(".synergie-governance", content)
+        self.assertIn(
+            "uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc115",
+            content,
+        )
+
     def assert_rejected(self, **overrides: object) -> None:
         with self.assertRaises(SystemExit):
             auth.verify_inputs(valid_args(**overrides), now=NOW)
