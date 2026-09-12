@@ -25,7 +25,8 @@ AUTH_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{7,79}$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 TAG_REF = re.compile(
-    rf"^{re.escape(CENTRAL_REPOSITORY)}/{re.escape(WORKFLOW_PATH)}@pr-qa-v1-rc[1-9][0-9]*$"
+    rf"^{re.escape(CENTRAL_REPOSITORY)}/{re.escape(WORKFLOW_PATH)}"
+    r"@refs/tags/pr-qa-v1-rc[1-9][0-9]*$"
 )
 
 
