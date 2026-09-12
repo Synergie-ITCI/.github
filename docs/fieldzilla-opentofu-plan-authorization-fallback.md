@@ -20,16 +20,24 @@ The workflow fails closed unless all of the following match:
 - repository: `Synergie-ITCI/programme-management-platform`
 - environment: `synergie-app-staging`
 - exact 40-character deployment commit SHA
-- exact SHA-256 of the reviewed OpenTofu plan file
+- exact SHA-256 of the reviewed OpenTofu binary plan file
+- exact source plan run ID, artifact ID, artifact name and artifact digest
 - expiry no more than 60 minutes in the future
 - unused authorization id
 - central workflow identity from an immutable `pr-qa-v1-rc*` tag
 - GitHub OIDC token `job_workflow_ref` matching this central workflow
 - GitHub native environment reviewers reported unavailable
 
-The workflow regenerates the OpenTofu plan from the exact commit immediately
-before apply. If AWS state, source code or variables cause the regenerated plan
-hash to differ from the reviewed plan hash, the workflow stops before apply.
+The workflow has two stages. With `apply=false`, GitHub generates the OpenTofu
+plan once from the exact requested commit using the staging role's read-only
+plan-discovery permissions. It uploads the raw binary plan, human-readable
+plan, JSON plan, checksums and metadata as a uniquely named one-day artifact.
+
+With `apply=true`, the workflow does not regenerate the plan. It verifies the
+source run, source commit, artifact ID, artifact name, artifact digest, raw
+binary plan SHA-256, metadata and plan safety constraints, then applies that
+downloaded binary plan. A locally generated workstation plan is advisory only
+and is not an apply authorization artifact.
 
 ## Single-use binding
 
@@ -39,7 +47,8 @@ repository with:
 - environment: `synergie-app-staging`
 - task: `fieldzilla-staging-opentofu-apply`
 - ref: exact approved commit SHA
-- payload: authorization id, environment, commit SHA and plan SHA-256
+- payload: authorization id, environment, commit SHA, plan SHA-256 and source
+  artifact identity
 
 Any later run with the same authorization id fails before AWS mutation.
 
