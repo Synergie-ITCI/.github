@@ -22,7 +22,7 @@ VALID_SHA = "a" * 40
 VALID_PLAN = "b" * 64
 VALID_WORKFLOW = (
     "Synergie-ITCI/.github/.github/workflows/"
-    "fieldzilla-staging-opentofu-apply.yml@pr-qa-v1-rc114"
+    "fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc116"
 )
 NOW = dt.datetime(2026, 9, 12, 5, 0, tzinfo=dt.UTC)
 
@@ -56,7 +56,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
         self.assertNotIn("Checkout immutable central workflow tooling", content)
         self.assertNotIn(".synergie-governance", content)
         self.assertIn(
-            "uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc115",
+            "uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc116",
             content,
         )
 
@@ -95,10 +95,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
 
     def test_rejects_non_immutable_workflow_identity(self) -> None:
         self.assert_rejected(
-            job_workflow_ref=(
-                "Synergie-ITCI/.github/.github/workflows/"
-                "fieldzilla-staging-opentofu-apply.yml@main"
-            )
+            job_workflow_ref="Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@main"
         )
 
     def test_verifies_oidc_workflow_identity(self) -> None:
@@ -121,7 +118,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
         claims = {
             "aud": "sts.amazonaws.com",
             "repository": "Synergie-ITCI/programme-management-platform",
-            "job_workflow_ref": "Synergie-ITCI/.github/.github/workflows/other.yml@pr-qa-v1-rc114",
+            "job_workflow_ref": "Synergie-ITCI/.github/.github/workflows/other.yml@refs/tags/pr-qa-v1-rc116",
             "sub": (
                 "repo:Synergie-ITCI@209829096/"
                 "programme-management-platform@1315697868:environment:synergie-app-staging"
