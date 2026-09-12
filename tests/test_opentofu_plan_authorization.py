@@ -22,7 +22,7 @@ VALID_SHA = "a" * 40
 VALID_PLAN = "b" * 64
 VALID_WORKFLOW = (
     "Synergie-ITCI/.github/.github/workflows/"
-    "fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc119"
+    "fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc120"
 )
 NOW = dt.datetime(2026, 9, 12, 5, 0, tzinfo=dt.UTC)
 
@@ -56,11 +56,15 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
         self.assertNotIn("Checkout immutable central workflow tooling", content)
         self.assertNotIn(".synergie-governance", content)
         self.assertIn(
-            "uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc119",
+            "uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc120",
             content,
         )
         self.assertIn("actions/upload-artifact@v4", content)
         self.assertIn("actions/download-artifact@v4", content)
+        self.assertIn(
+            "${{ runner.temp }}/approved-plan/${{ inputs.artifact-name }}/${{ inputs.artifact-name }}",
+            content,
+        )
         self.assertNotIn("Regenerate exact OpenTofu plan", content)
 
     def assert_rejected(self, **overrides: object) -> None:
