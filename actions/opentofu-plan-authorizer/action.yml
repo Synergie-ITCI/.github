@@ -1,5 +1,5 @@
 name: FieldZilla OpenTofu Plan Authorizer
-description: Run central fail-closed FieldZilla exact-plan authorization checks.
+description: Run central fail-closed FieldZilla remote-state OpenTofu authorization checks.
 
 inputs:
   command:
@@ -23,6 +23,9 @@ inputs:
   expected-plan-sha256:
     required: false
     description: Exact approved OpenTofu plan SHA-256.
+  expected-import-map-sha256:
+    required: false
+    description: Exact approved controlled import mapping SHA-256.
   expires-at:
     required: false
     description: Authorization expiry.
@@ -38,9 +41,6 @@ inputs:
   token-file:
     required: false
     description: OIDC token file for verify-oidc.
-  plan-path:
-    required: false
-    description: OpenTofu plan path for verify-plan.
   source-run-id:
     required: false
     description: GitHub Actions run ID that generated the approved plan artifact.
@@ -55,10 +55,19 @@ inputs:
     description: Expected GitHub artifact digest.
   artifact-dir:
     required: false
-    description: Directory containing the downloaded plan artifact.
+    description: Directory containing the downloaded artifact.
   plan-json-path:
     required: false
     description: JSON OpenTofu plan path for safety verification.
+  import-map-path:
+    required: false
+    description: JSON import mapping path.
+  backend-metadata-path:
+    required: false
+    description: Backend evidence JSON path.
+  plan-kind:
+    required: false
+    description: normal, post-import, drift or final plan.
 
 runs:
   using: composite
@@ -66,6 +75,7 @@ runs:
     - name: Run authorization verifier
       shell: bash
       env:
+        SCRIPT_PATH: ${{ github.action_path }}/opentofu_plan_authorization.py
         COMMAND: ${{ inputs.command }}
         ACTOR: ${{ inputs.actor }}
         REPOSITORY: ${{ inputs.repository }}
@@ -73,34 +83,39 @@ runs:
         EXPECTED_SHA: ${{ inputs.expected-sha }}
         GITHUB_SHA_INPUT: ${{ inputs.github-sha }}
         EXPECTED_PLAN_SHA256: ${{ inputs.expected-plan-sha256 }}
+        EXPECTED_IMPORT_MAP_SHA256: ${{ inputs.expected-import-map-sha256 }}
         EXPIRES_AT: ${{ inputs.expires-at }}
         AUTHORIZATION_ID: ${{ inputs.authorization-id }}
         NATIVE_REVIEWERS_AVAILABLE: ${{ inputs.native-reviewers-available }}
         JOB_WORKFLOW_REF: ${{ inputs.job-workflow-ref }}
         TOKEN_FILE: ${{ inputs.token-file }}
-        PLAN_PATH: ${{ inputs.plan-path }}
         SOURCE_RUN_ID: ${{ inputs.source-run-id }}
         ARTIFACT_ID: ${{ inputs.artifact-id }}
         ARTIFACT_NAME: ${{ inputs.artifact-name }}
         EXPECTED_ARTIFACT_DIGEST: ${{ inputs.expected-artifact-digest }}
         ARTIFACT_DIR: ${{ inputs.artifact-dir }}
         PLAN_JSON_PATH: ${{ inputs.plan-json-path }}
-        SCRIPT_PATH: ${{ github.action_path }}/opentofu_plan_authorization.py
+        IMPORT_MAP_PATH: ${{ inputs.import-map-path }}
+        BACKEND_METADATA_PATH: ${{ inputs.backend-metadata-path }}
+        PLAN_KIND: ${{ inputs.plan-kind }}
       run: |
         set -euo pipefail
+        common_args=(
+          --actor "${ACTOR}"
+          --repository "${REPOSITORY}"
+          --environment "${ENVIRONMENT}"
+          --expected-sha "${EXPECTED_SHA}"
+          --github-sha "${GITHUB_SHA_INPUT}"
+          --expected-plan-sha256 "${EXPECTED_PLAN_SHA256}"
+          --expected-import-map-sha256 "${EXPECTED_IMPORT_MAP_SHA256}"
+          --expires-at "${EXPIRES_AT}"
+          --authorization-id "${AUTHORIZATION_ID}"
+          --native-reviewers-available "${NATIVE_REVIEWERS_AVAILABLE}"
+          --job-workflow-ref "${JOB_WORKFLOW_REF}"
+        )
         case "${COMMAND}" in
           verify-inputs|check-single-use|mark-used)
-            python3 "${SCRIPT_PATH}" "${COMMAND}" \
-              --actor "${ACTOR}" \
-              --repository "${REPOSITORY}" \
-              --environment "${ENVIRONMENT}" \
-              --expected-sha "${EXPECTED_SHA}" \
-              --github-sha "${GITHUB_SHA_INPUT}" \
-              --expected-plan-sha256 "${EXPECTED_PLAN_SHA256}" \
-              --expires-at "${EXPIRES_AT}" \
-              --authorization-id "${AUTHORIZATION_ID}" \
-              --native-reviewers-available "${NATIVE_REVIEWERS_AVAILABLE}" \
-              --job-workflow-ref "${JOB_WORKFLOW_REF}"
+            python3 "${SCRIPT_PATH}" "${COMMAND}" "${common_args[@]}"
             ;;
           verify-oidc)
             python3 "${SCRIPT_PATH}" verify-oidc \
@@ -111,23 +126,12 @@ runs:
             python3 "${SCRIPT_PATH}" verify-native-reviewers \
               --native-reviewers-available "${NATIVE_REVIEWERS_AVAILABLE}"
             ;;
-          verify-plan)
-            python3 "${SCRIPT_PATH}" verify-plan \
-              --plan-path "${PLAN_PATH}" \
-              --expected-plan-sha256 "${EXPECTED_PLAN_SHA256}"
+          verify-backend)
+            python3 "${SCRIPT_PATH}" verify-backend \
+              --backend-metadata-path "${BACKEND_METADATA_PATH}"
             ;;
           verify-source-artifact)
-            python3 "${SCRIPT_PATH}" verify-source-artifact \
-              --actor "${ACTOR}" \
-              --repository "${REPOSITORY}" \
-              --environment "${ENVIRONMENT}" \
-              --expected-sha "${EXPECTED_SHA}" \
-              --github-sha "${GITHUB_SHA_INPUT}" \
-              --expected-plan-sha256 "${EXPECTED_PLAN_SHA256}" \
-              --expires-at "${EXPIRES_AT}" \
-              --authorization-id "${AUTHORIZATION_ID}" \
-              --native-reviewers-available "${NATIVE_REVIEWERS_AVAILABLE}" \
-              --job-workflow-ref "${JOB_WORKFLOW_REF}" \
+            python3 "${SCRIPT_PATH}" verify-source-artifact "${common_args[@]}" \
               --source-run-id "${SOURCE_RUN_ID}" \
               --artifact-id "${ARTIFACT_ID}" \
               --artifact-name "${ARTIFACT_NAME}" \
@@ -138,6 +142,7 @@ runs:
               --artifact-dir "${ARTIFACT_DIR}" \
               --expected-sha "${EXPECTED_SHA}" \
               --expected-plan-sha256 "${EXPECTED_PLAN_SHA256}" \
+              --expected-import-map-sha256 "${EXPECTED_IMPORT_MAP_SHA256}" \
               --source-run-id "${SOURCE_RUN_ID}" \
               --artifact-id "${ARTIFACT_ID}" \
               --artifact-name "${ARTIFACT_NAME}" \
@@ -149,7 +154,13 @@ runs:
             ;;
           verify-plan-safety)
             python3 "${SCRIPT_PATH}" verify-plan-safety \
-              --plan-json-path "${PLAN_JSON_PATH}"
+              --plan-json-path "${PLAN_JSON_PATH}" \
+              --plan-kind "${PLAN_KIND}"
+            ;;
+          verify-import-map)
+            python3 "${SCRIPT_PATH}" verify-import-map \
+              --import-map-path "${IMPORT_MAP_PATH}" \
+              --expected-import-map-sha256 "${EXPECTED_IMPORT_MAP_SHA256}"
             ;;
           *)
             echo "unsupported verifier command" >&2
