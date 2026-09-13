@@ -31,6 +31,7 @@ class FieldZillaRemoteStateGovernanceTests(unittest.TestCase):
         self.assertIn("put-bucket-encryption", workflow)
         self.assertIn("put-public-access-block", workflow)
         self.assertIn("aws dynamodb create-table", workflow)
+        self.assertIn('"bootstrap","plan","import","post-import-plan","drift","apply"', workflow)
         self.assertIn("tofu -chdir=infra/aws init -input=false -lockfile=readonly", workflow)
         self.assertNotIn("-backend=false", workflow)
         self.assertNotIn("devops-audit", workflow)
@@ -39,7 +40,10 @@ class FieldZillaRemoteStateGovernanceTests(unittest.TestCase):
         workflow = WORKFLOW.read_text(encoding="utf-8")
 
         self.assertIn("Backup current remote state object", workflow)
+        self.assertIn("Backup imported remote state object", workflow)
+        self.assertIn("fieldzilla-staging-state-evidence", workflow)
         self.assertIn("s3://${STATE_BUCKET}/backups/${GITHUB_RUN_ID}", workflow)
+        self.assertIn("import-map-json is required for import mode", workflow)
         verify_index = workflow.index("name: Verify approved import map")
         import_index = workflow.index("name: Controlled import into locked remote state")
         self.assertLess(verify_index, import_index)
@@ -49,7 +53,7 @@ class FieldZillaRemoteStateGovernanceTests(unittest.TestCase):
     def test_workflow_preserves_exact_artifact_and_oidc_release_binding(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
 
-        self.assertIn("CENTRAL_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc121", workflow)
+        self.assertIn("CENTRAL_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc122", workflow)
         self.assertIn("Verify OIDC token claims", workflow)
         self.assertIn("verify-source-artifact", workflow)
         self.assertIn("mark-used", workflow)
@@ -106,9 +110,12 @@ class FieldZillaRemoteStateGovernanceTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            module.verify_plan_safety(
+                type("Args", (), {"plan_json_path": path, "plan_kind": "post-import"})()
+            )
             with self.assertRaises(SystemExit):
                 module.verify_plan_safety(
-                    type("Args", (), {"plan_json_path": path, "plan_kind": "post-import"})()
+                    type("Args", (), {"plan_json_path": path, "plan_kind": "drift"})()
                 )
 
     def test_import_map_requires_fieldzilla_ownership_and_allowed_type(self) -> None:
@@ -120,8 +127,8 @@ class FieldZillaRemoteStateGovernanceTests(unittest.TestCase):
                 "environment": "synergie-app-staging",
                 "imports": [
                     {
-                        "address": "aws_vpc.app",
-                        "id": "vpc-123",
+                        "address": "aws_s3_bucket_lifecycle_configuration.evidence",
+                        "id": "fz-evidence-example",
                         "evidence": {
                             "Application": "fieldzilla",
                             "Repository": "Synergie-ITCI/programme-management-platform",
