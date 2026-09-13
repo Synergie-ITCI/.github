@@ -26,6 +26,7 @@ AWS_REGION = "ap-south-1"
 STATE_BUCKET = "synergie-fieldzilla-opentofu-state-918870682888-ap-south-1"
 STATE_LOCK_TABLE = "synergie-fieldzilla-opentofu-locks"
 STATE_KEY = "programme-management-platform/fieldzilla/staging/opentofu.tfstate"
+APPROVED_CONTAINER_INSTANCE_TYPES = {"t4g.small", "c6g.medium"}
 MAX_EXPIRY_MINUTES = 60
 
 AUTH_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{7,79}$")
@@ -275,7 +276,7 @@ def verify_plan_safety(args: argparse.Namespace) -> None:
         die("production resources are enabled")
     if variables.get("route53_zone_id") not in ("", None):
         die("DNS changes are enabled")
-    if variables.get("container_instance_type") != "t4g.small":
+    if variables.get("container_instance_type") not in APPROVED_CONTAINER_INSTANCE_TYPES:
         die("container host size is outside approved design")
     if str(variables.get("monthly_budget_usd")) != "100":
         die("monthly budget guardrail mismatch")
