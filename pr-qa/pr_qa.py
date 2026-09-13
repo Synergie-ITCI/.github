@@ -54,6 +54,21 @@ CANONICAL_CALLER_TEMPLATE_PATH = FRAMEWORK_ROOT / "examples" / "caller-workflow.
 CANONICAL_PR_TEMPLATE_PATH = FRAMEWORK_ROOT / "examples" / "pull_request_template.md"
 EMERGENCY_OVERRIDE_REASON_ENV = "PR_QA_EMERGENCY_OVERRIDE_REASON"
 CODEOWNERS_PATHS = {"CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"}
+EXECUTIVE_RELEASE_AUTHORITY_LOGIN = "SaurabhVermaIN"
+CANONICAL_GOVERNANCE_CODEOWNERS_PATH = ".github/CODEOWNERS"
+CANONICAL_GOVERNANCE_CODEOWNERS_TEXT = f"* @{EXECUTIVE_RELEASE_AUTHORITY_LOGIN}\n"
+CODEOWNERS_TEMPLATE_BOOTSTRAP_PATHS = {
+    CANONICAL_GOVERNANCE_CODEOWNERS_PATH,
+    ".github/pull_request_template.md",
+}
+PR_TEMPLATE_REQUIRED_GOVERNANCE_FIELDS = [
+    "business purpose",
+    "testing performed",
+    "rollback strategy",
+    "linked issue",
+    "ADDITIONAL_PR_REQUIRED",
+    "REMAINING_PR_COUNT",
+]
 TECHNICAL_BASELINE_SCHEMA_VERSION = 1
 TECHNICAL_BASELINE_TYPE = "pr_qa_technical_pass"
 TECHNICAL_BASELINE_DIR = ".pr-qa-technical-baseline"
@@ -719,6 +734,15 @@ def tree_path_state(repo: Path, ref: str, rel: str) -> str:
     return "PRESENT" if completed.stdout else "ABSENT"
 
 
+def tree_path_mode(repo: Path, ref: str, rel: str) -> str:
+    if not ref or not is_git_repo(repo) or not commit_exists(repo, ref):
+        return ""
+    completed = subprocess.run(["git", "ls-tree", ref, "--", rel], cwd=repo, capture_output=True, text=True, check=False)
+    if completed.returncode != 0 or not completed.stdout.strip():
+        return ""
+    return completed.stdout.split()[0]
+
+
 def run_git(repo: Path, args: list[str]) -> str:
     completed = subprocess.run(["git"] + args, cwd=repo, capture_output=True, text=True, check=False)
     return completed.stdout if completed.returncode == 0 else ""
@@ -726,6 +750,13 @@ def run_git(repo: Path, args: list[str]) -> str:
 
 def git_lines(repo: Path, args: list[str]) -> list[str]:
     return [line for line in run_git(repo, args).splitlines() if line.strip()]
+
+
+def diff_paths_including_deletions(repo: Path, git_context: dict[str, Any]) -> set[str]:
+    diff_range = str(git_context.get("diff_range") or "")
+    if not diff_range:
+        return set()
+    return set(git_lines(repo, ["diff", "--name-only", diff_range]))
 
 
 def git_numstat(repo: Path, diff_range: str) -> tuple[int, int]:
@@ -2910,7 +2941,9 @@ def gate_protected_resources(ctx: PRContext, git_context: dict[str, Any]) -> lis
     codeowners = load_base_codeowners(ctx.repo, git_context)
     if codeowners_changed and authorized_overlay and not codeowners_changed_for_standard_policy:
         return [warning("Protected Resources", None, "Authorized governance overlay passed exact source+overlay validation; required status checks and Review Policy gate remain mandatory.", authorized_overlay[:30])]
-    if codeowners_changed_for_standard_policy and not codeowners and is_codeowners_bootstrap_pr(ctx):
+    if codeowners_changed_for_standard_policy and not codeowners and is_canonical_codeowners_template_bootstrap(ctx, git_context, changed_for_standard_policy):
+        return [warning("Protected Resources", None, "Canonical CODEOWNERS and PR template bootstrap matched required Synergie governance fields while base CODEOWNERS is absent. Required status checks and Review Policy remain mandatory. Future protected-resource modifications remain subject to normal CODEOWNERS enforcement.", sorted(ctx.changed_files))]
+    if codeowners_changed_for_standard_policy and not codeowners and is_codeowners_bootstrap_pr(ctx, git_context):
         return [warning("Protected Resources", None, "Base CODEOWNERS bootstrap detected; required status checks and Review Policy gate must enforce governance.", sorted(ctx.changed_files))]
     if codeowners_changed_for_standard_policy:
         maintenance = evaluate_codeowners_maintenance(ctx, git_context, protected_patterns)
@@ -2949,10 +2982,64 @@ def gate_protected_resources(ctx: PRContext, git_context: dict[str, Any]) -> lis
     return [warning("Protected Resources", None, "Protected resources changed; required status checks and Review Policy gate must enforce governance.", details)]
 
 
-def is_codeowners_bootstrap_pr(ctx: PRContext) -> bool:
+def is_codeowners_bootstrap_pr(ctx: PRContext, git_context: dict[str, Any]) -> bool:
     allowed = {"CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS", ".github/workflows/pr-qa.yml"}
     changed = set(ctx.changed_files)
-    return bool(changed) and changed <= allowed and any(path in changed for path in CODEOWNERS_PATHS)
+    if not changed or not changed <= allowed or not any(path in changed for path in CODEOWNERS_PATHS):
+        return False
+    if {path for path in changed if path in CODEOWNERS_PATHS} != {CANONICAL_GOVERNANCE_CODEOWNERS_PATH}:
+        return False
+    raw_changed = diff_paths_including_deletions(ctx.repo, git_context)
+    if raw_changed and raw_changed != changed:
+        return False
+    base_sha = str(git_context.get("base_sha") or "")
+    if not base_sha or not commit_exists(ctx.repo, base_sha):
+        return False
+    for rel in CODEOWNERS_PATHS:
+        if tree_path_state(ctx.repo, base_sha, rel) != "ABSENT":
+            return False
+    return (
+        tree_path_state(ctx.repo, "HEAD", CANONICAL_GOVERNANCE_CODEOWNERS_PATH) == "PRESENT"
+        and tree_path_mode(ctx.repo, "HEAD", CANONICAL_GOVERNANCE_CODEOWNERS_PATH) == "100644"
+        and read_tree_file(ctx.repo, "HEAD", CANONICAL_GOVERNANCE_CODEOWNERS_PATH) == CANONICAL_GOVERNANCE_CODEOWNERS_TEXT
+    )
+
+
+def pr_template_has_required_governance_fields(text: str) -> bool:
+    lowered = text.lower()
+    for marker in PR_TEMPLATE_REQUIRED_GOVERNANCE_FIELDS:
+        haystack = text if marker.isupper() else lowered
+        needle = marker if marker.isupper() else marker.lower()
+        if needle not in haystack:
+            return False
+    return True
+
+
+def is_canonical_codeowners_template_bootstrap(ctx: PRContext, git_context: dict[str, Any], protected_changed: list[str]) -> bool:
+    changed = set(ctx.changed_files)
+    if changed != CODEOWNERS_TEMPLATE_BOOTSTRAP_PATHS:
+        return False
+    raw_changed = diff_paths_including_deletions(ctx.repo, git_context)
+    if raw_changed and raw_changed != CODEOWNERS_TEMPLATE_BOOTSTRAP_PATHS:
+        return False
+    if set(protected_changed) != CODEOWNERS_TEMPLATE_BOOTSTRAP_PATHS:
+        return False
+    base_sha = str(git_context.get("base_sha") or "")
+    if not base_sha or not commit_exists(ctx.repo, base_sha):
+        return False
+    for rel in CODEOWNERS_PATHS:
+        if tree_path_state(ctx.repo, base_sha, rel) != "ABSENT":
+            return False
+    for rel in CODEOWNERS_TEMPLATE_BOOTSTRAP_PATHS:
+        if tree_path_state(ctx.repo, "HEAD", rel) != "PRESENT":
+            return False
+        if tree_path_mode(ctx.repo, "HEAD", rel) != "100644":
+            return False
+    codeowners_text = read_tree_file(ctx.repo, "HEAD", CANONICAL_GOVERNANCE_CODEOWNERS_PATH)
+    if codeowners_text != CANONICAL_GOVERNANCE_CODEOWNERS_TEXT:
+        return False
+    template_text = read_tree_file(ctx.repo, "HEAD", ".github/pull_request_template.md")
+    return pr_template_has_required_governance_fields(template_text)
 
 
 def is_canonical_fresh_pr_qa_onboarding(ctx: PRContext, git_context: dict[str, Any], protected_changed: list[str]) -> bool:

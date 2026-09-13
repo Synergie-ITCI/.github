@@ -102,7 +102,7 @@ gates:
   evidence: true
 """,
         )
-        self.write(repo / ".github" / "CODEOWNERS", ".github/** @Synergie-ITCI/saurabh-pr-review-bypass\n")
+        self.write(repo / ".github" / "CODEOWNERS", ".github/** @SaurabhVermaIN\n")
         self.write(repo / "README.md", "# regression\n")
         self.git(repo, "add", ".")
         self.git(repo, "commit", "-q", "-m", "chore: baseline")
@@ -4183,8 +4183,8 @@ exit 0
         repo, base = self.init_repo_with_migration_protection("codeowners-maintenance")
         self.write(
             repo / ".github" / "CODEOWNERS",
-            ".github/** @Synergie-ITCI/saurabh-pr-review-bypass\n"
-            "apps/api/alembic/versions/** @Synergie-ITCI/saurabh-pr-review-bypass\n",
+            ".github/** @SaurabhVermaIN\n"
+            "apps/api/alembic/versions/** @SaurabhVermaIN\n",
         )
         self.commit(repo, "chore: add migration codeowner")
 
@@ -4193,13 +4193,13 @@ exit 0
         self.assertEqual(code, 0, report)
         self.assertEqual(report_json["summary"]["gate_statuses"]["Protected Resources"], "WARNING")
         self.assertIn("Controlled CODEOWNERS maintenance added protected-path coverage", report)
-        self.assertIn("apps/api/alembic/versions/** @Synergie-ITCI/saurabh-pr-review-bypass", report)
+        self.assertIn("apps/api/alembic/versions/** @SaurabhVermaIN", report)
 
     def test_codeowners_additive_maintenance_rejects_unverified_owner(self) -> None:
         repo, base = self.init_repo_with_migration_protection("codeowners-maintenance-unverified-owner")
         self.write(
             repo / ".github" / "CODEOWNERS",
-            ".github/** @Synergie-ITCI/saurabh-pr-review-bypass\n"
+            ".github/** @SaurabhVermaIN\n"
             "apps/api/alembic/versions/** @Synergie-ITCI/database-admins\n",
         )
         self.commit(repo, "chore: add migration codeowner")
@@ -4213,8 +4213,8 @@ exit 0
         repo, base = self.init_repo_with_migration_protection("codeowners-maintenance-bundled")
         self.write(
             repo / ".github" / "CODEOWNERS",
-            ".github/** @Synergie-ITCI/saurabh-pr-review-bypass\n"
-            "apps/api/alembic/versions/** @Synergie-ITCI/saurabh-pr-review-bypass\n",
+            ".github/** @SaurabhVermaIN\n"
+            "apps/api/alembic/versions/** @SaurabhVermaIN\n",
         )
         self.write(repo / "apps" / "api" / "alembic" / "versions" / "001_create_table.py", "# migration\n")
         self.commit(repo, "chore: add migration codeowner")
@@ -4280,7 +4280,7 @@ exit 0
         base = self.git(repo, "rev-parse", "HEAD").stdout.strip()
         self.git(repo, "checkout", "-q", "-b", "fix/pr-qa-v1-rc5")
 
-        self.write(repo / ".github" / "CODEOWNERS", ".github/** @Synergie-ITCI/saurabh-pr-review-bypass\n")
+        self.write(repo / ".github" / "CODEOWNERS", "* @SaurabhVermaIN\n")
         self.write(
             repo / ".github" / "workflows" / "pr-qa.yml",
             "name: PR Quality Assurance\non: [pull_request]\njobs:\n  pr-qa:\n    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@pr-qa-v1-rc5\n",
@@ -4386,7 +4386,7 @@ exit 0
     def test_codeowners_file_is_not_accepted_by_fresh_onboarding_exception(self) -> None:
         repo, base = self.init_fresh_onboarding_repo("fresh-onboarding-codeowners")
         self.write(repo / ".github" / "workflows" / "pr-qa.yml", self.canonical_caller_template())
-        self.write(repo / ".github" / "CODEOWNERS", ".github/** @Synergie-ITCI/saurabh-pr-review-bypass\n")
+        self.write(repo / ".github" / "CODEOWNERS", "* @SaurabhVermaIN\n")
         self.commit(repo, "chore: onboard with codeowners")
 
         code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True, base_ref="development", head_ref="chore/governance-onboarding")
@@ -4395,6 +4395,114 @@ exit 0
         self.assertEqual(report_json["summary"]["gate_statuses"]["Protected Resources"], "WARNING")
         self.assertIn("Base CODEOWNERS bootstrap detected", report)
         self.assertNotIn("Canonical fresh PR-QA onboarding", report)
+
+    def test_codeowners_bootstrap_rejects_non_saurabh_owner(self) -> None:
+        repo, base = self.init_fresh_onboarding_repo("codeowners-bootstrap-wrong-owner")
+        self.write(repo / ".github" / "CODEOWNERS", "* @Synergie-ITCI/saurabh-pr-review-bypass\n")
+        self.commit(repo, "chore: onboard codeowners with team owner")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True, base_ref="development", head_ref="chore/governance-onboarding")
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Protected Resources"], "FAIL")
+        self.assertNotIn("Base CODEOWNERS bootstrap detected", report)
+
+    def add_template_codeowners_bootstrap_files(
+        self,
+        repo: Path,
+        *,
+        codeowners: str = "* @SaurabhVermaIN\n",
+        template: str | None = None,
+    ) -> None:
+        self.write(repo / ".github" / "CODEOWNERS", codeowners)
+        self.write(repo / ".github" / "pull_request_template.md", template if template is not None else self.canonical_pr_template())
+
+    def assert_template_codeowners_bootstrap_warning(self, report_json: dict, report: str) -> None:
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Protected Resources"], "WARNING")
+        self.assertIn("Canonical CODEOWNERS and PR template bootstrap matched required Synergie governance fields", report)
+
+    def test_template_codeowners_bootstrap_allows_first_governance_onboarding(self) -> None:
+        repo, base = self.init_fresh_onboarding_repo("template-codeowners-bootstrap")
+        self.add_template_codeowners_bootstrap_files(repo)
+        self.commit(repo, "chore: onboard governance template and codeowners")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True, base_ref="development", head_ref="chore/governance-onboarding")
+
+        self.assertEqual(code, 0, report)
+        self.assert_template_codeowners_bootstrap_warning(report_json, report)
+
+    def test_template_codeowners_bootstrap_blocks_extra_file(self) -> None:
+        repo, base = self.init_fresh_onboarding_repo("template-codeowners-extra-file")
+        self.add_template_codeowners_bootstrap_files(repo)
+        self.write(repo / ".github" / "README.md", "extra governance file\n")
+        self.commit(repo, "chore: onboard governance with extra file")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True, base_ref="development", head_ref="chore/governance-onboarding")
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Protected Resources"], "FAIL")
+        self.assertNotIn("Canonical CODEOWNERS and PR template bootstrap", report)
+
+    def test_template_codeowners_bootstrap_blocks_missing_governance_owner(self) -> None:
+        repo, base = self.init_fresh_onboarding_repo("template-codeowners-missing-owner")
+        self.add_template_codeowners_bootstrap_files(repo, codeowners=".github/** @Synergie-ITCI/application-team\n")
+        self.commit(repo, "chore: onboard governance with wrong owner")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True, base_ref="development", head_ref="chore/governance-onboarding")
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Protected Resources"], "FAIL")
+        self.assertNotIn("Canonical CODEOWNERS and PR template bootstrap", report)
+
+    def test_template_codeowners_bootstrap_blocks_altered_template(self) -> None:
+        repo, base = self.init_fresh_onboarding_repo("template-codeowners-altered-template")
+        self.add_template_codeowners_bootstrap_files(repo, template=self.canonical_pr_template().replace("REMAINING_PR_COUNT: <number>\n", ""))
+        self.commit(repo, "chore: onboard governance with incomplete template")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True, base_ref="development", head_ref="chore/governance-onboarding")
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Protected Resources"], "FAIL")
+        self.assertNotIn("Canonical CODEOWNERS and PR template bootstrap", report)
+
+    def test_template_codeowners_bootstrap_blocks_template_deletion(self) -> None:
+        repo, base = self.init_fresh_onboarding_repo("template-codeowners-template-deletion", {".github/pull_request_template.md": self.canonical_pr_template()})
+        self.write(repo / ".github" / "CODEOWNERS", "* @SaurabhVermaIN\n")
+        (repo / ".github" / "pull_request_template.md").unlink()
+        self.git(repo, "add", "-A", ".")
+        self.git(repo, "commit", "-q", "-m", "chore: delete template during bootstrap")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True, base_ref="development", head_ref="chore/governance-onboarding")
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Protected Resources"], "FAIL")
+        self.assertNotIn("Canonical CODEOWNERS and PR template bootstrap", report)
+
+    def test_template_codeowners_bootstrap_blocks_template_symlink(self) -> None:
+        repo, base = self.init_fresh_onboarding_repo("template-codeowners-template-symlink")
+        self.write(repo / ".github" / "CODEOWNERS", "* @SaurabhVermaIN\n")
+        (repo / ".github" / "pull_request_template.md").symlink_to("../README.md")
+        self.git(repo, "add", ".")
+        self.git(repo, "commit", "-q", "-m", "chore: onboard governance with symlink template")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True, base_ref="development", head_ref="chore/governance-onboarding")
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Protected Resources"], "FAIL")
+        self.assertNotIn("Canonical CODEOWNERS and PR template bootstrap", report)
+
+    def test_template_codeowners_bootstrap_no_longer_applies_after_base_codeowners_exists(self) -> None:
+        repo, base = self.init_fresh_onboarding_repo("template-codeowners-existing-base", {".github/CODEOWNERS": "* @SaurabhVermaIN\n"})
+        self.add_template_codeowners_bootstrap_files(repo)
+        self.write(repo / ".github" / "CODEOWNERS", "* @SaurabhVermaIN\n/docs/** @SaurabhVermaIN\n")
+        self.commit(repo, "chore: modify codeowners and template after bootstrap")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True, base_ref="development", head_ref="chore/governance-onboarding")
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Protected Resources"], "FAIL")
+        self.assertIn("CODEOWNERS changes are not allowed", report)
+        self.assertNotIn("Canonical CODEOWNERS and PR template bootstrap", report)
 
     def test_fresh_onboarding_modified_caller_still_blocks(self) -> None:
         repo, base = self.init_fresh_onboarding_repo("fresh-onboarding-modified-caller")
