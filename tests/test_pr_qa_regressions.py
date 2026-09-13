@@ -144,6 +144,7 @@ gates:
             "## Rollback Strategy\nRevert this PR.\n"
             "## Linked Issue\nhttps://github.com/Synergie-ITCI/.github/issues/123\n"
             "## Screenshots\nN/A\n"
+            "## PR Consolidation\nADDITIONAL_PR_REQUIRED: NO\n\nREMAINING_PR_COUNT: 0\n"
             f"{body_extra}"
         )
         event.write_text(
@@ -6086,7 +6087,7 @@ jobs:
                         "user": {"login": "SaurabhVermaIN"},
                         "base": {"sha": base, "ref": "main"},
                         "head": {"sha": "HEAD", "ref": "feature/regression"},
-                        "body": "## Business Purpose\nRegression.\n## Testing Performed\nUnit.\n## Rollback Strategy\nRevert.\n## Linked Issue\nhttps://github.com/Synergie-ITCI/.github/issues/123\n",
+                        "body": "## Business Purpose\nRegression.\n## Testing Performed\nUnit.\n## Rollback Strategy\nRevert.\n## Linked Issue\nhttps://github.com/Synergie-ITCI/.github/issues/123\n## PR Consolidation\nADDITIONAL_PR_REQUIRED: NO\n\nREMAINING_PR_COUNT: 0\n",
                     }
                 }
             ),

@@ -83,7 +83,69 @@
         ],
         "risk": "critical"
       }
-    ]
+    ],
+    "pr_consolidation_policy": {
+      "default": "one_logical_objective_one_task_branch_one_pr_per_repository",
+      "keep_pr_open_until_repository_scoped_objective_is_satisfied": true,
+      "same_pr_updates": [
+        "implementation",
+        "tests",
+        "fixtures",
+        "documentation",
+        "workflow_references",
+        "review_fixes",
+        "pr_qa_corrections"
+      ],
+      "pre_merge_inspection": [
+        "downstream_callers",
+        "releases",
+        "migrations",
+        "rollback",
+        "cross_repository_dependencies"
+      ],
+      "current_head_revalidation_required": true,
+      "earlier_pass_reuse": "allowed_only_when_relevant_inputs_have_not_changed",
+      "branch_update_rules": {
+        "update_task_branch_only_when_needed": true,
+        "never_rewrite_protected_or_shared_branches": true,
+        "force_with_lease_required": true,
+        "plain_force_push_allowed": false
+      },
+      "separate_repositories_require_separate_prs": true,
+      "sequential_pr_explanation_required": [
+        "why_open_pr_cannot_be_reused",
+        "exact_technical_or_governance_reason",
+        "whether_separation_is_unavoidable",
+        "expected_remaining_pr_count"
+      ],
+      "separate_pr_allowed_when": [
+        "immutable_post_merge_metadata_must_exist_first",
+        "work_belongs_to_another_repository",
+        "independently_reviewable_or_deployable_stage_materially_reduces_risk",
+        "newly_discovered_foundational_or_higher_risk_defect_requires_different_scrutiny_validation_or_rollback",
+        "urgent_security_or_hotfix_must_remain_isolated",
+        "governance_technically_requires_separation",
+        "user_explicitly_authorizes_separation"
+      ],
+      "scope_guardrails": [
+        "never_combine_unrelated_work",
+        "never_force_higher_risk_change_into_oversized_pr_to_reduce_pr_count"
+      ],
+      "avoidable_fragmentation_event": {
+        "record_when_reasonably_discoverable_corrective_pr_was_missed_before_merge_and_no_exception_applies": true,
+        "required_fields": [
+          "missed_check",
+          "preventive_improvement"
+        ],
+        "assign_blame": false
+      },
+      "release_rule": {
+        "complete_known_implementation_tests_documentation_and_release_reference_updates_before_merge": true,
+        "prove_release_candidate_before_tagging_or_activation": true,
+        "separate_activation_pr_allowed_only_when_immutable_tag_or_ruleset_metadata_cannot_exist_beforehand": true,
+        "preserve_earlier_immutable_releases": true
+      }
+    }
   },
   "minimum_thresholds": {
     "max_file_bytes": 5242880,
@@ -146,7 +208,9 @@
         "business purpose",
         "testing performed",
         "rollback strategy",
-        "linked issue"
+        "linked issue",
+        "ADDITIONAL_PR_REQUIRED",
+        "REMAINING_PR_COUNT"
       ],
       "screenshots_required_for_ui_changes": true
     },

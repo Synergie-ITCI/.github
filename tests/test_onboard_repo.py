@@ -999,6 +999,30 @@ jobs:
         self.assertIn('".github/pull_request_template.md"', source)
         self.assertNotIn('".github/pr-qa.yml":', source)
 
+    def test_pr_consolidation_policy_is_authoritative_and_documented(self):
+        root = MODULE.parents[1]
+        policy = json.loads((root / "policy" / "pr-qa-policy.json").read_text(encoding="utf-8"))
+        consolidation = policy["governance"]["pr_consolidation_policy"]
+        self.assertEqual(consolidation["default"], "one_logical_objective_one_task_branch_one_pr_per_repository")
+        self.assertTrue(consolidation["current_head_revalidation_required"])
+        self.assertTrue(consolidation["branch_update_rules"]["force_with_lease_required"])
+        self.assertFalse(consolidation["branch_update_rules"]["plain_force_push_allowed"])
+        self.assertIn("ADDITIONAL_PR_REQUIRED", policy["defaults"]["evidence"]["required_fields"])
+        self.assertIn("REMAINING_PR_COUNT", policy["defaults"]["evidence"]["required_fields"])
+
+        branch_doc = (root / "docs" / "company-branch-release-governance.md").read_text(encoding="utf-8")
+        onboarding_doc = (root / "docs" / "onboarding-guide.md").read_text(encoding="utf-8")
+        self.assertIn("one logical repository-scoped objective", branch_doc.lower())
+        self.assertIn("avoidable PR-fragmentation event", branch_doc)
+        self.assertIn("PR Consolidation", onboarding_doc)
+
+    def test_canonical_pr_template_contains_consolidation_fields(self):
+        template = mod.PR_TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn("ADDITIONAL_PR_REQUIRED: NO | YES — <reason>", template)
+        self.assertIn("REMAINING_PR_COUNT: <number>", template)
+        self.assertIn("Current PR HEAD has been validated", template)
+        self.assertIn("Downstream callers, releases, migrations, rollback, and cross-repository dependencies", template)
+
     def test_onboarding_decision_table_is_documented(self):
         doc = (MODULE.parents[1] / "docs" / "onboarding-guide.md").read_text(encoding="utf-8")
         self.assertIn("Fresh-Onboarding PR-QA Decision Table", doc)
