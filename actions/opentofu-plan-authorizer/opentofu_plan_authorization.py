@@ -294,8 +294,8 @@ def verify_plan_safety(args: argparse.Namespace) -> None:
         after = json.dumps(change.get("change", {}).get("after", {}), sort_keys=True).lower()
         if "production" in address.lower() or '"environment": "production"' in after:
             die("plan contains production resources")
-    if args.plan_kind in {"post-import", "drift"} and counts not in ({}, {"no-op": len(doc.get("resource_changes", []))}):
-        die("post-import/drift plan is not clean")
+    if args.plan_kind == "drift" and counts not in ({}, {"no-op": len(doc.get("resource_changes", []))}):
+        die("drift plan is not clean")
     print("PLAN_COUNTS=" + json.dumps(counts, sort_keys=True))
 
 

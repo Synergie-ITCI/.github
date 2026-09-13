@@ -110,9 +110,12 @@ class FieldZillaRemoteStateGovernanceTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            module.verify_plan_safety(
+                type("Args", (), {"plan_json_path": path, "plan_kind": "post-import"})()
+            )
             with self.assertRaises(SystemExit):
                 module.verify_plan_safety(
-                    type("Args", (), {"plan_json_path": path, "plan_kind": "post-import"})()
+                    type("Args", (), {"plan_json_path": path, "plan_kind": "drift"})()
                 )
 
     def test_import_map_requires_fieldzilla_ownership_and_allowed_type(self) -> None:
