@@ -61,7 +61,14 @@ The deployment must use the exact approved SHA/artifact and preserve a verified 
 ## Permanent Principles
 
 - The canonical promotion path is `feature → development → staging → main`; direct feature-to-staging, feature-to-main, and development-to-main promotions are rejected unless a separately documented governed exception applies.
-- One task uses one feature branch and one pull request by default. Ordinary lint, test, review, or PR-QA corrections update that same branch and PR; replacement is exceptional when safe continuation is impossible.
+- One logical repository-scoped objective uses one task branch and one pull request by default. Keep the PR open until the complete objective is satisfied, including related implementation, tests, fixtures, documentation, workflow references, review fixes, and PR-QA corrections.
+- Before merge, inspect downstream callers, releases, migrations, rollback, and cross-repository dependencies. Revalidate readiness against the PR's current HEAD; earlier PASS results are valid only when relevant inputs have not changed.
+- Rebase or update only the task branch when necessary. Never rewrite protected or shared branches. If task-branch history must be repaired and governance permits it, use `--force-with-lease`; never use plain `--force`.
+- Separate repositories require separate PRs. Before opening another sequential PR for the same repository-scoped objective, state why the open PR cannot be reused, the exact technical or governance reason, whether separation is unavoidable, and the expected remaining PR count.
+- Separate PRs are allowed only when immutable post-merge metadata must exist first, work belongs to another repository, an independently reviewable or deployable stage materially reduces risk, a newly discovered foundational or higher-risk defect requires different scrutiny/validation/rollback, an urgent security or hotfix must remain isolated, governance technically requires separation, or the user explicitly authorizes it.
+- Never combine unrelated work or force a higher-risk change into an oversized PR merely to reduce PR count.
+- If a corrective PR was reasonably discoverable before merge and no exception applies, record an `avoidable PR-fragmentation event` with the missed check and preventive improvement. Do not assign blame, and do not apply this to legitimate exceptions.
+- Complete known implementation, tests, documentation, and release-reference updates before merging. Prove a release candidate before tagging or activation. A separate activation PR is allowed only when immutable tag or ruleset metadata cannot exist beforehand; earlier immutable releases must be preserved.
 - Multiple ordinary linear commits are allowed. Repository Hygiene blocks accidental merge commits and other unproven lineage, not commit count.
 - Promotions must preserve the destination's governed ancestry. Use direct canonical promotion when ancestry is already valid, or the existing bounded tree-neutral alignment procedure; do not casually merge long-lived destination branches backward.
 - No routine governance bootstrap process.

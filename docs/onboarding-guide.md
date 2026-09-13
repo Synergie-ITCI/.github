@@ -79,6 +79,14 @@ Not allowed:
 - changing CODEOWNERS
 - adding secrets for PR QA without administrator approval
 
+## PR Consolidation
+
+The central policy default is one logical repository-scoped objective, one task branch, and one pull request per repository.
+
+Keep implementation, tests, fixtures, documentation, workflow references, review fixes, and PR-QA corrections in the existing open PR until that objective is complete. Before creating another sequential PR, record why the current PR cannot be reused, the exact technical or governance reason, whether separation is unavoidable, and the expected remaining PR count.
+
+Do not combine unrelated work or force a higher-risk change into an oversized PR merely to reduce PR count. Separate PRs remain appropriate for separate repositories, required immutable post-merge metadata, materially risk-reducing independently deployable stages, higher-risk defects needing different scrutiny or rollback, urgent security/hotfix isolation, governance-required separation, or explicit user authorization.
+
 ## Release-Governance Transition
 
 The initial PR QA onboarding and the later release/deployment governance setup are separate activities.
