@@ -50,6 +50,7 @@ ALLOWED_IMPORT_TYPES = {
     "aws_route_table",
     "aws_route_table_association",
     "aws_s3_bucket",
+    "aws_s3_bucket_lifecycle_configuration",
     "aws_s3_bucket_logging",
     "aws_s3_bucket_public_access_block",
     "aws_s3_bucket_server_side_encryption_configuration",

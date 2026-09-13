@@ -22,7 +22,7 @@ VALID_PLAN = "b" * 64
 VALID_IMPORT_MAP = "c" * 64
 VALID_WORKFLOW = (
     "Synergie-ITCI/.github/.github/workflows/"
-    "fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc121"
+    "fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc122"
 )
 NOW = dt.datetime(2026, 9, 12, 5, 0, tzinfo=dt.UTC)
 
@@ -53,7 +53,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
 
     def test_workflow_uses_remote_state_release_action(self) -> None:
         workflow = (ROOT / ".github/workflows/fieldzilla-staging-opentofu-apply.yml").read_text(encoding="utf-8")
-        self.assertIn("uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc121", workflow)
+        self.assertIn("uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc122", workflow)
         self.assertIn("tofu -chdir=infra/aws init -input=false -lockfile=readonly", workflow)
         self.assertIn("dynamodb_table = \"${STATE_LOCK_TABLE}\"", workflow)
         self.assertIn("Backup current remote state object", workflow)
@@ -117,7 +117,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
         claims = {
             "aud": "sts.amazonaws.com",
             "repository": "Synergie-ITCI/programme-management-platform",
-            "job_workflow_ref": "Synergie-ITCI/.github/.github/workflows/other.yml@refs/tags/pr-qa-v1-rc121",
+            "job_workflow_ref": "Synergie-ITCI/.github/.github/workflows/other.yml@refs/tags/pr-qa-v1-rc122",
             "sub": (
                 "repo:Synergie-ITCI@209829096/"
                 "programme-management-platform@1315697868:environment:synergie-app-staging"
