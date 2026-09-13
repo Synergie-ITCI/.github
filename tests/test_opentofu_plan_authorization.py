@@ -22,7 +22,7 @@ VALID_PLAN = "b" * 64
 VALID_IMPORT_MAP = "c" * 64
 VALID_WORKFLOW = (
     "Synergie-ITCI/.github/.github/workflows/"
-    "fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc122"
+    "fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc125"
 )
 NOW = dt.datetime(2026, 9, 12, 5, 0, tzinfo=dt.UTC)
 
@@ -53,7 +53,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
 
     def test_workflow_uses_remote_state_release_action(self) -> None:
         workflow = (ROOT / ".github/workflows/fieldzilla-staging-opentofu-apply.yml").read_text(encoding="utf-8")
-        self.assertIn("uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc122", workflow)
+        self.assertIn("uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc125", workflow)
         self.assertIn("tofu -chdir=infra/aws init -input=false -lockfile=readonly", workflow)
         self.assertIn("dynamodb_table = \"${STATE_LOCK_TABLE}\"", workflow)
         self.assertIn("Backup current remote state object", workflow)
@@ -117,7 +117,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
         claims = {
             "aud": "sts.amazonaws.com",
             "repository": "Synergie-ITCI/programme-management-platform",
-            "job_workflow_ref": "Synergie-ITCI/.github/.github/workflows/other.yml@refs/tags/pr-qa-v1-rc122",
+            "job_workflow_ref": "Synergie-ITCI/.github/.github/workflows/other.yml@refs/tags/pr-qa-v1-rc125",
             "sub": (
                 "repo:Synergie-ITCI@209829096/"
                 "programme-management-platform@1315697868:environment:synergie-app-staging"
@@ -241,11 +241,47 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
                 auth.verify_artifact_files(Namespace(artifact_dir=artifact_dir))
 
     def test_verifies_plan_safety_and_rejects_dns_or_production(self) -> None:
+        def safe_plan(instance_type: str = "t4g.small") -> dict[str, object]:
+            return {
+                "variables": {
+                    "enable_production": {"value": False},
+                    "route53_zone_id": {"value": ""},
+                    "container_instance_type": {"value": instance_type},
+                    "monthly_budget_usd": {"value": "100"},
+                },
+                "resource_changes": [
+                    {
+                        "address": "aws_ecs_service.api[\"staging\"]",
+                        "type": "aws_ecs_service",
+                        "change": {"actions": ["create"], "after": {"environment": "staging"}},
+                    }
+                ],
+            }
+
+        safe = safe_plan()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_json = Path(tmp) / "plan.json"
+            plan_json.write_text(json.dumps(safe), encoding="utf-8")
+            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
+            plan_json.write_text(json.dumps(safe_plan("c6g.medium")), encoding="utf-8")
+            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
+            plan_json.write_text(json.dumps(safe_plan("m6g.medium")), encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
+            unsafe = dict(safe)
+            unsafe["resource_changes"] = [
+                {"address": "aws_route53_record.validation", "type": "aws_route53_record", "change": {"actions": ["create"], "after": {}}}
+            ]
+            plan_json.write_text(json.dumps(unsafe), encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
+
+    def test_remote_state_plan_safety_keeps_c6g_allowance_narrow(self) -> None:
         safe = {
             "variables": {
                 "enable_production": {"value": False},
                 "route53_zone_id": {"value": ""},
-                "container_instance_type": {"value": "t4g.small"},
+                "container_instance_type": {"value": "c6g.medium"},
                 "monthly_budget_usd": {"value": "100"},
             },
             "resource_changes": [
@@ -260,11 +296,8 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             plan_json = Path(tmp) / "plan.json"
             plan_json.write_text(json.dumps(safe), encoding="utf-8")
             auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
-            unsafe = dict(safe)
-            unsafe["resource_changes"] = [
-                {"address": "aws_route53_record.validation", "type": "aws_route53_record", "change": {"actions": ["create"], "after": {}}}
-            ]
-            plan_json.write_text(json.dumps(unsafe), encoding="utf-8")
+            safe["variables"]["container_instance_type"]["value"] = "c7g.medium"
+            plan_json.write_text(json.dumps(safe), encoding="utf-8")
             with self.assertRaises(SystemExit):
                 auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
 
