@@ -20,24 +20,36 @@ The workflow fails closed unless all of the following match:
 - repository: `Synergie-ITCI/programme-management-platform`
 - environment: `synergie-app-staging`
 - exact 40-character deployment commit SHA
-- exact SHA-256 of the reviewed OpenTofu binary plan file
+- exact SHA-256 of the reviewed OpenTofu binary plan file when applying
+- exact SHA-256 of the reviewed import map when importing
 - exact source plan run ID, artifact ID, artifact name and artifact digest
 - expiry no more than 60 minutes in the future
 - unused authorization id
 - central workflow identity from an immutable `pr-qa-v1-rc*` tag
 - GitHub OIDC token `job_workflow_ref` matching this central workflow
 - GitHub native environment reviewers reported unavailable
+- verified encrypted/versioned S3 backend and DynamoDB lock table metadata
 
-The workflow has two stages. With `apply=false`, GitHub generates the OpenTofu
-plan once from the exact requested commit using the staging role's read-only
-plan-discovery permissions. It uploads the raw binary plan, human-readable
-plan, JSON plan, checksums and metadata as a uniquely named one-day artifact.
+The workflow supports `plan`, `import`, `post-import-plan`, `drift`, and
+`apply` modes. Every mode renders a locked S3 backend override and verifies the
+state bucket versioning, SSE-KMS encryption, public-access block, and lock-table
+metadata before OpenTofu initialization.
 
-With `apply=true`, the workflow does not regenerate the plan. It verifies the
+In `plan`, `post-import-plan`, and `drift` modes, GitHub generates OpenTofu
+artifacts from the exact requested commit using the staging role. The artifact
+contains the raw binary plan, human-readable plan, JSON plan, backend metadata,
+checksums, and release metadata.
+
+In `import` mode, the workflow verifies the approved source artifact and import
+map hash, backs up any existing remote state object, validates each import entry
+against FieldZilla ownership evidence, and imports only those approved
+addresses into locked remote state.
+
+In `apply` mode, the workflow does not regenerate the plan. It verifies the
 source run, source commit, artifact ID, artifact name, artifact digest, raw
-binary plan SHA-256, metadata and plan safety constraints, then applies that
-downloaded binary plan. A locally generated workstation plan is advisory only
-and is not an apply authorization artifact.
+binary plan SHA-256, backend metadata, and plan safety constraints, then applies
+that downloaded binary plan. A locally generated workstation plan is advisory
+only and is not an apply authorization artifact.
 
 ## Single-use binding
 
@@ -45,10 +57,10 @@ Before apply, the workflow creates a GitHub deployment marker in the caller
 repository with:
 
 - environment: `synergie-app-staging`
-- task: `fieldzilla-staging-opentofu-apply`
+- task: `fieldzilla-staging-opentofu-remote-state`
 - ref: exact approved commit SHA
-- payload: authorization id, environment, commit SHA, plan SHA-256 and source
-  artifact identity
+- payload: authorization id, environment, commit SHA, plan/import-map SHA-256
+  and source artifact identity
 
 Any later run with the same authorization id fails before AWS mutation.
 

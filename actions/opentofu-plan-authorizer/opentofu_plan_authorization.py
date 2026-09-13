@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed exact-plan authorization checks for governed OpenTofu applies."""
+"""Fail-closed exact-plan authorization checks for FieldZilla remote-state applies."""
 
 from __future__ import annotations
 
@@ -21,18 +21,43 @@ ENVIRONMENT = "synergie-app-staging"
 CENTRAL_REPOSITORY = "Synergie-ITCI/.github"
 WORKFLOW_PATH = ".github/workflows/fieldzilla-staging-opentofu-apply.yml"
 CALLER_WORKFLOW_PATH = ".github/workflows/fieldzilla-staging-iac.yml"
+AWS_ACCOUNT = "918870682888"
+AWS_REGION = "ap-south-1"
+STATE_BUCKET = "synergie-fieldzilla-opentofu-state-918870682888-ap-south-1"
+STATE_LOCK_TABLE = "synergie-fieldzilla-opentofu-locks"
+STATE_KEY = "programme-management-platform/fieldzilla/staging/opentofu.tfstate"
 MAX_EXPIRY_MINUTES = 60
+
 AUTH_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{7,79}$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 RUN_ID = re.compile(r"^[1-9][0-9]{5,}$")
 ARTIFACT_ID = re.compile(r"^[1-9][0-9]*$")
-ARTIFACT_NAME = re.compile(r"^fieldzilla-staging-plan-[0-9a-f]{40}-[1-9][0-9]*$")
+ARTIFACT_NAME = re.compile(r"^fieldzilla-staging-(plan|post-import|drift)-[0-9a-f]{40}-[1-9][0-9]*$")
 ARTIFACT_DIGEST = re.compile(r"^(sha256:)?[0-9a-f]{64}$")
 TAG_REF = re.compile(
     rf"^{re.escape(CENTRAL_REPOSITORY)}/{re.escape(WORKFLOW_PATH)}"
     r"@refs/tags/pr-qa-v1-rc[1-9][0-9]*$"
 )
+ALLOWED_IMPORT_TYPES = {
+    "aws_acm_certificate",
+    "aws_db_subnet_group",
+    "aws_ecs_cluster",
+    "aws_internet_gateway",
+    "aws_kms_alias",
+    "aws_kms_key",
+    "aws_lb_target_group",
+    "aws_route_table",
+    "aws_route_table_association",
+    "aws_s3_bucket",
+    "aws_s3_bucket_logging",
+    "aws_s3_bucket_public_access_block",
+    "aws_s3_bucket_server_side_encryption_configuration",
+    "aws_s3_bucket_versioning",
+    "aws_security_group",
+    "aws_subnet",
+    "aws_vpc",
+}
 
 
 def die(message: str) -> None:
@@ -50,6 +75,10 @@ def parse_time(value: str) -> dt.datetime:
     return parsed.astimezone(dt.UTC)
 
 
+def sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def verify_inputs(args: argparse.Namespace, now: dt.datetime | None = None) -> None:
     current = now or dt.datetime.now(dt.UTC)
     if args.actor != APPROVER:
@@ -62,8 +91,10 @@ def verify_inputs(args: argparse.Namespace, now: dt.datetime | None = None) -> N
         die("expected commit SHA must be exact 40-character lowercase hex")
     if args.github_sha != args.expected_sha:
         die("workflow commit SHA does not match approved SHA")
-    if not SHA256.fullmatch(args.expected_plan_sha256 or ""):
+    if args.expected_plan_sha256 and not SHA256.fullmatch(args.expected_plan_sha256):
         die("plan SHA-256 must be exact 64-character lowercase hex")
+    if args.expected_import_map_sha256 and not SHA256.fullmatch(args.expected_import_map_sha256):
+        die("import map SHA-256 must be exact 64-character lowercase hex")
     if not AUTH_ID.fullmatch(args.authorization_id or ""):
         die("authorization id format is invalid")
     expires_at = parse_time(args.expires_at)
@@ -76,7 +107,7 @@ def verify_inputs(args: argparse.Namespace, now: dt.datetime | None = None) -> N
     if args.native_reviewers_available.lower() == "true":
         die("native environment reviewers are available; fallback is not allowed")
     if not TAG_REF.fullmatch(args.job_workflow_ref or ""):
-        die("job workflow must be the immutable central FieldZilla apply workflow tag")
+        die("job workflow must be the immutable central FieldZilla workflow tag")
 
 
 def verify_native_reviewers(args: argparse.Namespace) -> None:
@@ -115,20 +146,27 @@ def verify_oidc(args: argparse.Namespace) -> None:
         die("OIDC subject mismatch")
 
 
-def verify_plan(args: argparse.Namespace) -> None:
-    actual = hashlib.sha256(args.plan_path.read_bytes()).hexdigest()
-    if actual != args.expected_plan_sha256:
-        die("OpenTofu plan changed after approval")
-    print(f"PLAN_SHA256={actual}")
-
-
-def _normalize_digest(value: str) -> str:
-    return value.removeprefix("sha256:")
+def verify_backend(args: argparse.Namespace) -> None:
+    doc = json.loads(args.backend_metadata_path.read_text(encoding="utf-8"))
+    expected = {
+        "account_id": AWS_ACCOUNT,
+        "region": AWS_REGION,
+        "bucket": STATE_BUCKET,
+        "key": STATE_KEY,
+        "dynamodb_table": STATE_LOCK_TABLE,
+        "bucket_versioning": "Enabled",
+        "bucket_encryption": "aws:kms",
+        "public_access_blocked": True,
+    }
+    for key, value in expected.items():
+        if doc.get(key) != value:
+            die(f"remote backend evidence mismatch for {key}")
+    print("REMOTE_BACKEND_VERIFIED=true")
 
 
 def _require_artifact_inputs(args: argparse.Namespace) -> None:
     if not RUN_ID.fullmatch(args.source_run_id or ""):
-        die("source plan run id is invalid")
+        die("source run id is invalid")
     if not ARTIFACT_ID.fullmatch(args.artifact_id or ""):
         die("artifact id is invalid")
     if not ARTIFACT_NAME.fullmatch(args.artifact_name or ""):
@@ -143,15 +181,15 @@ def verify_source_artifact(args: argparse.Namespace) -> None:
     _require_artifact_inputs(args)
     run = github_api(f"actions/runs/{args.source_run_id}")
     if run.get("head_repository", {}).get("full_name") != REPOSITORY:
-        die("source plan run repository mismatch")
+        die("source run repository mismatch")
     if run.get("head_sha") != args.expected_sha:
-        die("source plan run commit mismatch")
+        die("source run commit mismatch")
     if run.get("conclusion") != "success":
-        die("source plan run did not succeed")
+        die("source run did not succeed")
     if run.get("path") != CALLER_WORKFLOW_PATH:
-        die("source plan workflow mismatch")
+        die("source workflow mismatch")
     if str(run.get("run_attempt", "")) != "1":
-        die("source plan run attempt mismatch")
+        die("source run attempt mismatch")
 
     artifacts = github_api(f"actions/runs/{args.source_run_id}/artifacts?per_page=100")
     matches = [
@@ -160,45 +198,16 @@ def verify_source_artifact(args: argparse.Namespace) -> None:
         if str(artifact.get("id")) == args.artifact_id
     ]
     if len(matches) != 1:
-        die("approved plan artifact id is unavailable")
+        die("approved artifact id is unavailable")
     artifact = matches[0]
     if artifact.get("name") != args.artifact_name:
-        die("approved plan artifact name mismatch")
+        die("approved artifact name mismatch")
     if artifact.get("expired"):
-        die("approved plan artifact expired")
+        die("approved artifact expired")
     digest = artifact.get("digest")
-    if not digest:
-        die("approved plan artifact digest is unavailable")
-    if _normalize_digest(digest) != _normalize_digest(args.expected_artifact_digest):
-        die("approved plan artifact digest mismatch")
+    if not digest or digest.removeprefix("sha256:") != args.expected_artifact_digest.removeprefix("sha256:"):
+        die("approved artifact digest mismatch")
     print(f"ARTIFACT_ID={args.artifact_id}")
-
-
-def verify_artifact_metadata(args: argparse.Namespace) -> None:
-    _require_artifact_inputs(args)
-    metadata_path = args.artifact_dir / "metadata.json"
-    plan_path = args.artifact_dir / "fieldzilla-staging.tfplan"
-    if not metadata_path.is_file():
-        die("plan artifact metadata is missing")
-    if not plan_path.is_file():
-        die("binary plan artifact is missing")
-    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    checks = {
-        "repository": REPOSITORY,
-        "commit_sha": args.expected_sha,
-        "workflow_run_id": args.source_run_id,
-        "artifact_name": args.artifact_name,
-        "environment": ENVIRONMENT,
-    }
-    for key, expected in checks.items():
-        if str(metadata.get(key, "")) != expected:
-            die(f"plan artifact metadata {key} mismatch")
-    actual = hashlib.sha256(plan_path.read_bytes()).hexdigest()
-    if actual != args.expected_plan_sha256:
-        die("downloaded OpenTofu plan hash mismatch")
-    if metadata.get("plan_sha256") != actual:
-        die("plan metadata hash mismatch")
-    print(f"PLAN_SHA256={actual}")
 
 
 def verify_artifact_files(args: argparse.Namespace) -> None:
@@ -208,6 +217,10 @@ def verify_artifact_files(args: argparse.Namespace) -> None:
         "fieldzilla-staging.plan.json",
         "metadata.json",
         "SHA256SUMS",
+        "import-map.json",
+        "backend.json",
+        "drift.plan.json",
+        "drift.plan.txt",
     }
     prohibited = []
     for path in args.artifact_dir.rglob("*"):
@@ -220,21 +233,38 @@ def verify_artifact_files(args: argparse.Namespace) -> None:
         if any(marker in lower for marker in ("tfstate", "credential", ".env", "token", "secret")):
             prohibited.append(rel)
     if prohibited:
-        die("plan artifact contains prohibited files")
+        die("artifact contains prohibited files")
+    for rel in ("metadata.json", "SHA256SUMS"):
+        if not (args.artifact_dir / rel).exists():
+            die("artifact is incomplete")
 
-    secret_patterns = [
-        re.compile(r"AKIA[0-9A-Z]{16}"),
-        re.compile(r"ASIA[0-9A-Z]{16}"),
-        re.compile(r"aws_secret_access_key", re.IGNORECASE),
-        re.compile(r"aws_session_token", re.IGNORECASE),
-    ]
-    for rel in ("fieldzilla-staging.plan.txt", "fieldzilla-staging.plan.json", "metadata.json", "SHA256SUMS"):
-        path = args.artifact_dir / rel
-        if not path.exists():
-            die("plan artifact is incomplete")
-        text = path.read_text(encoding="utf-8", errors="replace")
-        if any(pattern.search(text) for pattern in secret_patterns):
-            die("plan artifact contains prohibited sensitive output")
+
+def verify_artifact_metadata(args: argparse.Namespace) -> None:
+    _require_artifact_inputs(args)
+    metadata_path = args.artifact_dir / "metadata.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    checks = {
+        "repository": REPOSITORY,
+        "commit_sha": args.expected_sha,
+        "workflow_run_id": args.source_run_id,
+        "artifact_name": args.artifact_name,
+        "environment": ENVIRONMENT,
+        "state_backend": "s3",
+        "state_bucket": STATE_BUCKET,
+        "state_key": STATE_KEY,
+        "lock_table": STATE_LOCK_TABLE,
+    }
+    for key, expected in checks.items():
+        if str(metadata.get(key, "")) != expected:
+            die(f"artifact metadata {key} mismatch")
+    if args.expected_plan_sha256:
+        plan_path = args.artifact_dir / "fieldzilla-staging.tfplan"
+        if not plan_path.is_file() or sha256_file(plan_path) != args.expected_plan_sha256:
+            die("downloaded OpenTofu plan hash mismatch")
+    if args.expected_import_map_sha256:
+        import_path = args.artifact_dir / "import-map.json"
+        if not import_path.is_file() or sha256_file(import_path) != args.expected_import_map_sha256:
+            die("downloaded import map hash mismatch")
 
 
 def verify_plan_safety(args: argparse.Namespace) -> None:
@@ -256,14 +286,45 @@ def verify_plan_safety(args: argparse.Namespace) -> None:
         counts[key] = counts.get(key, 0) + 1
         address = change.get("address", "")
         rtype = change.get("type", "")
-        if "delete" in actions or actions == ["create", "delete"] or actions == ["delete", "create"]:
+        if "delete" in actions or actions in (["create", "delete"], ["delete", "create"]):
             die("plan contains destructive actions")
         if "route53" in rtype.lower() or "route53" in address.lower():
             die("plan contains DNS resources")
-        haystack = json.dumps(change.get("change", {}).get("after", {}), sort_keys=True).lower()
-        if "production" in address.lower() or '"environment": "production"' in haystack:
+        after = json.dumps(change.get("change", {}).get("after", {}), sort_keys=True).lower()
+        if "production" in address.lower() or '"environment": "production"' in after:
             die("plan contains production resources")
+    if args.plan_kind in {"post-import", "drift"} and counts not in ({}, {"no-op": len(doc.get("resource_changes", []))}):
+        die("post-import/drift plan is not clean")
     print("PLAN_COUNTS=" + json.dumps(counts, sort_keys=True))
+
+
+def verify_import_map(args: argparse.Namespace) -> None:
+    if sha256_file(args.import_map_path) != args.expected_import_map_sha256:
+        die("import map SHA-256 mismatch")
+    doc = json.loads(args.import_map_path.read_text(encoding="utf-8"))
+    if doc.get("repository") != REPOSITORY or doc.get("environment") != ENVIRONMENT:
+        die("import map target mismatch")
+    imports = doc.get("imports")
+    if not isinstance(imports, list) or not imports:
+        die("import map is empty")
+    seen: set[str] = set()
+    for item in imports:
+        address = item.get("address")
+        resource_id = item.get("id")
+        evidence = item.get("evidence")
+        if not isinstance(address, str) or not isinstance(resource_id, str):
+            die("import map entry missing address or id")
+        if address in seen:
+            die("duplicate import address")
+        seen.add(address)
+        rtype = address.split(".", 1)[0]
+        if rtype not in ALLOWED_IMPORT_TYPES:
+            die(f"unsupported import type {rtype}")
+        if not isinstance(evidence, dict) or evidence.get("Application") != "fieldzilla":
+            die("import evidence must prove FieldZilla ownership")
+        if evidence.get("Repository") != REPOSITORY:
+            die("import evidence repository mismatch")
+    print(f"IMPORT_COUNT={len(imports)}")
 
 
 def github_api(path: str, method: str = "GET", payload: dict[str, Any] | None = None) -> Any:
@@ -278,7 +339,7 @@ def github_api(path: str, method: str = "GET", payload: dict[str, Any] | None = 
         check=False,
     )
     if result.returncode:
-        die("GitHub deployment authorization state is unavailable")
+        die("GitHub authorization state is unavailable")
     return json.loads(result.stdout) if result.stdout.strip() else {}
 
 
@@ -287,7 +348,8 @@ def deployment_payload(args: argparse.Namespace) -> dict[str, str]:
         "authorization_id": args.authorization_id,
         "environment": ENVIRONMENT,
         "commit_sha": args.expected_sha,
-        "plan_sha256": args.expected_plan_sha256,
+        "plan_sha256": args.expected_plan_sha256 or "",
+        "import_map_sha256": args.expected_import_map_sha256 or "",
         "source_run_id": getattr(args, "source_run_id", ""),
         "artifact_id": getattr(args, "artifact_id", ""),
         "artifact_name": getattr(args, "artifact_name", ""),
@@ -296,7 +358,7 @@ def deployment_payload(args: argparse.Namespace) -> dict[str, str]:
 
 def check_single_use(args: argparse.Namespace) -> None:
     deployments = github_api(
-        f"deployments?environment={ENVIRONMENT}&ref={args.expected_sha}&task=fieldzilla-staging-opentofu-apply&per_page=100"
+        f"deployments?environment={ENVIRONMENT}&ref={args.expected_sha}&task=fieldzilla-staging-opentofu-remote-state&per_page=100"
     )
     for deployment in deployments:
         payload = deployment.get("payload")
@@ -316,9 +378,9 @@ def mark_used(args: argparse.Namespace) -> None:
         method="POST",
         payload={
             "ref": args.expected_sha,
-            "task": "fieldzilla-staging-opentofu-apply",
+            "task": "fieldzilla-staging-opentofu-remote-state",
             "environment": ENVIRONMENT,
-            "description": "Single-use FieldZilla staging OpenTofu apply authorization marker",
+            "description": "Single-use FieldZilla staging remote-state authorization marker",
             "auto_merge": False,
             "required_contexts": [],
             "payload": deployment_payload(args),
@@ -330,30 +392,31 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
 
-    def common(target: argparse.ArgumentParser) -> None:
+    def add_common(target: argparse.ArgumentParser) -> None:
         target.add_argument("--actor", required=True)
         target.add_argument("--repository", required=True)
         target.add_argument("--environment", required=True)
         target.add_argument("--expected-sha", required=True)
         target.add_argument("--github-sha", required=True)
-        target.add_argument("--expected-plan-sha256", required=True)
+        target.add_argument("--expected-plan-sha256", default="")
+        target.add_argument("--expected-import-map-sha256", default="")
         target.add_argument("--expires-at", required=True)
         target.add_argument("--authorization-id", required=True)
         target.add_argument("--native-reviewers-available", required=True)
         target.add_argument("--job-workflow-ref", required=True)
 
-    verify = sub.add_parser("verify-inputs")
-    common(verify)
+    common_commands = ("verify-inputs", "check-single-use", "mark-used")
+    for name in common_commands:
+        add_common(sub.add_parser(name))
     oidc = sub.add_parser("verify-oidc")
     oidc.add_argument("--token-file", type=Path, required=True)
     oidc.add_argument("--job-workflow-ref", required=True)
     native = sub.add_parser("verify-native-reviewers")
     native.add_argument("--native-reviewers-available", required=True)
-    plan = sub.add_parser("verify-plan")
-    plan.add_argument("--plan-path", type=Path, required=True)
-    plan.add_argument("--expected-plan-sha256", required=True)
+    backend = sub.add_parser("verify-backend")
+    backend.add_argument("--backend-metadata-path", type=Path, required=True)
     source = sub.add_parser("verify-source-artifact")
-    common(source)
+    add_common(source)
     source.add_argument("--source-run-id", required=True)
     source.add_argument("--artifact-id", required=True)
     source.add_argument("--artifact-name", required=True)
@@ -361,7 +424,8 @@ def main() -> None:
     meta = sub.add_parser("verify-artifact-metadata")
     meta.add_argument("--artifact-dir", type=Path, required=True)
     meta.add_argument("--expected-sha", required=True)
-    meta.add_argument("--expected-plan-sha256", required=True)
+    meta.add_argument("--expected-plan-sha256", default="")
+    meta.add_argument("--expected-import-map-sha256", default="")
     meta.add_argument("--source-run-id", required=True)
     meta.add_argument("--artifact-id", required=True)
     meta.add_argument("--artifact-name", required=True)
@@ -370,32 +434,26 @@ def main() -> None:
     files.add_argument("--artifact-dir", type=Path, required=True)
     safety = sub.add_parser("verify-plan-safety")
     safety.add_argument("--plan-json-path", type=Path, required=True)
-    single = sub.add_parser("check-single-use")
-    common(single)
-    mark = sub.add_parser("mark-used")
-    common(mark)
+    safety.add_argument("--plan-kind", default="normal")
+    imports = sub.add_parser("verify-import-map")
+    imports.add_argument("--import-map-path", type=Path, required=True)
+    imports.add_argument("--expected-import-map-sha256", required=True)
 
     args = parser.parse_args()
-    if args.command == "verify-inputs":
-        verify_inputs(args)
-    elif args.command == "verify-oidc":
-        verify_oidc(args)
-    elif args.command == "verify-native-reviewers":
-        verify_native_reviewers(args)
-    elif args.command == "verify-plan":
-        verify_plan(args)
-    elif args.command == "verify-source-artifact":
-        verify_source_artifact(args)
-    elif args.command == "verify-artifact-metadata":
-        verify_artifact_metadata(args)
-    elif args.command == "verify-artifact-files":
-        verify_artifact_files(args)
-    elif args.command == "verify-plan-safety":
-        verify_plan_safety(args)
-    elif args.command == "check-single-use":
-        check_single_use(args)
-    elif args.command == "mark-used":
-        mark_used(args)
+    dispatch = {
+        "verify-inputs": verify_inputs,
+        "verify-oidc": verify_oidc,
+        "verify-native-reviewers": verify_native_reviewers,
+        "verify-backend": verify_backend,
+        "verify-source-artifact": verify_source_artifact,
+        "verify-artifact-metadata": verify_artifact_metadata,
+        "verify-artifact-files": verify_artifact_files,
+        "verify-plan-safety": verify_plan_safety,
+        "verify-import-map": verify_import_map,
+        "check-single-use": check_single_use,
+        "mark-used": mark_used,
+    }
+    dispatch[args.command](args)
 
 
 if __name__ == "__main__":
