@@ -886,6 +886,12 @@ def is_react_native_hidden_text_exception(ctx: PRContext, rel: str) -> bool:
     return not contains_mobile_credential_indicator(text)
 
 
+def is_governed_iac_lockfile_exception(ctx: PRContext, rel: str, hidden: str) -> bool:
+    return hidden == ".terraform.lock.hcl" and Path(rel).name == ".terraform.lock.hcl" and bool(
+        governed_critical_infrastructure_authorization(ctx, rel)
+    )
+
+
 def is_react_native_binary_bootstrap_exception(ctx: PRContext, rel: str) -> bool:
     if not is_react_native_repository(ctx):
         return False
@@ -1768,7 +1774,11 @@ def gate_repository_integrity(ctx: PRContext, git_context: dict[str, Any]) -> li
             for hidden in hidden_parts:
                 if is_baseline_safe_environment_file(ctx, rel):
                     relaxed.append(f"{rel}: baseline-approved environment template/test fixture classification.")
-                elif hidden not in allowed_hidden and not is_react_native_hidden_text_exception(ctx, rel):
+                elif (
+                    hidden not in allowed_hidden
+                    and not is_react_native_hidden_text_exception(ctx, rel)
+                    and not is_governed_iac_lockfile_exception(ctx, rel, hidden)
+                ):
                     append_or_relax_baseline_finding(
                         ctx,
                         findings,

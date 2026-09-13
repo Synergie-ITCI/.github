@@ -4249,6 +4249,71 @@ exit 0
         self.assertIn("authorized reviewers and required status checks remain mandatory", report)
         self.assertIn("PR-QA does not authorize apply or deployment", report)
 
+    def test_governed_aws_iac_allows_required_opentofu_lockfile(self) -> None:
+        repo, base = self.init_repo("programme-platform-aws-lockfile")
+        self.write(
+            repo / "infra" / "aws" / ".terraform.lock.hcl",
+            '# This file is maintained automatically by "tofu init".\n',
+        )
+        self.commit(repo, "ci: add opentofu lockfile")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            static_only=True,
+            base_ref="development",
+            head_ref="chore/fieldzilla-opentofu-lockfile",
+            repository="Synergie-ITCI/programme-management-platform",
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertNotIn("unexpected hidden file or directory `.terraform.lock.hcl`", report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Protected Resources"], "WARNING")
+        self.assertIn("GOVERNED_CRITICAL_INFRASTRUCTURE", report)
+
+    def test_governed_aws_iac_lockfile_exception_remains_path_scoped(self) -> None:
+        repo, base = self.init_repo("programme-platform-root-lockfile")
+        self.write(repo / ".terraform.lock.hcl", '# root lockfile remains blocked\n')
+        self.commit(repo, "ci: add root opentofu lockfile")
+
+        code, report = self.run_engine(
+            repo,
+            base,
+            static_only=True,
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("unexpected hidden file or directory `.terraform.lock.hcl`", report)
+
+    def test_governed_aws_iac_lockfile_exception_is_repository_scoped(self) -> None:
+        repo, base = self.init_repo_with_migration_protection("other-aws-lockfile")
+        self.write(repo / "infra" / "aws" / ".terraform.lock.hcl", '# lockfile in unmatched repo\n')
+        self.commit(repo, "ci: add opentofu lockfile")
+
+        code, report = self.run_engine(
+            repo,
+            base,
+            static_only=True,
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("unexpected hidden file or directory `.terraform.lock.hcl`", report)
+        self.assertNotIn("GOVERNED_CRITICAL_INFRASTRUCTURE", report)
+
+    def test_governed_aws_iac_other_hidden_files_remain_blocked(self) -> None:
+        repo, base = self.init_repo("programme-platform-hidden-iac-config")
+        self.write(repo / "infra" / "aws" / ".terraformrc", "plugin_cache_dir = \".terraform.d/plugin-cache\"\n")
+        self.commit(repo, "ci: add hidden terraform config")
+
+        code, report = self.run_engine(
+            repo,
+            base,
+            static_only=True,
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("unexpected hidden file or directory `.terraformrc`", report)
+
     def test_governed_aws_iac_exception_is_repository_scoped(self) -> None:
         repo, base = self.init_repo_with_migration_protection("other-aws-iac")
         self.write(repo / "infra" / "aws" / "main.tf", 'terraform {\n  required_version = ">= 1.6.0"\n}\n')
