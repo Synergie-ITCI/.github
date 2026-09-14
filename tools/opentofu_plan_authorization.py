@@ -321,6 +321,10 @@ def _without_image(container: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in container.items() if key != "image"}
 
 
+def _empty_string_equivalent(value: Any) -> Any:
+    return None if value == "" else value
+
+
 def is_approved_ecs_task_definition_revision(change: dict[str, Any], variables: dict[str, Any]) -> bool:
     if change.get("type") != "aws_ecs_task_definition":
         return False
@@ -354,7 +358,7 @@ def is_approved_ecs_task_definition_revision(change: dict[str, Any], variables: 
         "volume",
     }
     for field in immutable_fields:
-        if before.get(field) != after.get(field):
+        if _empty_string_equivalent(before.get(field)) != _empty_string_equivalent(after.get(field)):
             return False
 
     before_containers = _decode_container_definitions(before.get("container_definitions"))
