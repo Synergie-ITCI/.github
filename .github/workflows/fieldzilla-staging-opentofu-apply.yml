@@ -199,6 +199,12 @@ jobs:
       - name: Bootstrap encrypted remote-state backend
         run: |
           set -euo pipefail
+          if [ "${{ inputs.mode }}" != "bootstrap" ]; then
+            aws kms describe-key --key-id "${STATE_KMS_ALIAS}" --query KeyMetadata.KeyId --output text >/dev/null
+            aws s3api head-bucket --bucket "${STATE_BUCKET}" >/dev/null
+            aws dynamodb describe-table --table-name "${STATE_LOCK_TABLE}" --query Table.TableStatus --output text >/dev/null
+            exit 0
+          fi
           key_id="$(aws kms describe-key --key-id "${STATE_KMS_ALIAS}" --query KeyMetadata.KeyId --output text 2>/dev/null || true)"
           if [ -z "${key_id}" ] || [ "${key_id}" = "None" ]; then
             key_id="$(aws kms create-key \
