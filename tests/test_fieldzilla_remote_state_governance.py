@@ -36,6 +36,26 @@ class FieldZillaRemoteStateGovernanceTests(unittest.TestCase):
         self.assertNotIn("-backend=false", workflow)
         self.assertNotIn("devops-audit", workflow)
 
+    def test_non_bootstrap_modes_reuse_verified_backend_without_create(self) -> None:
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        bootstrap = workflow.split("name: Bootstrap encrypted remote-state backend", 1)[1].split(
+            "name: Render remote backend override", 1
+        )[0]
+
+        self.assertIn('if [ "${{ inputs.mode }}" != "bootstrap" ]; then', bootstrap)
+        self.assertIn('aws kms describe-key --key-id "${STATE_KMS_ALIAS}"', bootstrap)
+        self.assertIn('aws s3api head-bucket --bucket "${STATE_BUCKET}"', bootstrap)
+        self.assertIn('aws dynamodb describe-table --table-name "${STATE_LOCK_TABLE}"', bootstrap)
+        verify_index = bootstrap.index('if [ "${{ inputs.mode }}" != "bootstrap" ]; then')
+        exit_index = bootstrap.index("exit 0")
+        create_key_index = bootstrap.index("aws kms create-key")
+        create_bucket_index = bootstrap.index("aws s3api create-bucket")
+        create_table_index = bootstrap.index("aws dynamodb create-table")
+        self.assertLess(verify_index, exit_index)
+        self.assertLess(exit_index, create_key_index)
+        self.assertLess(exit_index, create_bucket_index)
+        self.assertLess(exit_index, create_table_index)
+
     def test_workflow_gates_import_before_state_mutation_and_backs_up_state(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
 
