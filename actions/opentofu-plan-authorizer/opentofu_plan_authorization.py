@@ -28,6 +28,7 @@ STATE_LOCK_TABLE = "synergie-fieldzilla-opentofu-locks"
 STATE_KEY = "programme-management-platform/fieldzilla/staging/opentofu.tfstate"
 APPROVED_CONTAINER_INSTANCE_TYPES = {"t4g.small", "c6g.medium"}
 MAX_EXPIRY_MINUTES = 60
+FIELDZILLA_IMAGE_SHA = "4700ced6ec44758a0fe7cce7075817cdc7403de5"
 
 AUTH_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{7,79}$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -288,7 +289,10 @@ def verify_plan_safety(args: argparse.Namespace) -> None:
         counts[key] = counts.get(key, 0) + 1
         address = change.get("address", "")
         rtype = change.get("type", "")
-        if "delete" in actions or actions in (["create", "delete"], ["delete", "create"]):
+        if (
+            ("delete" in actions or actions in (["create", "delete"], ["delete", "create"]))
+            and not is_approved_ecs_task_definition_revision(change, variables)
+        ):
             die("plan contains destructive actions")
         if "route53" in rtype.lower() or "route53" in address.lower():
             die("plan contains DNS resources")
@@ -298,6 +302,77 @@ def verify_plan_safety(args: argparse.Namespace) -> None:
     if args.plan_kind == "drift" and counts not in ({}, {"no-op": len(doc.get("resource_changes", []))}):
         die("drift plan is not clean")
     print("PLAN_COUNTS=" + json.dumps(counts, sort_keys=True))
+
+
+def _decode_container_definitions(value: Any) -> list[dict[str, Any]]:
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            die("ECS task definition container definitions are not valid JSON")
+    else:
+        parsed = value
+    if not isinstance(parsed, list) or not all(isinstance(item, dict) for item in parsed):
+        die("ECS task definition container definitions are invalid")
+    return parsed
+
+
+def _without_image(container: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in container.items() if key != "image"}
+
+
+def is_approved_ecs_task_definition_revision(change: dict[str, Any], variables: dict[str, Any]) -> bool:
+    if change.get("type") != "aws_ecs_task_definition":
+        return False
+    address = change.get("address", "")
+    if not address.startswith("aws_ecs_task_definition.") or '"staging"' not in address:
+        return False
+    actions = change.get("change", {}).get("actions", [])
+    if actions not in (["delete", "create"], ["create", "delete"]):
+        return False
+
+    before = change.get("change", {}).get("before")
+    after = change.get("change", {}).get("after")
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return False
+
+    if variables.get("image_tag") != FIELDZILLA_IMAGE_SHA:
+        return False
+
+    immutable_fields = {
+        "cpu",
+        "execution_role_arn",
+        "family",
+        "ipc_mode",
+        "memory",
+        "network_mode",
+        "pid_mode",
+        "requires_compatibilities",
+        "runtime_platform",
+        "task_role_arn",
+        "track_latest",
+        "volume",
+    }
+    for field in immutable_fields:
+        if before.get(field) != after.get(field):
+            return False
+
+    before_containers = _decode_container_definitions(before.get("container_definitions"))
+    after_containers = _decode_container_definitions(after.get("container_definitions"))
+    if len(before_containers) != len(after_containers):
+        return False
+
+    for before_container, after_container in zip(before_containers, after_containers, strict=True):
+        if _without_image(before_container) != _without_image(after_container):
+            return False
+        before_image = str(before_container.get("image", ""))
+        after_image = str(after_container.get("image", ""))
+        if not before_image.endswith(":bootstrap"):
+            return False
+        if not after_image.endswith(f":{FIELDZILLA_IMAGE_SHA}"):
+            return False
+
+    return True
 
 
 def verify_import_map(args: argparse.Namespace) -> None:
