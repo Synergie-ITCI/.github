@@ -22,7 +22,7 @@ VALID_PLAN = "b" * 64
 VALID_IMPORT_MAP = "c" * 64
 VALID_WORKFLOW = (
     "Synergie-ITCI/.github/.github/workflows/"
-    "fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc128"
+    "fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc129"
 )
 NOW = dt.datetime(2026, 9, 12, 5, 0, tzinfo=dt.UTC)
 
@@ -53,7 +53,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
 
     def test_workflow_uses_remote_state_release_action(self) -> None:
         workflow = (ROOT / ".github/workflows/fieldzilla-staging-opentofu-apply.yml").read_text(encoding="utf-8")
-        self.assertIn("uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc128", workflow)
+        self.assertIn("uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc129", workflow)
         self.assertIn("tofu -chdir=infra/aws init -input=false -lockfile=readonly", workflow)
         self.assertIn("dynamodb_table = \"${STATE_LOCK_TABLE}\"", workflow)
         self.assertIn("Backup current remote state object", workflow)
@@ -117,7 +117,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
         claims = {
             "aud": "sts.amazonaws.com",
             "repository": "Synergie-ITCI/programme-management-platform",
-            "job_workflow_ref": "Synergie-ITCI/.github/.github/workflows/other.yml@refs/tags/pr-qa-v1-rc128",
+            "job_workflow_ref": "Synergie-ITCI/.github/.github/workflows/other.yml@refs/tags/pr-qa-v1-rc129",
             "sub": (
                 "repo:Synergie-ITCI@209829096/"
                 "programme-management-platform@1315697868:environment:synergie-app-staging"
@@ -298,6 +298,79 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
             safe["variables"]["container_instance_type"]["value"] = "c7g.medium"
             plan_json.write_text(json.dumps(safe), encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
+
+    def test_allows_only_fieldzilla_staging_ecs_task_definition_sha_revision(self) -> None:
+        container_before = [
+            {
+                "name": "api",
+                "image": "918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/api:bootstrap",
+                "cpu": 256,
+                "memory": 512,
+                "essential": True,
+                "secrets": [{"name": "APP_KEY", "valueFrom": "arn:aws:secretsmanager:ap-south-1:918870682888:secret:/synergie/fieldzilla/staging/runtime:APP_KEY::"}],
+            }
+        ]
+        container_after = [{**container_before[0], "image": f"918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/api:{auth.FIELDZILLA_IMAGE_SHA}"}]
+        before = {
+            "family": "fieldzilla-staging-api",
+            "cpu": "256",
+            "memory": "512",
+            "network_mode": "bridge",
+            "requires_compatibilities": ["EC2"],
+            "execution_role_arn": "arn:aws:iam::918870682888:role/SynergieFieldzillaStagingEcsExecution",
+            "task_role_arn": "arn:aws:iam::918870682888:role/SynergieFieldzillaStagingTask",
+            "container_definitions": json.dumps(container_before, sort_keys=True),
+            "runtime_platform": [],
+            "track_latest": False,
+            "volume": [],
+        }
+        after = {**before, "container_definitions": json.dumps(container_after, sort_keys=True)}
+        plan = {
+            "variables": {
+                "enable_production": {"value": False},
+                "route53_zone_id": {"value": ""},
+                "container_instance_type": {"value": "c6g.medium"},
+                "monthly_budget_usd": {"value": "100"},
+                "image_tag": {"value": auth.FIELDZILLA_IMAGE_SHA},
+            },
+            "resource_changes": [
+                {
+                    "address": 'aws_ecs_task_definition.api["staging"]',
+                    "type": "aws_ecs_task_definition",
+                    "change": {"actions": ["delete", "create"], "before": before, "after": after},
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_json = Path(tmp) / "plan.json"
+            plan_json.write_text(json.dumps(plan), encoding="utf-8")
+            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
+
+            unsafe_role = json.loads(json.dumps(plan))
+            unsafe_role["resource_changes"][0]["change"]["after"]["task_role_arn"] = "arn:aws:iam::918870682888:role/Other"
+            plan_json.write_text(json.dumps(unsafe_role), encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
+
+            unsafe_container = json.loads(json.dumps(plan))
+            containers = json.loads(unsafe_container["resource_changes"][0]["change"]["after"]["container_definitions"])
+            containers[0]["secrets"] = []
+            unsafe_container["resource_changes"][0]["change"]["after"]["container_definitions"] = json.dumps(containers)
+            plan_json.write_text(json.dumps(unsafe_container), encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
+
+            unsafe_s3 = json.loads(json.dumps(plan))
+            unsafe_s3["resource_changes"] = [
+                {
+                    "address": "aws_s3_bucket.evidence",
+                    "type": "aws_s3_bucket",
+                    "change": {"actions": ["delete", "create"], "before": {"bucket": "old"}, "after": {"bucket": "new"}},
+                }
+            ]
+            plan_json.write_text(json.dumps(unsafe_s3), encoding="utf-8")
             with self.assertRaises(SystemExit):
                 auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
 
