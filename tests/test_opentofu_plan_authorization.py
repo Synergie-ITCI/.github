@@ -348,6 +348,21 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             plan_json.write_text(json.dumps(plan), encoding="utf-8")
             auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
 
+            normalized_empty_fields = json.loads(json.dumps(plan))
+            normalized_empty_fields["resource_changes"][0]["change"]["before"]["ipc_mode"] = ""
+            normalized_empty_fields["resource_changes"][0]["change"]["after"]["ipc_mode"] = None
+            normalized_empty_fields["resource_changes"][0]["change"]["before"]["pid_mode"] = ""
+            normalized_empty_fields["resource_changes"][0]["change"]["after"]["pid_mode"] = None
+            plan_json.write_text(json.dumps(normalized_empty_fields), encoding="utf-8")
+            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
+
+            unsafe_pid_mode = json.loads(json.dumps(plan))
+            unsafe_pid_mode["resource_changes"][0]["change"]["before"]["pid_mode"] = ""
+            unsafe_pid_mode["resource_changes"][0]["change"]["after"]["pid_mode"] = "task"
+            plan_json.write_text(json.dumps(unsafe_pid_mode), encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
+
             unsafe_role = json.loads(json.dumps(plan))
             unsafe_role["resource_changes"][0]["change"]["after"]["task_role_arn"] = "arn:aws:iam::918870682888:role/Other"
             plan_json.write_text(json.dumps(unsafe_role), encoding="utf-8")
