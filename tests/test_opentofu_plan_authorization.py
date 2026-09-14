@@ -4,6 +4,7 @@ import base64
 import datetime as dt
 import hashlib
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -22,7 +23,7 @@ VALID_PLAN = "b" * 64
 VALID_IMPORT_MAP = "c" * 64
 VALID_WORKFLOW = (
     "Synergie-ITCI/.github/.github/workflows/"
-    "fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc130"
+    "fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc132"
 )
 NOW = dt.datetime(2026, 9, 12, 5, 0, tzinfo=dt.UTC)
 
@@ -53,7 +54,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
 
     def test_workflow_uses_remote_state_release_action(self) -> None:
         workflow = (ROOT / ".github/workflows/fieldzilla-staging-opentofu-apply.yml").read_text(encoding="utf-8")
-        self.assertIn("uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc130", workflow)
+        self.assertIn("uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc132", workflow)
         self.assertIn("tofu -chdir=infra/aws init -input=false -lockfile=readonly", workflow)
         self.assertIn("dynamodb_table = \"${STATE_LOCK_TABLE}\"", workflow)
         self.assertIn("Backup current remote state object", workflow)
@@ -62,6 +63,16 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
         self.assertIn("${{ runner.temp }}/approved/${{ inputs.artifact-name }}/${{ inputs.artifact-name }}", workflow)
         self.assertNotIn("-backend=false", workflow)
         self.assertNotIn("devops-audit", workflow)
+
+    def test_fieldzilla_workflow_does_not_mix_release_pins(self) -> None:
+        workflow = (ROOT / ".github/workflows/fieldzilla-staging-opentofu-apply.yml").read_text(encoding="utf-8")
+        central = re.search(
+            r"CENTRAL_WORKFLOW_REF: .*fieldzilla-staging-opentofu-apply\.yml@refs/tags/(pr-qa-v1-rc\d+)",
+            workflow,
+        )
+        self.assertIsNotNone(central)
+        internal_pins = set(re.findall(r"opentofu-plan-authorizer@(pr-qa-v1-rc\d+)", workflow))
+        self.assertEqual(internal_pins, {central.group(1)})
 
     def assert_rejected(self, **overrides: object) -> None:
         with self.assertRaises(SystemExit):
@@ -117,7 +128,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
         claims = {
             "aud": "sts.amazonaws.com",
             "repository": "Synergie-ITCI/programme-management-platform",
-            "job_workflow_ref": "Synergie-ITCI/.github/.github/workflows/other.yml@refs/tags/pr-qa-v1-rc130",
+            "job_workflow_ref": "Synergie-ITCI/.github/.github/workflows/other.yml@refs/tags/pr-qa-v1-rc132",
             "sub": (
                 "repo:Synergie-ITCI@209829096/"
                 "programme-management-platform@1315697868:environment:synergie-app-staging"
