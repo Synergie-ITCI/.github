@@ -15,6 +15,10 @@ on:
         description: Exact approved programme-management-platform commit SHA.
         required: true
         type: string
+      image-tag:
+        description: Exact FieldZilla container image tag SHA to render into task definitions.
+        required: true
+        type: string
       expected-plan-sha256:
         description: Exact SHA-256 of the approved OpenTofu binary plan file.
         required: false
@@ -70,8 +74,8 @@ env:
   STATE_LOCK_TABLE: synergie-fieldzilla-opentofu-locks
   STATE_KMS_ALIAS: alias/synergie/fieldzilla/opentofu-state
   INFRA_APPLY_ROLE_ARN: arn:aws:iam::918870682888:role/SynergieProgrammeManagementPlatformStagingInfraApplyRole
-  CENTRAL_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc133
-  TF_VAR_image_tag: 4700ced6ec44758a0fe7cce7075817cdc7403de5
+  CENTRAL_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc134
+  TF_VAR_image_tag: ${{ inputs.image-tag }}
 
 jobs:
   remote-state:
@@ -92,6 +96,14 @@ jobs:
         with:
           ref: ${{ inputs.expected-sha }}
           persist-credentials: false
+
+      - name: Validate image tag input
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "${TF_VAR_image_tag}" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "image-tag must be an exact 40-character lowercase hex SHA" >&2
+            exit 1
+          fi
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -117,7 +129,7 @@ jobs:
 
       - name: Validate mutation authorization inputs
         if: ${{ inputs.mode == 'import' || inputs.mode == 'apply' }}
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc133
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc134
         with:
           command: verify-inputs
           actor: ${{ github.actor }}
@@ -134,7 +146,7 @@ jobs:
 
       - name: Verify OIDC token claims
         if: ${{ inputs.mode == 'import' || inputs.mode == 'apply' }}
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc133
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc134
         with:
           command: verify-oidc
           token-file: ${{ env.TOKEN_PATH }}
@@ -148,7 +160,7 @@ jobs:
         if: ${{ inputs.mode == 'import' || inputs.mode == 'apply' }}
         env:
           GH_TOKEN: ${{ github.token }}
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc133
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc134
         with:
           command: verify-native-reviewers
           native-reviewers-available: ${{ inputs.native-reviewers-available }}
@@ -157,7 +169,7 @@ jobs:
         if: ${{ inputs.mode == 'import' || inputs.mode == 'apply' }}
         env:
           GH_TOKEN: ${{ github.token }}
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc133
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc134
         with:
           command: check-single-use
           actor: ${{ github.actor }}
@@ -210,7 +222,7 @@ jobs:
           ENCRYPTION="${encryption}" VERSIONING="${versioning}" PAB="${pab}" python3 -c 'import json,os,pathlib; doc={"account_id":os.environ["AWS_ACCOUNT_ID"],"region":os.environ["AWS_REGION"],"bucket":os.environ["STATE_BUCKET"],"key":os.environ["STATE_KEY"],"dynamodb_table":os.environ["STATE_LOCK_TABLE"],"bucket_versioning":os.environ["VERSIONING"],"bucket_encryption":os.environ["ENCRYPTION"],"public_access_blocked":os.environ["PAB"].split()==["True","True","True","True"]}; pathlib.Path(os.environ["RUNNER_TEMP"],"backend.json").write_text(json.dumps(doc, indent=2, sort_keys=True)); print(json.dumps(doc, indent=2, sort_keys=True))'
 
       - name: Verify backend metadata
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc133
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc134
         with:
           command: verify-backend
           backend-metadata-path: ${{ runner.temp }}/backend.json
@@ -273,7 +285,7 @@ jobs:
 
       - name: Verify generated plan safety
         if: ${{ inputs.mode == 'plan' || inputs.mode == 'post-import-plan' || inputs.mode == 'drift' }}
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc133
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc134
         with:
           command: verify-plan-safety
           plan-json-path: ${{ runner.temp }}/fieldzilla-plan/fieldzilla-staging.plan.json
@@ -281,7 +293,7 @@ jobs:
 
       - name: Verify generated artifact contents
         if: ${{ inputs.mode == 'plan' || inputs.mode == 'post-import-plan' || inputs.mode == 'drift' }}
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc133
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc134
         with:
           command: verify-artifact-files
           artifact-dir: ${{ runner.temp }}/fieldzilla-plan
@@ -320,7 +332,7 @@ jobs:
         if: ${{ inputs.mode == 'apply' }}
         env:
           GH_TOKEN: ${{ github.token }}
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc133
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc134
         with:
           command: verify-source-artifact
           actor: ${{ github.actor }}
@@ -341,7 +353,7 @@ jobs:
 
       - name: Verify approved artifact metadata and files
         if: ${{ inputs.mode == 'apply' }}
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc133
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc134
         with:
           command: verify-artifact-metadata
           artifact-dir: ${{ env.APPROVED_DIR }}
@@ -355,7 +367,7 @@ jobs:
 
       - name: Verify approved artifact file allowlist
         if: ${{ inputs.mode == 'apply' }}
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc133
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc134
         with:
           command: verify-artifact-files
           artifact-dir: ${{ env.APPROVED_DIR }}
@@ -377,7 +389,7 @@ jobs:
 
       - name: Verify approved import map
         if: ${{ inputs.mode == 'import' }}
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc133
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc134
         with:
           command: verify-import-map
           import-map-path: ${{ env.APPROVED_DIR }}/import-map.json
@@ -387,7 +399,7 @@ jobs:
         if: ${{ inputs.mode == 'import' }}
         env:
           GH_TOKEN: ${{ github.token }}
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc133
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc134
         with:
           command: mark-used
           actor: ${{ github.actor }}
@@ -443,7 +455,7 @@ jobs:
 
       - name: Gate approved apply plan
         if: ${{ inputs.mode == 'apply' }}
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc133
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc134
         with:
           command: verify-plan-safety
           plan-json-path: ${{ runner.temp }}/approved-plan.json
@@ -453,7 +465,7 @@ jobs:
         if: ${{ inputs.mode == 'apply' }}
         env:
           GH_TOKEN: ${{ github.token }}
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc133
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc134
         with:
           command: mark-used
           actor: ${{ github.actor }}

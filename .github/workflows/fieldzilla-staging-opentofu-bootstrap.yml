@@ -36,7 +36,7 @@ env:
   STATE_LOCK_TABLE: synergie-fieldzilla-opentofu-locks
   STATE_KMS_ALIAS: alias/synergie/fieldzilla/opentofu-state
   INFRA_APPLY_ROLE_ARN: arn:aws:iam::918870682888:role/SynergieProgrammeManagementPlatformStagingInfraApplyRole
-  CENTRAL_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-bootstrap.yml@refs/tags/pr-qa-v1-rc133
+  CENTRAL_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-bootstrap.yml@refs/tags/pr-qa-v1-rc134
 
 jobs:
   bootstrap:
@@ -67,7 +67,7 @@ jobs:
           echo "TOKEN_PATH=${token_path}" >> "${GITHUB_ENV}"
 
       - name: Validate bootstrap authorization inputs
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc133
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc134
         with:
           command: verify-inputs
           actor: ${{ github.actor }}
@@ -81,7 +81,7 @@ jobs:
           job-workflow-ref: ${{ env.CENTRAL_WORKFLOW_REF }}
 
       - name: Verify OIDC token claims
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc133
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc134
         with:
           command: verify-oidc
           token-file: ${{ env.TOKEN_PATH }}
@@ -94,7 +94,7 @@ jobs:
       - name: Verify native reviewer fallback is available
         env:
           GH_TOKEN: ${{ github.token }}
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc133
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc134
         with:
           command: verify-native-reviewers
           native-reviewers-available: ${{ inputs.native-reviewers-available }}
@@ -102,7 +102,7 @@ jobs:
       - name: Check authorization has not been used
         env:
           GH_TOKEN: ${{ github.token }}
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc133
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc134
         with:
           command: check-single-use
           actor: ${{ github.actor }}
@@ -118,7 +118,7 @@ jobs:
       - name: Mark bootstrap authorization used
         env:
           GH_TOKEN: ${{ github.token }}
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc133
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc134
         with:
           command: mark-used
           actor: ${{ github.actor }}
