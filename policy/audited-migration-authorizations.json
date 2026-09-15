@@ -1,1 +1,43 @@
-[]
+[
+  {
+    "authorization_id": "d5c48a27-a2a3-442c-8909-b141bd558b91",
+    "repository": "Synergie-ITCI/programme-management-platform",
+    "repository_id": 1315697868,
+    "pr_number": 118,
+    "head_ref": "development",
+    "base_ref": "staging",
+    "expected_head_sha": "55d357fe02ff83b2c15f9c7346982f15f4e47d55",
+    "expected_base_sha": "9743125067113b73209984a99e01982f7e7d9779",
+    "migration_path": "apps/api/alembic/sql/20260910_0038.sql",
+    "migration_sha256": "56d29de95cd31ae88509757f414da89a679161761da07693605e0db1a631f773",
+    "delete_fingerprints": [
+      {
+        "line": 375,
+        "sha256": "9965fa9be54aa737fb8b2de3167134d1148f3fca0ccea81b6f21d86036b5f975"
+      },
+      {
+        "line": 388,
+        "sha256": "f1e2b02f94b888158ad1996fd9d40177b26f0f47a5b227c3b7f909a87c3301bf"
+      },
+      {
+        "line": 389,
+        "sha256": "01d56dbe5d8adebe70a5cef76b0d18e5bf0246ed670c013631b4a9b5ff119151"
+      },
+      {
+        "line": 390,
+        "sha256": "e1d8239a68dab277024cc8d943bfd433eb9fd848fa708ca74a09125afc4239a0"
+      },
+      {
+        "line": 391,
+        "sha256": "9cd66159aa692b88d51f8ca09d4ea8baffac76de0bfe5726d091fc1f4d4d48ee"
+      }
+    ],
+    "approved_reviewer": {
+      "login": "SaurabhVermaIN",
+      "id": 52234089
+    },
+    "issued_at": "2026-09-15T09:22:25Z",
+    "expires_at": "2026-09-16T09:22:25Z",
+    "purpose": "Authorize PR #118's audited runtime erasure DELETE definitions in normalized submission migration 0038 only."
+  }
+]

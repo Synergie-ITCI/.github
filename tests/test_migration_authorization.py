@@ -309,8 +309,16 @@ class BundledMigrationAuthorizationTests(unittest.TestCase):
         records = approval.load_authorizations()
         self.assertLessEqual(len(records), 1)
         for record in records:
-            self.assertEqual(record["pr_number"], 134)
+            self.assertEqual(record["pr_number"], 118)
             self.assertEqual(record["repository_id"], 1315697868)
+            self.assertEqual(
+                record["expected_head_sha"],
+                "55d357fe02ff83b2c15f9c7346982f15f4e47d55",
+            )
+            self.assertEqual(
+                record["expected_base_sha"],
+                "9743125067113b73209984a99e01982f7e7d9779",
+            )
             self.assertEqual(
                 record["migration_sha256"],
                 "56d29de95cd31ae88509757f414da89a679161761da07693605e0db1a631f773",
@@ -323,7 +331,18 @@ class BundledMigrationAuthorizationTests(unittest.TestCase):
                 record["approved_reviewer"], {"login": "SaurabhVermaIN", "id": 52234089}
             )
         policy = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())
-        self.assertNotIn("one_time_baseline_alignment", policy)
+        baseline = policy["one_time_baseline_alignment"]
+        self.assertEqual(baseline["pr_number"], 118)
+        self.assertEqual(baseline["repository_id"], 1315697868)
+        self.assertEqual(
+            baseline["expected_head_sha"],
+            "55d357fe02ff83b2c15f9c7346982f15f4e47d55",
+        )
+        self.assertEqual(
+            baseline["expected_base_sha"],
+            "9743125067113b73209984a99e01982f7e7d9779",
+        )
+        self.assertEqual(len(baseline["gitleaks_allowlist"]), 2)
         for limits in (policy["minimum_thresholds"], policy["defaults"]["thresholds"]):
             self.assertEqual(
                 (limits["max_additions"], limits["max_changed_files"]), (5000, 200)
