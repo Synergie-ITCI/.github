@@ -28,7 +28,7 @@ STATE_LOCK_TABLE = "synergie-fieldzilla-opentofu-locks"
 STATE_KEY = "programme-management-platform/fieldzilla/staging/opentofu.tfstate"
 APPROVED_CONTAINER_INSTANCE_TYPES = {"t4g.small", "c6g.medium"}
 MAX_EXPIRY_MINUTES = 60
-FIELDZILLA_IMAGE_SHA = "4700ced6ec44758a0fe7cce7075817cdc7403de5"
+FIELDZILLA_IMAGE_SHA = "d726b33be5cffb1528da067334df174584799477"
 
 AUTH_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{7,79}$")
 SHA = re.compile(r"^[0-9a-f]{40}$")

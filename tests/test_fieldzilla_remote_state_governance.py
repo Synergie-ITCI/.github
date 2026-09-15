@@ -72,7 +72,7 @@ class FieldZillaRemoteStateGovernanceTests(unittest.TestCase):
         self.assertNotIn("workflow_call:", workflow)
         self.assertIn("environment: synergie-app-staging", workflow)
         self.assertIn("INFRA_APPLY_ROLE_ARN: arn:aws:iam::918870682888:role/SynergieProgrammeManagementPlatformStagingInfraApplyRole", workflow)
-        self.assertIn("fieldzilla-staging-opentofu-bootstrap.yml@refs/tags/pr-qa-v1-rc133", workflow)
+        self.assertIn("fieldzilla-staging-opentofu-bootstrap.yml@refs/tags/pr-qa-v1-rc134", workflow)
         self.assertIn("aws kms create-key", workflow)
         self.assertIn("aws s3api create-bucket", workflow)
         self.assertIn("aws dynamodb create-table", workflow)
@@ -95,8 +95,11 @@ class FieldZillaRemoteStateGovernanceTests(unittest.TestCase):
     def test_workflow_preserves_exact_artifact_and_oidc_release_binding(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
 
-        self.assertIn("CENTRAL_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc133", workflow)
-        self.assertIn("TF_VAR_image_tag: 4700ced6ec44758a0fe7cce7075817cdc7403de5", workflow)
+        self.assertIn("CENTRAL_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc134", workflow)
+        self.assertIn("image-tag:", workflow)
+        self.assertIn("TF_VAR_image_tag: ${{ inputs.image-tag }}", workflow)
+        self.assertIn("Validate image tag input", workflow)
+        self.assertIn("^[0-9a-f]{40}$", workflow)
         self.assertIn("Verify OIDC token claims", workflow)
         self.assertIn("verify-source-artifact", workflow)
         self.assertIn("mark-used", workflow)
