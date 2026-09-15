@@ -152,7 +152,7 @@
     "repository": "Synergie-ITCI/programme-management-platform",
     "repository_id": 1315697868,
     "pr_number": 118,
-    "expected_head_sha": "c6f91a6853bb537930f541a1140961271106aecf",
+    "expected_head_sha": "bec5d1c7b2e1bc0afb8bb7db5ffd4b3240cea722",
     "expected_base_sha": "9743125067113b73209984a99e01982f7e7d9779",
     "head_ref": "development",
     "base_ref": "staging",
@@ -180,7 +180,7 @@
         "line_sha256": "487a316d262ee58fd9e5dcfd6244c47de79033d8b125e0968e9d1db3018b89b0",
         "fingerprint": "ee31b9427731c9da732ac697414fe6c0b7043f22:apps/mobile/ios/Podfile.lock:generic-api-key:2182",
         "justification": "CocoaPods package name React-cxxstableapi and checksum, not a credential.",
-        "scope": "PR #118 exact head c6f91a6853bb537930f541a1140961271106aecf only.",
+        "scope": "PR #118 exact head bec5d1c7b2e1bc0afb8bb7db5ffd4b3240cea722 only.",
         "expires_after": "2026-09-16T09:22:25Z"
       },
       {
@@ -190,7 +190,7 @@
         "line_sha256": "b4189c887b980d0e2bf873fd159be426cfdae5cf148acbbfee07d0901795eacb",
         "fingerprint": "ee31b9427731c9da732ac697414fe6c0b7043f22:apps/mobile/ios/Podfile.lock:generic-api-key:2253",
         "justification": "CocoaPods package name RNKeychain and checksum, not a credential.",
-        "scope": "PR #118 exact head c6f91a6853bb537930f541a1140961271106aecf only.",
+        "scope": "PR #118 exact head bec5d1c7b2e1bc0afb8bb7db5ffd4b3240cea722 only.",
         "expires_after": "2026-09-16T09:22:25Z"
       }
     ]
