@@ -6,7 +6,7 @@
     "pr_number": 118,
     "head_ref": "development",
     "base_ref": "staging",
-    "expected_head_sha": "55d357fe02ff83b2c15f9c7346982f15f4e47d55",
+    "expected_head_sha": "c6f91a6853bb537930f541a1140961271106aecf",
     "expected_base_sha": "9743125067113b73209984a99e01982f7e7d9779",
     "migration_path": "apps/api/alembic/sql/20260910_0038.sql",
     "migration_sha256": "56d29de95cd31ae88509757f414da89a679161761da07693605e0db1a631f773",

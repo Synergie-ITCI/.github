@@ -313,7 +313,7 @@ class BundledMigrationAuthorizationTests(unittest.TestCase):
             self.assertEqual(record["repository_id"], 1315697868)
             self.assertEqual(
                 record["expected_head_sha"],
-                "55d357fe02ff83b2c15f9c7346982f15f4e47d55",
+                "c6f91a6853bb537930f541a1140961271106aecf",
             )
             self.assertEqual(
                 record["expected_base_sha"],
@@ -336,7 +336,7 @@ class BundledMigrationAuthorizationTests(unittest.TestCase):
         self.assertEqual(baseline["repository_id"], 1315697868)
         self.assertEqual(
             baseline["expected_head_sha"],
-            "55d357fe02ff83b2c15f9c7346982f15f4e47d55",
+            "c6f91a6853bb537930f541a1140961271106aecf",
         )
         self.assertEqual(
             baseline["expected_base_sha"],
