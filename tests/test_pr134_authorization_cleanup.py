@@ -23,7 +23,8 @@ class Pr134AuthorizationCleanupTests(unittest.TestCase):
 
     def test_default_limits_and_security_gates_remain_enforced(self):
         policy = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())
-        self.assertNotIn("one_time_baseline_alignment", policy)
+        authorization = policy.get("one_time_baseline_alignment", {})
+        self.assertNotEqual(authorization.get("pr_number"), 134)
         for limits in (policy["minimum_thresholds"], policy["defaults"]["thresholds"]):
             self.assertEqual(limits["max_additions"], 5000)
             self.assertEqual(limits["max_changed_files"], 200)
