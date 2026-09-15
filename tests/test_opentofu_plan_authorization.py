@@ -367,6 +367,28 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             plan_json.write_text(json.dumps(normalized_empty_fields), encoding="utf-8")
             auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
 
+            approved_previous_sha = next(iter(auth.APPROVED_PREVIOUS_FIELDZILLA_IMAGE_SHAS))
+            approved_previous = json.loads(json.dumps(plan))
+            previous_containers = json.loads(approved_previous["resource_changes"][0]["change"]["before"]["container_definitions"])
+            previous_containers[0]["image"] = (
+                "918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/api:"
+                f"{approved_previous_sha}"
+            )
+            approved_previous["resource_changes"][0]["change"]["before"]["container_definitions"] = json.dumps(previous_containers)
+            plan_json.write_text(json.dumps(approved_previous), encoding="utf-8")
+            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
+
+            unapproved_previous = json.loads(json.dumps(approved_previous))
+            unapproved_containers = json.loads(unapproved_previous["resource_changes"][0]["change"]["before"]["container_definitions"])
+            unapproved_containers[0]["image"] = (
+                "918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/api:"
+                "1111111111111111111111111111111111111111"
+            )
+            unapproved_previous["resource_changes"][0]["change"]["before"]["container_definitions"] = json.dumps(unapproved_containers)
+            plan_json.write_text(json.dumps(unapproved_previous), encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
+
             unsafe_pid_mode = json.loads(json.dumps(plan))
             unsafe_pid_mode["resource_changes"][0]["change"]["before"]["pid_mode"] = ""
             unsafe_pid_mode["resource_changes"][0]["change"]["after"]["pid_mode"] = "task"

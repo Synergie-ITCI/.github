@@ -29,6 +29,9 @@ STATE_KEY = "programme-management-platform/fieldzilla/staging/opentofu.tfstate"
 APPROVED_CONTAINER_INSTANCE_TYPES = {"t4g.small", "c6g.medium"}
 MAX_EXPIRY_MINUTES = 60
 FIELDZILLA_IMAGE_SHA = "d726b33be5cffb1528da067334df174584799477"
+APPROVED_PREVIOUS_FIELDZILLA_IMAGE_SHAS = {
+    "4700ced6ec44758a0fe7cce7075817cdc7403de5",
+}
 
 AUTH_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{7,79}$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -371,7 +374,10 @@ def is_approved_ecs_task_definition_revision(change: dict[str, Any], variables: 
             return False
         before_image = str(before_container.get("image", ""))
         after_image = str(after_container.get("image", ""))
-        if not before_image.endswith(":bootstrap"):
+        approved_previous_tags = {":bootstrap"} | {
+            f":{sha}" for sha in APPROVED_PREVIOUS_FIELDZILLA_IMAGE_SHAS
+        }
+        if not any(before_image.endswith(tag) for tag in approved_previous_tags):
             return False
         if not after_image.endswith(f":{FIELDZILLA_IMAGE_SHA}"):
             return False

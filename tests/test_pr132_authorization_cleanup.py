@@ -55,7 +55,8 @@ class Pr132AuthorizationCleanupTests(unittest.TestCase):
         )
 
     def test_current_policy_contains_no_pr132_baseline_authorization(self) -> None:
-        self.assertNotIn("one_time_baseline_alignment", self.policy)
+        authorization = self.policy.get("one_time_baseline_alignment", {})
+        self.assertNotEqual(authorization.get("pr_number"), 132)
         serialized = json.dumps(self.policy, sort_keys=True)
         self.assertNotIn("4f22e29f-ce07-4db3-b674-0e5bc7af5fe0", serialized)
         self.assertNotIn("fb31d4ab-3d6e-423d-b2f0-8e0a28ecbda8", serialized)

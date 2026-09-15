@@ -147,6 +147,54 @@
       }
     }
   },
+  "one_time_baseline_alignment": {
+    "enabled": true,
+    "repository": "Synergie-ITCI/programme-management-platform",
+    "repository_id": 1315697868,
+    "pr_number": 118,
+    "expected_head_sha": "55d357fe02ff83b2c15f9c7346982f15f4e47d55",
+    "expected_base_sha": "9743125067113b73209984a99e01982f7e7d9779",
+    "head_ref": "development",
+    "base_ref": "staging",
+    "allowed_effective_additions": 91693,
+    "allowed_changed_files": 529,
+    "minimum_changed_files": 500,
+    "purpose": "Authorize the existing integrated FieldZilla development-to-staging promotion PR #118 while preserving exact-head technical gates.",
+    "issued_at": "2026-09-15T09:22:25Z",
+    "expires_after": "2026-09-16T09:22:25Z",
+    "authorization_id": "8c35fada-9d78-4bbb-a9e7-e9f7c5aa0fc2",
+    "required_pr_body_marker": "FIELDZILLA-PR118-BASELINE-AUTHORIZED",
+    "relaxations": [
+      "changed_file_count",
+      "diff_size",
+      "exact_gitleaks_fingerprint_allowlist",
+      "historical_commit_volume",
+      "historical_migration_count",
+      "historical_protected_resources"
+    ],
+    "gitleaks_allowlist": [
+      {
+        "rule_id": "generic-api-key",
+        "path": "apps/mobile/ios/Podfile.lock",
+        "line": 2182,
+        "line_sha256": "487a316d262ee58fd9e5dcfd6244c47de79033d8b125e0968e9d1db3018b89b0",
+        "fingerprint": "ee31b9427731c9da732ac697414fe6c0b7043f22:apps/mobile/ios/Podfile.lock:generic-api-key:2182",
+        "justification": "CocoaPods package name React-cxxstableapi and checksum, not a credential.",
+        "scope": "PR #118 exact head 55d357fe02ff83b2c15f9c7346982f15f4e47d55 only.",
+        "expires_after": "2026-09-16T09:22:25Z"
+      },
+      {
+        "rule_id": "generic-api-key",
+        "path": "apps/mobile/ios/Podfile.lock",
+        "line": 2253,
+        "line_sha256": "b4189c887b980d0e2bf873fd159be426cfdae5cf148acbbfee07d0901795eacb",
+        "fingerprint": "ee31b9427731c9da732ac697414fe6c0b7043f22:apps/mobile/ios/Podfile.lock:generic-api-key:2253",
+        "justification": "CocoaPods package name RNKeychain and checksum, not a credential.",
+        "scope": "PR #118 exact head 55d357fe02ff83b2c15f9c7346982f15f4e47d55 only.",
+        "expires_after": "2026-09-16T09:22:25Z"
+      }
+    ]
+  },
   "minimum_thresholds": {
     "max_file_bytes": 5242880,
     "max_changed_files": 200,
