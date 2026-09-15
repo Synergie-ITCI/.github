@@ -152,13 +152,13 @@
     "repository": "Synergie-ITCI/programme-management-platform",
     "repository_id": 1315697868,
     "pr_number": 118,
-    "expected_head_sha": "55d357fe02ff83b2c15f9c7346982f15f4e47d55",
+    "expected_head_sha": "c6f91a6853bb537930f541a1140961271106aecf",
     "expected_base_sha": "9743125067113b73209984a99e01982f7e7d9779",
     "head_ref": "development",
     "base_ref": "staging",
     "allowed_effective_additions": 91693,
-    "allowed_changed_files": 529,
-    "minimum_changed_files": 500,
+    "allowed_changed_files": 470,
+    "minimum_changed_files": 470,
     "purpose": "Authorize the existing integrated FieldZilla development-to-staging promotion PR #118 while preserving exact-head technical gates.",
     "issued_at": "2026-09-15T09:22:25Z",
     "expires_after": "2026-09-16T09:22:25Z",
@@ -180,7 +180,7 @@
         "line_sha256": "487a316d262ee58fd9e5dcfd6244c47de79033d8b125e0968e9d1db3018b89b0",
         "fingerprint": "ee31b9427731c9da732ac697414fe6c0b7043f22:apps/mobile/ios/Podfile.lock:generic-api-key:2182",
         "justification": "CocoaPods package name React-cxxstableapi and checksum, not a credential.",
-        "scope": "PR #118 exact head 55d357fe02ff83b2c15f9c7346982f15f4e47d55 only.",
+        "scope": "PR #118 exact head c6f91a6853bb537930f541a1140961271106aecf only.",
         "expires_after": "2026-09-16T09:22:25Z"
       },
       {
@@ -190,7 +190,7 @@
         "line_sha256": "b4189c887b980d0e2bf873fd159be426cfdae5cf148acbbfee07d0901795eacb",
         "fingerprint": "ee31b9427731c9da732ac697414fe6c0b7043f22:apps/mobile/ios/Podfile.lock:generic-api-key:2253",
         "justification": "CocoaPods package name RNKeychain and checksum, not a credential.",
-        "scope": "PR #118 exact head 55d357fe02ff83b2c15f9c7346982f15f4e47d55 only.",
+        "scope": "PR #118 exact head c6f91a6853bb537930f541a1140961271106aecf only.",
         "expires_after": "2026-09-16T09:22:25Z"
       }
     ]
