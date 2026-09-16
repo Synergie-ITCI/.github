@@ -5590,7 +5590,7 @@ def build_baseline_summary(ctx: PRContext, git_context: dict[str, Any], results:
     governance_files = [
         rel
         for rel in ctx.changed_files
-        if rel in {"CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS", ".gitleaks.toml"}
+        if rel in {"CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS", ".gitleaks.toml", ".gitleaksignore"}
         or rel.startswith(("policy/", "schemas/", ".github/"))
     ]
     binary_files = [

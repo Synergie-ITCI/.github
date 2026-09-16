@@ -209,6 +209,7 @@
       "criticality": "medium",
       "protected_paths": [
         ".gitleaks.toml",
+        ".gitleaksignore",
         ".github/**",
         "CODEOWNERS",
         "docs/CODEOWNERS",
