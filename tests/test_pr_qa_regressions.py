@@ -3975,6 +3975,15 @@ exit 0
         self.assertNotIn("unexpected hidden file or directory `.gitleaks.toml`", report)
         self.assertIn("Protected resources changed", report)
 
+    def test_approved_gitleaksignore_hidden_asset_is_not_integrity_failure(self) -> None:
+        repo, base = self.init_repo("approved-gitleaksignore-asset")
+        self.write(repo / ".gitleaksignore", "deadbeef:app.py:generic-api-key:1\n")
+        self.commit(repo, "chore: add gitleaks exact-fingerprint allowlist")
+        code, report = self.run_engine(repo, base, static_only=True)
+        self.assertEqual(code, 0)
+        self.assertNotIn("unexpected hidden file or directory `.gitleaksignore`", report)
+        self.assertIn("Protected resources changed", report)
+
     def test_unknown_hidden_file_still_fails(self) -> None:
         repo, base = self.init_repo("unknown-hidden")
         self.write(repo / ".unknownrc", "setting=true\n")
