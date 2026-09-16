@@ -378,6 +378,16 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             plan_json.write_text(json.dumps(approved_previous), encoding="utf-8")
             auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
 
+            last_deployed = json.loads(json.dumps(plan))
+            last_deployed_containers = json.loads(last_deployed["resource_changes"][0]["change"]["before"]["container_definitions"])
+            last_deployed_containers[0]["image"] = (
+                "918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/api:"
+                "774051cf74a7b8ada2f26e5c24959fdc99d6380b"
+            )
+            last_deployed["resource_changes"][0]["change"]["before"]["container_definitions"] = json.dumps(last_deployed_containers)
+            plan_json.write_text(json.dumps(last_deployed), encoding="utf-8")
+            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
+
             unapproved_previous = json.loads(json.dumps(approved_previous))
             unapproved_containers = json.loads(unapproved_previous["resource_changes"][0]["change"]["before"]["container_definitions"])
             unapproved_containers[0]["image"] = (

@@ -28,8 +28,9 @@ STATE_LOCK_TABLE = "synergie-fieldzilla-opentofu-locks"
 STATE_KEY = "programme-management-platform/fieldzilla/staging/opentofu.tfstate"
 APPROVED_CONTAINER_INSTANCE_TYPES = {"t4g.small", "c6g.medium"}
 MAX_EXPIRY_MINUTES = 60
-FIELDZILLA_IMAGE_SHA = "774051cf74a7b8ada2f26e5c24959fdc99d6380b"
+FIELDZILLA_IMAGE_SHA = "ef924580fb690c1e8ec9dc0f27fa1d27b204c111"
 APPROVED_PREVIOUS_FIELDZILLA_IMAGE_SHAS = {
+    "774051cf74a7b8ada2f26e5c24959fdc99d6380b",
     "4700ced6ec44758a0fe7cce7075817cdc7403de5",
 }
 
