@@ -19,6 +19,9 @@ import opentofu_plan_authorization as auth  # noqa: E402
 
 
 VALID_SHA = "a" * 40
+DEPLOY_SHA = "ef924580fb690c1e8ec9dc0f27fa1d27b204c111"
+IMAGE_DIGEST = "sha256:" + "9" * 64
+ECS_FAMILIES = ",".join(sorted(auth.APPROVED_FIELDZILLA_TASK_FAMILIES))
 VALID_PLAN = "b" * 64
 VALID_IMPORT_MAP = "c" * 64
 VALID_WORKFLOW = (
@@ -37,6 +40,8 @@ def valid_args(**overrides: object) -> Namespace:
         "github_sha": VALID_SHA,
         "expected_plan_sha256": VALID_PLAN,
         "expected_import_map_sha256": VALID_IMPORT_MAP,
+        "image_digest": "",
+        "ecs_families": "",
         "expires_at": "2026-09-12T05:30:00Z",
         "authorization_id": "fieldzilla-20260912-01",
         "native_reviewers_available": "false",
@@ -87,6 +92,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
         self.assert_rejected(environment="production")
         self.assert_rejected(expected_sha="A" * 40)
         self.assert_rejected(github_sha="d" * 40)
+        self.assert_rejected(repository_id=999)
 
     def test_rejects_bad_hashes_expiry_reuse_or_native_reviewers(self) -> None:
         self.assert_rejected(expected_plan_sha256="not-a-hash")
@@ -95,6 +101,8 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
         self.assert_rejected(expires_at="2026-09-12T06:01:00Z")
         self.assert_rejected(authorization_id="../bad")
         self.assert_rejected(native_reviewers_available="true")
+        self.assert_rejected(image_digest="not-a-digest")
+        self.assert_rejected(ecs_families="fieldzilla-staging-api")
 
     def test_verifies_native_reviewer_fallback_from_environment_rules(self) -> None:
         with mock.patch.object(auth, "github_api", return_value={"protection_rules": []}):
@@ -172,7 +180,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
         def fake_api(path: str, method: str = "GET", payload: dict[str, object] | None = None):
             if path == "actions/runs/34706513572":
                 return {
-                    "head_repository": {"full_name": "Synergie-ITCI/programme-management-platform"},
+                    "head_repository": {"full_name": "Synergie-ITCI/programme-management-platform", "id": 1315697868},
                     "head_sha": VALID_SHA,
                     "conclusion": "success",
                     "path": ".github/workflows/fieldzilla-staging-iac.yml",
@@ -208,8 +216,11 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
                 json.dumps(
                     {
                         "repository": "Synergie-ITCI/programme-management-platform",
+                        "repository_id": 1315697868,
                         "environment": "synergie-app-staging",
                         "commit_sha": VALID_SHA,
+                        "image_digest": IMAGE_DIGEST,
+                        "ecs_families": sorted(auth.APPROVED_FIELDZILLA_TASK_FAMILIES),
                         "workflow_run_id": "34706513572",
                         "artifact_name": artifact_name,
                         "plan_sha256": plan_sha,
@@ -227,12 +238,98 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
                     expected_sha=VALID_SHA,
                     expected_plan_sha256=plan_sha,
                     expected_import_map_sha256=import_sha,
+                    image_digest=IMAGE_DIGEST,
+                    ecs_families=ECS_FAMILIES,
                     source_run_id="34706513572",
                     artifact_id="123456",
                     artifact_name=artifact_name,
                     expected_artifact_digest="e" * 64,
                 )
             )
+
+    def test_routine_ecs_authorization_binds_digest_family_and_blocks_non_ecs(self) -> None:
+        before_containers = [
+            {
+                "name": "api",
+                "image": "918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/api:774051cf74a7b8ada2f26e5c24959fdc99d6380b",
+                "cpu": 256,
+                "memory": 512,
+                "essential": True,
+            }
+        ]
+        after_containers = [
+            {
+                **before_containers[0],
+                "image": f"918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/api:{DEPLOY_SHA}",
+                "imageDigest": IMAGE_DIGEST,
+            }
+        ]
+        before = {
+            "family": "fieldzilla-staging-api",
+            "cpu": "256",
+            "memory": "512",
+            "network_mode": "bridge",
+            "requires_compatibilities": ["EC2"],
+            "execution_role_arn": "arn:aws:iam::918870682888:role/SynergieFieldzillaStagingEcsExecution",
+            "task_role_arn": "arn:aws:iam::918870682888:role/SynergieFieldzillaStagingTask",
+            "container_definitions": json.dumps(before_containers, sort_keys=True),
+            "runtime_platform": [],
+            "track_latest": False,
+            "volume": [],
+        }
+        after = {**before, "container_definitions": json.dumps(after_containers, sort_keys=True)}
+        base = {
+            "variables": {
+                "enable_production": {"value": False},
+                "route53_zone_id": {"value": ""},
+                "container_instance_type": {"value": "c6g.medium"},
+                "monthly_budget_usd": {"value": "100"},
+                "image_tag": {"value": DEPLOY_SHA},
+            },
+            "resource_changes": [
+                {
+                    "address": 'aws_ecs_task_definition.api["staging"]',
+                    "type": "aws_ecs_task_definition",
+                    "change": {"actions": ["delete", "create"], "before": before, "after": after},
+                },
+                {
+                    "address": 'aws_ecs_service.api["staging"]',
+                    "type": "aws_ecs_service",
+                    "change": {
+                        "actions": ["update"],
+                        "before": {"task_definition": "arn:aws:ecs:ap-south-1:918870682888:task-definition/fieldzilla-staging-api:3"},
+                        "after": {"task_definition": "arn:aws:ecs:ap-south-1:918870682888:task-definition/fieldzilla-staging-api:4"},
+                    },
+                },
+            ],
+        }
+        args = Namespace(plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest=IMAGE_DIGEST, ecs_families=ECS_FAMILIES)
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_json = Path(tmp) / "plan.json"
+            plan_json.write_text(json.dumps(base), encoding="utf-8")
+            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, **vars(args)))
+
+            wrong_digest = json.loads(json.dumps(base))
+            containers = json.loads(wrong_digest["resource_changes"][0]["change"]["after"]["container_definitions"])
+            containers[0]["imageDigest"] = "sha256:" + "8" * 64
+            wrong_digest["resource_changes"][0]["change"]["after"]["container_definitions"] = json.dumps(containers)
+            plan_json.write_text(json.dumps(wrong_digest), encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, **vars(args)))
+
+            destructive = json.loads(json.dumps(base))
+            destructive["resource_changes"].append(
+                {"address": "aws_db_instance.fieldzilla", "type": "aws_db_instance", "change": {"actions": ["delete"], "before": {}, "after": None}}
+            )
+            plan_json.write_text(json.dumps(destructive), encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, **vars(args)))
+
+            role_broadening = json.loads(json.dumps(base))
+            role_broadening["resource_changes"][1]["change"]["after"]["desired_count"] = 2
+            plan_json.write_text(json.dumps(role_broadening), encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, **vars(args)))
 
     def test_rejects_artifact_substitution_and_prohibited_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -323,7 +420,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
                 "secrets": [{"name": "APP_KEY", "valueFrom": "arn:aws:secretsmanager:ap-south-1:918870682888:secret:/synergie/fieldzilla/staging/runtime:APP_KEY::"}],
             }
         ]
-        container_after = [{**container_before[0], "image": f"918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/api:{auth.FIELDZILLA_IMAGE_SHA}"}]
+        container_after = [{**container_before[0], "image": f"918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/api:{DEPLOY_SHA}"}]
         before = {
             "family": "fieldzilla-staging-api",
             "cpu": "256",
@@ -344,7 +441,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
                 "route53_zone_id": {"value": ""},
                 "container_instance_type": {"value": "c6g.medium"},
                 "monthly_budget_usd": {"value": "100"},
-                "image_tag": {"value": auth.FIELDZILLA_IMAGE_SHA},
+                "image_tag": {"value": DEPLOY_SHA},
             },
             "resource_changes": [
                 {
@@ -357,7 +454,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             plan_json = Path(tmp) / "plan.json"
             plan_json.write_text(json.dumps(plan), encoding="utf-8")
-            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
+            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families=""))
 
             normalized_empty_fields = json.loads(json.dumps(plan))
             normalized_empty_fields["resource_changes"][0]["change"]["before"]["ipc_mode"] = ""
@@ -365,9 +462,9 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             normalized_empty_fields["resource_changes"][0]["change"]["before"]["pid_mode"] = ""
             normalized_empty_fields["resource_changes"][0]["change"]["after"]["pid_mode"] = None
             plan_json.write_text(json.dumps(normalized_empty_fields), encoding="utf-8")
-            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
+            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families=""))
 
-            approved_previous_sha = next(iter(auth.APPROVED_PREVIOUS_FIELDZILLA_IMAGE_SHAS))
+            approved_previous_sha = "774051cf74a7b8ada2f26e5c24959fdc99d6380b"
             approved_previous = json.loads(json.dumps(plan))
             previous_containers = json.loads(approved_previous["resource_changes"][0]["change"]["before"]["container_definitions"])
             previous_containers[0]["image"] = (
@@ -376,7 +473,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             )
             approved_previous["resource_changes"][0]["change"]["before"]["container_definitions"] = json.dumps(previous_containers)
             plan_json.write_text(json.dumps(approved_previous), encoding="utf-8")
-            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
+            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families=""))
 
             last_deployed = json.loads(json.dumps(plan))
             last_deployed_containers = json.loads(last_deployed["resource_changes"][0]["change"]["before"]["container_definitions"])
@@ -386,18 +483,15 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             )
             last_deployed["resource_changes"][0]["change"]["before"]["container_definitions"] = json.dumps(last_deployed_containers)
             plan_json.write_text(json.dumps(last_deployed), encoding="utf-8")
-            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
+            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families=""))
 
-            unapproved_previous = json.loads(json.dumps(approved_previous))
-            unapproved_containers = json.loads(unapproved_previous["resource_changes"][0]["change"]["before"]["container_definitions"])
-            unapproved_containers[0]["image"] = (
-                "918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/api:"
-                "1111111111111111111111111111111111111111"
-            )
-            unapproved_previous["resource_changes"][0]["change"]["before"]["container_definitions"] = json.dumps(unapproved_containers)
-            plan_json.write_text(json.dumps(unapproved_previous), encoding="utf-8")
+            wrong_target_sha = json.loads(json.dumps(plan))
+            wrong_target_sha["variables"]["image_tag"]["value"] = "1111111111111111111111111111111111111111"
+            plan_json.write_text(json.dumps(wrong_target_sha), encoding="utf-8")
             with self.assertRaises(SystemExit):
-                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
+                auth.verify_plan_safety(
+                    Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families="")
+                )
 
             unsafe_pid_mode = json.loads(json.dumps(plan))
             unsafe_pid_mode["resource_changes"][0]["change"]["before"]["pid_mode"] = ""
@@ -445,24 +539,28 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
                 "after": None,
             }
             plan_json.write_text(json.dumps(retired_revision), encoding="utf-8")
-            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
+            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families=""))
 
             wrong_family_retirement = json.loads(json.dumps(retired_revision))
             wrong_family_retirement["resource_changes"][0]["change"]["before"]["family"] = "fieldzilla-production-api"
             plan_json.write_text(json.dumps(wrong_family_retirement), encoding="utf-8")
             with self.assertRaises(SystemExit):
-                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
+                auth.verify_plan_safety(
+                    Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families="")
+                )
 
             wrong_image_retirement = json.loads(json.dumps(retired_revision))
             wrong_image_containers = json.loads(wrong_image_retirement["resource_changes"][0]["change"]["before"]["container_definitions"])
             wrong_image_containers[0]["image"] = (
-                "918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/api:"
+                "918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/other/staging/api:"
                 "2222222222222222222222222222222222222222"
             )
             wrong_image_retirement["resource_changes"][0]["change"]["before"]["container_definitions"] = json.dumps(wrong_image_containers)
             plan_json.write_text(json.dumps(wrong_image_retirement), encoding="utf-8")
             with self.assertRaises(SystemExit):
-                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
+                auth.verify_plan_safety(
+                    Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families="")
+                )
 
     def test_verifies_import_map_and_rejects_wrong_ownership(self) -> None:
         good_doc = {
