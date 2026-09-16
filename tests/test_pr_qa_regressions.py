@@ -4823,6 +4823,58 @@ exit 0
         self.assertEqual(report_json["summary"]["gate_statuses"]["Protected Resources"], "FAIL")
         self.assertIn("Protected resources changed but base-branch CODEOWNERS was not found", report)
 
+    # --- codeowners_blob_matches_target_branch adversarial tests ---
+
+    def test_codeowners_blob_no_op_merge_passes(self) -> None:
+        """PR that touches CODEOWNERS but leaves the merge-result identical to target should pass."""
+        repo, base = self.init_repo("codeowners-blob-noop")
+        # Branch modifies CODEOWNERS then reverts to exactly the base content.
+        self.write(repo / ".github" / "CODEOWNERS", "* @synergie/security\n.github/** @synergie/devops\n")
+        self.commit(repo, "chore: revert codeowners to base content")
+        code, report = self.run_engine(repo, base, static_only=True)
+        # The PR shows CODEOWNERS in diff (HEAD was touched) but blob equals base_sha blob after
+        # revert, so it should not be treated as a protected-resource violation.
+        self.assertEqual(code, 0, report)
+
+    def test_codeowners_blob_attacker_modification_blocked(self) -> None:
+        """PR that changes CODEOWNERS to attacker-controlled content must be blocked."""
+        repo, base = self.init_repo("codeowners-blob-attack")
+        self.write(repo / ".github" / "CODEOWNERS", "* @attacker\n")
+        self.commit(repo, "chore: hostile codeowners takeover")
+        code, report = self.run_engine(repo, base, static_only=True)
+        self.assertNotEqual(code, 0)
+        self.assertIn("CODEOWNERS changes are not allowed", report)
+
+    def test_codeowners_blob_add_then_revert_within_branch_is_blocked(self) -> None:
+        """A branch that modifies CODEOWNERS mid-PR but tip differs from base must be blocked.
+
+        This covers the case where multiple commits touch CODEOWNERS: the net result at HEAD
+        still differs from base, so protection must fire.
+        """
+        repo, base = self.init_repo("codeowners-blob-midpr-rebase")
+        # Commit 1: add a comment line (still different from base content).
+        self.write(repo / ".github" / "CODEOWNERS", "# extra comment\n* @synergie/security\n.github/** @synergie/devops\n")
+        self.commit(repo, "chore: add comment to codeowners")
+        code, report = self.run_engine(repo, base, static_only=True)
+        self.assertNotEqual(code, 0)
+
+    def test_codeowners_blob_missing_base_sha_fails_closed(self) -> None:
+        """If git_context provides no base_sha the function must fail closed (block)."""
+        repo, base = self.init_repo("codeowners-blob-no-base")
+        self.write(repo / ".github" / "CODEOWNERS", "* @attacker\n")
+        self.commit(repo, "chore: hostile change")
+        # Pass an invalid base SHA — engine should treat it as missing and block.
+        code, report = self.run_engine(repo, "0000000000000000000000000000000000000000", static_only=True)
+        self.assertNotEqual(code, 0)
+
+    def test_codeowners_blob_subtle_whitespace_change_blocked(self) -> None:
+        """A CODEOWNERS change that differs only in trailing whitespace must still be blocked."""
+        repo, base = self.init_repo("codeowners-blob-whitespace")
+        self.write(repo / ".github" / "CODEOWNERS", "* @synergie/security \n.github/** @synergie/devops\n")
+        self.commit(repo, "chore: trailing whitespace in codeowners")
+        code, report = self.run_engine(repo, base, static_only=True)
+        self.assertNotEqual(code, 0)
+
     def test_framework_profile_classifies_approved_regression_fixture(self) -> None:
         repo, base = self.init_repo("framework-fixture", profile="framework")
         self.write(repo / "tests" / "test_pr_qa_regressions.py", "TOKEN = 'ghp_abcdefghijklmnopqrstuvwxyz123456'\n")

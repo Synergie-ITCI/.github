@@ -2918,6 +2918,12 @@ def is_baseline_static_executable_asset(ctx: PRContext, rel: str) -> bool:
 def gate_protected_resources(ctx: PRContext, git_context: dict[str, Any]) -> list[CheckResult]:
     protected_patterns = ctx.config.get("repository", {}).get("protected_paths", [])
     changed = [path for path in ctx.changed_files if match_any(path, protected_patterns)]
+    changed = [
+        path
+        for path in changed
+        if path not in CODEOWNERS_PATHS
+        or not codeowners_blob_matches_target_branch(ctx, git_context, path)
+    ]
     authorized_overlay = [path for path in changed if baseline_authorized_overlay_path(ctx, path)]
     governed_infra = [
         path
@@ -2946,7 +2952,7 @@ def gate_protected_resources(ctx: PRContext, git_context: dict[str, Any]) -> lis
         if path
         not in set(authorized_overlay + governed_infra + inherited_protected + inherited_codeowners)
     ]
-    codeowners_changed = any(path in CODEOWNERS_PATHS for path in ctx.changed_files)
+    codeowners_changed = any(path in CODEOWNERS_PATHS for path in changed)
     codeowners_changed_for_standard_policy = any(path in CODEOWNERS_PATHS for path in changed_for_standard_policy)
     codeowners = load_base_codeowners(ctx.repo, git_context)
     if codeowners_changed and authorized_overlay and not codeowners_changed_for_standard_policy:
@@ -3180,6 +3186,63 @@ def codeowners_pattern_targets_protected_path(pattern: str, protected_patterns: 
         if codeowners_covers(pattern_probe_path(protected_pattern), [pattern]):
             return True
     return False
+
+
+def _blob_oid(repo: Path, ref: str, rel: str) -> str:
+    """Return the git blob OID for rel at ref, or '' on any error."""
+    result = subprocess.run(["git", "ls-tree", ref, "--", rel], cwd=repo, capture_output=True, text=True, check=False)
+    if result.returncode != 0 or not result.stdout.strip():
+        return ""
+    parts = result.stdout.split()
+    return parts[2] if len(parts) >= 3 else ""
+
+
+def codeowners_blob_matches_target_branch(ctx: PRContext, git_context: dict[str, Any], path: str) -> bool:
+    """Return True iff merging HEAD into the target tip would leave `path` unchanged.
+
+    Computes the prospective merge-result blob via 3-way logic and compares it with
+    the target-tip (base_sha) blob.  Fails closed: returns False on any missing or
+    unreadable data so a bad or absent blob never silently bypasses protection.
+    """
+    repo = ctx.repo
+    base_sha = git_context.get("base_sha")
+    if not base_sha or not git_context.get("is_git_repo"):
+        return False
+    if not commit_exists(repo, base_sha):
+        return False
+
+    merge_base_result = subprocess.run(
+        ["git", "merge-base", base_sha, "HEAD"],
+        cwd=repo, capture_output=True, text=True, check=False,
+    )
+    if merge_base_result.returncode != 0 or not merge_base_result.stdout.strip():
+        return False
+    merge_base_sha = merge_base_result.stdout.strip()
+
+    base_blob = _blob_oid(repo, base_sha, path)
+    head_blob = _blob_oid(repo, "HEAD", path)
+    ancestor_blob = _blob_oid(repo, merge_base_sha, path)
+
+    # Fail closed when the target-tip blob is unreadable (file absent at target counts as "").
+    # An absent-at-HEAD blob means the PR deletes the file; never treat deletion as no-op.
+    if not head_blob:
+        return False
+
+    # Determine the prospective merge-result blob using 3-way logic.
+    if head_blob == ancestor_blob:
+        # PR branch did not change this file; merge result == target's current blob.
+        prospective = base_blob
+    elif base_blob == ancestor_blob:
+        # Target did not change this file since the fork; merge result == HEAD's blob.
+        prospective = head_blob
+    elif head_blob == base_blob:
+        # Both branches converged on the same content; merge result == that shared blob.
+        prospective = base_blob
+    else:
+        # Divergent 3-way change — cannot safely resolve without conflict detection; fail closed.
+        return False
+
+    return bool(prospective) and prospective == base_blob
 
 
 def load_base_codeowners(repo: Path, git_context: dict[str, Any]) -> list[str]:
