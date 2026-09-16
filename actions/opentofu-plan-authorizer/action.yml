@@ -23,6 +23,12 @@ inputs:
   expected-plan-sha256:
     required: false
     description: Exact approved OpenTofu plan SHA-256.
+  image-digest:
+    required: false
+    description: Exact approved image digest for routine ECS deployments.
+  ecs-families:
+    required: false
+    description: Comma-separated ECS task-definition families approved for this deployment.
   expected-import-map-sha256:
     required: false
     description: Exact approved controlled import mapping SHA-256.
@@ -83,6 +89,8 @@ runs:
         EXPECTED_SHA: ${{ inputs.expected-sha }}
         GITHUB_SHA_INPUT: ${{ inputs.github-sha }}
         EXPECTED_PLAN_SHA256: ${{ inputs.expected-plan-sha256 }}
+        IMAGE_DIGEST: ${{ inputs.image-digest }}
+        ECS_FAMILIES: ${{ inputs.ecs-families }}
         EXPECTED_IMPORT_MAP_SHA256: ${{ inputs.expected-import-map-sha256 }}
         EXPIRES_AT: ${{ inputs.expires-at }}
         AUTHORIZATION_ID: ${{ inputs.authorization-id }}
@@ -107,6 +115,8 @@ runs:
           --expected-sha "${EXPECTED_SHA}"
           --github-sha "${GITHUB_SHA_INPUT}"
           --expected-plan-sha256 "${EXPECTED_PLAN_SHA256}"
+          --image-digest "${IMAGE_DIGEST}"
+          --ecs-families "${ECS_FAMILIES}"
           --expected-import-map-sha256 "${EXPECTED_IMPORT_MAP_SHA256}"
           --expires-at "${EXPIRES_AT}"
           --authorization-id "${AUTHORIZATION_ID}"
@@ -142,6 +152,8 @@ runs:
               --artifact-dir "${ARTIFACT_DIR}" \
               --expected-sha "${EXPECTED_SHA}" \
               --expected-plan-sha256 "${EXPECTED_PLAN_SHA256}" \
+              --image-digest "${IMAGE_DIGEST}" \
+              --ecs-families "${ECS_FAMILIES}" \
               --expected-import-map-sha256 "${EXPECTED_IMPORT_MAP_SHA256}" \
               --source-run-id "${SOURCE_RUN_ID}" \
               --artifact-id "${ARTIFACT_ID}" \
@@ -155,7 +167,10 @@ runs:
           verify-plan-safety)
             python3 "${SCRIPT_PATH}" verify-plan-safety \
               --plan-json-path "${PLAN_JSON_PATH}" \
-              --plan-kind "${PLAN_KIND}"
+              --plan-kind "${PLAN_KIND}" \
+              --expected-sha "${EXPECTED_SHA}" \
+              --image-digest "${IMAGE_DIGEST}" \
+              --ecs-families "${ECS_FAMILIES}"
             ;;
           verify-import-map)
             python3 "${SCRIPT_PATH}" verify-import-map \

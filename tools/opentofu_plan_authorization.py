@@ -17,6 +17,7 @@ from typing import Any
 
 APPROVER = "SaurabhVermaIN"
 REPOSITORY = "Synergie-ITCI/programme-management-platform"
+REPOSITORY_ID = 1315697868
 ENVIRONMENT = "synergie-app-staging"
 CENTRAL_REPOSITORY = "Synergie-ITCI/.github"
 WORKFLOW_PATH = ".github/workflows/fieldzilla-staging-opentofu-apply.yml"
@@ -28,11 +29,6 @@ STATE_LOCK_TABLE = "synergie-fieldzilla-opentofu-locks"
 STATE_KEY = "programme-management-platform/fieldzilla/staging/opentofu.tfstate"
 APPROVED_CONTAINER_INSTANCE_TYPES = {"t4g.small", "c6g.medium"}
 MAX_EXPIRY_MINUTES = 60
-FIELDZILLA_IMAGE_SHA = "ef924580fb690c1e8ec9dc0f27fa1d27b204c111"
-APPROVED_PREVIOUS_FIELDZILLA_IMAGE_SHAS = {
-    "774051cf74a7b8ada2f26e5c24959fdc99d6380b",
-    "4700ced6ec44758a0fe7cce7075817cdc7403de5",
-}
 APPROVED_FIELDZILLA_TASK_FAMILIES = {
     "fieldzilla-staging-api",
     "fieldzilla-staging-admin-web",
@@ -43,6 +39,7 @@ APPROVED_FIELDZILLA_TASK_FAMILIES = {
 AUTH_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{7,79}$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
+IMAGE_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 RUN_ID = re.compile(r"^[1-9][0-9]{5,}$")
 ARTIFACT_ID = re.compile(r"^[1-9][0-9]*$")
 ARTIFACT_NAME = re.compile(r"^fieldzilla-staging-(plan|post-import|drift)-[0-9a-f]{40}-[1-9][0-9]*$")
@@ -104,6 +101,14 @@ def verify_inputs(args: argparse.Namespace, now: dt.datetime | None = None) -> N
         die("expected commit SHA must be exact 40-character lowercase hex")
     if args.github_sha != args.expected_sha:
         die("workflow commit SHA does not match approved SHA")
+    if getattr(args, "repository_id", REPOSITORY_ID) != REPOSITORY_ID:
+        die("repository id mismatch")
+    if getattr(args, "image_digest", "") and not IMAGE_DIGEST.fullmatch(args.image_digest):
+        die("image digest must be exact sha256 digest")
+    if getattr(args, "ecs_families", ""):
+        families = set(args.ecs_families.split(","))
+        if families != APPROVED_FIELDZILLA_TASK_FAMILIES:
+            die("ECS family authorization mismatch")
     if args.expected_plan_sha256 and not SHA256.fullmatch(args.expected_plan_sha256):
         die("plan SHA-256 must be exact 64-character lowercase hex")
     if args.expected_import_map_sha256 and not SHA256.fullmatch(args.expected_import_map_sha256):
@@ -195,6 +200,8 @@ def verify_source_artifact(args: argparse.Namespace) -> None:
     run = github_api(f"actions/runs/{args.source_run_id}")
     if run.get("head_repository", {}).get("full_name") != REPOSITORY:
         die("source run repository mismatch")
+    if run.get("head_repository", {}).get("id") != REPOSITORY_ID:
+        die("source run repository id mismatch")
     if run.get("head_sha") != args.expected_sha:
         die("source run commit mismatch")
     if run.get("conclusion") != "success":
@@ -274,6 +281,12 @@ def verify_artifact_metadata(args: argparse.Namespace) -> None:
         plan_path = args.artifact_dir / "fieldzilla-staging.tfplan"
         if not plan_path.is_file() or sha256_file(plan_path) != args.expected_plan_sha256:
             die("downloaded OpenTofu plan hash mismatch")
+    if getattr(args, "image_digest", "") and metadata.get("image_digest") != args.image_digest:
+        die("artifact image digest mismatch")
+    if getattr(args, "ecs_families", ""):
+        families = metadata.get("ecs_families")
+        if families != sorted(APPROVED_FIELDZILLA_TASK_FAMILIES):
+            die("artifact ECS family authorization mismatch")
     if args.expected_import_map_sha256:
         import_path = args.artifact_dir / "import-map.json"
         if not import_path.is_file() or sha256_file(import_path) != args.expected_import_map_sha256:
@@ -291,6 +304,7 @@ def verify_plan_safety(args: argparse.Namespace) -> None:
         die("container host size is outside approved design")
     if str(variables.get("monthly_budget_usd")) != "100":
         die("monthly budget guardrail mismatch")
+    routine_ecs_only = bool(getattr(args, "image_digest", ""))
 
     counts: dict[str, int] = {}
     for change in doc.get("resource_changes", []):
@@ -299,9 +313,15 @@ def verify_plan_safety(args: argparse.Namespace) -> None:
         counts[key] = counts.get(key, 0) + 1
         address = change.get("address", "")
         rtype = change.get("type", "")
+        if routine_ecs_only and actions != ["no-op"]:
+            if not (
+                is_approved_ecs_task_definition_revision(change, variables, args)
+                or is_approved_ecs_service_update(change)
+            ):
+                die("routine ECS deployment contains non-ECS or unapproved changes")
         if (
             ("delete" in actions or actions in (["create", "delete"], ["delete", "create"]))
-            and not is_approved_ecs_task_definition_revision(change, variables)
+            and not is_approved_ecs_task_definition_revision(change, variables, args)
         ):
             die("plan contains destructive actions")
         if "route53" in rtype.lower() or "route53" in address.lower():
@@ -328,14 +348,30 @@ def _decode_container_definitions(value: Any) -> list[dict[str, Any]]:
 
 
 def _without_image(container: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in container.items() if key != "image"}
+    return {key: value for key, value in container.items() if key not in {"image", "imageDigest", "image_digest"}}
 
 
 def _empty_string_equivalent(value: Any) -> Any:
     return None if value == "" else value
 
 
-def is_approved_ecs_task_definition_revision(change: dict[str, Any], variables: dict[str, Any]) -> bool:
+def _authorized_image_sha(args: argparse.Namespace | None, variables: dict[str, Any]) -> str | None:
+    if args is not None and getattr(args, "expected_sha", ""):
+        return args.expected_sha
+    value = variables.get("image_tag")
+    return value if isinstance(value, str) and SHA.fullmatch(value) else None
+
+
+def _image_has_authorized_digest(container: dict[str, Any], args: argparse.Namespace | None) -> bool:
+    if args is None or not getattr(args, "image_digest", ""):
+        return True
+    digest = str(container.get("imageDigest") or container.get("image_digest") or "")
+    return digest in {"", args.image_digest}
+
+
+def is_approved_ecs_task_definition_revision(
+    change: dict[str, Any], variables: dict[str, Any], args: argparse.Namespace | None = None
+) -> bool:
     if change.get("type") != "aws_ecs_task_definition":
         return False
     address = change.get("address", "")
@@ -350,18 +386,17 @@ def is_approved_ecs_task_definition_revision(change: dict[str, Any], variables: 
     if not isinstance(before, dict):
         return False
 
-    if variables.get("image_tag") != FIELDZILLA_IMAGE_SHA:
+    authorized_sha = _authorized_image_sha(args, variables)
+    if variables.get("image_tag") != authorized_sha:
         return False
 
     if before.get("family") not in APPROVED_FIELDZILLA_TASK_FAMILIES:
         return False
 
-    approved_image_tags = {FIELDZILLA_IMAGE_SHA, *APPROVED_PREVIOUS_FIELDZILLA_IMAGE_SHAS}
-
     if actions == ["delete"]:
         before_containers = _decode_container_definitions(before.get("container_definitions"))
         return all(
-            any(str(container.get("image", "")).endswith(f":{tag}") for tag in approved_image_tags)
+            str(container.get("image", "")).startswith("918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/")
             for container in before_containers
         )
 
@@ -399,13 +434,32 @@ def is_approved_ecs_task_definition_revision(change: dict[str, Any], variables: 
             return False
         before_image = str(before_container.get("image", ""))
         after_image = str(after_container.get("image", ""))
-        approved_previous_tags = {":bootstrap"} | {f":{sha}" for sha in APPROVED_PREVIOUS_FIELDZILLA_IMAGE_SHAS}
-        if not any(before_image.endswith(tag) for tag in approved_previous_tags):
+        if not before_image.startswith("918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/"):
             return False
-        if not after_image.endswith(f":{FIELDZILLA_IMAGE_SHA}"):
+        if not after_image.endswith(f":{authorized_sha}"):
+            return False
+        if not _image_has_authorized_digest(after_container, args):
             return False
 
     return True
+
+
+def is_approved_ecs_service_update(change: dict[str, Any]) -> bool:
+    if change.get("type") != "aws_ecs_service":
+        return False
+    if '"staging"' not in change.get("address", ""):
+        return False
+    if change.get("change", {}).get("actions") != ["update"]:
+        return False
+    before = change.get("change", {}).get("before")
+    after = change.get("change", {}).get("after")
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return False
+    changed = {key for key in set(before) | set(after) if before.get(key) != after.get(key)}
+    if changed - {"task_definition"}:
+        return False
+    task_definition = str(after.get("task_definition", ""))
+    return any(f":task-definition/{family}:" in task_definition for family in APPROVED_FIELDZILLA_TASK_FAMILIES)
 
 
 def verify_import_map(args: argparse.Namespace) -> None:
@@ -457,8 +511,11 @@ def deployment_payload(args: argparse.Namespace) -> dict[str, str]:
     return {
         "authorization_id": args.authorization_id,
         "environment": ENVIRONMENT,
+        "repository_id": str(REPOSITORY_ID),
         "commit_sha": args.expected_sha,
         "plan_sha256": args.expected_plan_sha256 or "",
+        "image_digest": getattr(args, "image_digest", ""),
+        "ecs_families": getattr(args, "ecs_families", ""),
         "import_map_sha256": args.expected_import_map_sha256 or "",
         "source_run_id": getattr(args, "source_run_id", ""),
         "artifact_id": getattr(args, "artifact_id", ""),
@@ -505,11 +562,14 @@ def main() -> None:
     def add_common(target: argparse.ArgumentParser) -> None:
         target.add_argument("--actor", required=True)
         target.add_argument("--repository", required=True)
+        target.add_argument("--repository-id", type=int, default=REPOSITORY_ID)
         target.add_argument("--environment", required=True)
         target.add_argument("--expected-sha", required=True)
         target.add_argument("--github-sha", required=True)
         target.add_argument("--expected-plan-sha256", default="")
         target.add_argument("--expected-import-map-sha256", default="")
+        target.add_argument("--image-digest", default="")
+        target.add_argument("--ecs-families", default="")
         target.add_argument("--expires-at", required=True)
         target.add_argument("--authorization-id", required=True)
         target.add_argument("--native-reviewers-available", required=True)
@@ -536,6 +596,8 @@ def main() -> None:
     meta.add_argument("--expected-sha", required=True)
     meta.add_argument("--expected-plan-sha256", default="")
     meta.add_argument("--expected-import-map-sha256", default="")
+    meta.add_argument("--image-digest", default="")
+    meta.add_argument("--ecs-families", default="")
     meta.add_argument("--source-run-id", required=True)
     meta.add_argument("--artifact-id", required=True)
     meta.add_argument("--artifact-name", required=True)
@@ -545,6 +607,9 @@ def main() -> None:
     safety = sub.add_parser("verify-plan-safety")
     safety.add_argument("--plan-json-path", type=Path, required=True)
     safety.add_argument("--plan-kind", default="normal")
+    safety.add_argument("--expected-sha", default="")
+    safety.add_argument("--image-digest", default="")
+    safety.add_argument("--ecs-families", default="")
     imports = sub.add_parser("verify-import-map")
     imports.add_argument("--import-map-path", type=Path, required=True)
     imports.add_argument("--expected-import-map-sha256", required=True)
