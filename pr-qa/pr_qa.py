@@ -4340,7 +4340,9 @@ def promotion_direct_size_accounting(ctx: PRContext) -> dict[str, int] | None:
         base_sha = pull_request.get("base", {}).get("sha") or ""
     if not base_sha or not commit_exists(ctx.repo, base_sha):
         return None
-    direct_commits = git_lines(ctx.repo, ["rev-list", "--first-parent", "--no-merges", f"{base_sha}..HEAD"])
+    checkpoint_sha = promotion_direct_tree_equivalent_checkpoint(ctx.repo, base_sha)
+    accounting_base_sha = checkpoint_sha or base_sha
+    direct_commits = git_lines(ctx.repo, ["rev-list", "--first-parent", "--no-merges", f"{accounting_base_sha}..HEAD"])
     changed: set[str] = set()
     additions = 0
     deletions = 0
@@ -4368,17 +4370,69 @@ def promotion_direct_size_accounting(ctx: PRContext) -> dict[str, int] | None:
         if is_generated_npm_lockfile(ctx, rel):
             excluded_additions += add
             excluded_deletions += delete
+    net_numstat = git_numstat_by_path(ctx.repo, f"{base_sha}..HEAD")
+    net_additions = 0
+    net_deletions = 0
+    net_excluded_additions = 0
+    net_excluded_deletions = 0
+    for rel, (add, delete) in net_numstat.items():
+        net_additions += add
+        net_deletions += delete
+        if is_generated_npm_lockfile(ctx, rel):
+            net_excluded_additions += add
+            net_excluded_deletions += delete
+    effective_additions = max(additions - excluded_additions, 0)
+    net_effective_additions = max(net_additions - net_excluded_additions, 0)
     accounting = {
         "changed_files": len(changed),
         "raw_additions": additions,
         "raw_deletions": deletions,
         "generated_lockfile_additions_excluded": excluded_additions,
         "generated_lockfile_deletions_excluded": excluded_deletions,
-        "effective_additions": max(additions - excluded_additions, 0),
+        "effective_additions": effective_additions,
         "effective_deletions": max(deletions - excluded_deletions, 0),
+        "current_net_effective_additions": net_effective_additions,
+        "threshold_effective_additions": max(effective_additions, net_effective_additions),
+        "threshold_changed_files": max(len(changed), len(net_numstat)),
+        "checkpoint_applied": 1 if checkpoint_sha else 0,
     }
     cache["promotion_direct_size_accounting"] = accounting
     return dict(accounting)
+
+
+def promotion_direct_tree_equivalent_checkpoint(repo: Path, base_sha: str) -> str:
+    if not base_sha or not commit_exists(repo, base_sha) or not commit_exists(repo, "HEAD"):
+        return ""
+    shallow = subprocess.run(["git", "rev-parse", "--is-shallow-repository"], cwd=repo, capture_output=True, text=True, check=False)
+    if shallow.returncode != 0 or shallow.stdout.strip().lower() == "true":
+        return ""
+    main_history = subprocess.run(["git", "rev-list", base_sha], cwd=repo, capture_output=True, text=True, check=False)
+    if main_history.returncode != 0 or not main_history.stdout.strip():
+        return ""
+    main_trees: set[str] = set()
+    for sha in main_history.stdout.splitlines():
+        tree = run_git(repo, ["rev-parse", "--verify", f"{sha}^{{tree}}"]).strip()
+        if not tree:
+            return ""
+        main_trees.add(tree)
+    staging_commits = subprocess.run(
+        ["git", "rev-list", "--reverse", "--first-parent", "--no-merges", f"{base_sha}..HEAD"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if staging_commits.returncode != 0:
+        return ""
+    checkpoint = ""
+    first_parent_commits = staging_commits.stdout.splitlines()
+    for sha in first_parent_commits[:-1]:
+        tree = run_git(repo, ["rev-parse", "--verify", f"{sha}^{{tree}}"]).strip()
+        if not tree:
+            return ""
+        if tree in main_trees:
+            checkpoint = sha
+    return checkpoint
 
 
 def gate_risk(ctx: PRContext, existing_results: list[CheckResult]) -> list[CheckResult]:
@@ -4401,6 +4455,8 @@ def gate_risk(ctx: PRContext, existing_results: list[CheckResult]) -> list[Check
             [
                 f"PROMOTION_DIRECT_CHANGED_FILES: {promotion_size['changed_files']}",
                 f"PROMOTION_DIRECT_EFFECTIVE_ADDITIONS: {promotion_size['effective_additions']}",
+                f"PROMOTION_CURRENT_NET_EFFECTIVE_ADDITIONS: {promotion_size['current_net_effective_additions']}",
+                f"PROMOTION_DIRECT_TREE_EQUIVALENT_CHECKPOINT_APPLIED: {promotion_size['checkpoint_applied']}",
             ]
         )
     threshold_findings = risk_threshold_findings(ctx)
@@ -4422,8 +4478,9 @@ def risk_threshold_findings(ctx: PRContext) -> list[str]:
     promotion_size = promotion_direct_size_accounting(ctx)
     changed_file_count = len(ctx.changed_files)
     if promotion_size is not None:
-        size = promotion_size
-        changed_file_count = promotion_size["changed_files"]
+        size = dict(promotion_size)
+        size["effective_additions"] = size["threshold_effective_additions"]
+        changed_file_count = promotion_size["threshold_changed_files"]
     max_changed = ctx.threshold("max_changed_files", 200)
     if not baseline_allows(ctx, "changed_file_count") and changed_file_count > max_changed:
         findings.append(f"changed_files={changed_file_count} exceeds max_changed_files={max_changed}")
@@ -4439,8 +4496,9 @@ def calculate_risk_score(ctx: PRContext, results: list[CheckResult]) -> int:
     promotion_size = promotion_direct_size_accounting(ctx)
     changed_file_count = len(ctx.changed_files)
     if promotion_size is not None:
-        size = promotion_size
-        changed_file_count = promotion_size["changed_files"]
+        size = dict(promotion_size)
+        size["effective_additions"] = size["threshold_effective_additions"]
+        changed_file_count = promotion_size["threshold_changed_files"]
     if not baseline_allows(ctx, "changed_file_count") and changed_file_count > ctx.threshold("max_changed_files", 200):
         score += 15
     elif not baseline_allows(ctx, "changed_file_count") and changed_file_count > 50:
