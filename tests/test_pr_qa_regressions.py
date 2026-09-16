@@ -2499,6 +2499,18 @@ exit 0
         for index in range(240):
             self.write(repo / "docs" / f"history-{index:03d}.md", "already governed promotion content\n" * 30)
         self.commit(repo, "docs: add governed source bulk")
+        development_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        self.git(repo, "checkout", "-q", "-B", "main", base)
+        for index in range(240):
+            self.write(repo / "docs" / f"history-{index:03d}.md", "already governed promotion content\n" * 30)
+        self.commit(repo, "docs: promote equivalent governed source bulk")
+        current_main = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.git(repo, "update-ref", "refs/remotes/origin/main", current_main)
+        self.assertEqual(
+            self.git(repo, "rev-parse", f"{development_sha}^{{tree}}").stdout.strip(),
+            self.git(repo, "rev-parse", f"{current_main}^{{tree}}").stdout.strip(),
+        )
 
         self.git(repo, "checkout", "-q", "-B", "staging", base)
         self.git(repo, "merge", "--no-ff", "-m", "Merge pull request #99 from Synergie-ITCI/development", "development")
@@ -2506,7 +2518,7 @@ exit 0
 
         code, report, report_json, _ = self.run_engine_with_artifacts(
             repo,
-            base,
+            current_main,
             base_ref="main",
             head_ref="staging",
             head_sha=staging_sha,
@@ -2542,6 +2554,174 @@ exit 0
         self.assertNotEqual(code, 0)
         self.assertEqual(report_json["summary"]["gate_statuses"]["Risk Engine"], "FAIL")
         self.assertIn("PR exceeds central size thresholds", report)
+
+    def test_tree_equivalent_promoted_staging_history_is_not_recounted(self) -> None:
+        repo, base = self.init_repo("promotion-tree-equivalent-checkpoint")
+        self.git(repo, "checkout", "-q", "-B", "staging", base)
+        for index in range(188):
+            self.write(repo / "docs" / f"promoted-{index:03d}.md", "previously reviewed content\n" * 30)
+        self.commit(repo, "docs: add prior staging promotion")
+        prior_staging = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        self.git(repo, "checkout", "-q", "-B", "main", base)
+        for index in range(188):
+            self.write(repo / "docs" / f"promoted-{index:03d}.md", "previously reviewed content\n" * 30)
+        self.commit(repo, "docs: promote equivalent prior staging tree")
+        current_main = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.git(repo, "update-ref", "refs/remotes/origin/main", current_main)
+        self.assertEqual(
+            self.git(repo, "rev-parse", f"{prior_staging}^{{tree}}").stdout.strip(),
+            self.git(repo, "rev-parse", f"{current_main}^{{tree}}").stdout.strip(),
+        )
+
+        self.git(repo, "checkout", "-q", "staging")
+        self.write(repo / "docs" / "new-promotion.md", "new reviewed content\n" * 107)
+        self.commit(repo, "docs: add current staging promotion delta")
+        staging_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            current_main,
+            base_ref="main",
+            head_ref="staging",
+            head_sha=staging_sha,
+            extra_args=["--no-command-runs"],
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertNotEqual(report_json["summary"]["gate_statuses"]["Risk Engine"], "FAIL")
+        risk_result = next(result for result in report_json["results"] if result["gate"] == "Risk Engine")
+        details = "\n".join(risk_result["details"])
+        self.assertIn("PROMOTION_DIRECT_EFFECTIVE_ADDITIONS: 107", details)
+        self.assertIn("PROMOTION_CURRENT_NET_EFFECTIVE_ADDITIONS: 107", details)
+        self.assertIn("PROMOTION_DIRECT_TREE_EQUIVALENT_CHECKPOINT_APPLIED: 1", details)
+
+    def test_large_reverted_changes_after_tree_checkpoint_still_fail(self) -> None:
+        repo, base = self.init_repo("promotion-post-checkpoint-reverted")
+        self.git(repo, "checkout", "-q", "-B", "staging", base)
+        self.write(repo / "docs" / "promoted.md", "already promoted\n")
+        self.commit(repo, "docs: add prior staging promotion")
+
+        self.git(repo, "checkout", "-q", "-B", "main", base)
+        self.write(repo / "docs" / "promoted.md", "already promoted\n")
+        self.commit(repo, "docs: promote equivalent prior staging tree")
+        current_main = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.git(repo, "update-ref", "refs/remotes/origin/main", current_main)
+
+        self.git(repo, "checkout", "-q", "staging")
+        self.write(repo / "docs" / "transient.md", "transient promotion content\n" * 5100)
+        self.commit(repo, "docs: add oversized transient promotion content")
+        (repo / "docs" / "transient.md").unlink()
+        self.commit(repo, "docs: revert oversized transient promotion content")
+        staging_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            current_main,
+            base_ref="main",
+            head_ref="staging",
+            head_sha=staging_sha,
+            extra_args=["--no-command-runs"],
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertNotEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Risk Engine"], "FAIL")
+
+    def test_reintroducing_old_main_tree_is_caught_by_net_diff(self) -> None:
+        repo, base = self.init_repo("promotion-old-main-tree-net-diff")
+        self.git(repo, "checkout", "-q", "-B", "main", base)
+        for index in range(188):
+            self.write(repo / "docs" / f"legacy-{index:03d}.md", "legacy main content\n" * 30)
+        self.commit(repo, "docs: add old main bulk tree")
+        old_main = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        for index in range(188):
+            (repo / "docs" / f"legacy-{index:03d}.md").unlink()
+        self.commit(repo, "docs: remove old main bulk tree")
+        current_main = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.git(repo, "update-ref", "refs/remotes/origin/main", current_main)
+
+        self.git(repo, "checkout", "-q", "-B", "staging", base)
+        for index in range(188):
+            self.write(repo / "docs" / f"legacy-{index:03d}.md", "legacy main content\n" * 30)
+        self.commit(repo, "docs: reintroduce old main tree")
+        staging_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.assertEqual(
+            self.git(repo, "rev-parse", f"{old_main}^{{tree}}").stdout.strip(),
+            self.git(repo, "rev-parse", f"{staging_sha}^{{tree}}").stdout.strip(),
+        )
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            current_main,
+            base_ref="main",
+            head_ref="staging",
+            head_sha=staging_sha,
+            extra_args=["--no-command-runs"],
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertNotEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Risk Engine"], "FAIL")
+
+    def test_missing_tree_checkpoint_retains_cumulative_direct_behavior(self) -> None:
+        repo, base = self.init_repo("promotion-missing-tree-checkpoint")
+        self.git(repo, "checkout", "-q", "-B", "main", base)
+        self.write(repo / "docs" / "main-only.md", "main reviewed content\n")
+        self.commit(repo, "chore: keep main current")
+        current_main = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.git(repo, "update-ref", "refs/remotes/origin/main", current_main)
+
+        self.git(repo, "checkout", "-q", "-B", "staging", base)
+        for index in range(188):
+            self.write(repo / "docs" / f"unpromoted-{index:03d}.md", "unpromoted staging content\n" * 30)
+        self.commit(repo, "docs: add unpromoted staging bulk")
+        staging_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            current_main,
+            base_ref="main",
+            head_ref="staging",
+            head_sha=staging_sha,
+            extra_args=["--no-command-runs"],
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertNotEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Risk Engine"], "FAIL")
+
+    def test_false_tree_equivalence_cannot_advance_promotion_checkpoint(self) -> None:
+        repo, base = self.init_repo("promotion-false-tree-equivalence")
+        self.git(repo, "checkout", "-q", "-B", "main", base)
+        for index in range(188):
+            self.write(repo / "docs" / f"near-{index:03d}.md", "reviewed content\n" * 30)
+        self.commit(repo, "docs: add near-equivalent main tree")
+        current_main = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.git(repo, "update-ref", "refs/remotes/origin/main", current_main)
+
+        self.git(repo, "checkout", "-q", "-B", "staging", base)
+        for index in range(188):
+            text = "reviewed content\n" * 30
+            if index == 187:
+                text += "staging-only difference\n"
+            self.write(repo / "docs" / f"near-{index:03d}.md", text)
+        self.commit(repo, "docs: add non-equivalent staging tree")
+        staging_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            current_main,
+            base_ref="main",
+            head_ref="staging",
+            head_sha=staging_sha,
+            extra_args=["--no-command-runs"],
+            review_policy={"mergeable": True, "reviews": []},
+        )
+
+        self.assertNotEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Risk Engine"], "FAIL")
 
     def test_authored_source_bulk_still_fails_with_generated_npm_lockfile(self) -> None:
         repo, base = self.init_repo("npm-lockfile-plus-source-bulk")
