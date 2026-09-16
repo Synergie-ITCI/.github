@@ -33,6 +33,12 @@ APPROVED_PREVIOUS_FIELDZILLA_IMAGE_SHAS = {
     "774051cf74a7b8ada2f26e5c24959fdc99d6380b",
     "4700ced6ec44758a0fe7cce7075817cdc7403de5",
 }
+APPROVED_FIELDZILLA_TASK_FAMILIES = {
+    "fieldzilla-staging-api",
+    "fieldzilla-staging-admin-web",
+    "fieldzilla-staging-worker",
+    "fieldzilla-staging-migration",
+}
 
 AUTH_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{7,79}$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -336,15 +342,33 @@ def is_approved_ecs_task_definition_revision(change: dict[str, Any], variables: 
     if not address.startswith("aws_ecs_task_definition.") or '"staging"' not in address:
         return False
     actions = change.get("change", {}).get("actions", [])
-    if actions not in (["delete", "create"], ["create", "delete"]):
+    if actions not in (["delete"], ["delete", "create"], ["create", "delete"]):
         return False
 
     before = change.get("change", {}).get("before")
     after = change.get("change", {}).get("after")
-    if not isinstance(before, dict) or not isinstance(after, dict):
+    if not isinstance(before, dict):
         return False
 
     if variables.get("image_tag") != FIELDZILLA_IMAGE_SHA:
+        return False
+
+    if before.get("family") not in APPROVED_FIELDZILLA_TASK_FAMILIES:
+        return False
+
+    approved_image_tags = {FIELDZILLA_IMAGE_SHA, *APPROVED_PREVIOUS_FIELDZILLA_IMAGE_SHAS}
+
+    if actions == ["delete"]:
+        before_containers = _decode_container_definitions(before.get("container_definitions"))
+        return all(
+            any(str(container.get("image", "")).endswith(f":{tag}") for tag in approved_image_tags)
+            for container in before_containers
+        )
+
+    if not isinstance(after, dict):
+        return False
+
+    if after.get("family") != before.get("family"):
         return False
 
     immutable_fields = {
@@ -375,9 +399,7 @@ def is_approved_ecs_task_definition_revision(change: dict[str, Any], variables: 
             return False
         before_image = str(before_container.get("image", ""))
         after_image = str(after_container.get("image", ""))
-        approved_previous_tags = {":bootstrap"} | {
-            f":{sha}" for sha in APPROVED_PREVIOUS_FIELDZILLA_IMAGE_SHAS
-        }
+        approved_previous_tags = {":bootstrap"} | {f":{sha}" for sha in APPROVED_PREVIOUS_FIELDZILLA_IMAGE_SHAS}
         if not any(before_image.endswith(tag) for tag in approved_previous_tags):
             return False
         if not after_image.endswith(f":{FIELDZILLA_IMAGE_SHA}"):

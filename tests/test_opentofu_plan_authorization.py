@@ -432,6 +432,38 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
 
+            retired_revision = json.loads(json.dumps(plan))
+            retired_containers = json.loads(before["container_definitions"])
+            retired_containers[0]["image"] = (
+                "918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/api:"
+                "774051cf74a7b8ada2f26e5c24959fdc99d6380b"
+            )
+            retired_before = {**before, "container_definitions": json.dumps(retired_containers)}
+            retired_revision["resource_changes"][0]["change"] = {
+                "actions": ["delete"],
+                "before": retired_before,
+                "after": None,
+            }
+            plan_json.write_text(json.dumps(retired_revision), encoding="utf-8")
+            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
+
+            wrong_family_retirement = json.loads(json.dumps(retired_revision))
+            wrong_family_retirement["resource_changes"][0]["change"]["before"]["family"] = "fieldzilla-production-api"
+            plan_json.write_text(json.dumps(wrong_family_retirement), encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
+
+            wrong_image_retirement = json.loads(json.dumps(retired_revision))
+            wrong_image_containers = json.loads(wrong_image_retirement["resource_changes"][0]["change"]["before"]["container_definitions"])
+            wrong_image_containers[0]["image"] = (
+                "918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/api:"
+                "2222222222222222222222222222222222222222"
+            )
+            wrong_image_retirement["resource_changes"][0]["change"]["before"]["container_definitions"] = json.dumps(wrong_image_containers)
+            plan_json.write_text(json.dumps(wrong_image_retirement), encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal"))
+
     def test_verifies_import_map_and_rejects_wrong_ownership(self) -> None:
         good_doc = {
             "repository": "Synergie-ITCI/programme-management-platform",
