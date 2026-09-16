@@ -303,6 +303,7 @@
   "allowed_hidden_files": [
     ".github",
     ".gitleaks.toml",
+    ".gitleaksignore",
     ".gitignore",
     ".gitattributes",
     ".editorconfig",
@@ -333,6 +334,7 @@
   },
   "approved_governance_assets": [
     ".gitleaks.toml",
+    ".gitleaksignore",
     ".github/**",
     ".gitignore",
     ".gitattributes",
