@@ -121,6 +121,12 @@
       "ruleset_id": 23547834,
       "ruleset_updated_at": "2026-09-16T19:35:02.521+05:30",
       "bypass_actors": []
+    },
+    "pr-qa-v1-rc146": {
+      "commit": "a6de1eb2d12113e1e9ec0c784595c6a3a79ed0d7",
+      "ruleset_id": 23556633,
+      "ruleset_updated_at": "2026-09-16T23:12:29.471+05:30",
+      "bypass_actors": []
     }
   }
 }
