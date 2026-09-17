@@ -562,6 +562,117 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
                     Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families="")
                 )
 
+    def test_runtime_secret_addition_approved_and_other_mutations_rejected(self) -> None:
+        """Narrowly bound: after may add runtime secret refs; all other mutations fail closed."""
+        runtime_prefix = auth.RUNTIME_SECRET_ARN_PREFIX
+        existing_secret = {"name": "APP_KEY", "valueFrom": f"{runtime_prefix}APP_KEY::"}
+        new_secret = {"name": "APP_ADMIN_WEB_BASE_URL", "valueFrom": f"{runtime_prefix}APP_ADMIN_WEB_BASE_URL::"}
+        container_before = [
+            {
+                "name": "api",
+                "image": "918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/api:bootstrap",
+                "cpu": 256,
+                "memory": 512,
+                "essential": True,
+                "secrets": [existing_secret],
+            }
+        ]
+        container_after_ok = [
+            {
+                **container_before[0],
+                "image": f"918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/api:{DEPLOY_SHA}",
+                "secrets": [existing_secret, new_secret],
+            }
+        ]
+        base = {
+            "family": "fieldzilla-staging-api",
+            "cpu": "256",
+            "memory": "512",
+            "network_mode": "bridge",
+            "requires_compatibilities": ["EC2"],
+            "execution_role_arn": "arn:aws:iam::918870682888:role/SynergieFieldzillaStagingEcsExecution",
+            "task_role_arn": "arn:aws:iam::918870682888:role/SynergieFieldzillaStagingTask",
+            "runtime_platform": [],
+            "track_latest": False,
+            "volume": [],
+        }
+        before = {**base, "container_definitions": json.dumps(container_before, sort_keys=True)}
+        after_ok = {**base, "container_definitions": json.dumps(container_after_ok, sort_keys=True)}
+        plan = {
+            "variables": {"enable_production": {"value": False}, "route53_zone_id": {"value": ""}, "container_instance_type": {"value": "c6g.medium"}, "monthly_budget_usd": {"value": "100"}, "image_tag": {"value": DEPLOY_SHA}},
+            "resource_changes": [{"address": 'aws_ecs_task_definition.api["staging"]', "type": "aws_ecs_task_definition", "change": {"actions": ["delete", "create"], "before": before, "after": after_ok}}],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_json = Path(tmp) / "plan.json"
+
+            # Approved: existing secret unchanged, one new runtime secret added.
+            plan_json.write_text(json.dumps(plan), encoding="utf-8")
+            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families=""))
+
+            # Approved: two new runtime secrets added.
+            second_new = {"name": "APP_CORS_ORIGINS", "valueFrom": f"{runtime_prefix}APP_CORS_ORIGINS::"}
+            two_new = json.loads(json.dumps(plan))
+            cs = json.loads(two_new["resource_changes"][0]["change"]["after"]["container_definitions"])
+            cs[0]["secrets"] = [existing_secret, new_secret, second_new]
+            two_new["resource_changes"][0]["change"]["after"]["container_definitions"] = json.dumps(cs)
+            plan_json.write_text(json.dumps(two_new), encoding="utf-8")
+            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families=""))
+
+            # Rejected: existing secret removed from after.
+            missing_existing = json.loads(json.dumps(plan))
+            cs = json.loads(missing_existing["resource_changes"][0]["change"]["after"]["container_definitions"])
+            cs[0]["secrets"] = [new_secret]
+            missing_existing["resource_changes"][0]["change"]["after"]["container_definitions"] = json.dumps(cs)
+            plan_json.write_text(json.dumps(missing_existing), encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families=""))
+
+            # Rejected: new secret's valueFrom references a non-runtime ARN.
+            bad_arn = json.loads(json.dumps(plan))
+            cs = json.loads(bad_arn["resource_changes"][0]["change"]["after"]["container_definitions"])
+            cs[0]["secrets"] = [existing_secret, {"name": "EVIL_KEY", "valueFrom": "arn:aws:secretsmanager:ap-south-1:918870682888:secret:/other/secret:KEY::"}]
+            bad_arn["resource_changes"][0]["change"]["after"]["container_definitions"] = json.dumps(cs)
+            plan_json.write_text(json.dumps(bad_arn), encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families=""))
+
+            # Rejected: new secret references a different account's runtime ARN.
+            foreign_arn = json.loads(json.dumps(plan))
+            cs = json.loads(foreign_arn["resource_changes"][0]["change"]["after"]["container_definitions"])
+            cs[0]["secrets"] = [existing_secret, {"name": "APP_URL", "valueFrom": "arn:aws:secretsmanager:ap-south-1:999999999999:secret:/synergie/fieldzilla/staging/runtime-xABCDE:APP_URL::"}]
+            foreign_arn["resource_changes"][0]["change"]["after"]["container_definitions"] = json.dumps(cs)
+            plan_json.write_text(json.dumps(foreign_arn), encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families=""))
+
+            # Rejected: existing secret's valueFrom mutated.
+            mutated_existing = json.loads(json.dumps(plan))
+            cs = json.loads(mutated_existing["resource_changes"][0]["change"]["after"]["container_definitions"])
+            cs[0]["secrets"] = [{"name": "APP_KEY", "valueFrom": f"{runtime_prefix}APP_KEY_EVIL::"}, new_secret]
+            mutated_existing["resource_changes"][0]["change"]["after"]["container_definitions"] = json.dumps(cs)
+            plan_json.write_text(json.dumps(mutated_existing), encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families=""))
+
+            # Rejected: non-secret container field mutated (essential flag changed) alongside valid secret add.
+            mutated_field = json.loads(json.dumps(plan))
+            cs = json.loads(mutated_field["resource_changes"][0]["change"]["after"]["container_definitions"])
+            cs[0]["essential"] = False
+            cs[0]["secrets"] = [existing_secret, new_secret]
+            mutated_field["resource_changes"][0]["change"]["after"]["container_definitions"] = json.dumps(cs)
+            plan_json.write_text(json.dumps(mutated_field), encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families=""))
+
+            # Rejected: new secret references the production environment rather than staging.
+            prod_env = json.loads(json.dumps(plan))
+            cs = json.loads(prod_env["resource_changes"][0]["change"]["after"]["container_definitions"])
+            cs[0]["secrets"] = [existing_secret, {"name": "APP_PROD_KEY", "valueFrom": "arn:aws:secretsmanager:ap-south-1:918870682888:secret:/synergie/fieldzilla/production/runtime-pXXXXX:APP_PROD_KEY::"}]
+            prod_env["resource_changes"][0]["change"]["after"]["container_definitions"] = json.dumps(cs)
+            plan_json.write_text(json.dumps(prod_env), encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families=""))
+
     def test_verifies_import_map_and_rejects_wrong_ownership(self) -> None:
         good_doc = {
             "repository": "Synergie-ITCI/programme-management-platform",

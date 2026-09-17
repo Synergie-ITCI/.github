@@ -27,6 +27,10 @@ AWS_REGION = "ap-south-1"
 STATE_BUCKET = "synergie-fieldzilla-opentofu-state-918870682888-ap-south-1"
 STATE_LOCK_TABLE = "synergie-fieldzilla-opentofu-locks"
 STATE_KEY = "programme-management-platform/fieldzilla/staging/opentofu.tfstate"
+RUNTIME_SECRET_ARN_PREFIX = (
+    f"arn:aws:secretsmanager:{AWS_REGION}:{AWS_ACCOUNT}:secret:"
+    "/synergie/fieldzilla/staging/runtime-"
+)
 APPROVED_CONTAINER_INSTANCE_TYPES = {"t4g.small", "c6g.medium"}
 MAX_EXPIRY_MINUTES = 60
 APPROVED_FIELDZILLA_TASK_FAMILIES = {
@@ -351,6 +355,35 @@ def _without_image(container: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in container.items() if key not in {"image", "imageDigest", "image_digest"}}
 
 
+def _container_base(container: dict[str, Any]) -> dict[str, Any]:
+    """Container definition stripped of image and secrets fields for structural comparison."""
+    return {
+        key: value
+        for key, value in container.items()
+        if key not in {"image", "imageDigest", "image_digest", "secrets"}
+    }
+
+
+def _secrets_superset_ok(before_container: dict[str, Any], after_container: dict[str, Any]) -> bool:
+    """Return True iff after_secrets is a superset of before_secrets and every new secret's
+    valueFrom resolves to the approved runtime Secrets Manager entry."""
+    before_secrets: list[dict[str, Any]] = before_container.get("secrets") or []
+    after_secrets: list[dict[str, Any]] = after_container.get("secrets") or []
+    before_map = {str(s.get("name", "")): s for s in before_secrets}
+    after_map = {str(s.get("name", "")): s for s in after_secrets}
+    # Every pre-existing secret must be present and unchanged.
+    for name, before_entry in before_map.items():
+        if after_map.get(name) != before_entry:
+            return False
+    # Every new secret must point at the approved runtime ARN.
+    for name, after_entry in after_map.items():
+        if name not in before_map:
+            value_from = str(after_entry.get("valueFrom", ""))
+            if not value_from.startswith(RUNTIME_SECRET_ARN_PREFIX):
+                return False
+    return True
+
+
 def _empty_string_equivalent(value: Any) -> Any:
     return None if value == "" else value
 
@@ -430,7 +463,9 @@ def is_approved_ecs_task_definition_revision(
         return False
 
     for before_container, after_container in zip(before_containers, after_containers, strict=True):
-        if _without_image(before_container) != _without_image(after_container):
+        if _container_base(before_container) != _container_base(after_container):
+            return False
+        if not _secrets_superset_ok(before_container, after_container):
             return False
         before_image = str(before_container.get("image", ""))
         after_image = str(after_container.get("image", ""))
