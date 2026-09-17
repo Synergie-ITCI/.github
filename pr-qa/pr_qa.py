@@ -1035,6 +1035,7 @@ def run_static_preflight(ctx: PRContext, git_context: dict[str, Any], technologi
     results.extend(gate_protected_resources(ctx, git_context))
     results.extend(gate_persistent_data_safety(ctx, git_context))
     results.extend(gate_deployment_safety(ctx, git_context))
+    results.extend(gate_central_action_inputs(ctx))
     results.extend(gate_database_safety(ctx))
     return results
 
@@ -3731,6 +3732,75 @@ def classify_safe_deployment_workflows(ctx: PRContext, changed: list[str]) -> tu
             details.extend(staging)
             safe_paths.add(path)
     return details, safe_paths
+
+
+CENTRAL_ACTION_USES_RE = re.compile(r"^Synergie-ITCI/\.github/actions/([^@\s]+)@([^@\s]+)$")
+
+
+def gate_central_action_inputs(ctx: PRContext) -> list[CheckResult]:
+    if repository_profile(ctx) != "framework":
+        return []
+    violations = validate_central_action_inputs(ctx.repo)
+    if violations:
+        return [
+            failed(
+                "Deployment Risk",
+                None,
+                "Central workflow references internal actions with invalid input contracts.",
+                violations[:100],
+                score=20,
+            )
+        ]
+    return [passed("Deployment Risk", None, "Central internal action input contracts match action.yml declarations.")]
+
+
+def validate_central_action_inputs(repo: Path) -> list[str]:
+    violations: list[str] = []
+    for workflow in sorted((repo / ".github" / "workflows").glob("*.y*ml")):
+        parsed = parse_workflow_yaml(read_text(workflow))
+        jobs = parsed.get("jobs")
+        if not isinstance(jobs, dict):
+            continue
+        for job_id, job in jobs.items():
+            if not isinstance(job, dict):
+                continue
+            steps = job.get("steps", [])
+            if not isinstance(steps, list):
+                continue
+            for index, step in enumerate(steps, 1):
+                if isinstance(step, dict):
+                    violations.extend(validate_central_action_step(repo, workflow, str(job_id), index, step))
+    return violations
+
+
+def validate_central_action_step(repo: Path, workflow: Path, job_id: str, index: int, step: dict[str, Any]) -> list[str]:
+    uses = str(step.get("uses") or "").strip()
+    match = CENTRAL_ACTION_USES_RE.match(uses)
+    if not match:
+        return []
+    action_name = match.group(1)
+    rel_workflow = workflow.relative_to(repo).as_posix()
+    step_name = str(step.get("name") or f"step {index}")
+    prefix = f"{rel_workflow}: job `{job_id}` step `{step_name}` uses `{uses}`"
+    action_file = repo / "actions" / action_name / "action.yml"
+    action = parse_workflow_yaml(read_text(action_file)) if action_file.is_file() else {}
+    inputs = action.get("inputs") if isinstance(action, dict) else None
+    if not isinstance(inputs, dict):
+        return [f"{prefix}: referenced action metadata `actions/{action_name}/action.yml` is missing or has no inputs mapping."]
+    declared = {str(key) for key in inputs}
+    required = {
+        str(key)
+        for key, spec in inputs.items()
+        if isinstance(spec, dict) and spec.get("required") is True and "default" not in spec
+    }
+    supplied_raw = step.get("with", {})
+    supplied = supplied_raw if isinstance(supplied_raw, dict) else {}
+    supplied_keys = {str(key) for key in supplied}
+    violations = [f"{prefix}: undeclared input `{key}`." for key in sorted(supplied_keys - declared)]
+    violations.extend(f"{prefix}: missing required input `{key}`." for key in sorted(required - supplied_keys))
+    if supplied_raw and not isinstance(supplied_raw, dict):
+        violations.append(f"{prefix}: `with` must be a mapping.")
+    return violations
 
 
 APPROVED_RUNTIME_CERTIFIER_ACTIONS = {

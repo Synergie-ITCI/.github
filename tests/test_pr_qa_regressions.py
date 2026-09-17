@@ -114,6 +114,89 @@ gates:
         code, report, _, _ = self.run_engine_with_artifacts(repo, base, static_only=static_only)
         return code, report
 
+    def central_action_contract_repo(self, workflow_with: str) -> Path:
+        repo = self.tmp / f"central-action-contract-{uuid4().hex}"
+        repo.mkdir()
+        self.write(
+            repo / "actions" / "opentofu-plan-authorizer" / "action.yml",
+            """name: Contract Fixture
+inputs:
+  command:
+    required: true
+  artifact-dir:
+    required: false
+  defaulted-mode:
+    required: true
+    default: normal
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: echo ok
+""",
+        )
+        self.write(
+            repo / ".github" / "workflows" / "fieldzilla.yml",
+            f"""name: Contract Fixture
+on: workflow_dispatch
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify artifact
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc146
+        with:
+{workflow_with}
+""",
+        )
+        return repo
+
+    def test_central_action_contract_rejects_rc143_rc146_input_mismatch(self) -> None:
+        engine = load_engine_module()
+        repo = self.central_action_contract_repo(
+            "          command: verify-artifact-files\n"
+            "          artifact-directory: ${{ runner.temp }}/approved\n"
+        )
+
+        violations = engine.validate_central_action_inputs(repo)
+
+        self.assertTrue(any("undeclared input `artifact-directory`" in item for item in violations), violations)
+
+    def test_central_action_contract_accepts_valid_matching_inputs(self) -> None:
+        engine = load_engine_module()
+        repo = self.central_action_contract_repo(
+            "          command: verify-artifact-files\n"
+            "          artifact-dir: ${{ runner.temp }}/approved\n"
+        )
+
+        self.assertEqual(engine.validate_central_action_inputs(repo), [])
+
+    def test_central_action_contract_rejects_unknown_input(self) -> None:
+        engine = load_engine_module()
+        repo = self.central_action_contract_repo(
+            "          command: verify-artifact-files\n"
+            "          artifact-dir: ${{ runner.temp }}/approved\n"
+            "          surprise: nope\n"
+        )
+
+        violations = engine.validate_central_action_inputs(repo)
+
+        self.assertTrue(any("undeclared input `surprise`" in item for item in violations), violations)
+
+    def test_central_action_contract_rejects_missing_required_input(self) -> None:
+        engine = load_engine_module()
+        repo = self.central_action_contract_repo("          artifact-dir: ${{ runner.temp }}/approved\n")
+
+        violations = engine.validate_central_action_inputs(repo)
+
+        self.assertTrue(any("missing required input `command`" in item for item in violations), violations)
+
+    def test_central_action_contract_accepts_optional_and_defaulted_inputs(self) -> None:
+        engine = load_engine_module()
+        repo = self.central_action_contract_repo("          command: verify-inputs\n")
+
+        self.assertEqual(engine.validate_central_action_inputs(repo), [])
+
     def run_engine_with_artifacts(
         self,
         repo: Path,
