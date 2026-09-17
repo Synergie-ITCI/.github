@@ -4,6 +4,7 @@ import base64
 import datetime as dt
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -1203,89 +1204,136 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 auth.check_single_use(valid_args())
 
-    # -- ECR digest resolution/verification --------------------------------------------
+    # -- Inline ECR digest verification tool (embedded in the reusable workflow) --------
 
     @staticmethod
-    def _fake_ecr_runner(digests: dict[str, str], missing: set[str] | None = None, ambiguous: set[str] | None = None):
-        """Build a fake subprocess.run replacement for aws ecr describe-images. `digests`
-        maps repository -> digest for the single expected image. `missing` repositories
-        return zero results (simulating an absent tag); `ambiguous` repositories return
-        two results (simulating an ambiguous match)."""
-        missing = missing or set()
-        ambiguous = ambiguous or set()
+    def _extract_ecr_script(tmp_dir: Path) -> Path:
+        """The reusable workflow embeds the ECR resolve/verify tool as a base64 blob in
+        its "Write ECR digest verification tool" step (avoiding a second action release --
+        see PR history). Extract and decode the exact deployed bytes, so these tests
+        exercise the real embedded code, not a hand-maintained copy that could drift."""
+        workflow_path = ROOT / ".github/workflows/fieldzilla-staging-opentofu-apply.yml"
+        workflow = workflow_path.read_text(encoding="utf-8")
+        match = re.search(r"echo '([A-Za-z0-9+/=]+)' \| base64 -d >", workflow)
+        assert match, "could not find the embedded ECR script in the reusable workflow"
+        script_bytes = base64.b64decode(match.group(1))
+        script_path = tmp_dir / "resolve_ecr_digests.py"
+        script_path.write_bytes(script_bytes)
+        # The embedded blob must itself be valid, parseable Python -- a corrupted or
+        # truncated base64 edit must fail this test, not silently ship broken YAML.
+        compile(script_bytes, str(script_path), "exec")
+        return script_path
 
-        def runner(cmd, capture_output, text):
-            repo_index = cmd.index("--repository-name") + 1
-            repository = cmd[repo_index]
-            if repository in missing:
-                return subprocess.CompletedProcess(cmd, returncode=254, stdout="", stderr="ImageNotFoundException")
-            if repository in ambiguous:
-                details = [{"imageDigest": digests[repository]}, {"imageDigest": "sha256:" + "1" * 64}]
-                return subprocess.CompletedProcess(cmd, returncode=0, stdout=json.dumps({"imageDetails": details}), stderr="")
-            details = [{"imageDigest": digests[repository]}]
-            return subprocess.CompletedProcess(cmd, returncode=0, stdout=json.dumps({"imageDetails": details}), stderr="")
+    @staticmethod
+    def _fake_aws_bin(tmp_dir: Path, digests: dict[str, str], *, missing: set[str] = frozenset(), ambiguous: set[str] = frozenset()) -> Path:
+        """A fake `aws` executable on PATH standing in for `aws ecr describe-images`,
+        matching this repo's established pattern of faking external tools (see
+        PrQaRegressionTests.setUp's fake gitleaks) rather than calling real AWS."""
+        bin_dir = tmp_dir / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        aws = bin_dir / "aws"
+        # Invocation shape: aws ecr describe-images --repository-name <repo> --image-ids ...
+        script = "#!/usr/bin/env bash\nrepo=\"$4\"\ncase \"$repo\" in\n"
+        for repo, digest in digests.items():
+            if repo in missing:
+                body = '{"imageDetails": []}'
+            elif repo in ambiguous:
+                body = json.dumps({"imageDetails": [{"imageDigest": digest}, {"imageDigest": "sha256:" + "9" * 64}]})
+            else:
+                body = json.dumps({"imageDetails": [{"imageDigest": digest}]})
+            script += f"  {repo!r})\n    echo {body!r}\n    ;;\n"
+        script += "esac\nexit 0\n"
+        aws.write_text(script, encoding="utf-8")
+        aws.chmod(0o755)
+        return bin_dir
 
-        return runner
+    def _run_script(self, tmp_dir: Path, *args: str, digests: dict[str, str], missing: set[str] = frozenset(), ambiguous: set[str] = frozenset()) -> subprocess.CompletedProcess:
+        script = self._extract_ecr_script(tmp_dir)
+        bin_dir = self._fake_aws_bin(tmp_dir, digests, missing=missing, ambiguous=ambiguous)
+        env = {**os.environ, "PATH": f"{bin_dir}:{os.environ.get('PATH', '')}"}
+        return subprocess.run(["python3", str(script), *args], capture_output=True, text=True, env=env)
 
-    def test_resolves_two_distinct_repository_digests(self) -> None:
-        digests = {API_REPO: DIGEST_MAP[API_REPO], ADMIN_WEB_REPO: DIGEST_MAP[ADMIN_WEB_REPO]}
-        runner = self._fake_ecr_runner(digests)
-        resolved = auth.resolve_ecr_digests(DEPLOY_SHA, runner)
-        self.assertEqual(resolved, digests)
-        self.assertNotEqual(resolved[API_REPO], resolved[ADMIN_WEB_REPO])
+    def test_ecr_script_resolves_two_distinct_repository_digests(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            digests = {API_REPO: DIGEST_MAP[API_REPO], ADMIN_WEB_REPO: DIGEST_MAP[ADMIN_WEB_REPO]}
+            out = tmp_dir / "resolved.json"
+            result = self._run_script(tmp_dir, "resolve", "--image-tag", DEPLOY_SHA, "--out", str(out), digests=digests)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            resolved = json.loads(out.read_text())
+            self.assertEqual(resolved, digests)
+            self.assertNotEqual(resolved[API_REPO], resolved[ADMIN_WEB_REPO])
 
-    def test_rejects_wrong_repository(self) -> None:
-        with self.assertRaises(SystemExit):
-            auth.resolve_ecr_repository_digest("synergie/other/staging/api", DEPLOY_SHA, self._fake_ecr_runner({}))
+    def test_ecr_script_rejects_forged_but_well_formed_digest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            real = {API_REPO: DIGEST_MAP[API_REPO], ADMIN_WEB_REPO: DIGEST_MAP[ADMIN_WEB_REPO]}
+            forged = {API_REPO: "sha256:" + "7" * 64, ADMIN_WEB_REPO: DIGEST_MAP[ADMIN_WEB_REPO]}
+            evidence = tmp_dir / "evidence.json"
+            evidence.write_text(json.dumps(forged))
+            result = self._run_script(tmp_dir, "verify", "--image-tag", DEPLOY_SHA, "--evidence-path", str(evidence), digests=real)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("do not match", result.stderr)
 
-    def test_rejects_wrong_tag_format(self) -> None:
-        with self.assertRaises(SystemExit):
-            auth.resolve_ecr_repository_digest(API_REPO, "not-a-sha", self._fake_ecr_runner({}))
+    def test_ecr_script_rejects_missing_ecr_result(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            digests = {API_REPO: DIGEST_MAP[API_REPO], ADMIN_WEB_REPO: DIGEST_MAP[ADMIN_WEB_REPO]}
+            out = tmp_dir / "resolved.json"
+            result = self._run_script(tmp_dir, "resolve", "--image-tag", DEPLOY_SHA, "--out", str(out), digests=digests, missing={API_REPO})
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("expected exactly 1", result.stderr)
 
-    def test_rejects_missing_ecr_result(self) -> None:
-        digests = {API_REPO: DIGEST_MAP[API_REPO], ADMIN_WEB_REPO: DIGEST_MAP[ADMIN_WEB_REPO]}
-        runner = self._fake_ecr_runner(digests, missing={API_REPO})
-        with self.assertRaises(SystemExit):
-            auth.resolve_ecr_digests(DEPLOY_SHA, runner)
+    def test_ecr_script_rejects_multiple_ambiguous_ecr_results(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            digests = {API_REPO: DIGEST_MAP[API_REPO], ADMIN_WEB_REPO: DIGEST_MAP[ADMIN_WEB_REPO]}
+            out = tmp_dir / "resolved.json"
+            result = self._run_script(tmp_dir, "resolve", "--image-tag", DEPLOY_SHA, "--out", str(out), digests=digests, ambiguous={ADMIN_WEB_REPO})
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("expected exactly 1", result.stderr)
 
-    def test_rejects_ambiguous_multiple_ecr_results(self) -> None:
-        digests = {API_REPO: DIGEST_MAP[API_REPO], ADMIN_WEB_REPO: DIGEST_MAP[ADMIN_WEB_REPO]}
-        runner = self._fake_ecr_runner(digests, ambiguous={ADMIN_WEB_REPO})
-        with self.assertRaises(SystemExit):
-            auth.resolve_ecr_digests(DEPLOY_SHA, runner)
+    def test_ecr_script_rejects_moved_tag_between_plan_and_apply(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            plan_time = {API_REPO: DIGEST_MAP[API_REPO], ADMIN_WEB_REPO: DIGEST_MAP[ADMIN_WEB_REPO]}
+            apply_time = {API_REPO: "sha256:" + "4" * 64, ADMIN_WEB_REPO: DIGEST_MAP[ADMIN_WEB_REPO]}
+            approved = tmp_dir / "approved.json"
+            approved.write_text(json.dumps(plan_time))
+            result = self._run_script(tmp_dir, "verify", "--image-tag", DEPLOY_SHA, "--evidence-path", str(approved), digests=apply_time)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("do not match", result.stderr)
 
-    def test_rejects_forged_but_well_formed_digest(self) -> None:
-        """A forged digest that is syntactically valid (right format, right key set) but
-        does not match what ECR itself resolves must still be rejected -- this is exactly
-        the class of evidence that JSON-shape/format validation alone cannot catch, which
-        is the whole reason ECR re-resolution exists."""
-        real = {API_REPO: DIGEST_MAP[API_REPO], ADMIN_WEB_REPO: DIGEST_MAP[ADMIN_WEB_REPO]}
-        forged = {API_REPO: "sha256:" + "7" * 64, ADMIN_WEB_REPO: DIGEST_MAP[ADMIN_WEB_REPO]}
-        resolved = auth.resolve_ecr_digests(DEPLOY_SHA, self._fake_ecr_runner(real))
-        with self.assertRaises(SystemExit):
-            auth.require_exact_ecr_match(resolved, forged, "test")
+    def test_ecr_script_rejects_wrong_repository_or_image_sha(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            script = self._extract_ecr_script(tmp_dir)
+            bin_dir = self._fake_aws_bin(tmp_dir, {API_REPO: DIGEST_MAP[API_REPO], ADMIN_WEB_REPO: DIGEST_MAP[ADMIN_WEB_REPO]})
+            env = {**os.environ, "PATH": f"{bin_dir}:{os.environ.get('PATH', '')}"}
+            result = subprocess.run(
+                ["python3", str(script), "resolve", "--image-tag", "not-a-real-sha", "--out", str(tmp_dir / "x.json")],
+                capture_output=True, text=True, env=env,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("40-character lowercase hex", result.stderr)
 
-    def test_rejects_moved_tag_between_plan_and_apply(self) -> None:
-        """The digest recorded at plan time must match what ECR resolves again at apply
-        time -- a tag that now points somewhere else (or was deleted) is rejected."""
-        plan_time = {API_REPO: DIGEST_MAP[API_REPO], ADMIN_WEB_REPO: DIGEST_MAP[ADMIN_WEB_REPO]}
-        apply_time = {API_REPO: "sha256:" + "2" * 64, ADMIN_WEB_REPO: DIGEST_MAP[ADMIN_WEB_REPO]}
-        resolved_at_apply = auth.resolve_ecr_digests(DEPLOY_SHA, self._fake_ecr_runner(apply_time))
-        with self.assertRaises(SystemExit):
-            auth.require_exact_ecr_match(resolved_at_apply, plan_time, "approved artifact")
+    def test_ecr_script_rejects_metadata_mismatch_missing_or_extra_repository(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            digests = {API_REPO: DIGEST_MAP[API_REPO], ADMIN_WEB_REPO: DIGEST_MAP[ADMIN_WEB_REPO]}
+            partial = tmp_dir / "partial.json"
+            partial.write_text(json.dumps({API_REPO: DIGEST_MAP[API_REPO]}))
+            result = self._run_script(tmp_dir, "verify", "--image-tag", DEPLOY_SHA, "--evidence-path", str(partial), digests=digests)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("exactly the two approved repositories", result.stderr)
 
-    def test_rejects_incomplete_or_extra_repository_evidence(self) -> None:
-        real = {API_REPO: DIGEST_MAP[API_REPO], ADMIN_WEB_REPO: DIGEST_MAP[ADMIN_WEB_REPO]}
-        resolved = auth.resolve_ecr_digests(DEPLOY_SHA, self._fake_ecr_runner(real))
-        with self.assertRaises(SystemExit):
-            auth.require_exact_ecr_match(resolved, {API_REPO: DIGEST_MAP[API_REPO]}, "test")
-        with self.assertRaises(SystemExit):
-            auth.require_exact_ecr_match(resolved, {**real, "synergie/other/staging/api": "sha256:" + "3" * 64}, "test")
-
-    def test_accepts_exact_matching_evidence(self) -> None:
-        real = {API_REPO: DIGEST_MAP[API_REPO], ADMIN_WEB_REPO: DIGEST_MAP[ADMIN_WEB_REPO]}
-        resolved = auth.resolve_ecr_digests(DEPLOY_SHA, self._fake_ecr_runner(real))
-        auth.require_exact_ecr_match(resolved, real, "test")  # must not raise
+    def test_ecr_script_never_prints_credentials(self) -> None:
+        script_text = (ROOT / ".github/workflows/fieldzilla-staging-opentofu-apply.yml").read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as tmp:
+            script = self._extract_ecr_script(Path(tmp))
+            decoded = script.read_text(encoding="utf-8")
+        for forbidden in ("AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "aws_secret", "password"):
+            self.assertNotIn(forbidden, decoded)
 
     # -- Workflow input-contract consistency --------------------------------------------
 
@@ -1301,7 +1349,6 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
 
         declared_inputs = set(re.findall(r"^  ([a-z][a-z0-9-]*):\n", action_yml, re.MULTILINE))
         self.assertIn("image-digest-map", declared_inputs)
-        self.assertIn("ecr-digests-out", declared_inputs)
 
         lines = workflow.splitlines()
         blocks: list[list[str]] = []

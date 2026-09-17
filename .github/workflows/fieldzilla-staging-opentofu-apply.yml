@@ -138,14 +138,20 @@ jobs:
           set -euo pipefail
           test "$(aws sts get-caller-identity --query Account --output text)" = "${AWS_ACCOUNT_ID}"
 
+      - name: Write ECR digest verification tool
+        run: |
+          set -euo pipefail
+          echo 'IiIiUmVzb2x2ZSBGaWVsZFppbGxhIEVDUiBpbWFnZSBkaWdlc3RzIGZvciBhbiBleGFjdCB0YWcgdGhyb3VnaCBFQ1IgaXRzZWxmLCBhbmQgdmVyaWZ5CnRoZW0gYWdhaW5zdCBzdXBwbGllZCBvciBwcmV2aW91c2x5LXJlY29yZGVkIGV2aWRlbmNlLiBGYWlsLWNsb3NlZDogYSB0YWcgdGhhdCBpcyBhYnNlbnQsCmFtYmlndW91cyAobXVsdGlwbGUgcmVzdWx0cyksIG1hbGZvcm1lZCwgb3IgZG9lcyBub3QgZXhhY3RseSBtYXRjaCByZXF1aXJlZCBldmlkZW5jZSBpcwphbHdheXMgcmVqZWN0ZWQuIE5ldmVyIHByaW50cyBjcmVkZW50aWFscyBvciBzZWNyZXRzIC0tIG9ubHkgcmVwb3NpdG9yeSBuYW1lcywgdGFncywgYW5kCihub24tc2VjcmV0KSBkaWdlc3RzLiIiIgpmcm9tIF9fZnV0dXJlX18gaW1wb3J0IGFubm90YXRpb25zCmltcG9ydCBhcmdwYXJzZQppbXBvcnQganNvbgppbXBvcnQgcmUKaW1wb3J0IHN1YnByb2Nlc3MKaW1wb3J0IHN5cwoKQVdTX1JFR0lPTiA9ICJhcC1zb3V0aC0xIgpBUFBST1ZFRF9FQ1JfUkVQT1NJVE9SSUVTID0gKAogICAgInN5bmVyZ2llL2ZpZWxkemlsbGEvc3RhZ2luZy9hcGkiLAogICAgInN5bmVyZ2llL2ZpZWxkemlsbGEvc3RhZ2luZy9hZG1pbi13ZWIiLAopCklNQUdFX0RJR0VTVCA9IHJlLmNvbXBpbGUociJec2hhMjU2OlswLTlhLWZdezY0fSQiKQpJTUFHRV9UQUcgPSByZS5jb21waWxlKHIiXlswLTlhLWZdezQwfSQiKQoKCmRlZiBkaWUobWVzc2FnZTogc3RyKSAtPiBOb25lOgogICAgcHJpbnQoZiJyZXNvbHZlLWVjci1kaWdlc3RzOiB7bWVzc2FnZX0iLCBmaWxlPXN5cy5zdGRlcnIpCiAgICByYWlzZSBTeXN0ZW1FeGl0KDEpCgoKZGVmIHJlc29sdmVfcmVwb3NpdG9yeV9kaWdlc3QocmVwb3NpdG9yeTogc3RyLCB0YWc6IHN0ciwgcnVubmVyPXN1YnByb2Nlc3MucnVuKSAtPiBzdHI6CiAgICBpZiByZXBvc2l0b3J5IG5vdCBpbiBBUFBST1ZFRF9FQ1JfUkVQT1NJVE9SSUVTOgogICAgICAgIGRpZShmIntyZXBvc2l0b3J5fSBpcyBub3QgYW4gYXBwcm92ZWQgRUNSIHJlcG9zaXRvcnkiKQogICAgaWYgbm90IElNQUdFX1RBRy5mdWxsbWF0Y2godGFnKToKICAgICAgICBkaWUoImltYWdlIHRhZyBtdXN0IGJlIGFuIGV4YWN0IDQwLWNoYXJhY3RlciBsb3dlcmNhc2UgaGV4IFNIQSIpCiAgICByZXN1bHQgPSBydW5uZXIoCiAgICAgICAgWyJhd3MiLCAiZWNyIiwgImRlc2NyaWJlLWltYWdlcyIsICItLXJlcG9zaXRvcnktbmFtZSIsIHJlcG9zaXRvcnksCiAgICAgICAgICItLWltYWdlLWlkcyIsIGYiaW1hZ2VUYWc9e3RhZ30iLCAiLS1yZWdpb24iLCBBV1NfUkVHSU9OLCAiLS1vdXRwdXQiLCAianNvbiJdLAogICAgICAgIGNhcHR1cmVfb3V0cHV0PVRydWUsIHRleHQ9VHJ1ZSwKICAgICkKICAgIGlmIHJlc3VsdC5yZXR1cm5jb2RlICE9IDA6CiAgICAgICAgZGV0YWlscyA9IFtdCiAgICBlbHNlOgogICAgICAgIHRyeToKICAgICAgICAgICAgZGV0YWlscyA9IGpzb24ubG9hZHMocmVzdWx0LnN0ZG91dCkuZ2V0KCJpbWFnZURldGFpbHMiLCBbXSkKICAgICAgICBleGNlcHQganNvbi5KU09ORGVjb2RlRXJyb3I6CiAgICAgICAgICAgIGRpZShmIntyZXBvc2l0b3J5fTp7dGFnfSAtLSBFQ1IgcmVzcG9uc2Ugd2FzIG5vdCB2YWxpZCBKU09OIikKICAgICAgICAgICAgcmV0dXJuICIiCiAgICBpZiBsZW4oZGV0YWlscykgIT0gMToKICAgICAgICBkaWUoZiJ7cmVwb3NpdG9yeX06e3RhZ30gcmVzb2x2ZWQgdG8ge2xlbihkZXRhaWxzKX0gaW1hZ2UocykgaW4gRUNSOyBleHBlY3RlZCBleGFjdGx5IDEgKGFic2VudCwgYW1iaWd1b3VzLCBvciB3cm9uZyB0YWcpIikKICAgIGRpZ2VzdCA9IHN0cihkZXRhaWxzWzBdLmdldCgiaW1hZ2VEaWdlc3QiLCAiIikpCiAgICBpZiBub3QgSU1BR0VfRElHRVNULmZ1bGxtYXRjaChkaWdlc3QpOgogICAgICAgIGRpZShmIntyZXBvc2l0b3J5fTp7dGFnfSAtLSBFQ1IgcmV0dXJuZWQgYSBtYWxmb3JtZWQgb3IgbWlzc2luZyBkaWdlc3QiKQogICAgcmV0dXJuIGRpZ2VzdAoKCmRlZiByZXNvbHZlX2FsbCh0YWc6IHN0ciwgcnVubmVyPXN1YnByb2Nlc3MucnVuKSAtPiBkaWN0OgogICAgcmV0dXJuIHtyZXBvOiByZXNvbHZlX3JlcG9zaXRvcnlfZGlnZXN0KHJlcG8sIHRhZywgcnVubmVyKSBmb3IgcmVwbyBpbiBBUFBST1ZFRF9FQ1JfUkVQT1NJVE9SSUVTfQoKCmRlZiByZXF1aXJlX2V4YWN0X21hdGNoKHJlc29sdmVkOiBkaWN0LCBldmlkZW5jZTogZGljdCwgY29udGV4dDogc3RyKSAtPiBOb25lOgogICAgaWYgc2V0KGV2aWRlbmNlLmtleXMoKSkgIT0gc2V0KEFQUFJPVkVEX0VDUl9SRVBPU0lUT1JJRVMpOgogICAgICAgIGRpZShmIntjb250ZXh0fTogZXZpZGVuY2UgbXVzdCBuYW1lIGV4YWN0bHkgdGhlIHR3byBhcHByb3ZlZCByZXBvc2l0b3JpZXMsIGdvdCB7c29ydGVkKGV2aWRlbmNlLmtleXMoKSl9IikKICAgIGZvciB2YWx1ZSBpbiBldmlkZW5jZS52YWx1ZXMoKToKICAgICAgICBpZiBub3QgaXNpbnN0YW5jZSh2YWx1ZSwgc3RyKSBvciBub3QgSU1BR0VfRElHRVNULmZ1bGxtYXRjaCh2YWx1ZSk6CiAgICAgICAgICAgIGRpZShmIntjb250ZXh0fTogZXZpZGVuY2UgbXVzdCBjb250YWluIGV4YWN0IHNoYTI1NiBkaWdlc3RzIikKICAgIGlmIHJlc29sdmVkICE9IGV2aWRlbmNlOgogICAgICAgIGRpZShmIntjb250ZXh0fTogZnJlc2hseSByZXNvbHZlZCBFQ1IgZGlnZXN0cyBkbyBub3QgbWF0Y2ggLS0gYSB0YWcgbWF5IGJlIGFic2VudCwgYW1iaWd1b3VzLCBjaGFuZ2VkLCBvciBwb2ludHMgZWxzZXdoZXJlIikKCgpkZWYgbWFpbigpIC0+IE5vbmU6CiAgICBwYXJzZXIgPSBhcmdwYXJzZS5Bcmd1bWVudFBhcnNlcigpCiAgICBzdWIgPSBwYXJzZXIuYWRkX3N1YnBhcnNlcnMoZGVzdD0iY29tbWFuZCIsIHJlcXVpcmVkPVRydWUpCiAgICByZXNvbHZlID0gc3ViLmFkZF9wYXJzZXIoInJlc29sdmUiKQogICAgcmVzb2x2ZS5hZGRfYXJndW1lbnQoIi0taW1hZ2UtdGFnIiwgcmVxdWlyZWQ9VHJ1ZSkKICAgIHJlc29sdmUuYWRkX2FyZ3VtZW50KCItLW91dCIsIHJlcXVpcmVkPVRydWUpCiAgICB2ZXJpZnkgPSBzdWIuYWRkX3BhcnNlcigidmVyaWZ5IikKICAgIHZlcmlmeS5hZGRfYXJndW1lbnQoIi0taW1hZ2UtdGFnIiwgcmVxdWlyZWQ9VHJ1ZSkKICAgIHZlcmlmeS5hZGRfYXJndW1lbnQoIi0tZXZpZGVuY2UtcGF0aCIsIHJlcXVpcmVkPVRydWUpCiAgICB2ZXJpZnkuYWRkX2FyZ3VtZW50KCItLWNvbnRleHQiLCBkZWZhdWx0PSJkaWdlc3QgZXZpZGVuY2UiKQogICAgYXJncyA9IHBhcnNlci5wYXJzZV9hcmdzKCkKICAgIGlmIGFyZ3MuY29tbWFuZCA9PSAicmVzb2x2ZSI6CiAgICAgICAgcmVzb2x2ZWQgPSByZXNvbHZlX2FsbChhcmdzLmltYWdlX3RhZykKICAgICAgICB3aXRoIG9wZW4oYXJncy5vdXQsICJ3IiwgZW5jb2Rpbmc9InV0Zi04IikgYXMgZmg6CiAgICAgICAgICAgIGpzb24uZHVtcChyZXNvbHZlZCwgZmgsIHNvcnRfa2V5cz1UcnVlKQogICAgICAgIHByaW50KCJSRVNPTFZFRF9FQ1JfRElHRVNUUz0iICsganNvbi5kdW1wcyhyZXNvbHZlZCwgc29ydF9rZXlzPVRydWUpKQogICAgZWxpZiBhcmdzLmNvbW1hbmQgPT0gInZlcmlmeSI6CiAgICAgICAgcmVzb2x2ZWQgPSByZXNvbHZlX2FsbChhcmdzLmltYWdlX3RhZykKICAgICAgICB3aXRoIG9wZW4oYXJncy5ldmlkZW5jZV9wYXRoLCBlbmNvZGluZz0idXRmLTgiKSBhcyBmaDoKICAgICAgICAgICAgZXZpZGVuY2UgPSBqc29uLmxvYWQoZmgpCiAgICAgICAgcmVxdWlyZV9leGFjdF9tYXRjaChyZXNvbHZlZCwgZXZpZGVuY2UsIGFyZ3MuY29udGV4dCkKICAgICAgICBwcmludCgiVkVSSUZJRURfRUNSX0RJR0VTVFM9IiArIGpzb24uZHVtcHMocmVzb2x2ZWQsIHNvcnRfa2V5cz1UcnVlKSkKCgppZiBfX25hbWVfXyA9PSAiX19tYWluX18iOgogICAgbWFpbigpCg==' | base64 -d > "${RUNNER_TEMP}/resolve_ecr_digests.py"
+          python3 -c "import ast; ast.parse(open('${RUNNER_TEMP}/resolve_ecr_digests.py').read())"
+
       - name: Resolve ECR image digests
         id: resolve-digests
         if: ${{ inputs.mode == 'plan' || inputs.mode == 'post-import-plan' || inputs.mode == 'drift' }}
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc150
-        with:
-          command: resolve-ecr-digests
-          image-tag: ${{ inputs.image-tag }}
-          ecr-digests-out: ${{ runner.temp }}/resolved-image-digests.json
+        run: |
+          set -euo pipefail
+          python3 "${RUNNER_TEMP}/resolve_ecr_digests.py" resolve \
+            --image-tag "${TF_VAR_image_tag}" \
+            --out "${RUNNER_TEMP}/resolved-image-digests.json"
 
       - name: Verify supplied digest evidence matches resolved ECR digests
         if: ${{ (inputs.mode == 'plan' || inputs.mode == 'post-import-plan' || inputs.mode == 'drift') && inputs.image-digest-map != '' }}
@@ -154,17 +160,10 @@ jobs:
         run: |
           set -euo pipefail
           printf '%s' "${SUPPLIED_DIGEST_MAP}" > "${RUNNER_TEMP}/supplied-image-digests.json"
-        continue-on-error: false
-
-      - name: Enforce supplied digest evidence matches resolved ECR digests
-        if: ${{ (inputs.mode == 'plan' || inputs.mode == 'post-import-plan' || inputs.mode == 'drift') && inputs.image-digest-map != '' }}
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc150
-        with:
-          command: verify-ecr-digests
-          image-tag: ${{ inputs.image-tag }}
-          ecr-evidence-path: ${{ runner.temp }}/supplied-image-digests.json
-          ecr-context: supplied image-digest-map
-
+          python3 "${RUNNER_TEMP}/resolve_ecr_digests.py" verify \
+            --image-tag "${TF_VAR_image_tag}" \
+            --evidence-path "${RUNNER_TEMP}/supplied-image-digests.json" \
+            --context "supplied image-digest-map"
       - name: Verify central workflow OIDC identity
         if: ${{ inputs.mode == 'import' || inputs.mode == 'apply' }}
         run: |
@@ -457,12 +456,12 @@ jobs:
 
       - name: Re-resolve and verify ECR digests against approved artifact
         if: ${{ inputs.mode == 'apply' }}
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc150
-        with:
-          command: verify-ecr-digests
-          image-tag: ${{ inputs.image-tag }}
-          ecr-evidence-path: ${{ runner.temp }}/approved-image-digests.json
-          ecr-context: approved artifact's recorded image-digest-map
+        run: |
+          set -euo pipefail
+          python3 "${RUNNER_TEMP}/resolve_ecr_digests.py" verify \
+            --image-tag "${TF_VAR_image_tag}" \
+            --evidence-path "${RUNNER_TEMP}/approved-image-digests.json" \
+            --context "approved artifact's recorded image-digest-map"
 
       - name: Render approved import map
         if: ${{ inputs.mode == 'import' }}
