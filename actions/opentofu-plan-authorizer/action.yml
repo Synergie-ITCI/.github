@@ -84,6 +84,18 @@ inputs:
   plan-kind:
     required: false
     description: normal, post-import, drift or final plan.
+  image-tag:
+    required: false
+    description: Exact FieldZilla image tag SHA, for resolve-ecr-digests/verify-ecr-digests.
+  ecr-digests-out:
+    required: false
+    description: Output path for resolve-ecr-digests.
+  ecr-evidence-path:
+    required: false
+    description: Path to the evidence JSON to check against ECR for verify-ecr-digests.
+  ecr-context:
+    required: false
+    description: Human-readable label for verify-ecr-digests failure messages.
 
 runs:
   using: composite
@@ -117,6 +129,10 @@ runs:
         IMPORT_MAP_PATH: ${{ inputs.import-map-path }}
         BACKEND_METADATA_PATH: ${{ inputs.backend-metadata-path }}
         PLAN_KIND: ${{ inputs.plan-kind }}
+        IMAGE_TAG: ${{ inputs.image-tag }}
+        ECR_DIGESTS_OUT: ${{ inputs.ecr-digests-out }}
+        ECR_EVIDENCE_PATH: ${{ inputs.ecr-evidence-path }}
+        ECR_CONTEXT: ${{ inputs.ecr-context }}
       run: |
         set -euo pipefail
         common_args=(
@@ -190,6 +206,17 @@ runs:
             python3 "${SCRIPT_PATH}" verify-import-map \
               --import-map-path "${IMPORT_MAP_PATH}" \
               --expected-import-map-sha256 "${EXPECTED_IMPORT_MAP_SHA256}"
+            ;;
+          resolve-ecr-digests)
+            python3 "${SCRIPT_PATH}" resolve-ecr-digests \
+              --image-tag "${IMAGE_TAG}" \
+              --out "${ECR_DIGESTS_OUT}"
+            ;;
+          verify-ecr-digests)
+            python3 "${SCRIPT_PATH}" verify-ecr-digests \
+              --image-tag "${IMAGE_TAG}" \
+              --evidence-path "${ECR_EVIDENCE_PATH}" \
+              --context "${ECR_CONTEXT}"
             ;;
           *)
             echo "unsupported verifier command" >&2

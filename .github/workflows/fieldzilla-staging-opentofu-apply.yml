@@ -20,7 +20,19 @@ on:
         required: true
         type: string
       image-digest:
-        description: Exact approved FieldZilla image digest for routine ECS deployments.
+        description: >-
+          Deprecated. Exact approved FieldZilla image digest for routine ECS deployments
+          (legacy single-repository form). Prefer image-digest-map.
+        required: false
+        default: ""
+        type: string
+      image-digest-map:
+        description: >-
+          Canonical JSON object mapping each approved ECR repository to its independently
+          verified exact sha256 digest, per the operator's own out-of-band evidence. This
+          workflow re-resolves each repository's tag through ECR itself using its scoped
+          OIDC credentials and requires the resolved digest to match exactly before trusting
+          it into plan artifact metadata, and again at apply time before applying.
         required: false
         default: ""
         type: string
@@ -126,6 +138,33 @@ jobs:
           set -euo pipefail
           test "$(aws sts get-caller-identity --query Account --output text)" = "${AWS_ACCOUNT_ID}"
 
+      - name: Resolve ECR image digests
+        id: resolve-digests
+        if: ${{ inputs.mode == 'plan' || inputs.mode == 'post-import-plan' || inputs.mode == 'drift' }}
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc147
+        with:
+          command: resolve-ecr-digests
+          image-tag: ${{ inputs.image-tag }}
+          ecr-digests-out: ${{ runner.temp }}/resolved-image-digests.json
+
+      - name: Verify supplied digest evidence matches resolved ECR digests
+        if: ${{ (inputs.mode == 'plan' || inputs.mode == 'post-import-plan' || inputs.mode == 'drift') && inputs.image-digest-map != '' }}
+        env:
+          SUPPLIED_DIGEST_MAP: ${{ inputs.image-digest-map }}
+        run: |
+          set -euo pipefail
+          printf '%s' "${SUPPLIED_DIGEST_MAP}" > "${RUNNER_TEMP}/supplied-image-digests.json"
+        continue-on-error: false
+
+      - name: Enforce supplied digest evidence matches resolved ECR digests
+        if: ${{ (inputs.mode == 'plan' || inputs.mode == 'post-import-plan' || inputs.mode == 'drift') && inputs.image-digest-map != '' }}
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc147
+        with:
+          command: verify-ecr-digests
+          image-tag: ${{ inputs.image-tag }}
+          ecr-evidence-path: ${{ runner.temp }}/supplied-image-digests.json
+          ecr-context: supplied image-digest-map
+
       - name: Verify central workflow OIDC identity
         if: ${{ inputs.mode == 'import' || inputs.mode == 'apply' }}
         run: |
@@ -149,6 +188,7 @@ jobs:
           github-sha: ${{ github.sha }}
           expected-plan-sha256: ${{ inputs.expected-plan-sha256 }}
           image-digest: ${{ inputs.image-digest }}
+          image-digest-map: ${{ inputs.image-digest-map }}
           ecs-families: ${{ inputs.ecs-families }}
           expected-import-map-sha256: ${{ inputs.expected-import-map-sha256 }}
           expires-at: ${{ inputs.expires-at }}
@@ -191,6 +231,7 @@ jobs:
           github-sha: ${{ github.sha }}
           expected-plan-sha256: ${{ inputs.expected-plan-sha256 }}
           image-digest: ${{ inputs.image-digest }}
+          image-digest-map: ${{ inputs.image-digest-map }}
           ecs-families: ${{ inputs.ecs-families }}
           expected-import-map-sha256: ${{ inputs.expected-import-map-sha256 }}
           expires-at: ${{ inputs.expires-at }}
@@ -283,7 +324,12 @@ jobs:
           export PLAN_SHA="${plan_sha}"
           export LOCK_SHA="${lock_sha}"
           export TOFU_VERSION="${tofu_version}"
-          IMAGE_DIGEST="${{ inputs.image-digest }}" ECS_FAMILIES="${{ inputs.ecs-families }}" python3 -c 'import json,os; from datetime import datetime, timezone; families=sorted([item for item in os.environ["ECS_FAMILIES"].split(",") if item]); print(json.dumps({"repository":"Synergie-ITCI/programme-management-platform","repository_id":1315697868,"environment":"synergie-app-staging","commit_sha":os.environ["EXPECTED_SHA"],"image_digest":os.environ["IMAGE_DIGEST"],"ecs_families":families,"workflow_run_id":os.environ["GITHUB_RUN_ID"],"workflow_run_attempt":os.environ["GITHUB_RUN_ATTEMPT"],"artifact_name":os.environ["ARTIFACT_NAME"],"generated_at":datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),"opentofu_version":os.environ["TOFU_VERSION"],"provider_lock_sha256":os.environ["LOCK_SHA"],"plan_sha256":os.environ["PLAN_SHA"],"state_backend":"s3","state_bucket":os.environ["STATE_BUCKET"],"state_key":os.environ["STATE_KEY"],"lock_table":os.environ["STATE_LOCK_TABLE"]}, indent=2, sort_keys=True))' > "${plan_dir}/metadata.json"
+          # Bind the ECR-VERIFIED resolved digest map into metadata, not the operator's
+          # raw supplied claim -- the "Verify supplied digest evidence..." step above
+          # already proved they match when evidence was supplied; when it was not, this
+          # records what ECR actually resolved to, which apply-time re-resolution then
+          # checks against.
+          IMAGE_DIGEST="${{ inputs.image-digest }}" ECS_FAMILIES="${{ inputs.ecs-families }}" RESOLVED_DIGESTS_PATH="${RUNNER_TEMP}/resolved-image-digests.json" python3 -c 'import json,os; from datetime import datetime, timezone; families=sorted([item for item in os.environ["ECS_FAMILIES"].split(",") if item]); resolved=json.load(open(os.environ["RESOLVED_DIGESTS_PATH"])); print(json.dumps({"repository":"Synergie-ITCI/programme-management-platform","repository_id":1315697868,"environment":"synergie-app-staging","commit_sha":os.environ["EXPECTED_SHA"],"image_digest":os.environ["IMAGE_DIGEST"],"image_digest_map":resolved,"ecs_families":families,"workflow_run_id":os.environ["GITHUB_RUN_ID"],"workflow_run_attempt":os.environ["GITHUB_RUN_ATTEMPT"],"artifact_name":os.environ["ARTIFACT_NAME"],"generated_at":datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),"opentofu_version":os.environ["TOFU_VERSION"],"provider_lock_sha256":os.environ["LOCK_SHA"],"plan_sha256":os.environ["PLAN_SHA"],"state_backend":"s3","state_bucket":os.environ["STATE_BUCKET"],"state_key":os.environ["STATE_KEY"],"lock_table":os.environ["STATE_LOCK_TABLE"]}, indent=2, sort_keys=True))' > "${plan_dir}/metadata.json"
           {
             echo "${plan_sha}  fieldzilla-staging.tfplan"
             sha256sum "${plan_dir}/fieldzilla-staging.plan.txt" | sed "s#${plan_dir}/##"
@@ -306,6 +352,7 @@ jobs:
           plan-kind: ${{ inputs.mode == 'plan' && 'normal' || inputs.mode == 'post-import-plan' && 'post-import' || 'drift' }}
           expected-sha: ${{ inputs.expected-sha }}
           image-digest: ${{ inputs.image-digest }}
+          image-digest-map: ${{ inputs.image-digest-map }}
           ecs-families: ${{ inputs.ecs-families }}
 
       - name: Verify generated artifact contents
@@ -359,6 +406,7 @@ jobs:
           github-sha: ${{ github.sha }}
           expected-plan-sha256: ${{ inputs.expected-plan-sha256 }}
           image-digest: ${{ inputs.image-digest }}
+          image-digest-map: ${{ inputs.image-digest-map }}
           ecs-families: ${{ inputs.ecs-families }}
           expected-import-map-sha256: ${{ inputs.expected-import-map-sha256 }}
           expires-at: ${{ inputs.expires-at }}
@@ -379,6 +427,7 @@ jobs:
           expected-sha: ${{ inputs.expected-sha }}
           expected-plan-sha256: ${{ inputs.expected-plan-sha256 }}
           image-digest: ${{ inputs.image-digest }}
+          image-digest-map: ${{ inputs.image-digest-map }}
           ecs-families: ${{ inputs.ecs-families }}
           expected-import-map-sha256: ${{ inputs.expected-import-map-sha256 }}
           source-run-id: ${{ inputs.source-plan-run-id }}
@@ -392,6 +441,28 @@ jobs:
         with:
           command: verify-artifact-files
           artifact-dir: ${{ env.APPROVED_DIR }}
+
+      - name: Extract approved artifact's recorded digest map
+        if: ${{ inputs.mode == 'apply' }}
+        run: |
+          set -euo pipefail
+          # The plan-time metadata recorded ECR-verified digests (see "Resolve ECR image
+          # digests" and the metadata-binding step above). Re-resolving now and requiring
+          # an exact match catches a tag deleted, repointed, or made ambiguous between plan
+          # and apply -- ECR repository immutability (image_tag_mutability = IMMUTABLE)
+          # already prevents a tag being silently repointed, but this is defense in depth,
+          # not a substitute for it, and also catches deletion/absence.
+          python3 -c 'import json,sys; d=json.load(open(sys.argv[1] + "/metadata.json")); m=d.get("image_digest_map"); sys.exit("approved artifact metadata has no image_digest_map") if not m else json.dump(m, open(sys.argv[2], "w"), sort_keys=True)' \
+            "${APPROVED_DIR}" "${RUNNER_TEMP}/approved-image-digests.json"
+
+      - name: Re-resolve and verify ECR digests against approved artifact
+        if: ${{ inputs.mode == 'apply' }}
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc147
+        with:
+          command: verify-ecr-digests
+          image-tag: ${{ inputs.image-tag }}
+          ecr-evidence-path: ${{ runner.temp }}/approved-image-digests.json
+          ecr-context: approved artifact's recorded image-digest-map
 
       - name: Render approved import map
         if: ${{ inputs.mode == 'import' }}
@@ -430,6 +501,7 @@ jobs:
           github-sha: ${{ github.sha }}
           expected-plan-sha256: ${{ inputs.expected-plan-sha256 }}
           image-digest: ${{ inputs.image-digest }}
+          image-digest-map: ${{ inputs.image-digest-map }}
           ecs-families: ${{ inputs.ecs-families }}
           expected-import-map-sha256: ${{ inputs.expected-import-map-sha256 }}
           expires-at: ${{ inputs.expires-at }}
@@ -485,6 +557,7 @@ jobs:
           plan-kind: normal
           expected-sha: ${{ inputs.expected-sha }}
           image-digest: ${{ inputs.image-digest }}
+          image-digest-map: ${{ inputs.image-digest-map }}
           ecs-families: ${{ inputs.ecs-families }}
 
       - name: Mark apply authorization used
@@ -501,6 +574,7 @@ jobs:
           github-sha: ${{ github.sha }}
           expected-plan-sha256: ${{ inputs.expected-plan-sha256 }}
           image-digest: ${{ inputs.image-digest }}
+          image-digest-map: ${{ inputs.image-digest-map }}
           ecs-families: ${{ inputs.ecs-families }}
           expected-import-map-sha256: ${{ inputs.expected-import-map-sha256 }}
           expires-at: ${{ inputs.expires-at }}

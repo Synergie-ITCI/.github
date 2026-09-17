@@ -5,6 +5,7 @@ import datetime as dt
 import hashlib
 import json
 import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -1201,6 +1202,128 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
         with mock.patch.object(auth, "github_api", return_value=[deployment]):
             with self.assertRaises(SystemExit):
                 auth.check_single_use(valid_args())
+
+    # -- ECR digest resolution/verification --------------------------------------------
+
+    @staticmethod
+    def _fake_ecr_runner(digests: dict[str, str], missing: set[str] | None = None, ambiguous: set[str] | None = None):
+        """Build a fake subprocess.run replacement for aws ecr describe-images. `digests`
+        maps repository -> digest for the single expected image. `missing` repositories
+        return zero results (simulating an absent tag); `ambiguous` repositories return
+        two results (simulating an ambiguous match)."""
+        missing = missing or set()
+        ambiguous = ambiguous or set()
+
+        def runner(cmd, capture_output, text):
+            repo_index = cmd.index("--repository-name") + 1
+            repository = cmd[repo_index]
+            if repository in missing:
+                return subprocess.CompletedProcess(cmd, returncode=254, stdout="", stderr="ImageNotFoundException")
+            if repository in ambiguous:
+                details = [{"imageDigest": digests[repository]}, {"imageDigest": "sha256:" + "1" * 64}]
+                return subprocess.CompletedProcess(cmd, returncode=0, stdout=json.dumps({"imageDetails": details}), stderr="")
+            details = [{"imageDigest": digests[repository]}]
+            return subprocess.CompletedProcess(cmd, returncode=0, stdout=json.dumps({"imageDetails": details}), stderr="")
+
+        return runner
+
+    def test_resolves_two_distinct_repository_digests(self) -> None:
+        digests = {API_REPO: DIGEST_MAP[API_REPO], ADMIN_WEB_REPO: DIGEST_MAP[ADMIN_WEB_REPO]}
+        runner = self._fake_ecr_runner(digests)
+        resolved = auth.resolve_ecr_digests(DEPLOY_SHA, runner)
+        self.assertEqual(resolved, digests)
+        self.assertNotEqual(resolved[API_REPO], resolved[ADMIN_WEB_REPO])
+
+    def test_rejects_wrong_repository(self) -> None:
+        with self.assertRaises(SystemExit):
+            auth.resolve_ecr_repository_digest("synergie/other/staging/api", DEPLOY_SHA, self._fake_ecr_runner({}))
+
+    def test_rejects_wrong_tag_format(self) -> None:
+        with self.assertRaises(SystemExit):
+            auth.resolve_ecr_repository_digest(API_REPO, "not-a-sha", self._fake_ecr_runner({}))
+
+    def test_rejects_missing_ecr_result(self) -> None:
+        digests = {API_REPO: DIGEST_MAP[API_REPO], ADMIN_WEB_REPO: DIGEST_MAP[ADMIN_WEB_REPO]}
+        runner = self._fake_ecr_runner(digests, missing={API_REPO})
+        with self.assertRaises(SystemExit):
+            auth.resolve_ecr_digests(DEPLOY_SHA, runner)
+
+    def test_rejects_ambiguous_multiple_ecr_results(self) -> None:
+        digests = {API_REPO: DIGEST_MAP[API_REPO], ADMIN_WEB_REPO: DIGEST_MAP[ADMIN_WEB_REPO]}
+        runner = self._fake_ecr_runner(digests, ambiguous={ADMIN_WEB_REPO})
+        with self.assertRaises(SystemExit):
+            auth.resolve_ecr_digests(DEPLOY_SHA, runner)
+
+    def test_rejects_forged_but_well_formed_digest(self) -> None:
+        """A forged digest that is syntactically valid (right format, right key set) but
+        does not match what ECR itself resolves must still be rejected -- this is exactly
+        the class of evidence that JSON-shape/format validation alone cannot catch, which
+        is the whole reason ECR re-resolution exists."""
+        real = {API_REPO: DIGEST_MAP[API_REPO], ADMIN_WEB_REPO: DIGEST_MAP[ADMIN_WEB_REPO]}
+        forged = {API_REPO: "sha256:" + "7" * 64, ADMIN_WEB_REPO: DIGEST_MAP[ADMIN_WEB_REPO]}
+        resolved = auth.resolve_ecr_digests(DEPLOY_SHA, self._fake_ecr_runner(real))
+        with self.assertRaises(SystemExit):
+            auth.require_exact_ecr_match(resolved, forged, "test")
+
+    def test_rejects_moved_tag_between_plan_and_apply(self) -> None:
+        """The digest recorded at plan time must match what ECR resolves again at apply
+        time -- a tag that now points somewhere else (or was deleted) is rejected."""
+        plan_time = {API_REPO: DIGEST_MAP[API_REPO], ADMIN_WEB_REPO: DIGEST_MAP[ADMIN_WEB_REPO]}
+        apply_time = {API_REPO: "sha256:" + "2" * 64, ADMIN_WEB_REPO: DIGEST_MAP[ADMIN_WEB_REPO]}
+        resolved_at_apply = auth.resolve_ecr_digests(DEPLOY_SHA, self._fake_ecr_runner(apply_time))
+        with self.assertRaises(SystemExit):
+            auth.require_exact_ecr_match(resolved_at_apply, plan_time, "approved artifact")
+
+    def test_rejects_incomplete_or_extra_repository_evidence(self) -> None:
+        real = {API_REPO: DIGEST_MAP[API_REPO], ADMIN_WEB_REPO: DIGEST_MAP[ADMIN_WEB_REPO]}
+        resolved = auth.resolve_ecr_digests(DEPLOY_SHA, self._fake_ecr_runner(real))
+        with self.assertRaises(SystemExit):
+            auth.require_exact_ecr_match(resolved, {API_REPO: DIGEST_MAP[API_REPO]}, "test")
+        with self.assertRaises(SystemExit):
+            auth.require_exact_ecr_match(resolved, {**real, "synergie/other/staging/api": "sha256:" + "3" * 64}, "test")
+
+    def test_accepts_exact_matching_evidence(self) -> None:
+        real = {API_REPO: DIGEST_MAP[API_REPO], ADMIN_WEB_REPO: DIGEST_MAP[ADMIN_WEB_REPO]}
+        resolved = auth.resolve_ecr_digests(DEPLOY_SHA, self._fake_ecr_runner(real))
+        auth.require_exact_ecr_match(resolved, real, "test")  # must not raise
+
+    # -- Workflow input-contract consistency --------------------------------------------
+
+    def test_workflow_with_blocks_match_exact_pinned_action_contract(self) -> None:
+        """Every `with:` key passed to opentofu-plan-authorizer anywhere in the reusable
+        workflow must be a key the exact pinned action version actually declares. This is
+        exactly the class of bug that broke exact-head CI earlier in this series (a
+        workflow passing an input the pinned immutable action release did not know) --
+        this test catches that class of mismatch locally, before it reaches GitHub."""
+        workflow_path = ROOT / ".github/workflows/fieldzilla-staging-opentofu-apply.yml"
+        workflow = workflow_path.read_text(encoding="utf-8")
+        action_yml = (ROOT / "actions/opentofu-plan-authorizer/action.yml").read_text(encoding="utf-8")
+
+        declared_inputs = set(re.findall(r"^  ([a-z][a-z0-9-]*):\n", action_yml, re.MULTILINE))
+        self.assertIn("image-digest-map", declared_inputs)
+        self.assertIn("ecr-digests-out", declared_inputs)
+
+        lines = workflow.splitlines()
+        blocks: list[list[str]] = []
+        current: list[str] | None = None
+        for line in lines:
+            if re.match(r"^\s*uses: Synergie-ITCI/\.github/actions/opentofu-plan-authorizer@", line):
+                current = []
+                blocks.append(current)
+                continue
+            if current is not None:
+                if re.match(r"^\s*with:\s*$", line):
+                    continue
+                match = re.match(r"^\s{10,}([a-z][a-z0-9-]*):", line)
+                if match:
+                    current.append(match.group(1))
+                elif line.strip() == "" or not line.startswith("          "):
+                    current = None
+
+        self.assertTrue(blocks, "expected at least one opentofu-plan-authorizer invocation")
+        for block in blocks:
+            unknown = set(block) - declared_inputs
+            self.assertFalse(unknown, f"with: keys not declared by action.yml: {unknown}")
 
 
 if __name__ == "__main__":

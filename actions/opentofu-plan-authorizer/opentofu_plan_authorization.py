@@ -987,6 +987,95 @@ def mark_used(args: argparse.Namespace) -> None:
     )
 
 
+IMAGE_TAG = re.compile(r"^[0-9a-f]{40}$")
+
+
+def resolve_ecr_repository_digest(
+    repository: str, tag: str, runner: Any = None
+) -> str:
+    """Resolve exactly one approved ECR repository's tag to its exact digest by calling
+    ECR itself (via the job's own scoped OIDC credentials -- this function never touches
+    credentials directly). Fails closed on: an unapproved repository, a malformed tag, a
+    describe-images call that errors (treated as absent, never guessed at), zero or more
+    than one matching image (ambiguous), or a malformed digest in the response. Never
+    prints credentials or secrets -- only repository names, tags, and digests."""
+    if runner is None:
+        runner = subprocess.run
+    if repository not in APPROVED_ECR_REPOSITORIES:
+        die(f"{repository} is not an approved ECR repository")
+    if not IMAGE_TAG.fullmatch(tag):
+        die("image tag must be an exact 40-character lowercase hex SHA")
+
+    result = runner(
+        [
+            "aws", "ecr", "describe-images",
+            "--repository-name", repository,
+            "--image-ids", f"imageTag={tag}",
+            "--region", AWS_REGION,
+            "--output", "json",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        # A non-zero exit (e.g. ImageNotFoundException) means the tag is absent in this
+        # repository. Fail closed rather than distinguishing further.
+        details: list[dict[str, Any]] = []
+    else:
+        try:
+            details = json.loads(result.stdout).get("imageDetails", [])
+        except json.JSONDecodeError:
+            die(f"{repository}:{tag} -- ECR response was not valid JSON")
+            return ""  # unreachable; satisfies type checkers
+
+    if len(details) != 1:
+        die(
+            f"{repository}:{tag} resolved to {len(details)} image(s) in ECR; "
+            "expected exactly 1 (absent, ambiguous, or wrong tag)"
+        )
+    digest = str(details[0].get("imageDigest", ""))
+    if not IMAGE_DIGEST.fullmatch(digest):
+        die(f"{repository}:{tag} -- ECR returned a malformed or missing digest")
+    return digest
+
+
+def resolve_ecr_digests(tag: str, runner: Any = None) -> dict[str, str]:
+    """Resolve every approved repository's exact digest for this tag. All repositories are
+    resolved, not short-circuited, so a single run surfaces every problem at once."""
+    return {
+        repository: resolve_ecr_repository_digest(repository, tag, runner)
+        for repository in APPROVED_ECR_REPOSITORIES
+    }
+
+
+def require_exact_ecr_match(resolved: dict[str, str], evidence: dict[str, str], context: str) -> None:
+    """Require freshly resolved ECR digests to exactly match evidence -- either the
+    operator's supplied claim at plan time, or the approved artifact's recorded digests at
+    apply time. A forged-but-well-formed digest, a moved tag, or an incomplete evidence map
+    are all rejected here: this comparison against a live ECR read is the only place a
+    digest claim is ever checked against real, independent ground truth."""
+    if set(evidence.keys()) != set(APPROVED_ECR_REPOSITORIES):
+        die(f"{context}: evidence must name exactly the two approved repositories, got {sorted(evidence.keys())}")
+    if resolved != evidence:
+        die(
+            f"{context}: freshly resolved ECR digests do not match the required evidence "
+            "-- a tag may be absent, ambiguous, changed, or points elsewhere"
+        )
+
+
+def resolve_ecr_digests_command(args: argparse.Namespace) -> None:
+    resolved = resolve_ecr_digests(args.image_tag)
+    args.out.write_text(json.dumps(resolved, sort_keys=True), encoding="utf-8")
+    print("RESOLVED_ECR_DIGESTS=" + json.dumps(resolved, sort_keys=True))
+
+
+def verify_ecr_digests_command(args: argparse.Namespace) -> None:
+    resolved = resolve_ecr_digests(args.image_tag)
+    evidence = json.loads(args.evidence_path.read_text(encoding="utf-8"))
+    require_exact_ecr_match(resolved, evidence, args.context)
+    print("VERIFIED_ECR_DIGESTS=" + json.dumps(resolved, sort_keys=True))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1048,6 +1137,13 @@ def main() -> None:
     imports = sub.add_parser("verify-import-map")
     imports.add_argument("--import-map-path", type=Path, required=True)
     imports.add_argument("--expected-import-map-sha256", required=True)
+    resolve_ecr = sub.add_parser("resolve-ecr-digests")
+    resolve_ecr.add_argument("--image-tag", required=True)
+    resolve_ecr.add_argument("--out", type=Path, required=True)
+    verify_ecr = sub.add_parser("verify-ecr-digests")
+    verify_ecr.add_argument("--image-tag", required=True)
+    verify_ecr.add_argument("--evidence-path", type=Path, required=True)
+    verify_ecr.add_argument("--context", default="digest evidence")
 
     args = parser.parse_args()
     dispatch = {
@@ -1062,6 +1158,8 @@ def main() -> None:
         "verify-import-map": verify_import_map,
         "check-single-use": check_single_use,
         "mark-used": mark_used,
+        "resolve-ecr-digests": resolve_ecr_digests_command,
+        "verify-ecr-digests": verify_ecr_digests_command,
     }
     dispatch[args.command](args)
 
