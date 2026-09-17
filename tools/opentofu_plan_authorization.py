@@ -41,18 +41,51 @@ APPROVED_FIELDZILLA_TASK_FAMILIES = {
 }
 # Exact approved design baseline used ONLY when a task-definition create has no prior
 # Terraform-tracked state to diff against (see _is_approved_new_staging_task_definition).
-# Every value below was taken from the live, currently-deployed, governance-reviewed
-# staging task definitions -- this is a fail-closed exact match, not an upper bound.
+#
+# PROVENANCE: every field below is taken directly from the reviewed, merged Terraform
+# source at programme-management-platform commit 2c8a4015fd4a97d1c582475a6939cf8fb988b2fb
+# (infra/aws/compute.tf: aws_ecs_task_definition.api/admin/worker/migration,
+# infra/aws/locals.tf: local.environments.staging and local.runtime_secret_keys), NOT from
+# live AWS state -- a manually created live revision (exactly the kind of out-of-band
+# artifact this path exists to supersede) must never be treated as authoritative. Each
+# container's key set intentionally matches only what that family's container object
+# literal sets in the .tf source: a key the .tf never sets (e.g. "command" on admin-web,
+# or "cpu"/"privileged"/"linuxParameters" on any of them) is simply absent from the
+# baseline, so the exact-shape equality check in _is_approved_baseline_container rejects
+# it the moment a plan's container carries that key at all -- there is no separate
+# allowlist of "forbidden" fields to fall out of sync with the baseline.
 _EXECUTION_ROLE_ARN = "arn:aws:iam::918870682888:role/SynergieFieldzillaStagingEcsExecution"
 _TASK_ROLE_ARN = "arn:aws:iam::918870682888:role/SynergieFieldzillaStagingTask"
 _API_ECR_REPOSITORY = "synergie/fieldzilla/staging/api"
 _ADMIN_WEB_ECR_REPOSITORY = "synergie/fieldzilla/staging/admin-web"
+# Both approved ECR repositories -- worker and migration share the api repository (they run
+# the same image with a different command), matching aws_ecs_task_definition.worker/migration
+# referencing aws_ecr_repository.api in the reviewed source, not their own repository.
+APPROVED_ECR_REPOSITORIES = {_API_ECR_REPOSITORY, _ADMIN_WEB_ECR_REPOSITORY}
+FAMILY_ECR_REPOSITORY = {
+    "fieldzilla-staging-api": _API_ECR_REPOSITORY,
+    "fieldzilla-staging-admin-web": _ADMIN_WEB_ECR_REPOSITORY,
+    "fieldzilla-staging-worker": _API_ECR_REPOSITORY,
+    "fieldzilla-staging-migration": _API_ECR_REPOSITORY,
+}
 # The exact approved staging runtime secret ARN (not a name prefix -- a same-prefixed but
 # different Secrets Manager resource must never be treated as equivalent).
 EXACT_RUNTIME_SECRET_ARN = (
     f"arn:aws:secretsmanager:{AWS_REGION}:{AWS_ACCOUNT}:secret:"
     "/synergie/fieldzilla/staging/runtime-pp9aAx"
 )
+# local.runtime_secret_keys in infra/aws/locals.tf -- the full set referenced anywhere.
+_ALL_RUNTIME_SECRET_KEYS = frozenset({
+    "APP_SECRET_KEY", "APP_DATABASE_CONTEXT_SECRET", "APP_DATABASE_URL",
+    "APP_FIELD_ENCRYPTION_MASTER_KEY", "APP_CORS_ORIGINS", "APP_WORKER_TENANT_IDS",
+    "APP_ADMIN_WEB_BASE_URL",
+})
+# api and migration filter out APP_WORKER_TENANT_IDS (`if key != "APP_WORKER_TENANT_IDS"`
+# in the reviewed .tf); worker takes the full unfiltered list; admin-web has no secrets
+# block in the .tf at all.
+_API_SECRET_KEYS = _ALL_RUNTIME_SECRET_KEYS - {"APP_WORKER_TENANT_IDS"}
+_MIGRATION_SECRET_KEYS = _ALL_RUNTIME_SECRET_KEYS - {"APP_WORKER_TENANT_IDS"}
+_WORKER_SECRET_KEYS = _ALL_RUNTIME_SECRET_KEYS
 
 FIELDZILLA_TASK_DEFINITION_BASELINE: dict[str, dict[str, Any]] = {
     "fieldzilla-staging-api": {
@@ -71,17 +104,11 @@ FIELDZILLA_TASK_DEFINITION_BASELINE: dict[str, dict[str, Any]] = {
         "container": {
             "name": "api",
             "essential": True,
-            "cpu": 0,
-            "memory": None,
-            "command": ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"],
-            "entrypoint": None,
             "portMappings": [{"containerPort": 8000, "hostPort": 0, "protocol": "tcp"}],
-            "user": None,
-            "privileged": None,
-            "readonlyRootFilesystem": None,
-            "linuxParameters": None,
+            "command": ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"],
             "mountPoints": [],
-            "repositoryCredentials": None,
+            "systemControls": [],
+            "volumesFrom": [],
             "logConfiguration": {
                 "logDriver": "awslogs",
                 "options": {
@@ -90,24 +117,19 @@ FIELDZILLA_TASK_DEFINITION_BASELINE: dict[str, dict[str, Any]] = {
                     "awslogs-stream-prefix": "ecs",
                 },
             },
-            "healthCheck": None,
-            "dependsOn": None,
             "environment": [
-                {"name": "APP_OBJECT_STORAGE_KMS_KEY_ID", "value": "arn:aws:kms:ap-south-1:918870682888:key/97b547d5-8bb8-463b-aee5-5fbdc471cb1e"},
-                {"name": "APP_OBJECT_STORAGE_BUCKET", "value": "fz-evidence-918870682888-20260912185211995900000002"},
-                {"name": "APP_FIELD_ENCRYPTION_KMS_AVAILABLE", "value": "true"},
+                {"name": "APP_ENVIRONMENT", "value": "staging"},
                 {"name": "APP_OBJECT_STORAGE_BACKEND", "value": "s3_private"},
+                {"name": "APP_OBJECT_STORAGE_BUCKET", "value": "fz-evidence-918870682888-20260912185211995900000002"},
                 {"name": "APP_OBJECT_STORAGE_PREFIX", "value": "staging"},
+                {"name": "APP_OBJECT_STORAGE_REGION", "value": AWS_REGION},
+                {"name": "APP_OBJECT_STORAGE_KMS_KEY_ID", "value": "arn:aws:kms:ap-south-1:918870682888:key/97b547d5-8bb8-463b-aee5-5fbdc471cb1e"},
                 {"name": "APP_FIELD_ENCRYPTION_KMS_KEY_ID", "value": "arn:aws:kms:ap-south-1:918870682888:key/97b547d5-8bb8-463b-aee5-5fbdc471cb1e"},
                 {"name": "APP_FIELD_ENCRYPTION_KMS_KEY_VERSION", "value": "1"},
-                {"name": "APP_ENVIRONMENT", "value": "staging"},
-                {"name": "APP_OBJECT_STORAGE_REGION", "value": AWS_REGION},
+                {"name": "APP_FIELD_ENCRYPTION_KMS_AVAILABLE", "value": "true"},
                 {"name": "APP_DEBUG", "value": "false"},
             ],
-            "secret_keys": frozenset({
-                "APP_SECRET_KEY", "APP_DATABASE_CONTEXT_SECRET", "APP_DATABASE_URL",
-                "APP_FIELD_ENCRYPTION_MASTER_KEY", "APP_CORS_ORIGINS", "APP_ADMIN_WEB_BASE_URL",
-            }),
+            "secret_keys": _API_SECRET_KEYS,
         },
     },
     "fieldzilla-staging-admin-web": {
@@ -126,17 +148,11 @@ FIELDZILLA_TASK_DEFINITION_BASELINE: dict[str, dict[str, Any]] = {
         "container": {
             "name": "admin-web",
             "essential": True,
-            "cpu": 0,
-            "memory": None,
-            "command": None,
-            "entrypoint": None,
             "portMappings": [{"containerPort": 80, "hostPort": 0, "protocol": "tcp"}],
-            "user": None,
-            "privileged": None,
-            "readonlyRootFilesystem": None,
-            "linuxParameters": None,
+            "environment": [],
             "mountPoints": [],
-            "repositoryCredentials": None,
+            "systemControls": [],
+            "volumesFrom": [],
             "logConfiguration": {
                 "logDriver": "awslogs",
                 "options": {
@@ -145,9 +161,6 @@ FIELDZILLA_TASK_DEFINITION_BASELINE: dict[str, dict[str, Any]] = {
                     "awslogs-stream-prefix": "ecs",
                 },
             },
-            "healthCheck": None,
-            "dependsOn": None,
-            "environment": [],
             "secret_keys": frozenset(),
         },
     },
@@ -167,17 +180,12 @@ FIELDZILLA_TASK_DEFINITION_BASELINE: dict[str, dict[str, Any]] = {
         "container": {
             "name": "worker",
             "essential": True,
-            "cpu": 0,
-            "memory": None,
             "command": ["python", "-m", "app.worker.loop"],
-            "entrypoint": None,
-            "portMappings": [],
-            "user": None,
-            "privileged": None,
-            "readonlyRootFilesystem": None,
-            "linuxParameters": None,
+            "environment": [],
             "mountPoints": [],
-            "repositoryCredentials": None,
+            "portMappings": [],
+            "systemControls": [],
+            "volumesFrom": [],
             "logConfiguration": {
                 "logDriver": "awslogs",
                 "options": {
@@ -186,13 +194,7 @@ FIELDZILLA_TASK_DEFINITION_BASELINE: dict[str, dict[str, Any]] = {
                     "awslogs-stream-prefix": "ecs",
                 },
             },
-            "healthCheck": None,
-            "dependsOn": None,
-            "environment": [],
-            "secret_keys": frozenset({
-                "APP_SECRET_KEY", "APP_DATABASE_CONTEXT_SECRET", "APP_DATABASE_URL",
-                "APP_FIELD_ENCRYPTION_MASTER_KEY", "APP_CORS_ORIGINS", "APP_WORKER_TENANT_IDS",
-            }),
+            "secret_keys": _WORKER_SECRET_KEYS,
         },
     },
     "fieldzilla-staging-migration": {
@@ -211,17 +213,12 @@ FIELDZILLA_TASK_DEFINITION_BASELINE: dict[str, dict[str, Any]] = {
         "container": {
             "name": "migration",
             "essential": True,
-            "cpu": 0,
-            "memory": None,
             "command": ["alembic", "upgrade", "head"],
-            "entrypoint": None,
-            "portMappings": [],
-            "user": None,
-            "privileged": None,
-            "readonlyRootFilesystem": None,
-            "linuxParameters": None,
+            "environment": [],
             "mountPoints": [],
-            "repositoryCredentials": None,
+            "portMappings": [],
+            "systemControls": [],
+            "volumesFrom": [],
             "logConfiguration": {
                 "logDriver": "awslogs",
                 "options": {
@@ -230,17 +227,10 @@ FIELDZILLA_TASK_DEFINITION_BASELINE: dict[str, dict[str, Any]] = {
                     "awslogs-stream-prefix": "ecs",
                 },
             },
-            "healthCheck": None,
-            "dependsOn": None,
-            "environment": [],
-            "secret_keys": frozenset({
-                "APP_SECRET_KEY", "APP_DATABASE_CONTEXT_SECRET", "APP_DATABASE_URL",
-                "APP_FIELD_ENCRYPTION_MASTER_KEY", "APP_CORS_ORIGINS",
-            }),
+            "secret_keys": _MIGRATION_SECRET_KEYS,
         },
     },
 }
-
 AUTH_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{7,79}$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -308,8 +298,8 @@ def verify_inputs(args: argparse.Namespace, now: dt.datetime | None = None) -> N
         die("workflow commit SHA does not match approved SHA")
     if getattr(args, "repository_id", REPOSITORY_ID) != REPOSITORY_ID:
         die("repository id mismatch")
-    if getattr(args, "image_digest", "") and not IMAGE_DIGEST.fullmatch(args.image_digest):
-        die("image digest must be exact sha256 digest")
+    if getattr(args, "image_digest_map", "") and _parse_image_digest_map(args.image_digest_map) is None:
+        die("image digest map must be canonical JSON with exact sha256 digests for both approved repositories")
     if getattr(args, "ecs_families", ""):
         families = set(args.ecs_families.split(","))
         if families != APPROVED_FIELDZILLA_TASK_FAMILIES:
@@ -486,8 +476,8 @@ def verify_artifact_metadata(args: argparse.Namespace) -> None:
         plan_path = args.artifact_dir / "fieldzilla-staging.tfplan"
         if not plan_path.is_file() or sha256_file(plan_path) != args.expected_plan_sha256:
             die("downloaded OpenTofu plan hash mismatch")
-    if getattr(args, "image_digest", "") and metadata.get("image_digest") != args.image_digest:
-        die("artifact image digest mismatch")
+    if getattr(args, "image_digest_map", "") and metadata.get("image_digest_map") != _parse_image_digest_map(args.image_digest_map):
+        die("artifact image digest map mismatch")
     if getattr(args, "ecs_families", ""):
         families = metadata.get("ecs_families")
         if families != sorted(APPROVED_FIELDZILLA_TASK_FAMILIES):
@@ -509,10 +499,17 @@ def verify_plan_safety(args: argparse.Namespace) -> None:
         die("container host size is outside approved design")
     if str(variables.get("monthly_budget_usd")) != "100":
         die("monthly budget guardrail mismatch")
-    routine_ecs_only = bool(getattr(args, "image_digest", ""))
+    routine_ecs_only = bool(getattr(args, "image_digest_map", ""))
+    resource_changes = doc.get("resource_changes", [])
+    approved_task_definition_addresses = {
+        change.get("address", "")
+        for change in resource_changes
+        if change.get("type") == "aws_ecs_task_definition"
+        and is_approved_ecs_task_definition_revision(change, variables, args)
+    }
 
     counts: dict[str, int] = {}
-    for change in doc.get("resource_changes", []):
+    for change in resource_changes:
         actions = change.get("change", {}).get("actions", [])
         key = ",".join(actions)
         counts[key] = counts.get(key, 0) + 1
@@ -521,7 +518,7 @@ def verify_plan_safety(args: argparse.Namespace) -> None:
         if routine_ecs_only and actions != ["no-op"]:
             if not (
                 is_approved_ecs_task_definition_revision(change, variables, args)
-                or is_approved_ecs_service_update(change)
+                or is_approved_ecs_service_update(change, approved_task_definition_addresses)
             ):
                 die("routine ECS deployment contains non-ECS or unapproved changes")
         if (
@@ -606,39 +603,75 @@ def _authorized_image_sha(args: argparse.Namespace | None, variables: dict[str, 
     return value if isinstance(value, str) and SHA.fullmatch(value) else None
 
 
-def _image_has_authorized_digest(container: dict[str, Any], args: argparse.Namespace | None) -> bool:
-    if args is None or not getattr(args, "image_digest", ""):
+def _parse_image_digest_map(raw: str) -> dict[str, str] | None:
+    """Parse and strictly validate the repository -> digest evidence map. Real Terraform
+    ECS container_definitions never carry a resolved digest of their own -- this is
+    independently verified evidence the operator attaches to the authorization, not
+    something derived from or checked against the plan JSON. Returns None if the input is
+    empty, malformed, has duplicate/extra/missing keys, or any non-exact-digest value --
+    there is no partial-credit path."""
+    if not raw:
+        return None
+
+    def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        seen: set[str] = set()
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in seen:
+                raise ValueError(f"duplicate key: {key}")
+            seen.add(key)
+            result[key] = value
+        return result
+
+    try:
+        parsed = json.loads(raw, object_pairs_hook=_reject_duplicate_keys)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    if set(parsed.keys()) != APPROVED_ECR_REPOSITORIES:
+        return None
+    for value in parsed.values():
+        if not isinstance(value, str) or not IMAGE_DIGEST.fullmatch(value):
+            return None
+    return parsed
+
+
+def _image_has_authorized_digest(repository: str, digest_map: dict[str, str] | None) -> bool:
+    """True if no digest evidence was required for this authorization (digest_map is None),
+    or if repository-scoped digest evidence for this exact repository was supplied. Once
+    digest_map is not None it is already guaranteed (by _parse_image_digest_map) to carry
+    both approved repositories -- an absent/missing entry can only mean repository itself
+    is not one of the two approved repositories, which the caller rejects independently."""
+    if digest_map is None:
         return True
-    digest = str(container.get("imageDigest") or container.get("image_digest") or "")
-    # An absent digest must never satisfy a supplied expected digest -- that would make
-    # this check a silent no-op whenever the plan simply omits digest evidence.
-    if not digest:
-        return False
-    return digest == args.image_digest
+    return repository in digest_map
 
 
 def _is_approved_baseline_container(
-    container: dict[str, Any], expected: dict[str, Any], authorized_sha: str, args: argparse.Namespace | None
+    container: dict[str, Any],
+    expected: dict[str, Any],
+    authorized_sha: str,
+    ecr_repository: str,
+    digest_map: dict[str, str],
 ) -> bool:
     """Exact match against one family's approved container baseline. Every field the
     baseline does not explicitly name is, by construction of the equality check, an
     "unexpected field" that fails closed -- there is no separate allowlist to keep in
     sync, and no sidecar sneaks in because container COUNT is checked by the caller."""
     actual_shape = _container_base(container)  # strips image/imageDigest/image_digest/secrets
-    expected_shape = {key: value for key, value in expected.items() if key not in ("secret_keys", "_ecr_repository")}
+    expected_shape = {key: value for key, value in expected.items() if key != "secret_keys"}
     if actual_shape != expected_shape:
         return False
 
     image = str(container.get("image", ""))
-    ecr_repository = expected.get("_ecr_repository", "")
     if not image.startswith(f"918870682888.dkr.ecr.{AWS_REGION}.amazonaws.com/{ecr_repository}:"):
         return False
     if not image.endswith(f":{authorized_sha}"):
         return False
-    # Digest evidence is mandatory for this path (see _is_approved_new_staging_task_definition);
-    # an absent container digest must never be treated as satisfying it.
-    digest = str(container.get("imageDigest") or container.get("image_digest") or "")
-    if not digest or digest != getattr(args, "image_digest", ""):
+    # Digest evidence is mandatory for this path and is bound by repository, not read from
+    # the container -- see _parse_image_digest_map / _is_approved_new_staging_task_definition.
+    if not _image_has_authorized_digest(ecr_repository, digest_map):
         return False
 
     secrets = container.get("secrets") or []
@@ -675,8 +708,10 @@ def _is_approved_new_staging_task_definition(
         return False
     # Digest evidence is mandatory for this path: Terraform's plan JSON never carries a
     # resolved digest on its own, so the operator must supply independently verified,
-    # exact ECR digest evidence up front. An absent or malformed digest is always rejected.
-    if not IMAGE_DIGEST.fullmatch(getattr(args, "image_digest", "") or ""):
+    # exact per-repository ECR digest evidence up front. Missing, malformed, or incomplete
+    # evidence is always rejected -- there is no fallback to "no digest required" here.
+    digest_map = _parse_image_digest_map(getattr(args, "image_digest_map", "") or "")
+    if digest_map is None:
         return False
 
     baseline = FIELDZILLA_TASK_DEFINITION_BASELINE[family]
@@ -689,9 +724,10 @@ def _is_approved_new_staging_task_definition(
     containers = _decode_container_definitions(after.get("container_definitions"))
     if len(containers) != 1:
         return False
-    expected_container = dict(baseline["container"])
-    expected_container["_ecr_repository"] = baseline["ecr_repository"]
-    return _is_approved_baseline_container(containers[0], expected_container, authorized_sha, args)
+    ecr_repository = baseline["ecr_repository"]
+    if FAMILY_ECR_REPOSITORY.get(family) != ecr_repository:
+        return False
+    return _is_approved_baseline_container(containers[0], baseline["container"], authorized_sha, ecr_repository, digest_map)
 
 
 def is_approved_ecs_task_definition_revision(
@@ -776,15 +812,29 @@ def is_approved_ecs_task_definition_revision(
         after_image = str(after_container.get("image", ""))
         if not before_image.startswith("918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/"):
             return False
+        repository = FAMILY_ECR_REPOSITORY.get(before.get("family"))
+        if repository is None or not after_image.startswith(
+            f"918870682888.dkr.ecr.{AWS_REGION}.amazonaws.com/{repository}:"
+        ):
+            return False
         if not after_image.endswith(f":{authorized_sha}"):
             return False
-        if not _image_has_authorized_digest(after_container, args):
+        # Digest evidence is opt-in for this path (only required when the caller supplied
+        # image_digest_map at all -- e.g. a routine single-family rollout); when supplied it
+        # is bound by repository, not read from the container, since real plan JSON never
+        # carries a resolved digest of its own.
+        digest_map = _parse_image_digest_map(getattr(args, "image_digest_map", "") or "")
+        if getattr(args, "image_digest_map", "") and digest_map is None:
+            return False
+        if not _image_has_authorized_digest(repository, digest_map):
             return False
 
     return True
 
 
-def is_approved_ecs_service_update(change: dict[str, Any]) -> bool:
+def is_approved_ecs_service_update(
+    change: dict[str, Any], approved_task_definition_addresses: set[str] | None = None
+) -> bool:
     if change.get("type") != "aws_ecs_service":
         return False
     if '"staging"' not in change.get("address", ""):
@@ -796,8 +846,24 @@ def is_approved_ecs_service_update(change: dict[str, Any]) -> bool:
     if not isinstance(before, dict) or not isinstance(after, dict):
         return False
     changed = {key for key in set(before) | set(after) if before.get(key) != after.get(key)}
-    if changed - {"task_definition"}:
+    if changed != {"task_definition"}:
         return False
+
+    if change.get("change", {}).get("after_unknown", {}).get("task_definition") is True:
+        # The new task-definition ARN is unknown until apply (e.g. the service points at a
+        # task definition being created/replaced in the SAME plan). This is only approved
+        # when that exact task-definition resource_changes entry -- matched by Terraform
+        # address, not a generic expression/reference parse -- is itself independently
+        # approved in this same plan; there is no other evidence to check an unknown value
+        # against, and an unmatched or missing address is always rejected.
+        if not approved_task_definition_addresses:
+            return False
+        match = re.match(r'^aws_ecs_service\.([^.\[]+)(\[.*\])?$', change.get("address", ""))
+        if not match:
+            return False
+        name, key = match.group(1), match.group(2) or ""
+        return f"aws_ecs_task_definition.{name}{key}" in approved_task_definition_addresses
+
     task_definition = str(after.get("task_definition", ""))
     return any(f":task-definition/{family}:" in task_definition for family in APPROVED_FIELDZILLA_TASK_FAMILIES)
 
@@ -854,7 +920,7 @@ def deployment_payload(args: argparse.Namespace) -> dict[str, str]:
         "repository_id": str(REPOSITORY_ID),
         "commit_sha": args.expected_sha,
         "plan_sha256": args.expected_plan_sha256 or "",
-        "image_digest": getattr(args, "image_digest", ""),
+        "image_digest_map": _parse_image_digest_map(getattr(args, "image_digest_map", "") or ""),
         "ecs_families": getattr(args, "ecs_families", ""),
         "import_map_sha256": args.expected_import_map_sha256 or "",
         "source_run_id": getattr(args, "source_run_id", ""),
@@ -908,7 +974,7 @@ def main() -> None:
         target.add_argument("--github-sha", required=True)
         target.add_argument("--expected-plan-sha256", default="")
         target.add_argument("--expected-import-map-sha256", default="")
-        target.add_argument("--image-digest", default="")
+        target.add_argument("--image-digest-map", default="")
         target.add_argument("--ecs-families", default="")
         target.add_argument("--expires-at", required=True)
         target.add_argument("--authorization-id", required=True)
@@ -936,7 +1002,7 @@ def main() -> None:
     meta.add_argument("--expected-sha", required=True)
     meta.add_argument("--expected-plan-sha256", default="")
     meta.add_argument("--expected-import-map-sha256", default="")
-    meta.add_argument("--image-digest", default="")
+    meta.add_argument("--image-digest-map", default="")
     meta.add_argument("--ecs-families", default="")
     meta.add_argument("--source-run-id", required=True)
     meta.add_argument("--artifact-id", required=True)
@@ -948,7 +1014,7 @@ def main() -> None:
     safety.add_argument("--plan-json-path", type=Path, required=True)
     safety.add_argument("--plan-kind", default="normal")
     safety.add_argument("--expected-sha", default="")
-    safety.add_argument("--image-digest", default="")
+    safety.add_argument("--image-digest-map", default="")
     safety.add_argument("--ecs-families", default="")
     imports = sub.add_parser("verify-import-map")
     imports.add_argument("--import-map-path", type=Path, required=True)
