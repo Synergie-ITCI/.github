@@ -39,12 +39,207 @@ APPROVED_FIELDZILLA_TASK_FAMILIES = {
     "fieldzilla-staging-worker",
     "fieldzilla-staging-migration",
 }
-# Fixed approved design baseline used ONLY when a task-definition create has no prior
+# Exact approved design baseline used ONLY when a task-definition create has no prior
 # Terraform-tracked state to diff against (see _is_approved_new_staging_task_definition).
-APPROVED_STAGING_EXECUTION_ROLE_ARN = "arn:aws:iam::918870682888:role/SynergieFieldzillaStagingEcsExecution"
-APPROVED_STAGING_TASK_ROLE_ARN = "arn:aws:iam::918870682888:role/SynergieFieldzillaStagingTask"
-APPROVED_NEW_TASK_DEFINITION_MAX_CPU = 512
-APPROVED_NEW_TASK_DEFINITION_MAX_MEMORY = 1024
+# Every value below was taken from the live, currently-deployed, governance-reviewed
+# staging task definitions -- this is a fail-closed exact match, not an upper bound.
+_EXECUTION_ROLE_ARN = "arn:aws:iam::918870682888:role/SynergieFieldzillaStagingEcsExecution"
+_TASK_ROLE_ARN = "arn:aws:iam::918870682888:role/SynergieFieldzillaStagingTask"
+_API_ECR_REPOSITORY = "synergie/fieldzilla/staging/api"
+_ADMIN_WEB_ECR_REPOSITORY = "synergie/fieldzilla/staging/admin-web"
+# The exact approved staging runtime secret ARN (not a name prefix -- a same-prefixed but
+# different Secrets Manager resource must never be treated as equivalent).
+EXACT_RUNTIME_SECRET_ARN = (
+    f"arn:aws:secretsmanager:{AWS_REGION}:{AWS_ACCOUNT}:secret:"
+    "/synergie/fieldzilla/staging/runtime-pp9aAx"
+)
+
+FIELDZILLA_TASK_DEFINITION_BASELINE: dict[str, dict[str, Any]] = {
+    "fieldzilla-staging-api": {
+        "ecr_repository": _API_ECR_REPOSITORY,
+        "cpu": "256",
+        "memory": "512",
+        "execution_role_arn": _EXECUTION_ROLE_ARN,
+        "task_role_arn": _TASK_ROLE_ARN,
+        "network_mode": "bridge",
+        "requires_compatibilities": ["EC2"],
+        "runtime_platform": None,
+        "volume": [],
+        "placement_constraints": [],
+        "proxy_configuration": None,
+        "ephemeral_storage": None,
+        "container": {
+            "name": "api",
+            "essential": True,
+            "cpu": 0,
+            "memory": None,
+            "command": ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"],
+            "entrypoint": None,
+            "portMappings": [{"containerPort": 8000, "hostPort": 0, "protocol": "tcp"}],
+            "user": None,
+            "privileged": None,
+            "readonlyRootFilesystem": None,
+            "linuxParameters": None,
+            "mountPoints": [],
+            "repositoryCredentials": None,
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": "/synergie/fieldzilla/staging/api",
+                    "awslogs-region": AWS_REGION,
+                    "awslogs-stream-prefix": "ecs",
+                },
+            },
+            "healthCheck": None,
+            "dependsOn": None,
+            "environment": [
+                {"name": "APP_OBJECT_STORAGE_KMS_KEY_ID", "value": "arn:aws:kms:ap-south-1:918870682888:key/97b547d5-8bb8-463b-aee5-5fbdc471cb1e"},
+                {"name": "APP_OBJECT_STORAGE_BUCKET", "value": "fz-evidence-918870682888-20260912185211995900000002"},
+                {"name": "APP_FIELD_ENCRYPTION_KMS_AVAILABLE", "value": "true"},
+                {"name": "APP_OBJECT_STORAGE_BACKEND", "value": "s3_private"},
+                {"name": "APP_OBJECT_STORAGE_PREFIX", "value": "staging"},
+                {"name": "APP_FIELD_ENCRYPTION_KMS_KEY_ID", "value": "arn:aws:kms:ap-south-1:918870682888:key/97b547d5-8bb8-463b-aee5-5fbdc471cb1e"},
+                {"name": "APP_FIELD_ENCRYPTION_KMS_KEY_VERSION", "value": "1"},
+                {"name": "APP_ENVIRONMENT", "value": "staging"},
+                {"name": "APP_OBJECT_STORAGE_REGION", "value": AWS_REGION},
+                {"name": "APP_DEBUG", "value": "false"},
+            ],
+            "secret_keys": frozenset({
+                "APP_SECRET_KEY", "APP_DATABASE_CONTEXT_SECRET", "APP_DATABASE_URL",
+                "APP_FIELD_ENCRYPTION_MASTER_KEY", "APP_CORS_ORIGINS", "APP_ADMIN_WEB_BASE_URL",
+            }),
+        },
+    },
+    "fieldzilla-staging-admin-web": {
+        "ecr_repository": _ADMIN_WEB_ECR_REPOSITORY,
+        "cpu": "256",
+        "memory": "512",
+        "execution_role_arn": _EXECUTION_ROLE_ARN,
+        "task_role_arn": None,
+        "network_mode": "bridge",
+        "requires_compatibilities": ["EC2"],
+        "runtime_platform": None,
+        "volume": [],
+        "placement_constraints": [],
+        "proxy_configuration": None,
+        "ephemeral_storage": None,
+        "container": {
+            "name": "admin-web",
+            "essential": True,
+            "cpu": 0,
+            "memory": None,
+            "command": None,
+            "entrypoint": None,
+            "portMappings": [{"containerPort": 80, "hostPort": 0, "protocol": "tcp"}],
+            "user": None,
+            "privileged": None,
+            "readonlyRootFilesystem": None,
+            "linuxParameters": None,
+            "mountPoints": [],
+            "repositoryCredentials": None,
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": "/synergie/fieldzilla/staging/admin-web",
+                    "awslogs-region": AWS_REGION,
+                    "awslogs-stream-prefix": "ecs",
+                },
+            },
+            "healthCheck": None,
+            "dependsOn": None,
+            "environment": [],
+            "secret_keys": frozenset(),
+        },
+    },
+    "fieldzilla-staging-worker": {
+        "ecr_repository": _API_ECR_REPOSITORY,
+        "cpu": "256",
+        "memory": "512",
+        "execution_role_arn": _EXECUTION_ROLE_ARN,
+        "task_role_arn": _TASK_ROLE_ARN,
+        "network_mode": "bridge",
+        "requires_compatibilities": ["EC2"],
+        "runtime_platform": None,
+        "volume": [],
+        "placement_constraints": [],
+        "proxy_configuration": None,
+        "ephemeral_storage": None,
+        "container": {
+            "name": "worker",
+            "essential": True,
+            "cpu": 0,
+            "memory": None,
+            "command": ["python", "-m", "app.worker.loop"],
+            "entrypoint": None,
+            "portMappings": [],
+            "user": None,
+            "privileged": None,
+            "readonlyRootFilesystem": None,
+            "linuxParameters": None,
+            "mountPoints": [],
+            "repositoryCredentials": None,
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": "/synergie/fieldzilla/staging/worker",
+                    "awslogs-region": AWS_REGION,
+                    "awslogs-stream-prefix": "ecs",
+                },
+            },
+            "healthCheck": None,
+            "dependsOn": None,
+            "environment": [],
+            "secret_keys": frozenset({
+                "APP_SECRET_KEY", "APP_DATABASE_CONTEXT_SECRET", "APP_DATABASE_URL",
+                "APP_FIELD_ENCRYPTION_MASTER_KEY", "APP_CORS_ORIGINS", "APP_WORKER_TENANT_IDS",
+            }),
+        },
+    },
+    "fieldzilla-staging-migration": {
+        "ecr_repository": _API_ECR_REPOSITORY,
+        "cpu": "256",
+        "memory": "512",
+        "execution_role_arn": _EXECUTION_ROLE_ARN,
+        "task_role_arn": _TASK_ROLE_ARN,
+        "network_mode": "bridge",
+        "requires_compatibilities": ["EC2"],
+        "runtime_platform": None,
+        "volume": [],
+        "placement_constraints": [],
+        "proxy_configuration": None,
+        "ephemeral_storage": None,
+        "container": {
+            "name": "migration",
+            "essential": True,
+            "cpu": 0,
+            "memory": None,
+            "command": ["alembic", "upgrade", "head"],
+            "entrypoint": None,
+            "portMappings": [],
+            "user": None,
+            "privileged": None,
+            "readonlyRootFilesystem": None,
+            "linuxParameters": None,
+            "mountPoints": [],
+            "repositoryCredentials": None,
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": "/synergie/fieldzilla/staging/migration",
+                    "awslogs-region": AWS_REGION,
+                    "awslogs-stream-prefix": "ecs",
+                },
+            },
+            "healthCheck": None,
+            "dependsOn": None,
+            "environment": [],
+            "secret_keys": frozenset({
+                "APP_SECRET_KEY", "APP_DATABASE_CONTEXT_SECRET", "APP_DATABASE_URL",
+                "APP_FIELD_ENCRYPTION_MASTER_KEY", "APP_CORS_ORIGINS",
+            }),
+        },
+    },
+}
 
 AUTH_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{7,79}$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -415,65 +610,88 @@ def _image_has_authorized_digest(container: dict[str, Any], args: argparse.Names
     if args is None or not getattr(args, "image_digest", ""):
         return True
     digest = str(container.get("imageDigest") or container.get("image_digest") or "")
-    return digest in {"", args.image_digest}
+    # An absent digest must never satisfy a supplied expected digest -- that would make
+    # this check a silent no-op whenever the plan simply omits digest evidence.
+    if not digest:
+        return False
+    return digest == args.image_digest
+
+
+def _is_approved_baseline_container(
+    container: dict[str, Any], expected: dict[str, Any], authorized_sha: str, args: argparse.Namespace | None
+) -> bool:
+    """Exact match against one family's approved container baseline. Every field the
+    baseline does not explicitly name is, by construction of the equality check, an
+    "unexpected field" that fails closed -- there is no separate allowlist to keep in
+    sync, and no sidecar sneaks in because container COUNT is checked by the caller."""
+    actual_shape = _container_base(container)  # strips image/imageDigest/image_digest/secrets
+    expected_shape = {key: value for key, value in expected.items() if key not in ("secret_keys", "_ecr_repository")}
+    if actual_shape != expected_shape:
+        return False
+
+    image = str(container.get("image", ""))
+    ecr_repository = expected.get("_ecr_repository", "")
+    if not image.startswith(f"918870682888.dkr.ecr.{AWS_REGION}.amazonaws.com/{ecr_repository}:"):
+        return False
+    if not image.endswith(f":{authorized_sha}"):
+        return False
+    # Digest evidence is mandatory for this path (see _is_approved_new_staging_task_definition);
+    # an absent container digest must never be treated as satisfying it.
+    digest = str(container.get("imageDigest") or container.get("image_digest") or "")
+    if not digest or digest != getattr(args, "image_digest", ""):
+        return False
+
+    secrets = container.get("secrets") or []
+    actual_keys = {str(s.get("name", "")) for s in secrets}
+    if actual_keys != expected["secret_keys"]:
+        return False
+    for secret in secrets:
+        name = str(secret.get("name", ""))
+        value_from = str(secret.get("valueFrom", ""))
+        if value_from != f"{EXACT_RUNTIME_SECRET_ARN}:{name}::":
+            return False
+    return True
 
 
 def _is_approved_new_staging_task_definition(
     after: dict[str, Any], authorized_sha: str | None, args: argparse.Namespace | None
 ) -> bool:
-    """Conservative approval path for an aws_ecs_task_definition create with NO prior
+    """Fail-closed approval path for an aws_ecs_task_definition create with NO prior
     Terraform-tracked state to diff against -- for example, a governed revision that
     supersedes one created manually, out-of-band, outside this pipeline. Because there is
-    no "before" to compare, every structural field is checked against a fixed, approved
-    design baseline instead of "unchanged from before", and every secret reference (not
-    only newly added ones) must resolve to the approved staging runtime secret: there is no
-    pre-existing secret entry to grandfather in."""
-    if after.get("family") not in APPROVED_FIELDZILLA_TASK_FAMILIES:
-        return False
-    if after.get("network_mode") != "bridge":
-        return False
-    if after.get("requires_compatibilities") != ["EC2"]:
-        return False
-    if after.get("execution_role_arn") != APPROVED_STAGING_EXECUTION_ROLE_ARN:
-        return False
-    if after.get("task_role_arn") != APPROVED_STAGING_TASK_ROLE_ARN:
-        return False
-    if _empty_string_equivalent(after.get("ipc_mode")) is not None:
-        return False
-    if _empty_string_equivalent(after.get("pid_mode")) is not None:
-        return False
-    if after.get("volume") not in (None, []):
-        return False
-    if after.get("track_latest"):
-        return False
-    try:
-        cpu = int(after.get("cpu"))
-        memory = int(after.get("memory"))
-    except (TypeError, ValueError):
-        return False
-    if not (0 < cpu <= APPROVED_NEW_TASK_DEFINITION_MAX_CPU):
-        return False
-    if not (0 < memory <= APPROVED_NEW_TASK_DEFINITION_MAX_MEMORY):
-        return False
+    no "before" to compare, every field (task-level and per-container) is checked against
+    an exact, per-family approved baseline instead of "unchanged from before"."""
     if authorized_sha is None:
         return False
+    family = after.get("family")
+    if family not in APPROVED_FIELDZILLA_TASK_FAMILIES:
+        return False
+
+    # The exception requires an explicit, complete run authorization for every approved
+    # family -- an empty or partial ecs_families input must never authorize it.
+    if args is None or not getattr(args, "ecs_families", ""):
+        return False
+    if set(args.ecs_families.split(",")) != APPROVED_FIELDZILLA_TASK_FAMILIES:
+        return False
+    # Digest evidence is mandatory for this path: Terraform's plan JSON never carries a
+    # resolved digest on its own, so the operator must supply independently verified,
+    # exact ECR digest evidence up front. An absent or malformed digest is always rejected.
+    if not IMAGE_DIGEST.fullmatch(getattr(args, "image_digest", "") or ""):
+        return False
+
+    baseline = FIELDZILLA_TASK_DEFINITION_BASELINE[family]
+    for field in ("cpu", "memory", "execution_role_arn", "task_role_arn", "network_mode",
+                  "requires_compatibilities", "runtime_platform", "volume",
+                  "placement_constraints", "proxy_configuration", "ephemeral_storage"):
+        if after.get(field) != baseline[field]:
+            return False
 
     containers = _decode_container_definitions(after.get("container_definitions"))
-    if not containers:
+    if len(containers) != 1:
         return False
-    for container in containers:
-        image = str(container.get("image", ""))
-        if not image.startswith("918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/"):
-            return False
-        if not image.endswith(f":{authorized_sha}"):
-            return False
-        if not _image_has_authorized_digest(container, args):
-            return False
-        for secret in container.get("secrets") or []:
-            value_from = str(secret.get("valueFrom", ""))
-            if not value_from.startswith(RUNTIME_SECRET_ARN_PREFIX):
-                return False
-    return True
+    expected_container = dict(baseline["container"])
+    expected_container["_ecr_repository"] = baseline["ecr_repository"]
+    return _is_approved_baseline_container(containers[0], expected_container, authorized_sha, args)
 
 
 def is_approved_ecs_task_definition_revision(
