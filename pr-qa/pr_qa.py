@@ -3773,20 +3773,45 @@ def validate_central_action_inputs(repo: Path) -> list[str]:
     return violations
 
 
+def resolve_pinned_action_manifest_text(repo: Path, tag: str, action_name: str) -> tuple[str | None, str | None]:
+    """Read actions/<action_name>/action.yml content at the EXACT immutable git tag the
+    workflow pins to -- never from the working tree, which for an open PR is the PR-head
+    content and may declare inputs the pinned historical release never had (or vice
+    versa). Returns (manifest_text, None) on success, or (None, reason) if the tag, the
+    path at that tag, or the git invocation itself cannot be resolved -- callers must fail
+    closed on a None manifest, never substitute local disk content as a fallback."""
+    action_path = f"actions/{action_name}/action.yml"
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo), "show", f"{tag}:{action_path}"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return None, f"git invocation failed ({exc})"
+    if result.returncode != 0:
+        return None, f"tag `{tag}` or path `{action_path}` could not be resolved by git"
+    return result.stdout, None
+
+
 def validate_central_action_step(repo: Path, workflow: Path, job_id: str, index: int, step: dict[str, Any]) -> list[str]:
     uses = str(step.get("uses") or "").strip()
     match = CENTRAL_ACTION_USES_RE.match(uses)
     if not match:
         return []
     action_name = match.group(1)
+    tag = match.group(2)
     rel_workflow = workflow.relative_to(repo).as_posix()
     step_name = str(step.get("name") or f"step {index}")
     prefix = f"{rel_workflow}: job `{job_id}` step `{step_name}` uses `{uses}`"
-    action_file = repo / "actions" / action_name / "action.yml"
-    action = parse_workflow_yaml(read_text(action_file)) if action_file.is_file() else {}
+    manifest_text, failure_reason = resolve_pinned_action_manifest_text(repo, tag, action_name)
+    if manifest_text is None:
+        return [f"{prefix}: could not resolve the exact pinned action contract ({failure_reason})."]
+    action = parse_workflow_yaml(manifest_text)
     inputs = action.get("inputs") if isinstance(action, dict) else None
     if not isinstance(inputs, dict):
-        return [f"{prefix}: referenced action metadata `actions/{action_name}/action.yml` is missing or has no inputs mapping."]
+        return [f"{prefix}: referenced action metadata `actions/{action_name}/action.yml` at `{tag}` is missing or has no inputs mapping."]
     declared = {str(key) for key in inputs}
     required = {
         str(key)
