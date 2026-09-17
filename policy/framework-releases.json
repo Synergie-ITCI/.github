@@ -133,6 +133,18 @@
       "ruleset_id": 23578447,
       "ruleset_updated_at": "2026-09-17T10:00:39.938+05:30",
       "bypass_actors": []
+    },
+    "pr-qa-v1-rc148": {
+      "commit": "f4892c6073b245c4d530c58ede9f12397f050ace",
+      "ruleset_id": 23586575,
+      "ruleset_updated_at": "2026-09-17T14:00:46.746+05:30",
+      "bypass_actors": []
+    },
+    "pr-qa-v1-rc149": {
+      "commit": "PLACEHOLDER",
+      "ruleset_id": 0,
+      "ruleset_updated_at": "",
+      "bypass_actors": []
     }
   }
 }
