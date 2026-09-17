@@ -300,6 +300,8 @@ def verify_inputs(args: argparse.Namespace, now: dt.datetime | None = None) -> N
         die("repository id mismatch")
     if getattr(args, "image_digest_map", "") and _parse_image_digest_map(args.image_digest_map) is None:
         die("image digest map must be canonical JSON with exact sha256 digests for both approved repositories")
+    if getattr(args, "image_digest", "") and not IMAGE_DIGEST.fullmatch(args.image_digest):
+        die("image digest must be exact sha256 digest")  # deprecated legacy single-digest form
     if getattr(args, "ecs_families", ""):
         families = set(args.ecs_families.split(","))
         if families != APPROVED_FIELDZILLA_TASK_FAMILIES:
@@ -478,6 +480,8 @@ def verify_artifact_metadata(args: argparse.Namespace) -> None:
             die("downloaded OpenTofu plan hash mismatch")
     if getattr(args, "image_digest_map", "") and metadata.get("image_digest_map") != _parse_image_digest_map(args.image_digest_map):
         die("artifact image digest map mismatch")
+    if getattr(args, "image_digest", "") and metadata.get("image_digest") != args.image_digest:
+        die("artifact image digest mismatch")  # deprecated legacy single-digest form
     if getattr(args, "ecs_families", ""):
         families = metadata.get("ecs_families")
         if families != sorted(APPROVED_FIELDZILLA_TASK_FAMILIES):
@@ -499,7 +503,7 @@ def verify_plan_safety(args: argparse.Namespace) -> None:
         die("container host size is outside approved design")
     if str(variables.get("monthly_budget_usd")) != "100":
         die("monthly budget guardrail mismatch")
-    routine_ecs_only = bool(getattr(args, "image_digest_map", ""))
+    routine_ecs_only = bool(getattr(args, "image_digest_map", "")) or bool(getattr(args, "image_digest", ""))
     resource_changes = doc.get("resource_changes", [])
     approved_task_definition_addresses = {
         change.get("address", "")
@@ -646,6 +650,21 @@ def _image_has_authorized_digest(repository: str, digest_map: dict[str, str] | N
     if digest_map is None:
         return True
     return repository in digest_map
+
+
+def _image_has_authorized_digest_legacy(container: dict[str, Any], args: argparse.Namespace | None) -> bool:
+    """Deprecated: the original container-embedded-digest check, kept only so a caller
+    still using the legacy scalar --image-digest input does not regress. Real Terraform
+    ECS container_definitions do not carry an imageDigest field, so this check is
+    effectively inert against real plans -- it is retained purely for input-contract
+    backward compatibility during the staged rollout of image_digest_map, not because it
+    is an effective verification. New callers must use image_digest_map."""
+    if args is None or not getattr(args, "image_digest", ""):
+        return True
+    digest = str(container.get("imageDigest") or container.get("image_digest") or "")
+    if not digest:
+        return False
+    return digest == args.image_digest
 
 
 def _is_approved_baseline_container(
@@ -820,14 +839,20 @@ def is_approved_ecs_task_definition_revision(
         if not after_image.endswith(f":{authorized_sha}"):
             return False
         # Digest evidence is opt-in for this path (only required when the caller supplied
-        # image_digest_map at all -- e.g. a routine single-family rollout); when supplied it
-        # is bound by repository, not read from the container, since real plan JSON never
-        # carries a resolved digest of its own.
-        digest_map = _parse_image_digest_map(getattr(args, "image_digest_map", "") or "")
-        if getattr(args, "image_digest_map", "") and digest_map is None:
-            return False
-        if not _image_has_authorized_digest(repository, digest_map):
-            return False
+        # image_digest_map or the deprecated image_digest at all -- e.g. a routine
+        # single-family rollout). image_digest_map is bound by repository, not read from
+        # the container, since real plan JSON never carries a resolved digest of its own;
+        # image_digest is the deprecated legacy form, kept only for caller compatibility
+        # during the staged rollout of image_digest_map.
+        if getattr(args, "image_digest_map", ""):
+            digest_map = _parse_image_digest_map(args.image_digest_map)
+            if digest_map is None:
+                return False
+            if not _image_has_authorized_digest(repository, digest_map):
+                return False
+        elif getattr(args, "image_digest", ""):
+            if not _image_has_authorized_digest_legacy(after_container, args):
+                return False
 
     return True
 
@@ -921,6 +946,7 @@ def deployment_payload(args: argparse.Namespace) -> dict[str, str]:
         "commit_sha": args.expected_sha,
         "plan_sha256": args.expected_plan_sha256 or "",
         "image_digest_map": _parse_image_digest_map(getattr(args, "image_digest_map", "") or ""),
+        "image_digest": getattr(args, "image_digest", ""),  # deprecated legacy single-digest form
         "ecs_families": getattr(args, "ecs_families", ""),
         "import_map_sha256": args.expected_import_map_sha256 or "",
         "source_run_id": getattr(args, "source_run_id", ""),
@@ -974,6 +1000,7 @@ def main() -> None:
         target.add_argument("--github-sha", required=True)
         target.add_argument("--expected-plan-sha256", default="")
         target.add_argument("--expected-import-map-sha256", default="")
+        target.add_argument("--image-digest", default="")
         target.add_argument("--image-digest-map", default="")
         target.add_argument("--ecs-families", default="")
         target.add_argument("--expires-at", required=True)
@@ -1002,6 +1029,7 @@ def main() -> None:
     meta.add_argument("--expected-sha", required=True)
     meta.add_argument("--expected-plan-sha256", default="")
     meta.add_argument("--expected-import-map-sha256", default="")
+    meta.add_argument("--image-digest", default="")
     meta.add_argument("--image-digest-map", default="")
     meta.add_argument("--ecs-families", default="")
     meta.add_argument("--source-run-id", required=True)
@@ -1014,6 +1042,7 @@ def main() -> None:
     safety.add_argument("--plan-json-path", type=Path, required=True)
     safety.add_argument("--plan-kind", default="normal")
     safety.add_argument("--expected-sha", default="")
+    safety.add_argument("--image-digest", default="")
     safety.add_argument("--image-digest-map", default="")
     safety.add_argument("--ecs-families", default="")
     imports = sub.add_parser("verify-import-map")

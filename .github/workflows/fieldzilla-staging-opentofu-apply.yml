@@ -19,10 +19,8 @@ on:
         description: Exact FieldZilla container image tag SHA to render into task definitions.
         required: true
         type: string
-      image-digest-map:
-        description: >-
-          Canonical JSON object mapping each approved ECR repository to its independently
-          verified exact sha256 digest. Required for routine ECS deployments.
+      image-digest:
+        description: Exact approved FieldZilla image digest for routine ECS deployments.
         required: false
         default: ""
         type: string
@@ -150,7 +148,7 @@ jobs:
           expected-sha: ${{ inputs.expected-sha }}
           github-sha: ${{ github.sha }}
           expected-plan-sha256: ${{ inputs.expected-plan-sha256 }}
-          image-digest-map: ${{ inputs.image-digest-map }}
+          image-digest: ${{ inputs.image-digest }}
           ecs-families: ${{ inputs.ecs-families }}
           expected-import-map-sha256: ${{ inputs.expected-import-map-sha256 }}
           expires-at: ${{ inputs.expires-at }}
@@ -192,7 +190,7 @@ jobs:
           expected-sha: ${{ inputs.expected-sha }}
           github-sha: ${{ github.sha }}
           expected-plan-sha256: ${{ inputs.expected-plan-sha256 }}
-          image-digest-map: ${{ inputs.image-digest-map }}
+          image-digest: ${{ inputs.image-digest }}
           ecs-families: ${{ inputs.ecs-families }}
           expected-import-map-sha256: ${{ inputs.expected-import-map-sha256 }}
           expires-at: ${{ inputs.expires-at }}
@@ -285,7 +283,7 @@ jobs:
           export PLAN_SHA="${plan_sha}"
           export LOCK_SHA="${lock_sha}"
           export TOFU_VERSION="${tofu_version}"
-          IMAGE_DIGEST_MAP="${{ inputs.image-digest-map }}" ECS_FAMILIES="${{ inputs.ecs-families }}" python3 -c 'import json,os; from datetime import datetime, timezone; families=sorted([item for item in os.environ["ECS_FAMILIES"].split(",") if item]); raw=os.environ["IMAGE_DIGEST_MAP"]; digest_map=json.loads(raw) if raw else None; print(json.dumps({"repository":"Synergie-ITCI/programme-management-platform","repository_id":1315697868,"environment":"synergie-app-staging","commit_sha":os.environ["EXPECTED_SHA"],"image_digest_map":digest_map,"ecs_families":families,"workflow_run_id":os.environ["GITHUB_RUN_ID"],"workflow_run_attempt":os.environ["GITHUB_RUN_ATTEMPT"],"artifact_name":os.environ["ARTIFACT_NAME"],"generated_at":datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),"opentofu_version":os.environ["TOFU_VERSION"],"provider_lock_sha256":os.environ["LOCK_SHA"],"plan_sha256":os.environ["PLAN_SHA"],"state_backend":"s3","state_bucket":os.environ["STATE_BUCKET"],"state_key":os.environ["STATE_KEY"],"lock_table":os.environ["STATE_LOCK_TABLE"]}, indent=2, sort_keys=True))' > "${plan_dir}/metadata.json"
+          IMAGE_DIGEST="${{ inputs.image-digest }}" ECS_FAMILIES="${{ inputs.ecs-families }}" python3 -c 'import json,os; from datetime import datetime, timezone; families=sorted([item for item in os.environ["ECS_FAMILIES"].split(",") if item]); print(json.dumps({"repository":"Synergie-ITCI/programme-management-platform","repository_id":1315697868,"environment":"synergie-app-staging","commit_sha":os.environ["EXPECTED_SHA"],"image_digest":os.environ["IMAGE_DIGEST"],"ecs_families":families,"workflow_run_id":os.environ["GITHUB_RUN_ID"],"workflow_run_attempt":os.environ["GITHUB_RUN_ATTEMPT"],"artifact_name":os.environ["ARTIFACT_NAME"],"generated_at":datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),"opentofu_version":os.environ["TOFU_VERSION"],"provider_lock_sha256":os.environ["LOCK_SHA"],"plan_sha256":os.environ["PLAN_SHA"],"state_backend":"s3","state_bucket":os.environ["STATE_BUCKET"],"state_key":os.environ["STATE_KEY"],"lock_table":os.environ["STATE_LOCK_TABLE"]}, indent=2, sort_keys=True))' > "${plan_dir}/metadata.json"
           {
             echo "${plan_sha}  fieldzilla-staging.tfplan"
             sha256sum "${plan_dir}/fieldzilla-staging.plan.txt" | sed "s#${plan_dir}/##"
@@ -307,7 +305,7 @@ jobs:
           plan-json-path: ${{ runner.temp }}/fieldzilla-plan/fieldzilla-staging.plan.json
           plan-kind: ${{ inputs.mode == 'plan' && 'normal' || inputs.mode == 'post-import-plan' && 'post-import' || 'drift' }}
           expected-sha: ${{ inputs.expected-sha }}
-          image-digest-map: ${{ inputs.image-digest-map }}
+          image-digest: ${{ inputs.image-digest }}
           ecs-families: ${{ inputs.ecs-families }}
 
       - name: Verify generated artifact contents
@@ -360,7 +358,7 @@ jobs:
           expected-sha: ${{ inputs.expected-sha }}
           github-sha: ${{ github.sha }}
           expected-plan-sha256: ${{ inputs.expected-plan-sha256 }}
-          image-digest-map: ${{ inputs.image-digest-map }}
+          image-digest: ${{ inputs.image-digest }}
           ecs-families: ${{ inputs.ecs-families }}
           expected-import-map-sha256: ${{ inputs.expected-import-map-sha256 }}
           expires-at: ${{ inputs.expires-at }}
@@ -380,7 +378,7 @@ jobs:
           artifact-dir: ${{ env.APPROVED_DIR }}
           expected-sha: ${{ inputs.expected-sha }}
           expected-plan-sha256: ${{ inputs.expected-plan-sha256 }}
-          image-digest-map: ${{ inputs.image-digest-map }}
+          image-digest: ${{ inputs.image-digest }}
           ecs-families: ${{ inputs.ecs-families }}
           expected-import-map-sha256: ${{ inputs.expected-import-map-sha256 }}
           source-run-id: ${{ inputs.source-plan-run-id }}
@@ -431,7 +429,7 @@ jobs:
           expected-sha: ${{ inputs.expected-sha }}
           github-sha: ${{ github.sha }}
           expected-plan-sha256: ${{ inputs.expected-plan-sha256 }}
-          image-digest-map: ${{ inputs.image-digest-map }}
+          image-digest: ${{ inputs.image-digest }}
           ecs-families: ${{ inputs.ecs-families }}
           expected-import-map-sha256: ${{ inputs.expected-import-map-sha256 }}
           expires-at: ${{ inputs.expires-at }}
@@ -486,7 +484,7 @@ jobs:
           plan-json-path: ${{ runner.temp }}/approved-plan.json
           plan-kind: normal
           expected-sha: ${{ inputs.expected-sha }}
-          image-digest-map: ${{ inputs.image-digest-map }}
+          image-digest: ${{ inputs.image-digest }}
           ecs-families: ${{ inputs.ecs-families }}
 
       - name: Mark apply authorization used
@@ -502,7 +500,7 @@ jobs:
           expected-sha: ${{ inputs.expected-sha }}
           github-sha: ${{ github.sha }}
           expected-plan-sha256: ${{ inputs.expected-plan-sha256 }}
-          image-digest-map: ${{ inputs.image-digest-map }}
+          image-digest: ${{ inputs.image-digest }}
           ecs-families: ${{ inputs.ecs-families }}
           expected-import-map-sha256: ${{ inputs.expected-import-map-sha256 }}
           expires-at: ${{ inputs.expires-at }}

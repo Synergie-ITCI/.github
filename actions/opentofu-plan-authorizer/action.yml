@@ -23,6 +23,11 @@ inputs:
   expected-plan-sha256:
     required: false
     description: Exact approved OpenTofu plan SHA-256.
+  image-digest:
+    required: false
+    description: >-
+      Deprecated. Exact approved image digest for routine ECS deployments (legacy
+      single-repository form). Prefer image-digest-map.
   image-digest-map:
     required: false
     description: >-
@@ -30,6 +35,7 @@ inputs:
       (synergie/fieldzilla/staging/api, synergie/fieldzilla/staging/admin-web) to its
       independently verified exact sha256 digest. Real ECS container_definitions never
       carry a resolved digest of their own; this is separate, operator-attached evidence.
+      Preferred over the deprecated image-digest input.
   ecs-families:
     required: false
     description: Comma-separated ECS task-definition families approved for this deployment.
@@ -93,6 +99,7 @@ runs:
         EXPECTED_SHA: ${{ inputs.expected-sha }}
         GITHUB_SHA_INPUT: ${{ inputs.github-sha }}
         EXPECTED_PLAN_SHA256: ${{ inputs.expected-plan-sha256 }}
+        IMAGE_DIGEST: ${{ inputs.image-digest }}
         IMAGE_DIGEST_MAP: ${{ inputs.image-digest-map }}
         ECS_FAMILIES: ${{ inputs.ecs-families }}
         EXPECTED_IMPORT_MAP_SHA256: ${{ inputs.expected-import-map-sha256 }}
@@ -119,6 +126,7 @@ runs:
           --expected-sha "${EXPECTED_SHA}"
           --github-sha "${GITHUB_SHA_INPUT}"
           --expected-plan-sha256 "${EXPECTED_PLAN_SHA256}"
+          --image-digest "${IMAGE_DIGEST}"
           --image-digest-map "${IMAGE_DIGEST_MAP}"
           --ecs-families "${ECS_FAMILIES}"
           --expected-import-map-sha256 "${EXPECTED_IMPORT_MAP_SHA256}"
@@ -156,6 +164,7 @@ runs:
               --artifact-dir "${ARTIFACT_DIR}" \
               --expected-sha "${EXPECTED_SHA}" \
               --expected-plan-sha256 "${EXPECTED_PLAN_SHA256}" \
+              --image-digest "${IMAGE_DIGEST}" \
               --image-digest-map "${IMAGE_DIGEST_MAP}" \
               --ecs-families "${ECS_FAMILIES}" \
               --expected-import-map-sha256 "${EXPECTED_IMPORT_MAP_SHA256}" \
@@ -173,6 +182,7 @@ runs:
               --plan-json-path "${PLAN_JSON_PATH}" \
               --plan-kind "${PLAN_KIND}" \
               --expected-sha "${EXPECTED_SHA}" \
+              --image-digest "${IMAGE_DIGEST}" \
               --image-digest-map "${IMAGE_DIGEST_MAP}" \
               --ecs-families "${ECS_FAMILIES}"
             ;;

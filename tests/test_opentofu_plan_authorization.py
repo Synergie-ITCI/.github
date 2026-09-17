@@ -44,6 +44,7 @@ def valid_args(**overrides: object) -> Namespace:
         "github_sha": VALID_SHA,
         "expected_plan_sha256": VALID_PLAN,
         "expected_import_map_sha256": VALID_IMPORT_MAP,
+        "image_digest": "",
         "image_digest_map": "",
         "ecs_families": "",
         "expires_at": "2026-09-12T05:30:00Z",
@@ -337,6 +338,66 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             plan_json.write_text(json.dumps(role_broadening), encoding="utf-8")
             with self.assertRaises(SystemExit):
                 auth.verify_plan_safety(Namespace(plan_json_path=plan_json, **vars(args)))
+
+    def test_legacy_image_digest_input_still_accepted(self) -> None:
+        """The deprecated scalar --image-digest input must remain a valid, accepted
+        action/CLI input during the staged rollout of image-digest-map -- callers still
+        wired to the old interface must not break. It is deliberately NOT an effective
+        digest check against real plans (real container_definitions carry no imageDigest
+        field), which is why new callers must use image_digest_map instead; this test only
+        proves the input contract itself did not regress."""
+        auth.verify_inputs(valid_args(image_digest=IMAGE_DIGEST), now=NOW)
+        self.assert_rejected(image_digest="not-a-digest")
+
+        containers = [
+            {
+                "name": "api",
+                "image": f"918870682888.dkr.ecr.ap-south-1.amazonaws.com/{API_REPO}:{DEPLOY_SHA}",
+                "cpu": 256,
+                "memory": 512,
+                "essential": True,
+                # Real plans never carry this -- included here only to exercise the legacy
+                # code path's accept case; test_real_pending_fieldzilla_plan_shape covers
+                # the real (imageDigest-absent) shape via image_digest_map instead.
+                "imageDigest": IMAGE_DIGEST,
+            }
+        ]
+        before = {
+            "family": "fieldzilla-staging-api",
+            "cpu": "256",
+            "memory": "512",
+            "network_mode": "bridge",
+            "requires_compatibilities": ["EC2"],
+            "execution_role_arn": "arn:aws:iam::918870682888:role/SynergieFieldzillaStagingEcsExecution",
+            "task_role_arn": "arn:aws:iam::918870682888:role/SynergieFieldzillaStagingTask",
+            "container_definitions": json.dumps([{**containers[0], "image": f"918870682888.dkr.ecr.ap-south-1.amazonaws.com/{API_REPO}:774051cf74a7b8ada2f26e5c24959fdc99d6380b"}], sort_keys=True),
+            "runtime_platform": [],
+            "track_latest": False,
+            "volume": [],
+        }
+        after = {**before, "container_definitions": json.dumps(containers, sort_keys=True)}
+        plan = {
+            "variables": {
+                "enable_production": {"value": False},
+                "route53_zone_id": {"value": ""},
+                "container_instance_type": {"value": "c6g.medium"},
+                "monthly_budget_usd": {"value": "100"},
+                "image_tag": {"value": DEPLOY_SHA},
+            },
+            "resource_changes": [
+                {
+                    "address": 'aws_ecs_task_definition.api["staging"]',
+                    "type": "aws_ecs_task_definition",
+                    "change": {"actions": ["delete", "create"], "before": before, "after": after},
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_json = Path(tmp) / "plan.json"
+            plan_json.write_text(json.dumps(plan), encoding="utf-8")
+            # Legacy image_digest alone (no image_digest_map) must not error out the
+            # input contract, even though it cannot verify anything against a real plan.
+            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest=IMAGE_DIGEST, image_digest_map="", ecs_families=""))
 
     def test_rejects_artifact_substitution_and_prohibited_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
