@@ -39,6 +39,12 @@ APPROVED_FIELDZILLA_TASK_FAMILIES = {
     "fieldzilla-staging-worker",
     "fieldzilla-staging-migration",
 }
+# Fixed approved design baseline used ONLY when a task-definition create has no prior
+# Terraform-tracked state to diff against (see _is_approved_new_staging_task_definition).
+APPROVED_STAGING_EXECUTION_ROLE_ARN = "arn:aws:iam::918870682888:role/SynergieFieldzillaStagingEcsExecution"
+APPROVED_STAGING_TASK_ROLE_ARN = "arn:aws:iam::918870682888:role/SynergieFieldzillaStagingTask"
+APPROVED_NEW_TASK_DEFINITION_MAX_CPU = 512
+APPROVED_NEW_TASK_DEFINITION_MAX_MEMORY = 1024
 
 AUTH_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{7,79}$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -328,6 +334,16 @@ def verify_plan_safety(args: argparse.Namespace) -> None:
             and not is_approved_ecs_task_definition_revision(change, variables, args)
         ):
             die("plan contains destructive actions")
+        # A bare "create" (no prior Terraform state) is not "destructive" and is not caught
+        # by the check above, but for aws_ecs_task_definition it must still be validated --
+        # otherwise a create of an unapproved family/role/image/secret would pass through
+        # this loop with no check at all. Non-task-definition creates are unaffected.
+        if (
+            rtype == "aws_ecs_task_definition"
+            and actions == ["create"]
+            and not is_approved_ecs_task_definition_revision(change, variables, args)
+        ):
+            die("plan contains an unapproved ECS task-definition change")
         if "route53" in rtype.lower() or "route53" in address.lower():
             die("plan contains DNS resources")
         after = json.dumps(change.get("change", {}).get("after", {}), sort_keys=True).lower()
@@ -402,6 +418,64 @@ def _image_has_authorized_digest(container: dict[str, Any], args: argparse.Names
     return digest in {"", args.image_digest}
 
 
+def _is_approved_new_staging_task_definition(
+    after: dict[str, Any], authorized_sha: str | None, args: argparse.Namespace | None
+) -> bool:
+    """Conservative approval path for an aws_ecs_task_definition create with NO prior
+    Terraform-tracked state to diff against -- for example, a governed revision that
+    supersedes one created manually, out-of-band, outside this pipeline. Because there is
+    no "before" to compare, every structural field is checked against a fixed, approved
+    design baseline instead of "unchanged from before", and every secret reference (not
+    only newly added ones) must resolve to the approved staging runtime secret: there is no
+    pre-existing secret entry to grandfather in."""
+    if after.get("family") not in APPROVED_FIELDZILLA_TASK_FAMILIES:
+        return False
+    if after.get("network_mode") != "bridge":
+        return False
+    if after.get("requires_compatibilities") != ["EC2"]:
+        return False
+    if after.get("execution_role_arn") != APPROVED_STAGING_EXECUTION_ROLE_ARN:
+        return False
+    if after.get("task_role_arn") != APPROVED_STAGING_TASK_ROLE_ARN:
+        return False
+    if _empty_string_equivalent(after.get("ipc_mode")) is not None:
+        return False
+    if _empty_string_equivalent(after.get("pid_mode")) is not None:
+        return False
+    if after.get("volume") not in (None, []):
+        return False
+    if after.get("track_latest"):
+        return False
+    try:
+        cpu = int(after.get("cpu"))
+        memory = int(after.get("memory"))
+    except (TypeError, ValueError):
+        return False
+    if not (0 < cpu <= APPROVED_NEW_TASK_DEFINITION_MAX_CPU):
+        return False
+    if not (0 < memory <= APPROVED_NEW_TASK_DEFINITION_MAX_MEMORY):
+        return False
+    if authorized_sha is None:
+        return False
+
+    containers = _decode_container_definitions(after.get("container_definitions"))
+    if not containers:
+        return False
+    for container in containers:
+        image = str(container.get("image", ""))
+        if not image.startswith("918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/"):
+            return False
+        if not image.endswith(f":{authorized_sha}"):
+            return False
+        if not _image_has_authorized_digest(container, args):
+            return False
+        for secret in container.get("secrets") or []:
+            value_from = str(secret.get("valueFrom", ""))
+            if not value_from.startswith(RUNTIME_SECRET_ARN_PREFIX):
+                return False
+    return True
+
+
 def is_approved_ecs_task_definition_revision(
     change: dict[str, Any], variables: dict[str, Any], args: argparse.Namespace | None = None
 ) -> bool:
@@ -411,16 +485,29 @@ def is_approved_ecs_task_definition_revision(
     if not address.startswith("aws_ecs_task_definition.") or '"staging"' not in address:
         return False
     actions = change.get("change", {}).get("actions", [])
+
+    authorized_sha = _authorized_image_sha(args, variables)
+    if variables.get("image_tag") != authorized_sha:
+        return False
+
+    if actions == ["create"]:
+        before = change.get("change", {}).get("before")
+        after = change.get("change", {}).get("after")
+        # A pure create means Terraform has no prior state for this address at all -- there
+        # is nothing safe to diff "unchanged" fields against, so this is intentionally the
+        # most conservative path: see _is_approved_new_staging_task_definition.
+        if before is not None:
+            return False
+        if not isinstance(after, dict):
+            return False
+        return _is_approved_new_staging_task_definition(after, authorized_sha, args)
+
     if actions not in (["delete"], ["delete", "create"], ["create", "delete"]):
         return False
 
     before = change.get("change", {}).get("before")
     after = change.get("change", {}).get("after")
     if not isinstance(before, dict):
-        return False
-
-    authorized_sha = _authorized_image_sha(args, variables)
-    if variables.get("image_tag") != authorized_sha:
         return False
 
     if before.get("family") not in APPROVED_FIELDZILLA_TASK_FAMILIES:

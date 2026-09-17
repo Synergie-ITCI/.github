@@ -673,6 +673,203 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families=""))
 
+    def test_new_task_definition_create_with_no_prior_state(self) -> None:
+        """A task-definition create with no prior Terraform state (e.g. superseding a
+        manually created revision) is approved only against a fixed, conservative design
+        baseline -- exercises the exact FieldZilla 'api' plan shape and every adversarial
+        rejection of that baseline."""
+        runtime_prefix = auth.RUNTIME_SECRET_ARN_PREFIX
+
+        def make_after(**overrides: object) -> dict[str, object]:
+            base_container = {
+                "name": "api",
+                "image": f"918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/api:{DEPLOY_SHA}",
+                "cpu": 256,
+                "memory": 512,
+                "essential": True,
+                "secrets": [{"name": "APP_KEY", "valueFrom": f"{runtime_prefix}APP_KEY::"}],
+            }
+            containers = overrides.pop("container_definitions", [base_container])
+            after = {
+                "family": "fieldzilla-staging-api",
+                "cpu": "256",
+                "memory": "512",
+                "network_mode": "bridge",
+                "requires_compatibilities": ["EC2"],
+                "execution_role_arn": "arn:aws:iam::918870682888:role/SynergieFieldzillaStagingEcsExecution",
+                "task_role_arn": "arn:aws:iam::918870682888:role/SynergieFieldzillaStagingTask",
+                "ipc_mode": "",
+                "pid_mode": "",
+                "runtime_platform": [],
+                "track_latest": False,
+                "volume": [],
+                "container_definitions": json.dumps(containers, sort_keys=True),
+            }
+            after.update(overrides)
+            return after
+
+        def plan_for(after: dict[str, object]) -> dict[str, object]:
+            return {
+                "variables": {
+                    "enable_production": {"value": False},
+                    "route53_zone_id": {"value": ""},
+                    "container_instance_type": {"value": "c6g.medium"},
+                    "monthly_budget_usd": {"value": "100"},
+                    "image_tag": {"value": DEPLOY_SHA},
+                },
+                "resource_changes": [
+                    {
+                        "address": 'aws_ecs_task_definition.api["staging"]',
+                        "type": "aws_ecs_task_definition",
+                        "change": {"actions": ["create"], "before": None, "after": after},
+                    }
+                ],
+            }
+
+        def check(after: dict[str, object]) -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                plan_json = Path(tmp) / "plan.json"
+                plan_json.write_text(json.dumps(plan_for(after)), encoding="utf-8")
+                auth.verify_plan_safety(
+                    Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families="")
+                )
+
+        def check_rejected(after: dict[str, object]) -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                plan_json = Path(tmp) / "plan.json"
+                plan_json.write_text(json.dumps(plan_for(after)), encoding="utf-8")
+                with self.assertRaises(SystemExit):
+                    auth.verify_plan_safety(
+                        Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families="")
+                    )
+
+        # Approved: exact FieldZilla api plan shape -- no prior state, approved baseline throughout.
+        check(make_after())
+
+        # Approved: a different approved family, same baseline shape.
+        check(make_after(family="fieldzilla-staging-worker"))
+
+        # Rejected: unapproved family.
+        check_rejected(make_after(family="fieldzilla-production-api"))
+        check_rejected(make_after(family="not-a-fieldzilla-family"))
+
+        # Rejected: wrong execution or task role.
+        check_rejected(make_after(execution_role_arn="arn:aws:iam::918870682888:role/Other"))
+        check_rejected(make_after(task_role_arn="arn:aws:iam::918870682888:role/Other"))
+
+        # Rejected: wrong network mode or capability set.
+        check_rejected(make_after(network_mode="awsvpc"))
+        check_rejected(make_after(requires_compatibilities=["FARGATE"]))
+
+        # Rejected: host pid/ipc sharing requested.
+        check_rejected(make_after(ipc_mode="host"))
+        check_rejected(make_after(pid_mode="task"))
+
+        # Rejected: a volume is attached.
+        check_rejected(make_after(volume=[{"name": "data"}]))
+
+        # Rejected: track_latest requested.
+        check_rejected(make_after(track_latest=True))
+
+        # Rejected: cpu/memory above the approved ceiling, non-numeric, or non-positive.
+        check_rejected(make_after(cpu="4096"))
+        check_rejected(make_after(memory="8192"))
+        check_rejected(make_after(cpu="not-a-number"))
+        check_rejected(make_after(cpu="0"))
+        check_rejected(make_after(memory="-1"))
+
+        # Rejected: container image is not from the approved FieldZilla staging ECR repo.
+        check_rejected(
+            make_after(
+                container_definitions=[
+                    {
+                        "name": "api",
+                        "image": f"918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/other/staging/api:{DEPLOY_SHA}",
+                        "cpu": 256,
+                        "memory": 512,
+                        "essential": True,
+                        "secrets": [],
+                    }
+                ]
+            )
+        )
+
+        # Rejected: image tag does not match the authorized/approved application SHA.
+        check_rejected(
+            make_after(
+                container_definitions=[
+                    {
+                        "name": "api",
+                        "image": "918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/api:1111111111111111111111111111111111111111",
+                        "cpu": 256,
+                        "memory": 512,
+                        "essential": True,
+                        "secrets": [],
+                    }
+                ]
+            )
+        )
+
+        # Rejected: a secret reference points outside the approved staging runtime secret --
+        # there is no pre-existing secret to grandfather in on a bare create.
+        check_rejected(
+            make_after(
+                container_definitions=[
+                    {
+                        "name": "api",
+                        "image": f"918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/api:{DEPLOY_SHA}",
+                        "cpu": 256,
+                        "memory": 512,
+                        "essential": True,
+                        "secrets": [{"name": "EVIL_KEY", "valueFrom": "arn:aws:secretsmanager:ap-south-1:918870682888:secret:/other/secret:KEY::"}],
+                    }
+                ]
+            )
+        )
+
+        # Rejected: a secret reference points at the production environment, not staging.
+        check_rejected(
+            make_after(
+                container_definitions=[
+                    {
+                        "name": "api",
+                        "image": f"918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/api:{DEPLOY_SHA}",
+                        "cpu": 256,
+                        "memory": 512,
+                        "essential": True,
+                        "secrets": [{"name": "APP_PROD_KEY", "valueFrom": "arn:aws:secretsmanager:ap-south-1:918870682888:secret:/synergie/fieldzilla/production/runtime-pXXXXX:APP_PROD_KEY::"}],
+                    }
+                ]
+            )
+        )
+
+        # Rejected: no container definitions at all.
+        check_rejected(make_after(container_definitions=[]))
+
+        # Rejected: malformed plan claims a bare create but still carries a non-null "before"
+        # (should never happen from real OpenTofu output, but must fail closed, not silently
+        # fall through to the replace-path checks which require before to be a dict too).
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_json = Path(tmp) / "plan.json"
+            malformed = plan_for(make_after())
+            malformed["resource_changes"][0]["change"]["before"] = {"family": "fieldzilla-staging-api"}
+            plan_json.write_text(json.dumps(malformed), encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                auth.verify_plan_safety(
+                    Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families="")
+                )
+
+        # Rejected: "after" missing/not a dict entirely.
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_json = Path(tmp) / "plan.json"
+            missing_after = plan_for(make_after())
+            missing_after["resource_changes"][0]["change"]["after"] = None
+            plan_json.write_text(json.dumps(missing_after), encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                auth.verify_plan_safety(
+                    Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families="")
+                )
+
     def test_verifies_import_map_and_rejects_wrong_ownership(self) -> None:
         good_doc = {
             "repository": "Synergie-ITCI/programme-management-platform",
