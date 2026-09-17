@@ -141,9 +141,9 @@
       "bypass_actors": []
     },
     "pr-qa-v1-rc149": {
-      "commit": "PLACEHOLDER",
-      "ruleset_id": 0,
-      "ruleset_updated_at": "",
+      "commit": "ed9089303488e42c4011775031bd961be9ef2847",
+      "ruleset_id": 23587746,
+      "ruleset_updated_at": "2026-09-17T15:45:00.000+05:30",
       "bypass_actors": []
     }
   }
