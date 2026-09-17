@@ -114,12 +114,27 @@ gates:
         code, report, _, _ = self.run_engine_with_artifacts(repo, base, static_only=static_only)
         return code, report
 
-    def central_action_contract_repo(self, workflow_with: str) -> Path:
+    def central_action_contract_repo(
+        self,
+        workflow_with: str,
+        *,
+        tag: str = "pr-qa-v1-rc146",
+        tagged_action_yml: str | None = None,
+        worktree_action_yml: str | None = None,
+        action_name: str = "opentofu-plan-authorizer",
+        create_tag: bool = True,
+    ) -> Path:
+        """Build a real git repository with the action's manifest committed and TAGGED at
+        an exact ref -- this is what the resolver must read via `git show <tag>:path`, not
+        whatever the working tree happens to contain. `worktree_action_yml`, when given,
+        writes DIFFERENT (uncommitted) content on top after tagging, to prove the resolver
+        never substitutes that PR-head content for the pinned historical one."""
         repo = self.tmp / f"central-action-contract-{uuid4().hex}"
         repo.mkdir()
-        self.write(
-            repo / "actions" / "opentofu-plan-authorizer" / "action.yml",
-            """name: Contract Fixture
+        self.git(repo, "init", "-q")
+        self.git(repo, "config", "user.email", "qa@example.invalid")
+        self.git(repo, "config", "user.name", "QA Regression")
+        default_action_yml = """name: Contract Fixture
 inputs:
   command:
     required: true
@@ -133,7 +148,10 @@ runs:
   steps:
     - shell: bash
       run: echo ok
-""",
+"""
+        self.write(
+            repo / "actions" / action_name / "action.yml",
+            tagged_action_yml if tagged_action_yml is not None else default_action_yml,
         )
         self.write(
             repo / ".github" / "workflows" / "fieldzilla.yml",
@@ -144,11 +162,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Verify artifact
-        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc146
+        uses: Synergie-ITCI/.github/actions/{action_name}@{tag}
         with:
 {workflow_with}
 """,
         )
+        self.git(repo, "add", ".")
+        self.git(repo, "commit", "-q", "-m", "chore: contract fixture baseline")
+        if create_tag:
+            self.git(repo, "tag", tag)
+        if worktree_action_yml is not None:
+            self.write(repo / "actions" / action_name / "action.yml", worktree_action_yml)
         return repo
 
     def test_central_action_contract_rejects_rc143_rc146_input_mismatch(self) -> None:
@@ -196,6 +220,168 @@ jobs:
         repo = self.central_action_contract_repo("          command: verify-inputs\n")
 
         self.assertEqual(engine.validate_central_action_inputs(repo), [])
+
+    def test_central_action_contract_never_substitutes_worktree_for_pinned_tag(self) -> None:
+        """This is the exact regression this fix addresses: a PR that adds a new input to
+        the LOCAL working-tree action.yml (not yet released under any tag) must not cause
+        the resolver to validate against that local content -- it must resolve the actual
+        immutable tag's content, which does not have the new input, and reject a step that
+        supplies it. Conversely, a genuinely historical input the pinned tag DOES declare
+        (but a broken local edit might accidentally omit) must still be accepted, because
+        the pinned tag -- not the working tree -- is authoritative."""
+        engine = load_engine_module()
+        tagged = """name: Contract Fixture
+inputs:
+  command:
+    required: true
+  authorization-id:
+    required: false
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: echo ok
+"""
+        # Working tree (PR head) adds a brand-new input not in any released tag, and
+        # (accidentally or not) drops authorization-id entirely.
+        worktree = """name: Contract Fixture
+inputs:
+  command:
+    required: true
+  image-digest-map:
+    required: false
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: echo ok
+"""
+        repo = self.central_action_contract_repo(
+            "          command: verify-inputs\n"
+            "          authorization-id: fieldzilla-1\n",
+            tagged_action_yml=tagged,
+            worktree_action_yml=worktree,
+        )
+
+        violations = engine.validate_central_action_inputs(repo)
+
+        # authorization-id IS declared at the pinned tag -- must be accepted even though
+        # the working tree no longer has it.
+        self.assertFalse(violations, violations)
+
+        # A step supplying the working-tree-only new input, against the same old pin,
+        # must be rejected -- the pinned tag genuinely does not know it yet.
+        repo2 = self.central_action_contract_repo(
+            "          command: verify-inputs\n"
+            "          image-digest-map: '{}'\n",
+            tagged_action_yml=tagged,
+            worktree_action_yml=worktree,
+        )
+        violations2 = engine.validate_central_action_inputs(repo2)
+        self.assertTrue(any("undeclared input `image-digest-map`" in item for item in violations2), violations2)
+
+    def test_central_action_contract_fails_closed_on_unresolvable_tag(self) -> None:
+        engine = load_engine_module()
+        repo = self.central_action_contract_repo(
+            "          command: verify-inputs\n",
+            tag="pr-qa-v1-rc999999-never-released",
+            create_tag=False,
+        )
+
+        violations = engine.validate_central_action_inputs(repo)
+
+        self.assertTrue(any("could not resolve the exact pinned action contract" in item for item in violations), violations)
+
+    def test_central_action_contract_fails_closed_on_unresolvable_action_path(self) -> None:
+        engine = load_engine_module()
+        # A real, tagged repo exists, but the workflow references an action path that was
+        # never committed under that tag at all.
+        repo = self.central_action_contract_repo("          command: verify-inputs\n")
+        self.write(
+            repo / ".github" / "workflows" / "fieldzilla.yml",
+            """name: Contract Fixture
+on: workflow_dispatch
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify artifact
+        uses: Synergie-ITCI/.github/actions/this-action-does-not-exist@pr-qa-v1-rc146
+        with:
+          command: verify-inputs
+""",
+        )
+
+        violations = engine.validate_central_action_inputs(repo)
+
+        self.assertTrue(any("could not resolve the exact pinned action contract" in item for item in violations), violations)
+
+    def test_central_action_contract_handles_both_apply_and_bootstrap_shaped_workflows(self) -> None:
+        """Two different workflow files, same action, same tag -- both must be validated
+        independently and correctly against the one pinned contract (this is the exact
+        real-world shape: fieldzilla-staging-opentofu-apply.yml and
+        fieldzilla-staging-opentofu-bootstrap.yml both pin opentofu-plan-authorizer)."""
+        engine = load_engine_module()
+        tagged = """name: Contract Fixture
+inputs:
+  command:
+    required: true
+  authorization-id:
+    required: false
+  ecs-families:
+    required: false
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: echo ok
+"""
+        repo = self.central_action_contract_repo(
+            "          command: verify-inputs\n"
+            "          authorization-id: fieldzilla-1\n",
+            tagged_action_yml=tagged,
+        )
+        self.write(
+            repo / ".github" / "workflows" / "bootstrap.yml",
+            """name: Bootstrap Fixture
+on: workflow_dispatch
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate bootstrap authorization inputs
+        uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc146
+        with:
+          command: verify-inputs
+          ecs-families: fieldzilla-staging-api
+""",
+        )
+
+        violations = engine.validate_central_action_inputs(repo)
+
+        self.assertEqual(violations, [])
+
+    def test_central_action_contract_rejects_genuinely_undeclared_input_at_pinned_tag(self) -> None:
+        engine = load_engine_module()
+        tagged = """name: Contract Fixture
+inputs:
+  command:
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: echo ok
+"""
+        repo = self.central_action_contract_repo(
+            "          command: verify-inputs\n"
+            "          this-was-never-declared: nope\n",
+            tagged_action_yml=tagged,
+        )
+
+        violations = engine.validate_central_action_inputs(repo)
+
+        self.assertTrue(any("undeclared input `this-was-never-declared`" in item for item in violations), violations)
 
     def run_engine_with_artifacts(
         self,
