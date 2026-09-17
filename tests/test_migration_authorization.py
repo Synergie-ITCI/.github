@@ -307,29 +307,38 @@ class MigrationAuthorizationTests(unittest.TestCase):
 class BundledMigrationAuthorizationTests(unittest.TestCase):
     def test_bundled_record_is_strict_and_defaults_stay_ordinary(self):
         records = approval.load_authorizations()
-        self.assertLessEqual(len(records), 1)
-        for record in records:
-            self.assertEqual(record["pr_number"], 118)
-            self.assertEqual(record["repository_id"], 1315697868)
+        by_pr = {r["pr_number"]: r for r in records}
+
+        # PR #118 — normalized submission migration 0038 (historical, may be expired)
+        if 118 in by_pr:
+            r = by_pr[118]
+            self.assertEqual(r["repository_id"], 1315697868)
+            self.assertEqual(r["expected_head_sha"], "bec5d1c7b2e1bc0afb8bb7db5ffd4b3240cea722")
+            self.assertEqual(r["expected_base_sha"], "9743125067113b73209984a99e01982f7e7d9779")
             self.assertEqual(
-                record["expected_head_sha"],
-                "bec5d1c7b2e1bc0afb8bb7db5ffd4b3240cea722",
-            )
-            self.assertEqual(
-                record["expected_base_sha"],
-                "9743125067113b73209984a99e01982f7e7d9779",
-            )
-            self.assertEqual(
-                record["migration_sha256"],
+                r["migration_sha256"],
                 "56d29de95cd31ae88509757f414da89a679161761da07693605e0db1a631f773",
             )
-            self.assertEqual(
-                [item["line"] for item in record["delete_fingerprints"]],
-                [375, 388, 389, 390, 391],
-            )
-            self.assertEqual(
-                record["approved_reviewer"], {"login": "SaurabhVermaIN", "id": 52234089}
-            )
+            self.assertEqual([item["line"] for item in r["delete_fingerprints"]], [375, 388, 389, 390, 391])
+            self.assertEqual(r["approved_reviewer"], {"login": "SaurabhVermaIN", "id": 52234089})
+
+        # PR #241 — password management migration 0049
+        self.assertIn(241, by_pr, "migration 0049 (PR #241) authorization must be present")
+        r = by_pr[241]
+        self.assertEqual(r["repository_id"], 1315697868)
+        self.assertEqual(r["expected_head_sha"], "a89926624915444cb577002d6e26a8dde896a89a")
+        self.assertEqual(r["expected_base_sha"], "ef924580fb690c1e8ec9dc0f27fa1d27b204c111")
+        self.assertEqual(
+            r["migration_sha256"],
+            "06694f4a8181974f8f394d4e345fa7730c71494cdb276b987323bbfdb16c7958",
+        )
+        self.assertEqual([item["line"] for item in r["delete_fingerprints"]], [139, 143])
+        self.assertEqual(r["approved_reviewer"], {"login": "SaurabhVermaIN", "id": 52234089})
+
+        # No unknown PRs
+        known = {118, 241}
+        unknown = set(by_pr) - known
+        self.assertFalse(unknown, f"unexpected migration authorization PRs: {unknown}")
         policy = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())
         baseline = policy["one_time_baseline_alignment"]
         self.assertEqual(baseline["pr_number"], 118)

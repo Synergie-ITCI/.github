@@ -39,5 +39,34 @@
     "issued_at": "2026-09-15T09:22:25Z",
     "expires_at": "2026-09-16T09:22:25Z",
     "purpose": "Authorize PR #118's audited runtime erasure DELETE definitions in normalized submission migration 0038 only."
+  },
+  {
+    "authorization_id": "caa7ac75-e4db-4fd8-a28e-c515fbc5f4fe",
+    "repository": "Synergie-ITCI/programme-management-platform",
+    "repository_id": 1315697868,
+    "pr_number": 241,
+    "head_ref": "feature/fieldzilla-password-management",
+    "base_ref": "development",
+    "expected_head_sha": "a89926624915444cb577002d6e26a8dde896a89a",
+    "expected_base_sha": "ef924580fb690c1e8ec9dc0f27fa1d27b204c111",
+    "migration_path": "apps/api/alembic/versions/20260916_0049_password_management.py",
+    "migration_sha256": "06694f4a8181974f8f394d4e345fa7730c71494cdb276b987323bbfdb16c7958",
+    "delete_fingerprints": [
+      {
+        "line": 139,
+        "sha256": "cfeabfbadab1272a18eb83459e7d8a2c1b817127d00a8d438b783dfe4b860949"
+      },
+      {
+        "line": 143,
+        "sha256": "a3e4db8db3e28b960067d592c6f720d2829153992adbd8ad33046c0ff53ac22f"
+      }
+    ],
+    "approved_reviewer": {
+      "login": "SaurabhVermaIN",
+      "id": 52234089
+    },
+    "issued_at": "2026-09-17T05:00:00Z",
+    "expires_at": "2026-09-18T05:00:00Z",
+    "purpose": "Authorize PR #241's audited runtime cleanup DELETE definitions in password management migration 0049 (password_reset_tokens expiry purge and rate-limit counter eviction) only."
   }
 ]
