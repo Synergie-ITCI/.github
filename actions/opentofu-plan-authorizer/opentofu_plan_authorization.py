@@ -505,6 +505,23 @@ def verify_plan_safety(args: argparse.Namespace) -> None:
         die("monthly budget guardrail mismatch")
     routine_ecs_only = bool(getattr(args, "image_digest_map", "")) or bool(getattr(args, "image_digest", ""))
     resource_changes = doc.get("resource_changes", [])
+
+    def _is_harmless_data_source_read(change: dict[str, Any]) -> bool:
+        """The ONLY exemption from routine_ecs_only's blanket approved-ECS-change
+        requirement: a pure, read-only data-source evaluation. All three must hold --
+        mode is exactly "data" (missing or any other/unknown mode fails closed, never
+        exempted), and every action is "read" and/or "no-op" -- never create, update,
+        delete, replace, or any other mutation, managed or otherwise. This never touches
+        the task-definition, service, image-digest, family, role, secret, networking,
+        volume, CPU/memory, or artifact checks -- it only widens what routine_ecs_only
+        tolerates alongside them."""
+        if change.get("mode") != "data":
+            return False
+        actions = change.get("change", {}).get("actions", [])
+        if not actions:
+            return False
+        return all(action in ("read", "no-op") for action in actions)
+
     approved_task_definition_addresses = {
         change.get("address", "")
         for change in resource_changes
@@ -521,7 +538,8 @@ def verify_plan_safety(args: argparse.Namespace) -> None:
         rtype = change.get("type", "")
         if routine_ecs_only and actions != ["no-op"]:
             if not (
-                is_approved_ecs_task_definition_revision(change, variables, args)
+                _is_harmless_data_source_read(change)
+                or is_approved_ecs_task_definition_revision(change, variables, args)
                 or is_approved_ecs_service_update(change, approved_task_definition_addresses)
             ):
                 die("routine ECS deployment contains non-ECS or unapproved changes")

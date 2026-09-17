@@ -1072,6 +1072,15 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
                         "address": 'aws_ecs_service.worker["staging"]', "type": "aws_ecs_service",
                         "change": {"actions": ["update"], "before": {"task_definition": "arn:aws:ecs:ap-south-1:918870682888:task-definition/fieldzilla-staging-worker:5"}, "after": {"task_definition": None}, "after_unknown": {"task_definition": True}},
                     },
+                    # infra/aws/compute.tf references several data sources (IAM policy
+                    # documents, availability zones, the ECS-optimized AMI parameter) that
+                    # OpenTofu legitimately re-evaluates on every plan -- this is exactly
+                    # the real-world entry that the routine_ecs_only fix exempts.
+                    {
+                        "address": 'data.aws_iam_policy_document.task["staging"]', "mode": "data",
+                        "type": "aws_iam_policy_document",
+                        "change": {"actions": ["read"], "before": None, "after": {"json": "..."}},
+                    },
                 ],
             }
 
@@ -1203,6 +1212,123 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
         with mock.patch.object(auth, "github_api", return_value=[deployment]):
             with self.assertRaises(SystemExit):
                 auth.check_single_use(valid_args())
+
+    # -- routine_ecs_only data-source exemption ------------------------------------------
+
+    def test_routine_ecs_data_source_exemption(self) -> None:
+        """The rc150/rc151 authorizer's routine_ecs_only mode rejected ANY real FieldZilla
+        plan, because infra/aws/compute.tf's ordinary data sources (IAM policy documents,
+        availability zones, the ECS AMI SSM parameter) are re-evaluated on every plan and
+        appear in resource_changes with actions=["read"] -- which routine_ecs_only treated
+        as an unapproved non-ECS change. This is the exact, directly-reproduced defect;
+        these are the adversarial cases proving the fix and nothing more than the fix."""
+
+        def plan_with(entries: list[dict[str, object]], **var_overrides: object) -> dict[str, object]:
+            variables = {
+                "enable_production": {"value": False},
+                "route53_zone_id": {"value": ""},
+                "container_instance_type": {"value": "c6g.medium"},
+                "monthly_budget_usd": {"value": "100"},
+                "image_tag": {"value": DEPLOY_SHA},
+            }
+            variables.update(var_overrides)
+            return {"variables": variables, "resource_changes": entries}
+
+        def check(entries: list[dict[str, object]]) -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                plan_json = Path(tmp) / "plan.json"
+                plan_json.write_text(json.dumps(plan_with(entries)), encoding="utf-8")
+                auth.verify_plan_safety(Namespace(
+                    plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA,
+                    image_digest_map=DIGEST_MAP_JSON, image_digest="", ecs_families=ECS_FAMILIES,
+                ))
+
+        def check_rejected(entries: list[dict[str, object]]) -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                plan_json = Path(tmp) / "plan.json"
+                plan_json.write_text(json.dumps(plan_with(entries)), encoding="utf-8")
+                with self.assertRaises(SystemExit):
+                    auth.verify_plan_safety(Namespace(
+                        plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA,
+                        image_digest_map=DIGEST_MAP_JSON, image_digest="", ecs_families=ECS_FAMILIES,
+                    ))
+
+        data_read = {"address": 'data.aws_iam_policy_document.task["staging"]', "mode": "data",
+                     "type": "aws_iam_policy_document", "change": {"actions": ["read"], "before": None, "after": {"json": "..."}}}
+        data_noop = {**data_read, "change": {"actions": ["no-op"], "before": {"json": "..."}, "after": {"json": "..."}}}
+        data_create = {**data_read, "change": {"actions": ["create"], "before": None, "after": {"json": "..."}}}
+        data_update = {**data_read, "change": {"actions": ["update"], "before": {"json": "a"}, "after": {"json": "b"}}}
+        data_delete = {**data_read, "change": {"actions": ["delete"], "before": {"json": "a"}, "after": None}}
+        data_replace = {**data_read, "change": {"actions": ["delete", "create"], "before": {"json": "a"}, "after": {"json": "b"}}}
+        managed_read_like = {"address": "aws_s3_bucket.evidence", "mode": "managed", "type": "aws_s3_bucket",
+                              "change": {"actions": ["read"], "before": {"bucket": "x"}, "after": {"bucket": "x"}}}
+        data_missing_mode = {"address": 'data.aws_availability_zones.available', "type": "aws_availability_zones",
+                              "change": {"actions": ["read"], "before": None, "after": {"names": ["a"]}}}
+        data_unknown_mode = {**data_missing_mode, "mode": "sometimes"}
+
+        # --- Accepted: a lone data-source read or no-op, alone, is not itself an
+        # "unapproved ECS change" (nothing ELSE non-ECS is in the plan). ---
+        check([data_read])
+        check([data_noop])
+
+        # --- Rejected: any data-source mutation (create/update/delete/replace) is never
+        # exempted -- only "read" and "no-op" ever qualify. ---
+        check_rejected([data_create])
+        check_rejected([data_update])
+        check_rejected([data_delete])
+        check_rejected([data_replace])
+
+        # --- Rejected: a managed resource is never exempted by this path, even with a
+        # (non-real-world, defensive) "read" action -- the exemption checks mode == "data"
+        # first, unconditionally. ---
+        check_rejected([managed_read_like])
+
+        # --- Rejected: missing or unknown mode always fails closed -- it is never treated
+        # as equivalent to "data". ---
+        check_rejected([data_missing_mode])
+        check_rejected([data_unknown_mode])
+
+        # --- Accepted: harmless data reads alongside the exact approved FieldZilla ECS
+        # rollout (the real shape this fix exists for) -- see
+        # test_real_pending_fieldzilla_plan_shape for the full positive case; here just the
+        # minimal create + its service pointer, plus two data reads. ---
+        api_baseline = auth.FIELDZILLA_TASK_DEFINITION_BASELINE["fieldzilla-staging-api"]
+        api_container = {k: v for k, v in api_baseline["container"].items() if k != "secret_keys"}
+        api_container["image"] = f"918870682888.dkr.ecr.ap-south-1.amazonaws.com/{API_REPO}:{DEPLOY_SHA}"
+        api_container["secrets"] = [
+            {"name": k, "valueFrom": f"{auth.EXACT_RUNTIME_SECRET_ARN}:{k}::"}
+            for k in sorted(api_baseline["container"]["secret_keys"])
+        ]
+        api_after = {
+            "family": "fieldzilla-staging-api",
+            "cpu": api_baseline["cpu"], "memory": api_baseline["memory"],
+            "execution_role_arn": api_baseline["execution_role_arn"], "task_role_arn": api_baseline["task_role_arn"],
+            "network_mode": api_baseline["network_mode"], "requires_compatibilities": api_baseline["requires_compatibilities"],
+            "runtime_platform": api_baseline["runtime_platform"], "volume": api_baseline["volume"],
+            "placement_constraints": api_baseline["placement_constraints"], "proxy_configuration": api_baseline["proxy_configuration"],
+            "ephemeral_storage": api_baseline["ephemeral_storage"],
+            "container_definitions": json.dumps([api_container], sort_keys=True),
+        }
+        harmless_plus_rollout = [
+            data_read,
+            data_noop,
+            {"address": 'aws_ecs_task_definition.api["staging"]', "type": "aws_ecs_task_definition",
+             "change": {"actions": ["create"], "before": None, "after": api_after}},
+            {"address": 'aws_ecs_service.api["staging"]', "type": "aws_ecs_service",
+             "change": {"actions": ["update"],
+                        "before": {"task_definition": "arn:aws:ecs:ap-south-1:918870682888:task-definition/fieldzilla-staging-api:6"},
+                        "after": {"task_definition": None}, "after_unknown": {"task_definition": True}}},
+        ]
+        check(harmless_plus_rollout)
+
+        # --- Rejected: an unrelated managed-resource mutation alongside that same
+        # otherwise-valid rollout still fails -- the data-source exemption does not widen
+        # to cover anything else. ---
+        check_rejected([
+            *harmless_plus_rollout,
+            {"address": "aws_db_instance.fieldzilla", "type": "aws_db_instance",
+             "change": {"actions": ["delete"], "before": {}, "after": None}},
+        ])
 
     # -- Inline ECR digest verification tool (embedded in the reusable workflow) --------
 
