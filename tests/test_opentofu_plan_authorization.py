@@ -21,6 +21,12 @@ import opentofu_plan_authorization as auth  # noqa: E402
 
 
 VALID_SHA = "a" * 40
+# Distinct from VALID_SHA (expected-sha, the approved application/IaC source and image
+# SHA) on purpose -- exercises the real split this fix introduces: the caller workflow
+# dispatch commit can legitimately differ from the approved application commit (e.g. later,
+# unrelated governance-only commits landing on top of it), and every test that uses
+# valid_args() by default now proves the two are never conflated.
+CALLER_SHA = "c" * 40
 DEPLOY_SHA = "ef924580fb690c1e8ec9dc0f27fa1d27b204c111"
 IMAGE_DIGEST = "sha256:" + "9" * 64
 API_REPO = "synergie/fieldzilla/staging/api"
@@ -43,7 +49,8 @@ def valid_args(**overrides: object) -> Namespace:
         "repository": "Synergie-ITCI/programme-management-platform",
         "environment": "synergie-app-staging",
         "expected_sha": VALID_SHA,
-        "github_sha": VALID_SHA,
+        "expected_caller_sha": CALLER_SHA,
+        "github_sha": CALLER_SHA,
         "expected_plan_sha256": VALID_PLAN,
         "expected_import_map_sha256": VALID_IMPORT_MAP,
         "image_digest": "",
@@ -100,6 +107,42 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
         self.assert_rejected(expected_sha="A" * 40)
         self.assert_rejected(github_sha="d" * 40)
         self.assert_rejected(repository_id=999)
+
+    def test_caller_sha_is_independent_of_expected_sha(self) -> None:
+        """The core fix: github-sha is checked against expected-caller-sha, never against
+        expected-sha (the approved application/IaC source and image SHA) -- so a caller
+        workflow dispatched from a commit descended from the approved application commit
+        (e.g. a later, unrelated governance-pin-bump commit) is correctly APPROVED as long
+        as expected-caller-sha honestly reflects that dispatch commit, and the two SHAs are
+        never allowed to silently stand in for each other."""
+        # Baseline: expected_sha and expected_caller_sha are genuinely different (the
+        # default valid_args() fixture), and this is accepted -- proves the split works.
+        auth.verify_inputs(valid_args(), now=NOW)
+
+        # The dispatch commit not matching the DECLARED caller SHA is rejected, regardless
+        # of what expected-sha says.
+        self.assert_rejected(github_sha="d" * 40)
+        self.assert_rejected(expected_caller_sha="d" * 40)
+
+        # A malformed expected-caller-sha is rejected, independent of expected-sha's own
+        # (separately checked) format.
+        self.assert_rejected(expected_caller_sha="not-a-sha")
+        self.assert_rejected(expected_caller_sha="")
+
+        # Legacy-ambiguity guard: an attempt to collapse the two back into "the same value"
+        # (expected-caller-sha == expected-sha, but github-sha does NOT match either) is
+        # still correctly rejected -- the check is against expected-caller-sha, not against
+        # "expected-sha OR expected-caller-sha".
+        self.assert_rejected(expected_caller_sha=VALID_SHA, github_sha=CALLER_SHA)
+
+    def test_verify_caller_sha_command(self) -> None:
+        auth.verify_caller_sha(Namespace(github_sha=CALLER_SHA, expected_caller_sha=CALLER_SHA))
+        with self.assertRaises(SystemExit):
+            auth.verify_caller_sha(Namespace(github_sha=VALID_SHA, expected_caller_sha=CALLER_SHA))
+        with self.assertRaises(SystemExit):
+            auth.verify_caller_sha(Namespace(github_sha=CALLER_SHA, expected_caller_sha="not-a-sha"))
+        with self.assertRaises(SystemExit):
+            auth.verify_caller_sha(Namespace(github_sha=CALLER_SHA, expected_caller_sha=""))
 
     def test_rejects_bad_hashes_expiry_reuse_or_native_reviewers(self) -> None:
         self.assert_rejected(expected_plan_sha256="not-a-hash")
@@ -184,7 +227,43 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             expected_artifact_digest="sha256:" + "d" * 64,
         )
 
+        # head_sha is the SOURCE (plan-generation) run's actual dispatch commit -- the
+        # caller-commit concept -- and is checked against expected_caller_sha (CALLER_SHA),
+        # deliberately NOT against expected_sha (VALID_SHA, the approved application/IaC
+        # commit baked into the artifact name). Both appear in this one fixture, distinct,
+        # proving the fix: the bug this whole change exists to fix was exactly this check
+        # comparing head_sha against expected_sha instead.
         def fake_api(path: str, method: str = "GET", payload: dict[str, object] | None = None):
+            if path == "actions/runs/34706513572":
+                return {
+                    "head_repository": {"full_name": "Synergie-ITCI/programme-management-platform", "id": 1315697868},
+                    "head_sha": CALLER_SHA,
+                    "conclusion": "success",
+                    "path": ".github/workflows/fieldzilla-staging-iac.yml",
+                    "run_attempt": 1,
+                }
+            if path == "actions/runs/34706513572/artifacts?per_page=100":
+                return {
+                    "artifacts": [
+                        {
+                            "id": 123456,
+                            "name": f"fieldzilla-staging-plan-{VALID_SHA}-34706513572",
+                            "expired": False,
+                            "digest": "sha256:" + "d" * 64,
+                        }
+                    ]
+                }
+            raise AssertionError(path)
+
+        with mock.patch.object(auth, "github_api", side_effect=fake_api):
+            auth.verify_source_artifact(args)
+
+        # Rejected: the OLD (pre-fix) expectation -- head_sha equal to expected_sha instead
+        # of expected_caller_sha -- must no longer be accepted. This is the exact scenario
+        # that made a real, correct FieldZilla staging apply impossible: the plan-generation
+        # run's dispatch commit was the approved application commit itself, not the (later,
+        # governance-advanced) caller commit the operator is now dispatching apply from.
+        def old_expectation_api(path: str, method: str = "GET", payload: dict[str, object] | None = None):
             if path == "actions/runs/34706513572":
                 return {
                     "head_repository": {"full_name": "Synergie-ITCI/programme-management-platform", "id": 1315697868},
@@ -206,8 +285,21 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
                 }
             raise AssertionError(path)
 
-        with mock.patch.object(auth, "github_api", side_effect=fake_api):
-            auth.verify_source_artifact(args)
+        with mock.patch.object(auth, "github_api", side_effect=old_expectation_api):
+            with self.assertRaises(SystemExit):
+                auth.verify_source_artifact(args)
+
+    def test_verify_source_artifact_rejects_malformed_caller_sha(self) -> None:
+        args = valid_args(
+            source_run_id="34706513572",
+            artifact_id="123456",
+            artifact_name=f"fieldzilla-staging-plan-{VALID_SHA}-34706513572",
+            expected_artifact_digest="sha256:" + "d" * 64,
+            expected_caller_sha="not-a-sha",
+        )
+        with mock.patch.object(auth, "github_api", side_effect=AssertionError("must fail before any API call")):
+            with self.assertRaises(SystemExit):
+                auth.verify_source_artifact(args)
 
     def test_verifies_downloaded_artifact_metadata_and_hashes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -219,30 +311,35 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             plan_sha = hashlib.sha256(b"approved").hexdigest()
             import_sha = hashlib.sha256(b"map").hexdigest()
             artifact_name = f"fieldzilla-staging-plan-{VALID_SHA}-34706513572"
-            (artifact_dir / "metadata.json").write_text(
-                json.dumps(
-                    {
-                        "repository": "Synergie-ITCI/programme-management-platform",
-                        "repository_id": 1315697868,
-                        "environment": "synergie-app-staging",
-                        "commit_sha": VALID_SHA,
-                        "image_digest_map": DIGEST_MAP,
-                        "ecs_families": sorted(auth.APPROVED_FIELDZILLA_TASK_FAMILIES),
-                        "workflow_run_id": "34706513572",
-                        "artifact_name": artifact_name,
-                        "plan_sha256": plan_sha,
-                        "state_backend": "s3",
-                        "state_bucket": "synergie-fieldzilla-opentofu-state-918870682888-ap-south-1",
-                        "state_key": "programme-management-platform/fieldzilla/staging/opentofu.tfstate",
-                        "lock_table": "synergie-fieldzilla-opentofu-locks",
-                    }
-                ),
-                encoding="utf-8",
-            )
-            auth.verify_artifact_metadata(
-                Namespace(
+
+            def metadata_doc(**overrides: object) -> dict[str, object]:
+                doc = {
+                    "repository": "Synergie-ITCI/programme-management-platform",
+                    "repository_id": 1315697868,
+                    "environment": "synergie-app-staging",
+                    "commit_sha": VALID_SHA,
+                    "caller_sha": CALLER_SHA,
+                    "image_digest_map": DIGEST_MAP,
+                    "ecs_families": sorted(auth.APPROVED_FIELDZILLA_TASK_FAMILIES),
+                    "workflow_run_id": "34706513572",
+                    "artifact_name": artifact_name,
+                    "plan_sha256": plan_sha,
+                    "state_backend": "s3",
+                    "state_bucket": "synergie-fieldzilla-opentofu-state-918870682888-ap-south-1",
+                    "state_key": "programme-management-platform/fieldzilla/staging/opentofu.tfstate",
+                    "lock_table": "synergie-fieldzilla-opentofu-locks",
+                }
+                doc.update(overrides)
+                return doc
+
+            def write_metadata(doc: dict[str, object]) -> None:
+                (artifact_dir / "metadata.json").write_text(json.dumps(doc), encoding="utf-8")
+
+            def base_args(**overrides: object) -> Namespace:
+                values = dict(
                     artifact_dir=artifact_dir,
                     expected_sha=VALID_SHA,
+                    expected_caller_sha=CALLER_SHA,
                     expected_plan_sha256=plan_sha,
                     expected_import_map_sha256=import_sha,
                     image_digest_map=DIGEST_MAP_JSON,
@@ -252,7 +349,40 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
                     artifact_name=artifact_name,
                     expected_artifact_digest="e" * 64,
                 )
-            )
+                values.update(overrides)
+                return Namespace(**values)
+
+            # Approved: expected_sha and expected_caller_sha both present, distinct, and
+            # both bound to the artifact's own recorded metadata.
+            write_metadata(metadata_doc())
+            auth.verify_artifact_metadata(base_args())
+
+            # Rejected: this apply's claimed expected-caller-sha does not match what the
+            # plan was actually generated from -- exactly the "staging advanced between
+            # plan and apply" case, which must fail closed and force plan regeneration.
+            with self.assertRaises(SystemExit):
+                auth.verify_artifact_metadata(base_args(expected_caller_sha="d" * 40))
+
+            # Rejected: legacy-ambiguity guard -- an artifact generated before this fix,
+            # whose metadata.json has no caller_sha field at all, must never be silently
+            # treated as matching (e.g. by defaulting to expected_sha or being skipped).
+            write_metadata(metadata_doc())
+            legacy_doc = metadata_doc()
+            del legacy_doc["caller_sha"]
+            write_metadata(legacy_doc)
+            with self.assertRaises(SystemExit):
+                auth.verify_artifact_metadata(base_args())
+
+            # Rejected: an artifact whose recorded caller_sha was collapsed to equal
+            # commit_sha (the pre-fix conflation) is still rejected when it does not equal
+            # this apply's actual expected-caller-sha.
+            write_metadata(metadata_doc(caller_sha=VALID_SHA))
+            with self.assertRaises(SystemExit):
+                auth.verify_artifact_metadata(base_args())
+
+            # Restore a valid artifact so the test ends in a known-good state.
+            write_metadata(metadata_doc())
+            auth.verify_artifact_metadata(base_args())
 
     def test_routine_ecs_authorization_binds_digest_family_and_blocks_non_ecs(self) -> None:
         before_containers = [

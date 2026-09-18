@@ -300,6 +300,27 @@ def sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _require_caller_sha_match(github_sha: str, expected_caller_sha: str) -> None:
+    """The commit that this workflow run was actually dispatched from must exactly equal
+    the operator-declared expected-caller-sha. This is deliberately independent of
+    expected-sha, which is the approved application/IaC source and image SHA (checked out
+    explicitly via `ref: inputs.expected-sha`, regardless of which commit dispatched the
+    run) -- conflating the two would require the caller ref to be pinned at the exact
+    approved application commit forever, which breaks the moment any later, unrelated
+    commit (e.g. a governance pin bump) lands on top of it. Keeping them separate lets the
+    caller workflow advance independently while still proving, exactly, which version of
+    the caller workflow (and therefore which pinned central authorizer release) actually
+    executed this run."""
+    if not SHA.fullmatch(expected_caller_sha or ""):
+        die("expected caller commit SHA must be exact 40-character lowercase hex")
+    if github_sha != expected_caller_sha:
+        die("workflow commit SHA does not match approved caller SHA")
+
+
+def verify_caller_sha(args: argparse.Namespace) -> None:
+    _require_caller_sha_match(args.github_sha, args.expected_caller_sha)
+
+
 def verify_inputs(args: argparse.Namespace, now: dt.datetime | None = None) -> None:
     current = now or dt.datetime.now(dt.UTC)
     if args.actor != APPROVER:
@@ -310,8 +331,7 @@ def verify_inputs(args: argparse.Namespace, now: dt.datetime | None = None) -> N
         die("environment mismatch")
     if not SHA.fullmatch(args.expected_sha or ""):
         die("expected commit SHA must be exact 40-character lowercase hex")
-    if args.github_sha != args.expected_sha:
-        die("workflow commit SHA does not match approved SHA")
+    _require_caller_sha_match(args.github_sha, args.expected_caller_sha)
     if getattr(args, "repository_id", REPOSITORY_ID) != REPOSITORY_ID:
         die("repository id mismatch")
     if getattr(args, "image_digest_map", "") and _parse_image_digest_map(args.image_digest_map) is None:
@@ -406,6 +426,8 @@ def _require_artifact_inputs(args: argparse.Namespace) -> None:
         die("artifact name is not bound to approved commit")
     if not ARTIFACT_DIGEST.fullmatch(args.expected_artifact_digest or ""):
         die("artifact digest is invalid")
+    if not SHA.fullmatch(getattr(args, "expected_caller_sha", "") or ""):
+        die("expected caller commit SHA must be exact 40-character lowercase hex")
 
 
 def verify_source_artifact(args: argparse.Namespace) -> None:
@@ -415,8 +437,10 @@ def verify_source_artifact(args: argparse.Namespace) -> None:
         die("source run repository mismatch")
     if run.get("head_repository", {}).get("id") != REPOSITORY_ID:
         die("source run repository id mismatch")
-    if run.get("head_sha") != args.expected_sha:
-        die("source run commit mismatch")
+    # head_sha is the commit the SOURCE (plan-generation) run was actually dispatched
+    # from -- the caller-commit concept, not the approved application/IaC source SHA.
+    if run.get("head_sha") != args.expected_caller_sha:
+        die("source run caller commit mismatch")
     if run.get("conclusion") != "success":
         die("source run did not succeed")
     if run.get("path") != CALLER_WORKFLOW_PATH:
@@ -479,6 +503,12 @@ def verify_artifact_metadata(args: argparse.Namespace) -> None:
     checks = {
         "repository": REPOSITORY,
         "commit_sha": args.expected_sha,
+        # Binds this apply's claimed expected-caller-sha to the exact caller commit the
+        # plan was actually generated from -- if staging advances between plan and apply
+        # (a later commit becomes the tip), a plan regenerated/re-dispatched there records
+        # a different caller_sha here, and an apply attempting to reuse the older, now-stale
+        # plan artifact fails closed instead of silently applying it.
+        "caller_sha": args.expected_caller_sha,
         "workflow_run_id": args.source_run_id,
         "artifact_name": args.artifact_name,
         "environment": ENVIRONMENT,
@@ -1053,6 +1083,7 @@ def main() -> None:
         target.add_argument("--repository-id", type=int, default=REPOSITORY_ID)
         target.add_argument("--environment", required=True)
         target.add_argument("--expected-sha", required=True)
+        target.add_argument("--expected-caller-sha", required=True)
         target.add_argument("--github-sha", required=True)
         target.add_argument("--expected-plan-sha256", default="")
         target.add_argument("--expected-import-map-sha256", default="")
@@ -1067,6 +1098,9 @@ def main() -> None:
     common_commands = ("verify-inputs", "check-single-use", "mark-used")
     for name in common_commands:
         add_common(sub.add_parser(name))
+    caller = sub.add_parser("verify-caller-sha")
+    caller.add_argument("--github-sha", required=True)
+    caller.add_argument("--expected-caller-sha", required=True)
     oidc = sub.add_parser("verify-oidc")
     oidc.add_argument("--token-file", type=Path, required=True)
     oidc.add_argument("--job-workflow-ref", required=True)
@@ -1083,6 +1117,7 @@ def main() -> None:
     meta = sub.add_parser("verify-artifact-metadata")
     meta.add_argument("--artifact-dir", type=Path, required=True)
     meta.add_argument("--expected-sha", required=True)
+    meta.add_argument("--expected-caller-sha", required=True)
     meta.add_argument("--expected-plan-sha256", default="")
     meta.add_argument("--expected-import-map-sha256", default="")
     meta.add_argument("--image-digest", default="")
@@ -1108,6 +1143,7 @@ def main() -> None:
     args = parser.parse_args()
     dispatch = {
         "verify-inputs": verify_inputs,
+        "verify-caller-sha": verify_caller_sha,
         "verify-oidc": verify_oidc,
         "verify-native-reviewers": verify_native_reviewers,
         "verify-backend": verify_backend,
