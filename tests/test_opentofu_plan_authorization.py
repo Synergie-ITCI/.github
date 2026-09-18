@@ -199,6 +199,34 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 auth.verify_oidc(Namespace(token_file=token, job_workflow_ref=VALID_WORKFLOW))
 
+    def test_verify_oidc_rejects_malformed_expected_workflow_ref(self) -> None:
+        """The expected job-workflow-ref passed to verify-oidc must itself be a real,
+        validly-shaped immutable tag reference before it is even worth comparing against the
+        token -- this is the caller-supplied "actual current tag" value (see
+        expected-workflow-ref in the reusable workflow), never the self-referential,
+        structurally-one-release-behind CENTRAL_WORKFLOW_REF. A malformed or empty value must
+        fail closed without ever reading the token."""
+        claims = {
+            "aud": "sts.amazonaws.com",
+            "repository": "Synergie-ITCI/programme-management-platform",
+            "job_workflow_ref": VALID_WORKFLOW,
+            "sub": (
+                "repo:Synergie-ITCI@209829096/"
+                "programme-management-platform@1315697868:environment:synergie-app-staging"
+            ),
+        }
+        payload = base64.urlsafe_b64encode(json.dumps(claims).encode()).rstrip(b"=").decode()
+        with tempfile.TemporaryDirectory() as tmp:
+            token = Path(tmp) / "token.jwt"
+            token.write_text(f"header.{payload}.sig", encoding="utf-8")
+            for bad_ref in ("", "not-a-tag-ref", VALID_WORKFLOW + "-extra", "Synergie-ITCI/.github/.github/workflows/other.yml@refs/tags/pr-qa-v1-rc142"):
+                with self.subTest(bad_ref=bad_ref):
+                    with self.assertRaises(SystemExit):
+                        auth.verify_oidc(Namespace(token_file=token, job_workflow_ref=bad_ref))
+            # Sanity: the exact same token, with a validly-shaped and matching expectation,
+            # still passes -- proves the new format check does not itself reject good input.
+            auth.verify_oidc(Namespace(token_file=token, job_workflow_ref=VALID_WORKFLOW))
+
     def test_verifies_backend_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             backend = Path(tmp) / "backend.json"
