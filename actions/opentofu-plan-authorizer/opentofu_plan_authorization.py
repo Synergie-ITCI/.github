@@ -96,11 +96,15 @@ FIELDZILLA_TASK_DEFINITION_BASELINE: dict[str, dict[str, Any]] = {
         "task_role_arn": _TASK_ROLE_ARN,
         "network_mode": "bridge",
         "requires_compatibilities": ["EC2"],
-        "runtime_platform": None,
+        # OpenTofu's plan JSON represents these unset optional nested-block
+        # attributes as an empty list, not null, for aws_ecs_task_definition --
+        # matching that here (rather than the AWS API's own null convention)
+        # is what the baseline is actually diffed against.
+        "runtime_platform": [],
         "volume": [],
         "placement_constraints": [],
-        "proxy_configuration": None,
-        "ephemeral_storage": None,
+        "proxy_configuration": [],
+        "ephemeral_storage": [],
         "container": {
             "name": "api",
             "essential": True,
@@ -140,11 +144,15 @@ FIELDZILLA_TASK_DEFINITION_BASELINE: dict[str, dict[str, Any]] = {
         "task_role_arn": None,
         "network_mode": "bridge",
         "requires_compatibilities": ["EC2"],
-        "runtime_platform": None,
+        # OpenTofu's plan JSON represents these unset optional nested-block
+        # attributes as an empty list, not null, for aws_ecs_task_definition --
+        # matching that here (rather than the AWS API's own null convention)
+        # is what the baseline is actually diffed against.
+        "runtime_platform": [],
         "volume": [],
         "placement_constraints": [],
-        "proxy_configuration": None,
-        "ephemeral_storage": None,
+        "proxy_configuration": [],
+        "ephemeral_storage": [],
         "container": {
             "name": "admin-web",
             "essential": True,
@@ -172,11 +180,15 @@ FIELDZILLA_TASK_DEFINITION_BASELINE: dict[str, dict[str, Any]] = {
         "task_role_arn": _TASK_ROLE_ARN,
         "network_mode": "bridge",
         "requires_compatibilities": ["EC2"],
-        "runtime_platform": None,
+        # OpenTofu's plan JSON represents these unset optional nested-block
+        # attributes as an empty list, not null, for aws_ecs_task_definition --
+        # matching that here (rather than the AWS API's own null convention)
+        # is what the baseline is actually diffed against.
+        "runtime_platform": [],
         "volume": [],
         "placement_constraints": [],
-        "proxy_configuration": None,
-        "ephemeral_storage": None,
+        "proxy_configuration": [],
+        "ephemeral_storage": [],
         "container": {
             "name": "worker",
             "essential": True,
@@ -205,11 +217,15 @@ FIELDZILLA_TASK_DEFINITION_BASELINE: dict[str, dict[str, Any]] = {
         "task_role_arn": _TASK_ROLE_ARN,
         "network_mode": "bridge",
         "requires_compatibilities": ["EC2"],
-        "runtime_platform": None,
+        # OpenTofu's plan JSON represents these unset optional nested-block
+        # attributes as an empty list, not null, for aws_ecs_task_definition --
+        # matching that here (rather than the AWS API's own null convention)
+        # is what the baseline is actually diffed against.
+        "runtime_platform": [],
         "volume": [],
         "placement_constraints": [],
-        "proxy_configuration": None,
-        "ephemeral_storage": None,
+        "proxy_configuration": [],
+        "ephemeral_storage": [],
         "container": {
             "name": "migration",
             "essential": True,
@@ -585,13 +601,33 @@ def _without_image(container: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in container.items() if key not in {"image", "imageDigest", "image_digest"}}
 
 
+def _normalize_environment(shape: dict[str, Any]) -> dict[str, Any]:
+    """Return `shape` with its "environment" list (if present) sorted by name.
+
+    The "environment" list is order-independent -- ECS treats it as a set of
+    name/value pairs, and OpenTofu's plan JSON re-serializes it in a
+    provider-normalized (alphabetical-by-name) order that does not match the
+    order container definitions are written in Terraform source, or the order
+    the hardcoded per-family baseline lists them in. Sorting both sides the
+    same way (keyed by name, the field these entries are always keyed by)
+    means two container definitions that differ only in environment-entry
+    order are correctly treated as identical, instead of failing closed on a
+    cosmetic reordering. Every other field is still compared exactly as-is."""
+    environment = shape.get("environment")
+    if isinstance(environment, list) and all(isinstance(item, dict) for item in environment):
+        shape = dict(shape)
+        shape["environment"] = sorted(environment, key=lambda item: str(item.get("name", "")))
+    return shape
+
+
 def _container_base(container: dict[str, Any]) -> dict[str, Any]:
     """Container definition stripped of image and secrets fields for structural comparison."""
-    return {
+    base = {
         key: value
         for key, value in container.items()
         if key not in {"image", "imageDigest", "image_digest", "secrets"}
     }
+    return _normalize_environment(base)
 
 
 def _secrets_superset_ok(before_container: dict[str, Any], after_container: dict[str, Any]) -> bool:
@@ -697,7 +733,9 @@ def _is_approved_baseline_container(
     "unexpected field" that fails closed -- there is no separate allowlist to keep in
     sync, and no sidecar sneaks in because container COUNT is checked by the caller."""
     actual_shape = _container_base(container)  # strips image/imageDigest/image_digest/secrets
-    expected_shape = {key: value for key, value in expected.items() if key != "secret_keys"}
+    expected_shape = _normalize_environment(
+        {key: value for key, value in expected.items() if key != "secret_keys"}
+    )
     if actual_shape != expected_shape:
         return False
 
