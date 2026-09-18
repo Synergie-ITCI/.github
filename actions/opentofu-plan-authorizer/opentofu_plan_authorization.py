@@ -379,6 +379,13 @@ def b64url_json(segment: str) -> dict[str, Any]:
 
 
 def verify_oidc(args: argparse.Namespace) -> None:
+    # args.job_workflow_ref here must be the ACTUAL, current tag this run was invoked
+    # through (the caller's own uses: pin) -- never CENTRAL_WORKFLOW_REF's self-referential
+    # value, which is deliberately one release behind (see _require_caller_sha_match and
+    # the internal opentofu-plan-authorizer@ self-pins for why). Confusing the two here
+    # would compare the real OIDC claim against a stale expectation.
+    if not TAG_REF.fullmatch(args.job_workflow_ref or ""):
+        die("job workflow must be the immutable central FieldZilla workflow tag")
     token = args.token_file.read_text(encoding="utf-8").strip()
     parts = token.split(".")
     if len(parts) < 2:

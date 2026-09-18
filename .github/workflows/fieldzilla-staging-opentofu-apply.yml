@@ -23,6 +23,18 @@ on:
           which pinned central authorizer release, actually executes this run.
         required: true
         type: string
+      expected-workflow-ref:
+        description: >-
+          Exact expected OIDC job_workflow_ref claim -- the caller's own uses: pin of THIS
+          reusable workflow (e.g. .../fieldzilla-staging-opentofu-apply.yml@refs/tags/
+          pr-qa-v1-rcNNN). Deliberately supplied by the caller, not read from this file's own
+          CENTRAL_WORKFLOW_REF: that env var is self-referential and, structurally, always
+          one release behind (a tag cannot embed its own not-yet-created name) -- correct
+          for pinning the internal opentofu-plan-authorizer composite-action calls below, but
+          wrong as the OIDC identity expectation, which must be the actual current tag this
+          run was invoked through.
+        required: true
+        type: string
       image-tag:
         description: Exact FieldZilla container image tag SHA to render into task definitions.
         required: true
@@ -224,7 +236,7 @@ jobs:
         with:
           command: verify-oidc
           token-file: ${{ env.TOKEN_PATH }}
-          job-workflow-ref: ${{ env.CENTRAL_WORKFLOW_REF }}
+          job-workflow-ref: ${{ inputs.expected-workflow-ref }}
 
       - name: Remove OIDC token
         if: ${{ always() && env.TOKEN_PATH != '' }}
