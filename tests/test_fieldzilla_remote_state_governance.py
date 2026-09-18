@@ -96,7 +96,7 @@ class FieldZillaRemoteStateGovernanceTests(unittest.TestCase):
     def test_workflow_preserves_exact_artifact_and_oidc_release_binding(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
 
-        self.assertIn("CENTRAL_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc154", workflow)
+        self.assertIn("CENTRAL_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc156", workflow)
         self.assertIn("image-tag:", workflow)
         self.assertIn("TF_VAR_image_tag: ${{ inputs.image-tag }}", workflow)
         self.assertIn("Validate image tag input", workflow)
