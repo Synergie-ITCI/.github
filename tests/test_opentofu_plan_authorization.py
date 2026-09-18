@@ -1175,6 +1175,125 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
         check_rejected(base_plan(), image_digest_map=json.dumps({API_REPO: DIGEST_MAP[API_REPO]}))
         check_rejected(base_plan(), image_digest_map="{not valid json")
 
+    def test_new_task_definition_create_tolerates_provider_normalized_shape(self) -> None:
+        """Reproduces the exact false-positive found against the real, live FieldZilla
+        staging plan for the api family's pure create: `tofu show -json` re-serializes
+        `environment` alphabetically by name (not in the order Terraform source or the
+        baseline lists it) and represents unset optional nested-block attributes
+        (`runtime_platform`, `proxy_configuration`, `ephemeral_storage`) as `[]`, not
+        `null`. Neither is a real difference in what will be deployed -- both must still be
+        approved -- but a genuine content difference hidden behind either shape (a missing/
+        extra/changed environment entry, or a non-empty runtime_platform/proxy_configuration/
+        ephemeral_storage block) must still be rejected."""
+        runtime_arn = auth.EXACT_RUNTIME_SECRET_ARN
+        baseline = auth.FIELDZILLA_TASK_DEFINITION_BASELINE["fieldzilla-staging-api"]
+        secrets = [
+            {"name": key, "valueFrom": f"{runtime_arn}:{key}::"}
+            for key in sorted(baseline["container"]["secret_keys"])
+        ]
+        # Alphabetically-sorted by name, and NOT in the order compute.tf (or the baseline)
+        # lists them -- exactly how `tofu show -json` actually rendered the real plan.
+        environment_alphabetical = sorted(
+            (dict(item) for item in baseline["container"]["environment"]),
+            key=lambda item: item["name"],
+        )
+        assert environment_alphabetical != baseline["container"]["environment"], (
+            "fixture must actually exercise a different order than the baseline"
+        )
+
+        def container(environment: list[dict[str, str]]) -> dict[str, object]:
+            base = {k: v for k, v in baseline["container"].items() if k not in {"secret_keys", "environment"}}
+            base["environment"] = environment
+            base["image"] = f"918870682888.dkr.ecr.ap-south-1.amazonaws.com/{baseline['ecr_repository']}:{DEPLOY_SHA}"
+            base["secrets"] = secrets
+            return base
+
+        def after(environment: list[dict[str, str]], **overrides: object) -> dict[str, object]:
+            fields = {
+                "family": baseline_family,
+                "cpu": baseline["cpu"],
+                "memory": baseline["memory"],
+                "execution_role_arn": baseline["execution_role_arn"],
+                "task_role_arn": baseline["task_role_arn"],
+                "network_mode": baseline["network_mode"],
+                "requires_compatibilities": baseline["requires_compatibilities"],
+                # The real plan JSON's shape for "unset" -- [] -- not the baseline's own
+                # (also-[]-post-fix, but a test must not merely assert equality with
+                # whatever the baseline currently says).
+                "runtime_platform": [],
+                "volume": baseline["volume"],
+                "placement_constraints": baseline["placement_constraints"],
+                "proxy_configuration": [],
+                "ephemeral_storage": [],
+                "container_definitions": json.dumps([container(environment)], sort_keys=True),
+            }
+            fields.update(overrides)
+            return fields
+
+        baseline_family = "fieldzilla-staging-api"
+
+        def plan_with(task_def_after: dict[str, object]) -> dict[str, object]:
+            return {
+                "variables": {
+                    "enable_production": {"value": False},
+                    "route53_zone_id": {"value": ""},
+                    "container_instance_type": {"value": "c6g.medium"},
+                    "monthly_budget_usd": {"value": "100"},
+                    "image_tag": {"value": DEPLOY_SHA},
+                },
+                "resource_changes": [
+                    {
+                        "address": 'aws_ecs_task_definition.api["staging"]',
+                        "type": "aws_ecs_task_definition",
+                        "change": {"actions": ["create"], "before": None, "after": task_def_after},
+                    }
+                ],
+            }
+
+        args = Namespace(plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest_map=DIGEST_MAP_JSON, ecs_families=ECS_FAMILIES)
+
+        def check(task_def_after: dict[str, object]) -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                plan_json = Path(tmp) / "plan.json"
+                plan_json.write_text(json.dumps(plan_with(task_def_after)), encoding="utf-8")
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, **vars(args)))
+
+        def check_rejected(task_def_after: dict[str, object]) -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                plan_json = Path(tmp) / "plan.json"
+                plan_json.write_text(json.dumps(plan_with(task_def_after)), encoding="utf-8")
+                with self.assertRaises(SystemExit):
+                    auth.verify_plan_safety(Namespace(plan_json_path=plan_json, **vars(args)))
+
+        # --- Approved: alphabetically-reordered environment and []-shaped unset blocks,
+        # identical content otherwise -- exactly the real, live FieldZilla plan shape. ---
+        check(after(environment_alphabetical))
+
+        # --- Approved: source-order environment is still fine (order truly does not
+        # matter either way). ---
+        check(after([dict(item) for item in baseline["container"]["environment"]]))
+
+        # --- Rejected: a genuinely missing environment entry, even reordered. ---
+        missing_entry = [item for item in environment_alphabetical if item["name"] != "APP_DEBUG"]
+        check_rejected(after(missing_entry))
+
+        # --- Rejected: a genuinely changed environment value, even reordered. ---
+        altered_value = [dict(item) for item in environment_alphabetical]
+        for item in altered_value:
+            if item["name"] == "APP_OBJECT_STORAGE_REGION":
+                item["value"] = "us-east-1"
+        check_rejected(after(altered_value))
+
+        # --- Rejected: a genuinely extra environment entry, even reordered. ---
+        extra_entry = [dict(item) for item in environment_alphabetical] + [{"name": "APP_EXTRA", "value": "x"}]
+        check_rejected(after(extra_entry))
+
+        # --- Rejected: a non-empty runtime_platform is a real difference, not a shape
+        # artifact, and must not be swallowed by the []/None tolerance. ---
+        non_empty_runtime_platform = after(environment_alphabetical)
+        non_empty_runtime_platform["runtime_platform"] = [{"cpuArchitecture": "ARM64"}]
+        check_rejected(non_empty_runtime_platform)
+
     def test_verifies_import_map_and_rejects_wrong_ownership(self) -> None:
         good_doc = {
             "repository": "Synergie-ITCI/programme-management-platform",
