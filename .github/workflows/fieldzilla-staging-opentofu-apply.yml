@@ -15,6 +15,14 @@ on:
         description: Exact approved programme-management-platform commit SHA.
         required: true
         type: string
+      expected-caller-sha:
+        description: >-
+          Exact expected commit SHA of the caller workflow dispatch itself -- must equal
+          github.sha. Separate from expected-sha (the approved application/IaC source and
+          image SHA): this governs which version of the caller workflow, and therefore
+          which pinned central authorizer release, actually executes this run.
+        required: true
+        type: string
       image-tag:
         description: Exact FieldZilla container image tag SHA to render into task definitions.
         required: true
@@ -118,6 +126,20 @@ jobs:
         with:
           ref: ${{ inputs.expected-sha }}
           persist-credentials: false
+
+      - name: Verify caller commit matches approval
+        env:
+          EXPECTED_CALLER_SHA: ${{ inputs.expected-caller-sha }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "${EXPECTED_CALLER_SHA}" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "authorization failed: expected caller commit SHA must be exact 40-character lowercase hex" >&2
+            exit 1
+          fi
+          if [ "${GITHUB_SHA}" != "${EXPECTED_CALLER_SHA}" ]; then
+            echo "authorization failed: workflow commit SHA does not match approved caller SHA" >&2
+            exit 1
+          fi
 
       - name: Validate image tag input
         run: |
@@ -309,6 +331,7 @@ jobs:
         env:
           ARTIFACT_NAME: fieldzilla-staging-${{ inputs.mode == 'post-import-plan' && 'post-import' || inputs.mode }}-${{ inputs.expected-sha }}-${{ github.run_id }}
           EXPECTED_SHA: ${{ inputs.expected-sha }}
+          EXPECTED_CALLER_SHA: ${{ inputs.expected-caller-sha }}
         run: |
           set -euo pipefail
           plan_dir="${RUNNER_TEMP}/fieldzilla-plan"
@@ -328,7 +351,7 @@ jobs:
           # already proved they match when evidence was supplied; when it was not, this
           # records what ECR actually resolved to, which apply-time re-resolution then
           # checks against.
-          IMAGE_DIGEST="${{ inputs.image-digest }}" ECS_FAMILIES="${{ inputs.ecs-families }}" RESOLVED_DIGESTS_PATH="${RUNNER_TEMP}/resolved-image-digests.json" python3 -c 'import json,os; from datetime import datetime, timezone; families=sorted([item for item in os.environ["ECS_FAMILIES"].split(",") if item]); resolved=json.load(open(os.environ["RESOLVED_DIGESTS_PATH"])); print(json.dumps({"repository":"Synergie-ITCI/programme-management-platform","repository_id":1315697868,"environment":"synergie-app-staging","commit_sha":os.environ["EXPECTED_SHA"],"image_digest":os.environ["IMAGE_DIGEST"],"image_digest_map":resolved,"ecs_families":families,"workflow_run_id":os.environ["GITHUB_RUN_ID"],"workflow_run_attempt":os.environ["GITHUB_RUN_ATTEMPT"],"artifact_name":os.environ["ARTIFACT_NAME"],"generated_at":datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),"opentofu_version":os.environ["TOFU_VERSION"],"provider_lock_sha256":os.environ["LOCK_SHA"],"plan_sha256":os.environ["PLAN_SHA"],"state_backend":"s3","state_bucket":os.environ["STATE_BUCKET"],"state_key":os.environ["STATE_KEY"],"lock_table":os.environ["STATE_LOCK_TABLE"]}, indent=2, sort_keys=True))' > "${plan_dir}/metadata.json"
+          IMAGE_DIGEST="${{ inputs.image-digest }}" ECS_FAMILIES="${{ inputs.ecs-families }}" RESOLVED_DIGESTS_PATH="${RUNNER_TEMP}/resolved-image-digests.json" python3 -c 'import json,os; from datetime import datetime, timezone; families=sorted([item for item in os.environ["ECS_FAMILIES"].split(",") if item]); resolved=json.load(open(os.environ["RESOLVED_DIGESTS_PATH"])); print(json.dumps({"repository":"Synergie-ITCI/programme-management-platform","repository_id":1315697868,"environment":"synergie-app-staging","commit_sha":os.environ["EXPECTED_SHA"],"caller_sha":os.environ["EXPECTED_CALLER_SHA"],"image_digest":os.environ["IMAGE_DIGEST"],"image_digest_map":resolved,"ecs_families":families,"workflow_run_id":os.environ["GITHUB_RUN_ID"],"workflow_run_attempt":os.environ["GITHUB_RUN_ATTEMPT"],"artifact_name":os.environ["ARTIFACT_NAME"],"generated_at":datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),"opentofu_version":os.environ["TOFU_VERSION"],"provider_lock_sha256":os.environ["LOCK_SHA"],"plan_sha256":os.environ["PLAN_SHA"],"state_backend":"s3","state_bucket":os.environ["STATE_BUCKET"],"state_key":os.environ["STATE_KEY"],"lock_table":os.environ["STATE_LOCK_TABLE"]}, indent=2, sort_keys=True))' > "${plan_dir}/metadata.json"
           {
             echo "${plan_sha}  fieldzilla-staging.tfplan"
             sha256sum "${plan_dir}/fieldzilla-staging.plan.txt" | sed "s#${plan_dir}/##"

@@ -16,10 +16,20 @@ inputs:
     description: GitHub environment name.
   expected-sha:
     required: false
-    description: Exact approved caller commit SHA.
+    description: >-
+      Exact approved programme-management-platform application/IaC source and image tag
+      SHA. Checked out explicitly (ref: expected-sha) regardless of which commit dispatched
+      this run -- see expected-caller-sha for that.
+  expected-caller-sha:
+    required: false
+    description: >-
+      Exact expected commit SHA of the caller workflow dispatch itself -- must equal
+      github-sha. Separate from expected-sha: this governs which version of the caller
+      workflow (and therefore which pinned central authorizer release) executes, and can
+      advance independently of the approved application/IaC commit.
   github-sha:
     required: false
-    description: Executing caller commit SHA.
+    description: Executing caller commit SHA (github.sha of the dispatched run).
   expected-plan-sha256:
     required: false
     description: Exact approved OpenTofu plan SHA-256.
@@ -97,6 +107,7 @@ runs:
         REPOSITORY: ${{ inputs.repository }}
         ENVIRONMENT: ${{ inputs.environment }}
         EXPECTED_SHA: ${{ inputs.expected-sha }}
+        EXPECTED_CALLER_SHA: ${{ inputs.expected-caller-sha }}
         GITHUB_SHA_INPUT: ${{ inputs.github-sha }}
         EXPECTED_PLAN_SHA256: ${{ inputs.expected-plan-sha256 }}
         IMAGE_DIGEST: ${{ inputs.image-digest }}
@@ -124,6 +135,7 @@ runs:
           --repository "${REPOSITORY}"
           --environment "${ENVIRONMENT}"
           --expected-sha "${EXPECTED_SHA}"
+          --expected-caller-sha "${EXPECTED_CALLER_SHA}"
           --github-sha "${GITHUB_SHA_INPUT}"
           --expected-plan-sha256 "${EXPECTED_PLAN_SHA256}"
           --image-digest "${IMAGE_DIGEST}"
@@ -138,6 +150,11 @@ runs:
         case "${COMMAND}" in
           verify-inputs|check-single-use|mark-used)
             python3 "${SCRIPT_PATH}" "${COMMAND}" "${common_args[@]}"
+            ;;
+          verify-caller-sha)
+            python3 "${SCRIPT_PATH}" verify-caller-sha \
+              --github-sha "${GITHUB_SHA_INPUT}" \
+              --expected-caller-sha "${EXPECTED_CALLER_SHA}"
             ;;
           verify-oidc)
             python3 "${SCRIPT_PATH}" verify-oidc \
@@ -163,6 +180,7 @@ runs:
             python3 "${SCRIPT_PATH}" verify-artifact-metadata \
               --artifact-dir "${ARTIFACT_DIR}" \
               --expected-sha "${EXPECTED_SHA}" \
+              --expected-caller-sha "${EXPECTED_CALLER_SHA}" \
               --expected-plan-sha256 "${EXPECTED_PLAN_SHA256}" \
               --image-digest "${IMAGE_DIGEST}" \
               --image-digest-map "${IMAGE_DIGEST_MAP}" \
