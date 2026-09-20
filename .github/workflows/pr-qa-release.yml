@@ -1,0 +1,49 @@
+name: PR-QA Release Provenance
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Immutable PR-QA release tag, for example pr-qa-v1-rc160.
+        required: true
+        type: string
+      commit:
+        description: Exact central main commit being authorized for immutable release.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  provenance:
+    name: Authorize immutable PR-QA release provenance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate release authority
+        env:
+          ACTOR: ${{ github.actor }}
+        run: |
+          test "${ACTOR}" = "SaurabhVermaIN"
+
+      - name: Validate immutable candidate
+        env:
+          RELEASE: ${{ inputs.release }}
+          COMMIT: ${{ inputs.commit }}
+          WORKFLOW_SHA: ${{ github.sha }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+
+          release = os.environ["RELEASE"]
+          commit = os.environ["COMMIT"]
+          workflow_sha = os.environ["WORKFLOW_SHA"]
+
+          if not re.fullmatch(r"pr-qa-v1-rc[1-9][0-9]*", release):
+              raise SystemExit("release must be an immutable PR-QA rc tag")
+          if not re.fullmatch(r"[0-9a-f]{40}", commit):
+              raise SystemExit("commit must be an exact 40-character SHA")
+          if commit != workflow_sha:
+              raise SystemExit("release commit must match the protected workflow run SHA")
+          PY

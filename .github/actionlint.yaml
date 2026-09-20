@@ -1,4 +1,7 @@
 paths:
+  .github/workflows/pr-qa.yml:
+    ignore:
+      - 'property "workflow_(ref|sha|repository|file_path)" is not defined'
   .github/workflows/fieldzilla-staging-opentofu-*.yml:
     ignore:
       - 'property "workflow_(ref|sha|repository|file_path)" is not defined'

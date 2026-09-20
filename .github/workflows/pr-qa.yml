@@ -15,8 +15,6 @@ env:
   OPENTOFU_VERSION: "1.12.5"
   TFSEC_VERSION: "1.28.14"
   TRIVY_VERSION: "0.74.0"
-  PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-rc159"
-
 jobs:
   detect:
     name: Detect repository technologies
@@ -36,6 +34,7 @@ jobs:
       shell: ${{ steps.detect.outputs.shell }}
       terraform: ${{ steps.detect.outputs.terraform }}
       docker: ${{ steps.detect.outputs.docker }}
+      framework_release: ${{ steps.active-framework.outputs.release }}
     steps:
       - name: Checkout pull request
         uses: actions/checkout@v4
@@ -60,12 +59,29 @@ jobs:
           mkdir -p .pr-qa-framework
           rsync -a --exclude='.git' --exclude='.pr-qa-framework' ./ .pr-qa-framework/
 
+      - name: Checkout central PR QA release resolver
+        if: github.repository != 'Synergie-ITCI/.github'
+        uses: actions/checkout@v4
+        with:
+          repository: Synergie-ITCI/.github
+          ref: ${{ job.workflow_sha || github.workflow_sha }}
+          path: .pr-qa-release-resolver
+          persist-credentials: false
+
+      - name: Resolve active central PR QA release
+        id: active-framework
+        if: github.repository != 'Synergie-ITCI/.github'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 .pr-qa-release-resolver/pr-qa/release_pin.py --resolve-active
+
       - name: Checkout immutable central PR QA framework
         if: github.repository != 'Synergie-ITCI/.github'
         uses: actions/checkout@v4
         with:
           repository: Synergie-ITCI/.github
-          ref: ${{ env.PR_QA_FRAMEWORK_RELEASE }}
+          ref: ${{ steps.active-framework.outputs.release }}
           path: .pr-qa-framework
           persist-credentials: false
 
@@ -124,7 +140,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Synergie-ITCI/.github
-          ref: ${{ env.PR_QA_FRAMEWORK_RELEASE }}
+          ref: ${{ needs.detect.outputs.framework_release }}
           path: .pr-qa-framework
           persist-credentials: false
 
@@ -140,6 +156,7 @@ jobs:
         id: static
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_QA_FRAMEWORK_RELEASE: ${{ needs.detect.outputs.framework_release }}
         run: |
           mkdir -p pr-qa-results
           profile_args=()

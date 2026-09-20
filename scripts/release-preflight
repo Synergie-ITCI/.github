@@ -15,6 +15,7 @@ from pathlib import Path
 
 
 PIN_RE = re.compile(r'(?m)^\s*PR_QA_FRAMEWORK_RELEASE:\s*["\']?([^"\'\s]+)["\']?\s*$')
+RC_RE = re.compile(r"^pr-qa-v1-rc([1-9][0-9]*)$")
 
 
 def run(cmd: list[str], cwd: Path, **kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -34,10 +35,23 @@ def repo_root() -> Path | None:
 
 def active_release(root: Path) -> str | None:
     workflow = root / ".github" / "workflows" / "pr-qa.yml"
-    if not workflow.exists():
+    if workflow.exists():
+        match = PIN_RE.search(workflow.read_text(encoding="utf-8"))
+        if match:
+            return match.group(1)
+    manifest = root / "policy" / "framework-releases.json"
+    if not manifest.exists():
         return None
-    match = PIN_RE.search(workflow.read_text(encoding="utf-8"))
-    return match.group(1) if match else None
+    try:
+        releases = json.loads(manifest.read_text(encoding="utf-8")).get("releases", {})
+    except json.JSONDecodeError:
+        return None
+    candidates = []
+    for release in releases:
+        match = RC_RE.fullmatch(str(release))
+        if match:
+            candidates.append((int(match.group(1)), str(release)))
+    return max(candidates)[1] if candidates else None
 
 
 def resolve_origin_base(root: Path, base: str) -> str | None:

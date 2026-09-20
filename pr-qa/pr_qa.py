@@ -5479,13 +5479,28 @@ def release_state(release: str, matches: bool, files: list[str], details: list[s
 
 
 def active_pr_qa_release(repo: Path) -> str:
+    env_release = os.environ.get("PR_QA_FRAMEWORK_RELEASE", "")
+    if re.fullmatch(r"pr-qa-v1-rc[1-9][0-9]*", env_release):
+        return env_release
     workflow = repo / ".github" / "workflows" / "pr-qa.yml"
     try:
         text = workflow.read_text(encoding="utf-8")
     except OSError:
-        return ""
+        text = ""
     match = re.search(r'(?m)^\s*PR_QA_FRAMEWORK_RELEASE:\s*["\']?([^"\'\s]+)["\']?\s*$', text)
-    return match.group(1) if match else ""
+    if match:
+        return match.group(1)
+    manifest_path = repo / "policy" / "framework-releases.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    candidates: list[tuple[int, str]] = []
+    for release in manifest.get("releases", {}):
+        candidate = re.fullmatch(r"pr-qa-v1-rc([1-9][0-9]*)", str(release))
+        if candidate:
+            candidates.append((int(candidate.group(1)), str(release)))
+    return max(candidates)[1] if candidates else ""
 
 
 def release_sensitive_files(repo: Path, release: str) -> tuple[list[str], list[str]]:

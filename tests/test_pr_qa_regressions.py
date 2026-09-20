@@ -6292,7 +6292,7 @@ jobs:
         self.assertIn("issues: write", workflow)
         self.assertIn("issues: write", self_workflow)
         self.assertIn("issues: write", caller)
-        self.assertEqual(workflow.count("GH_TOKEN: ${{ github.token }}"), 6)
+        self.assertEqual(workflow.count("GH_TOKEN: ${{ github.token }}"), 7)
         # The starter onboarding caller consumes the centrally maintained workflow
         # and initially covers all PR boundaries.
         self.assertIn("@main", caller)
@@ -6306,34 +6306,17 @@ jobs:
         self.assertIn("tfsec_${TFSEC_VERSION}_linux_amd64.tar.gz", workflow)
         self.assertIn("name: pr-qa", self_workflow)
 
-    def test_workflow_cli_contract_matches_pinned_framework_release(self) -> None:
+    def test_workflow_cli_contract_uses_resolved_active_framework_release(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "pr-qa.yml").read_text(encoding="utf-8")
-        release_match = re.search(r'PR_QA_FRAMEWORK_RELEASE:\s*"([^"]+)"', workflow)
-        self.assertIsNotNone(release_match)
-        release = release_match.group(1)
-
-        tag_sha = subprocess.run(
-            ["git", "rev-parse", f"{release}^{{commit}}"],
-            cwd=ROOT,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        self.assertEqual(tag_sha.returncode, 0, tag_sha.stderr)
-        self.assertRegex(tag_sha.stdout.strip(), r"^[0-9a-f]{40}$")
-
-        pinned_parser = subprocess.run(
-            ["git", "show", f"{release}:pr-qa/pr_qa.py"],
-            cwd=ROOT,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        self.assertEqual(pinned_parser.returncode, 0, pinned_parser.stderr)
+        self.assertNotRegex(workflow, r'PR_QA_FRAMEWORK_RELEASE:\s*"pr-qa-v1-rc\d+"')
+        self.assertIn("python3 .pr-qa-release-resolver/pr-qa/release_pin.py --resolve-active", workflow)
+        self.assertIn("ref: ${{ steps.active-framework.outputs.release }}", workflow)
+        self.assertIn("ref: ${{ needs.detect.outputs.framework_release }}", workflow)
 
         workflow_options = self.pr_qa_workflow_options(workflow)
+        parser_source = (ROOT / "pr-qa" / "pr_qa.py").read_text(encoding="utf-8")
         parser_options = set(
-            re.findall(r"add_argument\(\s*['\"](--[A-Za-z0-9][A-Za-z0-9_-]*)['\"]", pinned_parser.stdout)
+            re.findall(r"add_argument\(\s*['\"](--[A-Za-z0-9][A-Za-z0-9_-]*)['\"]", parser_source)
         )
         missing = sorted(workflow_options - parser_options)
         self.assertEqual(missing, [])
