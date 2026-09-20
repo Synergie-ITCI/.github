@@ -47,3 +47,13 @@ jobs:
           if commit != workflow_sha:
               raise SystemExit("release commit must match the protected workflow run SHA")
           PY
+
+      - name: Checkout central candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit }}
+          persist-credentials: false
+
+      - name: Validate representative consumer compatibility
+        run: |
+          python3 scripts/consumer-compatibility-preflight --repo "$GITHUB_WORKSPACE"

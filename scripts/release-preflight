@@ -127,7 +127,15 @@ def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str) -> bool:
         return proc.returncode == 0
 
 
-def print_report(release: str, base: str, dirty: str, qa: str, blockers: list[str]) -> None:
+def run_consumer_compatibility(root: Path) -> bool:
+    script = root / "scripts" / "consumer-compatibility-preflight"
+    if not script.exists():
+        return False
+    proc = subprocess.run([sys.executable, str(script), "--repo", str(root)], cwd=root)
+    return proc.returncode == 0
+
+
+def print_report(release: str, base: str, dirty: str, qa: str, compatibility: str, blockers: list[str]) -> None:
     ready = "NO" if blockers else "YES"
     staging = base == "staging"
     print("DEVELOPER STAGING READINESS" if staging else "DEVELOPER RELEASE READINESS")
@@ -136,6 +144,7 @@ def print_report(release: str, base: str, dirty: str, qa: str, blockers: list[st
     print(f"BASE: {base}")
     print(f"WORKTREE: {dirty}")
     print(f"CENTRAL_PR_QA: {qa}")
+    print(f"CONSUMER_COMPATIBILITY: {compatibility}")
     print()
     if staging:
         print(f"DEVELOPER_HANDOFF_READY: {ready}")
@@ -159,10 +168,11 @@ def main() -> int:
     blockers: list[str] = []
     release = ""
     qa = "FAIL"
+    compatibility = "FAIL"
     dirty = "DIRTY"
 
     if root is None:
-        print_report(release, args.base, dirty, qa, ["not inside a git repository"])
+        print_report(release, args.base, dirty, qa, compatibility, ["not inside a git repository"])
         return 1
 
     release = active_release(root) or ""
@@ -188,7 +198,13 @@ def main() -> int:
             else:
                 blockers.append(f"active PR-QA release '{release}' could not be resolved")
 
-    print_report(release, args.base, dirty, qa, blockers)
+    if root is not None and dirty == "CLEAN":
+        compatibility_passed = run_consumer_compatibility(root)
+        compatibility = "PASS" if compatibility_passed else "FAIL"
+        if not compatibility_passed:
+            blockers.append("representative consumer compatibility preflight failed")
+
+    print_report(release, args.base, dirty, qa, compatibility, blockers)
     return 0 if not blockers else 1
 
 
