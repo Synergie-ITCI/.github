@@ -295,6 +295,27 @@ class ReleasePinTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "missing required successful checks"):
             resolve_active_release(self.manifest, lookup=lookup, list_refs=list_refs)
 
+    def test_future_release_accepts_required_checks_on_merged_pr_head(self):
+        pr_head = "e" * 40
+
+        def mutate_lookup(overrides, entry):
+            overrides[f"commits/{entry['commit']}/pulls"] = [{
+                "merged_at": "2026-09-20T06:00:00Z",
+                "merge_commit_sha": entry["commit"],
+                "base": {"ref": "main", "repo": {"full_name": "Synergie-ITCI/.github"}},
+                "head": {"sha": pr_head},
+            }]
+            overrides[f"commits/{entry['commit']}/check-runs"] = {"check_runs": []}
+            overrides[f"commits/{pr_head}/check-runs"] = {"check_runs": [
+                {"name": "Architecture Governance", "status": "completed", "conclusion": "success"},
+                {"name": "pr-qa / Pull Request Quality Assurance", "status": "completed", "conclusion": "success"},
+            ]}
+
+        future_release, future_commit, _refs, lookup, list_refs = self.future_release_fixture(mutate_lookup=mutate_lookup)
+        release, entry = resolve_active_release(self.manifest, lookup=lookup, list_refs=list_refs)
+        self.assertEqual(release, future_release)
+        self.assertEqual(entry["commit"], future_commit)
+
     def test_future_release_rejects_unauthorized_release_creator(self):
         def mutate_lookup(overrides, entry):
             overrides[f"actions/runs/{entry['release_workflow_run_id']}"] = {
