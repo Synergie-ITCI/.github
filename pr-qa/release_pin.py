@@ -17,6 +17,15 @@ REPOSITORY = "Synergie-ITCI/.github"
 PIN = "PR_QA_FRAMEWORK_RELEASE"
 RELEASE_RE = re.compile(r"pr-qa-v1-rc([1-9][0-9]*)")
 EVIDENCE_HEADER = "SYNERGIE_PR_QA_RELEASE_EVIDENCE_V1"
+MAIN_BRANCH = "main"
+RELEASE_SOURCE_ANNOTATED_TAG = "annotated-tag"
+RELEASE_SOURCE_LEGACY_REGISTRY = "legacy-registry"
+ALLOWED_RELEASE_WORKFLOW_PATHS = {".github/workflows/pr-qa-release.yml"}
+ALLOWED_RELEASE_ACTORS = {"SaurabhVermaIN"}
+REQUIRED_RELEASE_CHECKS = {
+    "Architecture Governance",
+    "pr-qa / Pull Request Quality Assurance",
+}
 
 
 def validate_workflow(workflow: str, manifest: dict) -> tuple[str, dict]:
@@ -117,6 +126,12 @@ def same_timestamp(actual: object, expected: object) -> bool:
 
 def verify_live_release(release: str, entry: dict, lookup=github_json) -> None:
     """Freshly verify tag resolution and exact, non-bypassable update/delete protection."""
+    if not re.fullmatch(r"[0-9a-f]{40}", str(entry.get("commit", ""))):
+        raise ValueError("Release must bind an exact commit")
+    if type(entry.get("ruleset_id")) is not int or entry["ruleset_id"] < 1:
+        raise ValueError("Release must bind a tag-protection ruleset")
+    if not entry.get("ruleset_updated_at") or entry.get("bypass_actors") != []:
+        raise ValueError("Release requires reviewed no-bypass ruleset evidence")
     ref = lookup(f"git/ref/tags/{release}")
     if ref.get("ref") != f"refs/tags/{release}":
         raise ValueError("Unexpected release reference")
@@ -159,6 +174,56 @@ def verify_live_release(release: str, entry: dict, lookup=github_json) -> None:
         )
 
 
+def verify_release_provenance(
+    release: str,
+    entry: dict,
+    lookup=github_json,
+    list_endpoint=github_list,
+) -> None:
+    """Require future tag-evidence releases to be backed by independent GitHub provenance."""
+    commit = str(entry.get("commit", ""))
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise ValueError("Release evidence must bind an exact 40-character commit")
+
+    compare = lookup(f"compare/{commit}...{MAIN_BRANCH}")
+    if compare.get("status") not in {"behind", "identical"}:
+        raise ValueError(f"Release commit is not reachable from protected {MAIN_BRANCH}")
+
+    pulls = list_endpoint(f"commits/{commit}/pulls")
+    if not any(
+        pr.get("merged_at")
+        and pr.get("merge_commit_sha") == commit
+        and pr.get("base", {}).get("ref") == MAIN_BRANCH
+        and pr.get("base", {}).get("repo", {}).get("full_name") == REPOSITORY
+        for pr in pulls
+    ):
+        raise ValueError("Release commit is not a governed merged PR commit on main")
+
+    check_runs = lookup(f"commits/{commit}/check-runs").get("check_runs", [])
+    successful_checks = {
+        run.get("name")
+        for run in check_runs
+        if run.get("status") == "completed" and run.get("conclusion") == "success"
+    }
+    missing_checks = sorted(REQUIRED_RELEASE_CHECKS - successful_checks)
+    if missing_checks:
+        raise ValueError("Release commit is missing required successful checks: " + ", ".join(missing_checks))
+
+    workflow_run_id = entry.get("release_workflow_run_id")
+    if type(workflow_run_id) is not int or workflow_run_id < 1:
+        raise ValueError("Release evidence must bind an audited release workflow run")
+    workflow_run = lookup(f"actions/runs/{workflow_run_id}")
+    actor = (workflow_run.get("actor") or {}).get("login")
+    if (
+        workflow_run.get("status") != "completed"
+        or workflow_run.get("conclusion") != "success"
+        or workflow_run.get("head_sha") != commit
+        or workflow_run.get("path") not in ALLOWED_RELEASE_WORKFLOW_PATHS
+        or actor not in ALLOWED_RELEASE_ACTORS
+    ):
+        raise ValueError("Release workflow provenance verification failed")
+
+
 def evidence_from_annotated_tag(release: str, ref: dict, lookup=github_json) -> dict | None:
     obj = ref.get("object", {})
     if obj.get("type") != "tag":
@@ -172,7 +237,12 @@ def evidence_from_annotated_tag(release: str, ref: dict, lookup=github_json) -> 
     message = str(tag.get("message", "")).strip()
     if not message.startswith(EVIDENCE_HEADER + "\n"):
         raise ValueError("Release evidence tag is missing the required header")
-    evidence = json.loads(message.split("\n", 1)[1])
+    try:
+        evidence = json.loads(message.split("\n", 1)[1])
+    except json.JSONDecodeError as exc:
+        raise ValueError("Release evidence is malformed") from exc
+    if not isinstance(evidence, dict):
+        raise ValueError("Release evidence is malformed")
     if evidence.get("release") != release:
         raise ValueError("Release evidence name mismatch")
     if evidence.get("commit") != target["sha"]:
@@ -184,6 +254,8 @@ def evidence_from_annotated_tag(release: str, ref: dict, lookup=github_json) -> 
         "ruleset_id": evidence.get("ruleset_id"),
         "ruleset_updated_at": evidence.get("ruleset_updated_at", ""),
         "bypass_actors": evidence.get("bypass_actors", []),
+        "release_workflow_run_id": evidence.get("release_workflow_run_id"),
+        "_source": RELEASE_SOURCE_ANNOTATED_TAG,
     }
 
 
@@ -211,8 +283,9 @@ def resolve_active_release(
         if entry is None and isinstance(manifest_releases, dict):
             legacy = manifest_releases.get(release)
             if isinstance(legacy, dict):
-                entry = legacy
+                entry = {**legacy, "_source": RELEASE_SOURCE_LEGACY_REGISTRY}
         if entry is None:
+            candidates.append((int(match.group(1)), release, {"invalid": True}))
             continue
         candidates.append((int(match.group(1)), release, entry))
     if not candidates:
@@ -221,6 +294,8 @@ def resolve_active_release(
         if entry.get("invalid") is True:
             raise ValueError(f"Newest PR-QA release {release} has invalid immutable evidence")
         verify_live_release(release, entry, lookup)
+        if entry.get("_source") == RELEASE_SOURCE_ANNOTATED_TAG:
+            verify_release_provenance(release, entry, lookup, list_refs)
         return release, entry
     raise ValueError("No verified active PR-QA release is available")
 
