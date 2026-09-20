@@ -190,21 +190,31 @@ def verify_release_provenance(
         raise ValueError(f"Release commit is not reachable from protected {MAIN_BRANCH}")
 
     pulls = list_endpoint(f"commits/{commit}/pulls")
-    if not any(
+    merged_pr = next((
+        pr
+        for pr in pulls
+        if (
         pr.get("merged_at")
         and pr.get("merge_commit_sha") == commit
         and pr.get("base", {}).get("ref") == MAIN_BRANCH
         and pr.get("base", {}).get("repo", {}).get("full_name") == REPOSITORY
-        for pr in pulls
-    ):
+        )
+    ), None)
+    if merged_pr is None:
         raise ValueError("Release commit is not a governed merged PR commit on main")
 
-    check_runs = lookup(f"commits/{commit}/check-runs").get("check_runs", [])
-    successful_checks = {
-        run.get("name")
-        for run in check_runs
-        if run.get("status") == "completed" and run.get("conclusion") == "success"
-    }
+    check_shas = [commit]
+    pr_head_sha = str(merged_pr.get("head", {}).get("sha", ""))
+    if re.fullmatch(r"[0-9a-f]{40}", pr_head_sha) and pr_head_sha != commit:
+        check_shas.append(pr_head_sha)
+    successful_checks = set()
+    for check_sha in check_shas:
+        check_runs = lookup(f"commits/{check_sha}/check-runs").get("check_runs", [])
+        successful_checks.update(
+            run.get("name")
+            for run in check_runs
+            if run.get("status") == "completed" and run.get("conclusion") == "success"
+        )
     missing_checks = sorted(REQUIRED_RELEASE_CHECKS - successful_checks)
     if missing_checks:
         raise ValueError("Release commit is missing required successful checks: " + ", ".join(missing_checks))
