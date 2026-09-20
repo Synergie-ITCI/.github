@@ -147,7 +147,7 @@ class ReleasePinTests(unittest.TestCase):
                 "include": [f"refs/tags/{future_release}"], "exclude": []}},
             "rules": [{"type": "update"}, {"type": "deletion"}, {"type": "non_fast_forward"}],
         }
-        compare = {"status": "behind"}
+        compare = {"status": "ahead"}
         pulls = [{
             "merged_at": "2026-09-20T06:00:00Z",
             "merge_commit_sha": future_commit,

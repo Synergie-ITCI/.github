@@ -186,7 +186,7 @@ def verify_release_provenance(
         raise ValueError("Release evidence must bind an exact 40-character commit")
 
     compare = lookup(f"compare/{commit}...{MAIN_BRANCH}")
-    if compare.get("status") not in {"behind", "identical"}:
+    if compare.get("status") not in {"ahead", "identical"}:
         raise ValueError(f"Release commit is not reachable from protected {MAIN_BRANCH}")
 
     pulls = list_endpoint(f"commits/{commit}/pulls")
