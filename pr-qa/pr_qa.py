@@ -3837,6 +3837,12 @@ APPROVED_RUNTIME_CERTIFIER_ACTIONS = {
     "Synergie-ITCI/.github/actions/runtime-certifier@runtime-certifier-action-v1.5",
     "Synergie-ITCI/.github/actions/runtime-certifier@runtime-certifier-action-v1.6",
 }
+APPROVED_SSM_ARTIFACT_PROMOTER_RE = re.compile(
+    r"^Synergie-ITCI/\.github/actions/ssm-artifact-promoter@pr-qa-v1-rc[1-9][0-9]*$"
+)
+APPROVED_SSM_ARTIFACT_PROMOTER_TEXT_RE = re.compile(
+    r"Synergie-ITCI/\.github/actions/ssm-artifact-promoter@pr-qa-v1-rc[1-9][0-9]*"
+)
 RUNTIME_CERTIFIER_REQUIRED_INPUTS = {
     "instance-id",
     "app-path",
@@ -3846,6 +3852,10 @@ RUNTIME_CERTIFIER_REQUIRED_INPUTS = {
     "rollback-ref",
     "runtime-version",
 }
+
+
+def workflow_step_uses_approved_remote_deploy_action(uses: str) -> bool:
+    return APPROVED_SSM_ARTIFACT_PROMOTER_RE.fullmatch(uses.strip()) is not None
 
 JKCEMENT_LEGACY_RECOVERY_AUTHORIZATION = {
     "repository": "Synergie-ITCI/jkcementypsscholarship",
@@ -4076,7 +4086,10 @@ def workflow_has_runtime_certifier_guard(
                     saw_valid_certifier = True
 
             run_text = str(step.get("run", "") or "")
-            if not workflow_contains_remote_deploy(run_text):
+            if not (
+                workflow_contains_remote_deploy(run_text)
+                or workflow_step_uses_approved_remote_deploy_action(uses)
+            ):
                 continue
 
             saw_remote_deploy = True
@@ -4170,7 +4183,10 @@ def workflow_has_production_intent(parsed: dict[str, Any], text: str) -> bool:
 
 
 def workflow_contains_remote_deploy(text: str) -> bool:
-    return bool(re.search(r"\bssh\b|\brsync\b|\baws\s+ssm\s+send-command\b|kubectl apply|terraform apply|tofu apply", text, re.IGNORECASE))
+    return bool(
+        re.search(r"\bssh\b|\brsync\b|\baws\s+ssm\s+send-command\b|kubectl apply|terraform apply|tofu apply", text, re.IGNORECASE)
+        or APPROVED_SSM_ARTIFACT_PROMOTER_TEXT_RE.search(text)
+    )
 
 
 def parse_workflow_yaml(text: str) -> dict[str, Any]:
@@ -4283,7 +4299,10 @@ def workflow_uses_oidc(parsed: dict[str, Any], text: str) -> bool:
 
 
 def workflow_uses_controlled_remote_execution(text: str) -> bool:
-    return bool(re.search(r"\baws\s+ssm\s+send-command\b|AWS-RunShellScript|ssm:SendCommand", text))
+    return bool(
+        re.search(r"\baws\s+ssm\s+send-command\b|AWS-RunShellScript|ssm:SendCommand", text)
+        or APPROVED_SSM_ARTIFACT_PROMOTER_TEXT_RE.search(text)
+    )
 
 
 def workflow_has_embedded_or_static_deployment_credentials(text: str) -> bool:
