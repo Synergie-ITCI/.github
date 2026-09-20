@@ -657,6 +657,53 @@ def _normalize_environment(shape: dict[str, Any]) -> dict[str, Any]:
     return shape
 
 
+_EMPTY_OPTIONAL_TASK_FIELDS = {
+    "ephemeral_storage",
+    "placement_constraints",
+    "proxy_configuration",
+    "runtime_platform",
+    "volume",
+}
+
+_ORDER_INSENSITIVE_CONTAINER_LISTS = {
+    "dependsOn",
+    "environment",
+    "environmentFiles",
+    "extraHosts",
+    "mountPoints",
+    "portMappings",
+    "secrets",
+    "systemControls",
+    "ulimits",
+    "volumesFrom",
+}
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def _normalize_task_field(field: str, value: Any) -> Any:
+    if field in _EMPTY_OPTIONAL_TASK_FIELDS and value in (None, ""):
+        return []
+    if field == "requires_compatibilities" and isinstance(value, list):
+        return sorted(value, key=str)
+    return value
+
+
+def _normalize_container_shape(shape: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(shape)
+    for key in _ORDER_INSENSITIVE_CONTAINER_LISTS:
+        if key not in normalized:
+            continue
+        value = normalized.get(key)
+        if value in (None, ""):
+            normalized[key] = []
+        elif isinstance(value, list):
+            normalized[key] = sorted(value, key=_canonical_json)
+    return _normalize_environment(normalized)
+
+
 def _container_base(container: dict[str, Any]) -> dict[str, Any]:
     """Container definition stripped of image and secrets fields for structural comparison."""
     base = {
@@ -664,7 +711,7 @@ def _container_base(container: dict[str, Any]) -> dict[str, Any]:
         for key, value in container.items()
         if key not in {"image", "imageDigest", "image_digest", "secrets"}
     }
-    return _normalize_environment(base)
+    return _normalize_container_shape(base)
 
 
 def _secrets_superset_ok(before_container: dict[str, Any], after_container: dict[str, Any]) -> bool:
@@ -830,7 +877,7 @@ def _is_approved_new_staging_task_definition(
     for field in ("cpu", "memory", "execution_role_arn", "task_role_arn", "network_mode",
                   "requires_compatibilities", "runtime_platform", "volume",
                   "placement_constraints", "proxy_configuration", "ephemeral_storage"):
-        if after.get(field) != baseline[field]:
+        if _normalize_task_field(field, after.get(field)) != _normalize_task_field(field, baseline[field]):
             return False
 
     containers = _decode_container_definitions(after.get("container_definitions"))
@@ -907,7 +954,9 @@ def is_approved_ecs_task_definition_revision(
         "volume",
     }
     for field in immutable_fields:
-        if _empty_string_equivalent(before.get(field)) != _empty_string_equivalent(after.get(field)):
+        before_value = _normalize_task_field(field, _empty_string_equivalent(before.get(field)))
+        after_value = _normalize_task_field(field, _empty_string_equivalent(after.get(field)))
+        if before_value != after_value:
             return False
 
     before_containers = _decode_container_definitions(before.get("container_definitions"))

@@ -1,0 +1,98 @@
+name: Central Framework Guard
+description: Verify a centrally hosted workflow is executing the checked-out framework commit.
+
+inputs:
+  workflow-ref:
+    description: job.workflow_ref (or github.workflow_ref fallback) for the running workflow.
+    required: true
+  workflow-sha:
+    description: job.workflow_sha (or github.workflow_sha fallback) for the running workflow.
+    required: true
+  workflow-repository:
+    description: job.workflow_repository (or github.repository fallback) for the running workflow.
+    required: true
+  workflow-file-path:
+    description: job.workflow_file_path for the running workflow.
+    required: true
+  expected-repository:
+    description: Expected central framework repository.
+    required: false
+    default: Synergie-ITCI/.github
+  expected-workflow-file:
+    description: Expected workflow file path relative to the central framework repository.
+    required: true
+  require-release-tag:
+    description: Require workflow-ref to resolve through refs/tags/pr-qa-v1-rcN.
+    required: false
+    default: "true"
+
+outputs:
+  framework-root:
+    description: Path to the checked-out central framework repository.
+    value: ${{ steps.verify.outputs.framework-root }}
+  workflow-ref:
+    description: Verified workflow ref.
+    value: ${{ inputs.workflow-ref }}
+  workflow-sha:
+    description: Verified workflow SHA.
+    value: ${{ inputs.workflow-sha }}
+
+runs:
+  using: composite
+  steps:
+    - name: Verify central framework checkout
+      id: verify
+      shell: bash
+      env:
+        WORKFLOW_REF: ${{ inputs.workflow-ref }}
+        WORKFLOW_SHA: ${{ inputs.workflow-sha }}
+        WORKFLOW_REPOSITORY: ${{ inputs.workflow-repository }}
+        WORKFLOW_FILE_PATH: ${{ inputs.workflow-file-path }}
+        EXPECTED_REPOSITORY: ${{ inputs.expected-repository }}
+        EXPECTED_WORKFLOW_FILE: ${{ inputs.expected-workflow-file }}
+        REQUIRE_RELEASE_TAG: ${{ inputs.require-release-tag }}
+      run: |
+        set -euo pipefail
+        framework_root="$(cd "${GITHUB_ACTION_PATH}/../.." && pwd)"
+        fail() {
+          echo "central framework guard failed: $*" >&2
+          exit 1
+        }
+
+        case "${WORKFLOW_SHA}" in
+          [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f])
+            ;;
+          *)
+            fail "workflow-sha must be an exact lowercase 40-character SHA"
+            ;;
+        esac
+
+        [ "${WORKFLOW_REPOSITORY}" = "${EXPECTED_REPOSITORY}" ] || fail "unexpected workflow repository: ${WORKFLOW_REPOSITORY}"
+        [ "${WORKFLOW_FILE_PATH}" = "${EXPECTED_WORKFLOW_FILE}" ] || fail "unexpected workflow file path: ${WORKFLOW_FILE_PATH}"
+
+        prefix="${EXPECTED_REPOSITORY}/${EXPECTED_WORKFLOW_FILE}@"
+        case "${WORKFLOW_REF}" in
+          "${prefix}"*)
+            ;;
+          *)
+            fail "workflow-ref does not match expected repository and workflow path"
+            ;;
+        esac
+
+        ref="${WORKFLOW_REF#${prefix}}"
+        if [ "${REQUIRE_RELEASE_TAG}" = "true" ]; then
+          case "${ref}" in
+            refs/tags/pr-qa-v1-rc*[!0-9]*|"refs/tags/pr-qa-v1-rc"|refs/heads/*|"")
+              fail "workflow ref must be an immutable pr-qa release tag"
+              ;;
+            refs/tags/pr-qa-v1-rc*)
+              ;;
+            *)
+              fail "workflow ref must be an immutable pr-qa release tag"
+              ;;
+          esac
+        fi
+
+        actual="$(git -C "${framework_root}" rev-parse HEAD)"
+        [ "${actual}" = "${WORKFLOW_SHA}" ] || fail "checkout SHA ${actual} does not match workflow SHA ${WORKFLOW_SHA}"
+        printf 'framework-root=%s\n' "${framework_root}" >> "${GITHUB_OUTPUT}"

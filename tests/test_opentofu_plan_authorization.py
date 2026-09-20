@@ -73,7 +73,11 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
 
     def test_workflow_uses_remote_state_release_action(self) -> None:
         workflow = (ROOT / ".github/workflows/fieldzilla-staging-opentofu-apply.yml").read_text(encoding="utf-8")
-        self.assertIn("uses: Synergie-ITCI/.github/actions/opentofu-plan-authorizer@pr-qa-v1-rc156", workflow)
+        self.assertIn("uses: ./.central-framework/actions/opentofu-plan-authorizer", workflow)
+        self.assertIn("CENTRAL_WORKFLOW_REF: ${{ inputs.expected-workflow-ref }}", workflow)
+        self.assertIn("Checkout central framework at workflow SHA", workflow)
+        self.assertIn("uses: ./.central-framework/actions/central-framework-guard", workflow)
+        self.assertIn("workflow-sha: ${{ job.workflow_sha || github.workflow_sha }}", workflow)
         self.assertIn("tofu -chdir=infra/aws init -input=false -lockfile=readonly", workflow)
         self.assertIn("dynamodb_table = \"${STATE_LOCK_TABLE}\"", workflow)
         self.assertIn("Backup current remote state object", workflow)
@@ -85,13 +89,9 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
 
     def test_fieldzilla_workflow_does_not_mix_release_pins(self) -> None:
         workflow = (ROOT / ".github/workflows/fieldzilla-staging-opentofu-apply.yml").read_text(encoding="utf-8")
-        central = re.search(
-            r"CENTRAL_WORKFLOW_REF: .*fieldzilla-staging-opentofu-apply\.yml@refs/tags/(pr-qa-v1-rc\d+)",
-            workflow,
-        )
-        self.assertIsNotNone(central)
-        internal_pins = set(re.findall(r"opentofu-plan-authorizer@(pr-qa-v1-rc\d+)", workflow))
-        self.assertEqual(internal_pins, {central.group(1)})
+        self.assertNotRegex(workflow, r"opentofu-plan-authorizer@pr-qa-v1-rc\d+")
+        self.assertIn("ref: ${{ job.workflow_sha || github.workflow_sha }}", workflow)
+        self.assertIn("expected-workflow-file: .github/workflows/fieldzilla-staging-opentofu-apply.yml", workflow)
 
     def assert_rejected(self, **overrides: object) -> None:
         with self.assertRaises(SystemExit):
@@ -1452,6 +1452,102 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
         non_empty_runtime_platform["runtime_platform"] = [{"cpuArchitecture": "ARM64"}]
         check_rejected(non_empty_runtime_platform)
 
+    def test_task_definition_revision_tolerates_only_semantic_representation_drift(self) -> None:
+        baseline = auth.FIELDZILLA_TASK_DEFINITION_BASELINE["fieldzilla-staging-api"]
+        runtime_arn = auth.EXACT_RUNTIME_SECRET_ARN
+        env_source_order = [dict(item) for item in baseline["container"]["environment"]]
+        env_provider_order = sorted((dict(item) for item in env_source_order), key=lambda item: item["name"])
+        secret_entries = [
+            {"name": key, "valueFrom": f"{runtime_arn}:{key}::"}
+            for key in sorted(baseline["container"]["secret_keys"])
+        ]
+
+        def container(image_tag: str, environment: list[dict[str, str]], **overrides: object) -> dict[str, object]:
+            base = {k: v for k, v in baseline["container"].items() if k not in {"secret_keys", "environment"}}
+            base["environment"] = environment
+            base["image"] = f"918870682888.dkr.ecr.ap-south-1.amazonaws.com/{baseline['ecr_repository']}:{image_tag}"
+            base["secrets"] = list(reversed(secret_entries))
+            base.update(overrides)
+            return base
+
+        before = {
+            "family": "fieldzilla-staging-api",
+            "cpu": baseline["cpu"],
+            "memory": baseline["memory"],
+            "execution_role_arn": baseline["execution_role_arn"],
+            "task_role_arn": baseline["task_role_arn"],
+            "network_mode": baseline["network_mode"],
+            "requires_compatibilities": ["EC2"],
+            "runtime_platform": None,
+            "track_latest": False,
+            "volume": None,
+            "container_definitions": json.dumps([container("bootstrap", env_source_order)], sort_keys=True),
+        }
+        after = {
+            **before,
+            "requires_compatibilities": ["EC2"],
+            "runtime_platform": [],
+            "volume": [],
+            "container_definitions": json.dumps([container(DEPLOY_SHA, env_provider_order)], sort_keys=True),
+        }
+        plan = {
+            "variables": {
+                "enable_production": {"value": False},
+                "route53_zone_id": {"value": ""},
+                "container_instance_type": {"value": "c6g.medium"},
+                "monthly_budget_usd": {"value": "100"},
+                "image_tag": {"value": DEPLOY_SHA},
+            },
+            "resource_changes": [
+                {
+                    "address": 'aws_ecs_task_definition.api["staging"]',
+                    "type": "aws_ecs_task_definition",
+                    "change": {"actions": ["delete", "create"], "before": before, "after": after},
+                },
+                {
+                    "address": 'aws_ecs_service.api["staging"]',
+                    "type": "aws_ecs_service",
+                    "change": {
+                        "actions": ["update"],
+                        "before": {"task_definition": "arn:aws:ecs:ap-south-1:918870682888:task-definition/fieldzilla-staging-api:4"},
+                        "after": {"task_definition": None},
+                        "after_unknown": {"task_definition": True},
+                    },
+                },
+            ],
+        }
+
+        def check(payload: dict[str, object]) -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                plan_json = Path(tmp) / "plan.json"
+                plan_json.write_text(json.dumps(payload), encoding="utf-8")
+                auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest_map="", image_digest="", ecs_families=""))
+
+        def check_rejected(payload: dict[str, object]) -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                plan_json = Path(tmp) / "plan.json"
+                plan_json.write_text(json.dumps(payload), encoding="utf-8")
+                with self.assertRaises(SystemExit):
+                    auth.verify_plan_safety(Namespace(plan_json_path=plan_json, plan_kind="normal", expected_sha=DEPLOY_SHA, image_digest_map="", image_digest="", ecs_families=""))
+
+        check(plan)
+
+        role_change = json.loads(json.dumps(plan))
+        role_change["resource_changes"][0]["change"]["after"]["task_role_arn"] = "arn:aws:iam::918870682888:role/Other"
+        check_rejected(role_change)
+
+        secret_change = json.loads(json.dumps(plan))
+        containers = json.loads(secret_change["resource_changes"][0]["change"]["after"]["container_definitions"])
+        containers[0]["secrets"][0]["valueFrom"] = f"{runtime_arn}:OTHER_KEY::"
+        secret_change["resource_changes"][0]["change"]["after"]["container_definitions"] = json.dumps(containers)
+        check_rejected(secret_change)
+
+        port_change = json.loads(json.dumps(plan))
+        containers = json.loads(port_change["resource_changes"][0]["change"]["after"]["container_definitions"])
+        containers[0]["portMappings"] = [{"containerPort": 8080, "hostPort": 8080, "protocol": "tcp"}]
+        port_change["resource_changes"][0]["change"]["after"]["container_definitions"] = json.dumps(containers)
+        check_rejected(port_change)
+
     def test_verifies_import_map_and_rejects_wrong_ownership(self) -> None:
         good_doc = {
             "repository": "Synergie-ITCI/programme-management-platform",
@@ -1757,7 +1853,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
         blocks: list[list[str]] = []
         current: list[str] | None = None
         for line in lines:
-            if re.match(r"^\s*uses: Synergie-ITCI/\.github/actions/opentofu-plan-authorizer@", line):
+            if re.match(r"^\s*uses: \./\.central-framework/actions/opentofu-plan-authorizer\s*$", line):
                 current = []
                 blocks.append(current)
                 continue
