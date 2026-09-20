@@ -1,0 +1,114 @@
+name: SSM artifact promoter
+description: Promote one immutable artifact through a caller-owned SSM deployment script.
+
+inputs:
+  expected-repository:
+    description: Expected caller repository, owner/name.
+    required: true
+  expected-repository-id:
+    description: Expected GitHub repository id.
+    required: true
+  expected-environment:
+    description: Expected deployment environment name.
+    required: true
+  aws-region:
+    description: AWS region for SSM and S3.
+    required: true
+  ssm-instance-id:
+    description: Explicit SSM target instance or managed-instance id.
+    required: true
+  artifact-bucket:
+    description: S3 bucket containing the immutable artifact and deployment script.
+    required: true
+  artifact-key:
+    description: S3 key for the immutable application artifact.
+    required: true
+  artifact-sha256:
+    description: Expected SHA-256 of the application artifact.
+    required: true
+  remote-script-key:
+    description: S3 key for the caller-owned remote deployment script.
+    required: true
+  remote-script-sha256:
+    description: Expected SHA-256 of the remote deployment script.
+    required: true
+  allowed-artifact-prefix:
+    description: Required S3 key prefix for both artifact and script.
+    required: true
+  deploy-ref:
+    description: Exact source commit SHA being deployed.
+    required: true
+  rollback-ref:
+    description: Exact currently recoverable rollback commit SHA.
+    required: true
+  app-root:
+    description: Absolute application root on the SSM target.
+    required: true
+  app-user:
+    description: Local user that runs the remote deployment script.
+    required: true
+  validation-url:
+    description: Frontend validation URL passed to the remote script.
+    required: true
+  api-health-url:
+    description: API health URL passed to the remote script.
+    required: true
+  command-timeout-seconds:
+    description: Remote command execution timeout.
+    required: false
+    default: "480"
+  poll-interval-seconds:
+    description: Polling interval for SSM command completion.
+    required: false
+    default: "5"
+  poll-attempts:
+    description: Maximum polling attempts before cancellation.
+    required: false
+    default: "90"
+  presign-expires-seconds:
+    description: Lifetime for S3 presigned artifact and script URLs.
+    required: false
+    default: "900"
+  evidence-path:
+    description: JSON file path for deployment evidence.
+    required: false
+    default: ssm-artifact-promotion-evidence.json
+
+outputs:
+  command-id:
+    description: SSM command id.
+    value: ${{ steps.promote.outputs.command-id }}
+  evidence-path:
+    description: Written evidence path.
+    value: ${{ steps.promote.outputs.evidence-path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Promote immutable artifact through SSM
+      id: promote
+      shell: bash
+      env:
+        INPUT_EXPECTED_REPOSITORY: ${{ inputs.expected-repository }}
+        INPUT_EXPECTED_REPOSITORY_ID: ${{ inputs.expected-repository-id }}
+        INPUT_EXPECTED_ENVIRONMENT: ${{ inputs.expected-environment }}
+        INPUT_AWS_REGION: ${{ inputs.aws-region }}
+        INPUT_SSM_INSTANCE_ID: ${{ inputs.ssm-instance-id }}
+        INPUT_ARTIFACT_BUCKET: ${{ inputs.artifact-bucket }}
+        INPUT_ARTIFACT_KEY: ${{ inputs.artifact-key }}
+        INPUT_ARTIFACT_SHA256: ${{ inputs.artifact-sha256 }}
+        INPUT_REMOTE_SCRIPT_KEY: ${{ inputs.remote-script-key }}
+        INPUT_REMOTE_SCRIPT_SHA256: ${{ inputs.remote-script-sha256 }}
+        INPUT_ALLOWED_ARTIFACT_PREFIX: ${{ inputs.allowed-artifact-prefix }}
+        INPUT_DEPLOY_REF: ${{ inputs.deploy-ref }}
+        INPUT_ROLLBACK_REF: ${{ inputs.rollback-ref }}
+        INPUT_APP_ROOT: ${{ inputs.app-root }}
+        INPUT_APP_USER: ${{ inputs.app-user }}
+        INPUT_VALIDATION_URL: ${{ inputs.validation-url }}
+        INPUT_API_HEALTH_URL: ${{ inputs.api-health-url }}
+        INPUT_COMMAND_TIMEOUT_SECONDS: ${{ inputs.command-timeout-seconds }}
+        INPUT_POLL_INTERVAL_SECONDS: ${{ inputs.poll-interval-seconds }}
+        INPUT_POLL_ATTEMPTS: ${{ inputs.poll-attempts }}
+        INPUT_PRESIGN_EXPIRES_SECONDS: ${{ inputs.presign-expires-seconds }}
+        INPUT_EVIDENCE_PATH: ${{ inputs.evidence-path }}
+      run: python3 "${GITHUB_ACTION_PATH}/promote.py"
