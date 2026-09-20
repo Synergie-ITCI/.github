@@ -51,13 +51,28 @@ class ReleasePreflightTests(unittest.TestCase):
         )
         (repo / "scripts").mkdir()
         shutil.copy2(SCRIPT, repo / "scripts" / "release-preflight")
+        shutil.copy2(ROOT / "scripts" / "consumer-compatibility-preflight", repo / "scripts" / "consumer-compatibility-preflight")
         (repo / "scripts" / "release-preflight").chmod(
             (repo / "scripts" / "release-preflight").stat().st_mode | stat.S_IXUSR
+        )
+        (repo / "scripts" / "consumer-compatibility-preflight").chmod(
+            (repo / "scripts" / "consumer-compatibility-preflight").stat().st_mode | stat.S_IXUSR
+        )
+        self.write(
+            repo / "actions" / "runtime-certifier" / "action.yml",
+            (ROOT / "actions" / "runtime-certifier" / "action.yml").read_text(encoding="utf-8"),
+        )
+        self.write(
+            repo / "actions" / "ssm-artifact-promoter" / "action.yml",
+            (ROOT / "actions" / "ssm-artifact-promoter" / "action.yml").read_text(encoding="utf-8"),
         )
         self.write(repo / "README.md", "fixture\n")
         self.git(repo, "add", ".")
         self.git(repo, "commit", "-m", "fixture")
         self.git(repo, "tag", "pr-qa-v1-test")
+        shutil.copytree(ROOT / "pr-qa", repo / "pr-qa", dirs_exist_ok=True)
+        self.git(repo, "add", "pr-qa")
+        self.git(repo, "commit", "-m", "candidate framework parser")
         self.git(repo, "update-ref", "refs/remotes/origin/development", "HEAD")
         self.git(repo, "update-ref", "refs/remotes/origin/staging", "HEAD")
         return temp, repo
@@ -76,6 +91,7 @@ class ReleasePreflightTests(unittest.TestCase):
         self.assertIn("BASE: development", proc.stdout)
         self.assertIn("WORKTREE: CLEAN", proc.stdout)
         self.assertIn("CENTRAL_PR_QA: PASS", proc.stdout)
+        self.assertIn("CONSUMER_COMPATIBILITY: PASS", proc.stdout)
         self.assertIn("READY_FOR_PROMOTION: YES", proc.stdout)
         self.assertIn("DEVELOPER RELEASE READINESS", proc.stdout)
         self.assertNotIn("DEVELOPER_HANDOFF_READY", proc.stdout)
@@ -92,6 +108,7 @@ class ReleasePreflightTests(unittest.TestCase):
         self.assertIn("BASE: staging", proc.stdout)
         self.assertIn("WORKTREE: CLEAN", proc.stdout)
         self.assertIn("CENTRAL_PR_QA: PASS", proc.stdout)
+        self.assertIn("CONSUMER_COMPATIBILITY: PASS", proc.stdout)
         self.assertIn("DEVELOPER_HANDOFF_READY: YES", proc.stdout)
         self.assertNotIn("READY_FOR_PROMOTION", proc.stdout)
 
@@ -104,6 +121,7 @@ class ReleasePreflightTests(unittest.TestCase):
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("DEVELOPER STAGING READINESS", proc.stdout)
         self.assertIn("CENTRAL_PR_QA: FAIL", proc.stdout)
+        self.assertIn("CONSUMER_COMPATIBILITY: PASS", proc.stdout)
         self.assertIn("DEVELOPER_HANDOFF_READY: NO", proc.stdout)
         self.assertIn("central PR-QA failed", proc.stdout)
         self.assertNotIn("READY_FOR_PROMOTION", proc.stdout)
@@ -116,6 +134,7 @@ class ReleasePreflightTests(unittest.TestCase):
 
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("CENTRAL_PR_QA: FAIL", proc.stdout)
+        self.assertIn("CONSUMER_COMPATIBILITY: PASS", proc.stdout)
         self.assertIn("READY_FOR_PROMOTION: NO", proc.stdout)
         self.assertIn("base 'missing' could not be resolved", proc.stdout)
 
@@ -127,6 +146,7 @@ class ReleasePreflightTests(unittest.TestCase):
 
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("CENTRAL_PR_QA: FAIL", proc.stdout)
+        self.assertIn("CONSUMER_COMPATIBILITY: PASS", proc.stdout)
         self.assertIn("READY_FOR_PROMOTION: NO", proc.stdout)
         self.assertIn("central PR-QA failed", proc.stdout)
 
@@ -139,6 +159,7 @@ class ReleasePreflightTests(unittest.TestCase):
 
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("WORKTREE: DIRTY", proc.stdout)
+        self.assertIn("CONSUMER_COMPATIBILITY: FAIL", proc.stdout)
         self.assertIn("READY_FOR_PROMOTION: NO", proc.stdout)
         self.assertIn("working tree has uncommitted changes", proc.stdout)
 

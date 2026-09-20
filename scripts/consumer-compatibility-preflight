@@ -1,0 +1,246 @@
+#!/usr/bin/env python3
+"""Offline representative consumer compatibility checks for central releases."""
+
+from __future__ import annotations
+
+import argparse
+import re
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+from typing import Any
+
+
+CENTRAL_ACTION_RE = re.compile(r"^Synergie-ITCI/\.github/actions/([^@\s]+)@([^@\s]+)$")
+IMMUTABLE_REF_RE = re.compile(r"^(pr-qa-v1-rc[1-9][0-9]*|runtime-certifier-action-v[1-9][0-9]*(?:\.[0-9]+)*)$")
+APPROVED_ACTIONS = {"runtime-certifier", "ssm-artifact-promoter"}
+
+
+def repo_root() -> Path:
+    proc = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        cwd=Path.cwd(),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError("not inside a git repository")
+    return Path(proc.stdout.strip())
+
+
+def load_engine(root: Path) -> Any:
+    sys.path.insert(0, str(root / "pr-qa"))
+    import pr_qa  # type: ignore
+
+    return pr_qa
+
+
+def telepathy_uat_fixture(
+    *,
+    ssm_ref: str = "pr-qa-v1-rc999999",
+    action_name: str = "ssm-artifact-promoter",
+    include_required_input: bool = True,
+    unknown_input: bool = False,
+    guarded: bool = True,
+) -> str:
+    ssm_with = [
+        "          expected-repository: Synergie-ITCI/telepathy-operations-web",
+        '          expected-repository-id: "123456789"',
+        "          expected-environment: uat",
+        "          aws-region: ap-south-1",
+        "          ssm-instance-id: mi-0123456789abcdef0",
+        "          artifact-bucket: synergie-uat-artifacts",
+        "          artifact-key: telepathy-operations-web/${{ github.run_id }}/${{ inputs.deploy_ref }}/release.tgz",
+        "          artifact-sha256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "          remote-script-key: telepathy-operations-web/${{ github.run_id }}/${{ inputs.deploy_ref }}/remote-deploy.sh",
+        "          remote-script-sha256: abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+        "          allowed-artifact-prefix: telepathy-operations-web/${{ github.run_id }}/${{ inputs.deploy_ref }}/",
+        "          deploy-ref: ${{ inputs.deploy_ref }}",
+        "          rollback-ref: ${{ inputs.rollback_ref }}",
+        "          app-root: /var/www/telepathy-operations-web",
+        "          app-user: ubuntu",
+        "          validation-url: https://uat.example.invalid/",
+    ]
+    if include_required_input:
+        ssm_with.append("          api-health-url: https://uat.example.invalid/api/operations/health")
+    if unknown_input:
+        ssm_with.append("          surprise-input: nope")
+
+    guard = "        if: ${{ steps.runtime.outputs.deployment-required == 'true' }}\n" if guarded else ""
+    return "\n".join(
+        [
+            "name: Sanitized Telepathy UAT contract",
+            "on:",
+            "  workflow_dispatch:",
+            "    inputs:",
+            "      deploy_ref:",
+            "        required: true",
+            "        type: string",
+            "      rollback_ref:",
+            "        required: true",
+            "        type: string",
+            "      approval_reference:",
+            "        required: true",
+            "        type: string",
+            "      confirm_uat_deploy:",
+            "        required: true",
+            "        type: string",
+            "permissions:",
+            "  contents: read",
+            "  id-token: write",
+            "jobs:",
+            "  deploy:",
+            "    runs-on: ubuntu-latest",
+            "    environment: uat",
+            "    steps:",
+            "      - uses: actions/checkout@v4",
+            "      - name: Validate Gate D request and approved ref",
+            "        env:",
+            "          DEPLOY_REF: ${{ inputs.deploy_ref }}",
+            "          ROLLBACK_REF: ${{ inputs.rollback_ref }}",
+            "          APPROVAL_REFERENCE: ${{ inputs.approval_reference }}",
+            "          CONFIRM_UAT_DEPLOY: ${{ inputs.confirm_uat_deploy }}",
+            "        run: |",
+            "          set -euo pipefail",
+            '          test "${GITHUB_ACTOR}" = "SaurabhVermaIN"',
+            '          test "${CONFIRM_UAT_DEPLOY}" = "DEPLOY_UAT"',
+            '          test -n "${APPROVAL_REFERENCE}"',
+            '          [[ "${DEPLOY_REF}" =~ ^[0-9a-f]{40}$ ]]',
+            '          [[ "${ROLLBACK_REF}" =~ ^[0-9a-f]{40}$ ]]',
+            '          MAIN_SHA="$(git rev-parse HEAD)"',
+            '          CURRENT_SHA="${ROLLBACK_REF}"',
+            '          test "${DEPLOY_REF}" = "${MAIN_SHA}"',
+            '          test "${ROLLBACK_REF}" = "${CURRENT_SHA}"',
+            '          test "${DEPLOY_REF}" != "${ROLLBACK_REF}"',
+            "      - uses: aws-actions/configure-aws-credentials@v4",
+            "        with:",
+            "          role-to-assume: arn:aws:iam::123456789012:role/TelepathyUatDeployRole",
+            "          aws-region: ap-south-1",
+            "      - name: Runtime Certifier before deployment",
+            "        id: runtime",
+            "        uses: Synergie-ITCI/.github/actions/runtime-certifier@runtime-certifier-action-v1.3",
+            "        with:",
+            "          instance-id: mi-0123456789abcdef0",
+            "          region: ap-south-1",
+            "          app-path: /var/www/telepathy-operations-web/current",
+            "          app-user: ubuntu",
+            "          validation-url: https://uat.example.invalid/",
+            "          deploy-ref: ${{ inputs.deploy_ref }}",
+            "          rollback-ref: ${{ inputs.rollback_ref }}",
+            "          runtime-kind: static-vite-apache",
+            "          runtime-version: vite",
+            "          web-server: apache",
+            "      - name: Deploy through SSM and require terminal success",
+            f"{guard.rstrip()}",
+            f"        uses: Synergie-ITCI/.github/actions/{action_name}@{ssm_ref}",
+            "        with:",
+            *ssm_with,
+        ]
+    ).replace("\n\n", "\n") + "\n"
+
+
+def iter_steps(parsed: dict[str, Any]) -> list[tuple[str, int, dict[str, Any]]]:
+    found: list[tuple[str, int, dict[str, Any]]] = []
+    jobs = parsed.get("jobs", {})
+    if not isinstance(jobs, dict):
+        return found
+    for job_id, job in jobs.items():
+        if not isinstance(job, dict):
+            continue
+        steps = job.get("steps", [])
+        if not isinstance(steps, list):
+            continue
+        for index, step in enumerate(steps, 1):
+            if isinstance(step, dict):
+                found.append((str(job_id), index, step))
+    return found
+
+
+def validate_central_action_step(root: Path, engine: Any, job_id: str, index: int, step: dict[str, Any]) -> list[str]:
+    uses = str(step.get("uses") or "").strip()
+    match = CENTRAL_ACTION_RE.fullmatch(uses)
+    if not match:
+        return []
+
+    action_name, ref = match.groups()
+    step_name = str(step.get("name") or f"step {index}")
+    prefix = f"job `{job_id}` step `{step_name}` uses `{uses}`"
+    violations: list[str] = []
+
+    if action_name not in APPROVED_ACTIONS:
+        violations.append(f"{prefix}: central action is not approved for the Telepathy UAT compatibility fixture.")
+    if IMMUTABLE_REF_RE.fullmatch(ref) is None:
+        violations.append(f"{prefix}: central action reference must be immutable.")
+
+    action_file = root / "actions" / action_name / "action.yml"
+    if not action_file.is_file():
+        return violations + [f"{prefix}: candidate action metadata is missing."]
+
+    action = engine.parse_workflow_yaml(action_file.read_text(encoding="utf-8"))
+    inputs = action.get("inputs") if isinstance(action, dict) else None
+    if not isinstance(inputs, dict):
+        return violations + [f"{prefix}: candidate action metadata has no inputs mapping."]
+
+    supplied_raw = step.get("with", {})
+    supplied = supplied_raw if isinstance(supplied_raw, dict) else {}
+    supplied_keys = {str(key) for key in supplied}
+    declared = {str(key) for key in inputs}
+    required = {
+        str(key)
+        for key, spec in inputs.items()
+        if isinstance(spec, dict) and spec.get("required") is True and "default" not in spec
+    }
+
+    violations.extend(f"{prefix}: undeclared input `{key}`." for key in sorted(supplied_keys - declared))
+    violations.extend(f"{prefix}: missing required input `{key}`." for key in sorted(required - supplied_keys))
+    if supplied_raw and not isinstance(supplied_raw, dict):
+        violations.append(f"{prefix}: `with` must be a mapping.")
+    return violations
+
+
+def validate_consumer_workflow(root: Path, text: str) -> list[str]:
+    engine = load_engine(root)
+    parsed = engine.parse_workflow_yaml(text)
+    violations: list[str] = []
+
+    for job_id, index, step in iter_steps(parsed):
+        violations.extend(validate_central_action_step(root, engine, job_id, index, step))
+
+    with tempfile.TemporaryDirectory(prefix="consumer-compatibility-") as tmp:
+        repo = Path(tmp)
+        workflow = repo / ".github" / "workflows" / "deploy.yml"
+        workflow.parent.mkdir(parents=True)
+        workflow.write_text(text, encoding="utf-8")
+        ctx = engine.PRContext(repo=repo, config={}, policy={}, changed_files=[workflow.relative_to(repo).as_posix()])
+        details = engine.controlled_gate_d_workflow_details(workflow.relative_to(repo).as_posix(), text, ctx=ctx)
+        if not details:
+            violations.append("sanitized Telepathy UAT workflow does not satisfy controlled Gate D authorization.")
+
+    return violations
+
+
+def run(root: Path) -> list[str]:
+    return validate_consumer_workflow(root, telepathy_uat_fixture())
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Validate representative consumer compatibility before central release.")
+    parser.add_argument("--repo", type=Path, default=None, help="central framework candidate repository")
+    args = parser.parse_args()
+
+    root = args.repo.resolve() if args.repo else repo_root()
+    violations = run(root)
+    print("CONSUMER_COMPATIBILITY: " + ("PASS" if not violations else "FAIL"))
+    if violations:
+        print("BLOCKERS:")
+        for violation in violations:
+            print(f"- {violation}")
+        return 1
+    print("FIXTURE: sanitized Telepathy UAT SSM artifact-promotion contract")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
