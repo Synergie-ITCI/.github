@@ -1,0 +1,4 @@
+paths:
+  .github/workflows/fieldzilla-staging-opentofu-*.yml:
+    ignore:
+      - 'property "workflow_(ref|sha|repository|file_path)" is not defined'

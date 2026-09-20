@@ -73,7 +73,8 @@ class FieldZillaRemoteStateGovernanceTests(unittest.TestCase):
         self.assertNotIn("workflow_call:", workflow)
         self.assertIn("environment: synergie-app-staging", workflow)
         self.assertIn("INFRA_APPLY_ROLE_ARN: arn:aws:iam::918870682888:role/SynergieProgrammeManagementPlatformStagingInfraApplyRole", workflow)
-        self.assertIn("fieldzilla-staging-opentofu-bootstrap.yml@refs/tags/pr-qa-v1-rc147", workflow)
+        self.assertIn("CENTRAL_WORKFLOW_REF: ${{ github.workflow_ref }}", workflow)
+        self.assertIn("uses: ./.central-framework/actions/central-framework-guard", workflow)
         self.assertIn("aws kms create-key", workflow)
         self.assertIn("aws s3api create-bucket", workflow)
         self.assertIn("aws dynamodb create-table", workflow)
@@ -96,7 +97,9 @@ class FieldZillaRemoteStateGovernanceTests(unittest.TestCase):
     def test_workflow_preserves_exact_artifact_and_oidc_release_binding(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
 
-        self.assertIn("CENTRAL_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc156", workflow)
+        self.assertIn("CENTRAL_WORKFLOW_REF: ${{ inputs.expected-workflow-ref }}", workflow)
+        self.assertIn("Checkout central framework at workflow SHA", workflow)
+        self.assertIn("uses: ./.central-framework/actions/central-framework-guard", workflow)
         self.assertIn("image-tag:", workflow)
         self.assertIn("TF_VAR_image_tag: ${{ inputs.image-tag }}", workflow)
         self.assertIn("Validate image tag input", workflow)
@@ -205,20 +208,15 @@ class FieldZillaRemoteStateGovernanceTests(unittest.TestCase):
                 )
 
 
-    def test_action_pin_supports_image_digest_and_ecs_families_inputs(self) -> None:
-        # Regression: action pins in the apply workflow must come from a release
-        # that already has image-digest and ecs-families inputs defined.
-        # rc142 (and earlier) pre-dates those inputs; any pin <= rc142 is invalid.
+    def test_internal_authorizer_runs_from_same_release_checkout(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
-        pins = re.findall(r"opentofu-plan-authorizer@pr-qa-v1-rc(\d+)", workflow)
-        self.assertTrue(pins, "No action pins found in apply workflow")
-        for raw in pins:
-            with self.subTest(pin=f"rc{raw}"):
-                self.assertGreater(
-                    int(raw),
-                    142,
-                    f"opentofu-plan-authorizer@pr-qa-v1-rc{raw} predates image-digest/ecs-families inputs",
-                )
+        bootstrap = BOOTSTRAP_WORKFLOW.read_text(encoding="utf-8")
+        for text in (workflow, bootstrap):
+            with self.subTest(workflow="bootstrap" if text is bootstrap else "apply"):
+                self.assertNotRegex(text, r"opentofu-plan-authorizer@pr-qa-v1-rc\d+")
+                self.assertIn("uses: ./.central-framework/actions/opentofu-plan-authorizer", text)
+                self.assertIn("uses: ./.central-framework/actions/central-framework-guard", text)
+                self.assertIn("ref: ${{ job.workflow_sha || github.workflow_sha }}", text)
 
 
 if __name__ == "__main__":
