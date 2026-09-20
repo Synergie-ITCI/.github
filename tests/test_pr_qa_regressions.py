@@ -5471,6 +5471,8 @@ jobs:
         runtime_kind: str = "php-fpm",
         runtime_version: str = "8.2",
         certifier_after_deploy: bool = False,
+        remote_action: bool = False,
+        remote_release: str = "pr-qa-v1-rc160",
     ) -> str:
         lines = [
             "name: Controlled Production Gate D",
@@ -5593,10 +5595,33 @@ jobs:
                 "        if: ${{ steps.runtime.outputs.deployment-required == 'true' }}"
             )
 
-        lines.extend([
-            "        run: |",
-            "          aws ssm send-command --document-name AWS-RunShellScript --parameters commands='[\"sudo systemctl reload app\"]'",
-        ])
+        if remote_action:
+            lines.extend([
+                f"        uses: Synergie-ITCI/.github/actions/ssm-artifact-promoter@{remote_release}",
+                "        with:",
+                "          expected-repository: Synergie-ITCI/example",
+                "          expected-repository-id: \"123456789\"",
+                "          expected-environment: production",
+                "          aws-region: ap-south-1",
+                "          ssm-instance-id: i-0123456789abcdef0",
+                "          artifact-bucket: deploy-artifacts",
+                "          artifact-key: example/${{ github.run_id }}/${{ inputs.deploy_ref }}/release.tgz",
+                "          artifact-sha256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                "          remote-script-key: example/${{ github.run_id }}/${{ inputs.deploy_ref }}/remote-deploy.sh",
+                "          remote-script-sha256: abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+                "          allowed-artifact-prefix: example/${{ github.run_id }}/${{ inputs.deploy_ref }}/",
+                "          deploy-ref: ${{ inputs.deploy_ref }}",
+                "          rollback-ref: ${{ inputs.rollback_ref }}",
+                "          app-root: /srv/production-app",
+                "          app-user: deploy",
+                "          validation-url: https://example.invalid/health",
+                "          api-health-url: https://example.invalid/api/health",
+            ])
+        else:
+            lines.extend([
+                "        run: |",
+                "          aws ssm send-command --document-name AWS-RunShellScript --parameters commands='[\"sudo systemctl reload app\"]'",
+            ])
 
         if runtime_lines and certifier_after_deploy:
             lines.extend(runtime_lines)
@@ -6064,6 +6089,20 @@ jobs:
         self.assertEqual(report_json["summary"]["gate_statuses"]["Deployment Risk"], "WARNING")
         self.assertIn("CONTROLLED_PRODUCTION_GATE_D", report)
 
+    def test_controlled_gate_d_accepts_approved_ssm_artifact_promoter_action(self) -> None:
+        repo, base = self.init_repo("approved-ssm-artifact-promoter-gate-d")
+        self.write(
+            repo / ".github" / "workflows" / "production-deploy.yml",
+            self.controlled_gate_d_workflow(remote_action=True),
+        )
+        self.commit(repo, "ci: add controlled central action gate d")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Deployment Risk"], "WARNING")
+        self.assertIn("CONTROLLED_PRODUCTION_GATE_D", report)
+
     def test_fallback_parser_preserves_controlled_gate_d_steps(self) -> None:
         engine = load_engine_module()
         parsed = engine.parse_simple_yaml(self.controlled_gate_d_workflow())
@@ -6096,6 +6135,7 @@ jobs:
             "without-runtime-certifier": {"runtime_certifier": False},
             "without-runtime-guard": {"runtime_guard": False},
             "mutable-runtime-release": {"runtime_release": "main"},
+            "mutable-remote-release": {"remote_action": True, "remote_release": "main"},
             "certifier-after-deploy": {"certifier_after_deploy": True},
         }
         for name, kwargs in cases.items():
