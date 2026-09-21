@@ -104,6 +104,22 @@ runs:
           esac
         fi
 
+        expected_commit="${WORKFLOW_SHA}"
+        if [ "${REQUIRE_RELEASE_TAG}" = "true" ]; then
+          object_type="$(git -C "${framework_root}" cat-file -t "${WORKFLOW_SHA}" 2>/dev/null || true)"
+          [ "${object_type}" = "tag" ] || fail "workflow SHA must be the protected annotated release tag object"
+          tag_object="$(git -C "${framework_root}" rev-parse --verify -q "refs/tags/${normalized_ref}" 2>/dev/null || true)"
+          if [ -n "${tag_object}" ]; then
+            [ "${tag_object}" = "${WORKFLOW_SHA}" ] || fail "workflow SHA does not match annotated release tag object"
+          fi
+          tag_name="$(git -C "${framework_root}" for-each-ref --format='%(tag)' "refs/tags/${normalized_ref}" 2>/dev/null || true)"
+          if [ -z "${tag_name}" ]; then
+            tag_name="$(git -C "${framework_root}" cat-file -p "${WORKFLOW_SHA}" | awk '/^tag / {print $2; exit}')"
+          fi
+          [ "${tag_name}" = "${normalized_ref}" ] || fail "annotated release tag name does not match workflow ref"
+          expected_commit="$(git -C "${framework_root}" rev-parse "${WORKFLOW_SHA}^{commit}")"
+        fi
+
         actual="$(git -C "${framework_root}" rev-parse HEAD)"
-        [ "${actual}" = "${WORKFLOW_SHA}" ] || fail "checkout SHA ${actual} does not match workflow SHA ${WORKFLOW_SHA}"
+        [ "${actual}" = "${expected_commit}" ] || fail "checkout SHA ${actual} does not match workflow release commit ${expected_commit}"
         printf 'framework-root=%s\n' "${framework_root}" >> "${GITHUB_OUTPUT}"
