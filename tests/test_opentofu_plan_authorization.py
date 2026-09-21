@@ -78,7 +78,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
         self.assertIn("Checkout central framework at workflow SHA", workflow)
         self.assertIn("uses: ./.central-framework/actions/central-framework-guard", workflow)
         self.assertIn("workflow-sha: ${{ job.workflow_sha || github.workflow_sha }}", workflow)
-        self.assertIn("tofu -chdir=infra/aws init -input=false -lockfile=readonly", workflow)
+        self.assertIn('tofu -chdir="${TOFU_ROOT}" init -input=false -lockfile=readonly', workflow)
         self.assertIn("dynamodb_table = \"${STATE_LOCK_TABLE}\"", workflow)
         self.assertIn("Backup current remote state object", workflow)
         self.assertIn("Verify approved import map", workflow)
@@ -498,6 +498,48 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             plan_json.write_text(json.dumps(role_broadening), encoding="utf-8")
             with self.assertRaises(SystemExit):
                 auth.verify_plan_safety(Namespace(plan_json_path=plan_json, **vars(args)))
+
+    def test_fieldzilla_runtime_bootstrap_plan_allows_exact_four_creates_only(self) -> None:
+        plan = {
+            "planned_values": {
+                "outputs": {
+                    "runtime_role_arn": {"sensitive": False, "value": "arn:aws:iam::918870682888:role/FieldZillaRuntime"}
+                }
+            },
+            "resource_changes": [
+                {"address": "aws_iam_role.ssm_hybrid", "type": "aws_iam_role", "change": {"actions": ["create"], "after": {"name": "fieldzilla-staging-runtime"}}},
+                {"address": "aws_iam_role_policy.runtime", "type": "aws_iam_role_policy", "change": {"actions": ["create"], "after": {}}},
+                {"address": "aws_iam_role_policy_attachment.ssm_managed_instance_core", "type": "aws_iam_role_policy_attachment", "change": {"actions": ["create"], "after": {}}},
+                {"address": "aws_ssm_activation.staging_runtime", "type": "aws_ssm_activation", "change": {"actions": ["create"], "after": {"name": "fieldzilla-staging-runtime"}}},
+            ],
+        }
+        args = Namespace(plan_kind="fieldzilla-runtime-bootstrap", expected_sha=DEPLOY_SHA, image_digest="", image_digest_map="", ecs_families="")
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_json = Path(tmp) / "plan.json"
+            plan_json.write_text(json.dumps(plan), encoding="utf-8")
+            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, **vars(args)))
+
+            cases = []
+            extra = json.loads(json.dumps(plan))
+            extra["resource_changes"].append({"address": "aws_s3_bucket.bad", "type": "aws_s3_bucket", "change": {"actions": ["create"], "after": {}}})
+            cases.append(extra)
+            changed = json.loads(json.dumps(plan))
+            changed["resource_changes"][0]["change"]["actions"] = ["update"]
+            cases.append(changed)
+            wrong_type = json.loads(json.dumps(plan))
+            wrong_type["resource_changes"][0]["type"] = "aws_iam_policy"
+            cases.append(wrong_type)
+            sensitive = json.loads(json.dumps(plan))
+            sensitive["planned_values"]["outputs"]["runtime_role_arn"]["sensitive"] = True
+            cases.append(sensitive)
+            exposed_activation = json.loads(json.dumps(plan))
+            exposed_activation["resource_changes"][3]["change"]["after"]["activation_code"] = "SECRET"
+            cases.append(exposed_activation)
+
+            for case in cases:
+                plan_json.write_text(json.dumps(case), encoding="utf-8")
+                with self.assertRaises(SystemExit):
+                    auth.verify_plan_safety(Namespace(plan_json_path=plan_json, **vars(args)))
 
     def test_legacy_image_digest_input_still_accepted(self) -> None:
         """The deprecated scalar --image-digest input must remain a valid, accepted

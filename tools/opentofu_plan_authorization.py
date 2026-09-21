@@ -27,6 +27,15 @@ AWS_REGION = "ap-south-1"
 STATE_BUCKET = "synergie-fieldzilla-opentofu-state-918870682888-ap-south-1"
 STATE_LOCK_TABLE = "synergie-fieldzilla-opentofu-locks"
 STATE_KEY = "programme-management-platform/fieldzilla/staging/opentofu.tfstate"
+FIELDZILLA_RUNTIME_STATE_KEY = (
+    "programme-management-platform/fieldzilla/staging/runtime/opentofu.tfstate"
+)
+FIELDZILLA_RUNTIME_BOOTSTRAP_RESOURCES = {
+    "aws_iam_role.ssm_hybrid": "aws_iam_role",
+    "aws_iam_role_policy.runtime": "aws_iam_role_policy",
+    "aws_iam_role_policy_attachment.ssm_managed_instance_core": "aws_iam_role_policy_attachment",
+    "aws_ssm_activation.staging_runtime": "aws_ssm_activation",
+}
 RUNTIME_SECRET_ARN_PREFIX = (
     f"arn:aws:secretsmanager:{AWS_REGION}:{AWS_ACCOUNT}:secret:"
     "/synergie/fieldzilla/staging/runtime-"
@@ -406,11 +415,12 @@ def verify_oidc(args: argparse.Namespace) -> None:
 
 def verify_backend(args: argparse.Namespace) -> None:
     doc = json.loads(args.backend_metadata_path.read_text(encoding="utf-8"))
+    expected_state_key = _expected_state_key(args)
     expected = {
         "account_id": AWS_ACCOUNT,
         "region": AWS_REGION,
         "bucket": STATE_BUCKET,
-        "key": STATE_KEY,
+        "key": expected_state_key,
         "dynamodb_table": STATE_LOCK_TABLE,
         "bucket_versioning": "Enabled",
         "bucket_encryption": "aws:kms",
@@ -420,6 +430,13 @@ def verify_backend(args: argparse.Namespace) -> None:
         if doc.get(key) != value:
             die(f"remote backend evidence mismatch for {key}")
     print("REMOTE_BACKEND_VERIFIED=true")
+
+
+def _expected_state_key(args: argparse.Namespace) -> str:
+    value = getattr(args, "expected_state_key", "") or STATE_KEY
+    if value not in {STATE_KEY, FIELDZILLA_RUNTIME_STATE_KEY}:
+        die("expected state key is not approved")
+    return value
 
 
 def _require_artifact_inputs(args: argparse.Namespace) -> None:
@@ -507,6 +524,7 @@ def verify_artifact_metadata(args: argparse.Namespace) -> None:
     _require_artifact_inputs(args)
     metadata_path = args.artifact_dir / "metadata.json"
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    expected_state_key = _expected_state_key(args)
     checks = {
         "repository": REPOSITORY,
         "commit_sha": args.expected_sha,
@@ -521,7 +539,7 @@ def verify_artifact_metadata(args: argparse.Namespace) -> None:
         "environment": ENVIRONMENT,
         "state_backend": "s3",
         "state_bucket": STATE_BUCKET,
-        "state_key": STATE_KEY,
+        "state_key": expected_state_key,
         "lock_table": STATE_LOCK_TABLE,
     }
     for key, expected in checks.items():
@@ -547,6 +565,10 @@ def verify_artifact_metadata(args: argparse.Namespace) -> None:
 
 def verify_plan_safety(args: argparse.Namespace) -> None:
     doc = json.loads(args.plan_json_path.read_text(encoding="utf-8"))
+    if args.plan_kind == "fieldzilla-runtime-bootstrap":
+        verify_fieldzilla_runtime_bootstrap_plan(doc)
+        return
+
     variables = {key: item.get("value") for key, item in doc.get("variables", {}).items()}
     if variables.get("enable_production") is not False:
         die("production resources are enabled")
@@ -618,6 +640,41 @@ def verify_plan_safety(args: argparse.Namespace) -> None:
             die("plan contains production resources")
     if args.plan_kind == "drift" and counts not in ({}, {"no-op": len(doc.get("resource_changes", []))}):
         die("drift plan is not clean")
+    print("PLAN_COUNTS=" + json.dumps(counts, sort_keys=True))
+
+
+def verify_fieldzilla_runtime_bootstrap_plan(doc: dict[str, Any]) -> None:
+    resource_changes = doc.get("resource_changes", [])
+    counts: dict[str, int] = {}
+    created: dict[str, str] = {}
+
+    if not isinstance(resource_changes, list):
+        die("runtime bootstrap plan has invalid resource changes")
+
+    plan_json = json.dumps(doc, sort_keys=True).lower()
+    if "activation_code" in plan_json:
+        die("runtime bootstrap plan exposes SSM activation code")
+
+    for name, output in (doc.get("planned_values", {}).get("outputs") or {}).items():
+        if isinstance(output, dict) and output.get("sensitive") is not False:
+            die(f"runtime bootstrap output `{name}` is sensitive or unclassified")
+
+    for change in resource_changes:
+        actions = change.get("change", {}).get("actions", [])
+        key = ",".join(actions)
+        counts[key] = counts.get(key, 0) + 1
+        address = str(change.get("address", ""))
+        rtype = str(change.get("type", ""))
+        if actions != ["create"]:
+            die("runtime bootstrap plan must contain only creates")
+        if FIELDZILLA_RUNTIME_BOOTSTRAP_RESOURCES.get(address) != rtype:
+            die(f"runtime bootstrap plan contains unapproved resource `{address}`")
+        created[address] = rtype
+
+    if created != FIELDZILLA_RUNTIME_BOOTSTRAP_RESOURCES:
+        die("runtime bootstrap plan does not match the exact resource allowlist")
+    if counts != {"create": 4}:
+        die("runtime bootstrap plan must be exactly 4 add, 0 change, 0 destroy")
     print("PLAN_COUNTS=" + json.dumps(counts, sort_keys=True))
 
 
@@ -1164,6 +1221,7 @@ def main() -> None:
     native.add_argument("--native-reviewers-available", required=True)
     backend = sub.add_parser("verify-backend")
     backend.add_argument("--backend-metadata-path", type=Path, required=True)
+    backend.add_argument("--expected-state-key", default="")
     source = sub.add_parser("verify-source-artifact")
     add_common(source)
     source.add_argument("--source-run-id", required=True)
@@ -1183,6 +1241,7 @@ def main() -> None:
     meta.add_argument("--artifact-id", required=True)
     meta.add_argument("--artifact-name", required=True)
     meta.add_argument("--expected-artifact-digest", required=True)
+    meta.add_argument("--expected-state-key", default="")
     files = sub.add_parser("verify-artifact-files")
     files.add_argument("--artifact-dir", type=Path, required=True)
     safety = sub.add_parser("verify-plan-safety")

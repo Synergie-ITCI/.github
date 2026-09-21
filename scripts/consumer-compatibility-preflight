@@ -13,8 +13,10 @@ from typing import Any
 
 
 CENTRAL_ACTION_RE = re.compile(r"^Synergie-ITCI/\.github/actions/([^@\s]+)@([^@\s]+)$")
+CENTRAL_WORKFLOW_RE = re.compile(r"^Synergie-ITCI/\.github/\.github/workflows/([^@\s]+)@([^@\s]+)$")
 IMMUTABLE_REF_RE = re.compile(r"^(pr-qa-v1-rc[1-9][0-9]*|runtime-certifier-action-v[1-9][0-9]*(?:\.[0-9]+)*)$")
 APPROVED_ACTIONS = {"runtime-certifier", "ssm-artifact-promoter"}
+APPROVED_WORKFLOWS = {"fieldzilla-staging-opentofu-apply.yml"}
 
 
 def repo_root() -> Path:
@@ -158,6 +160,76 @@ def iter_steps(parsed: dict[str, Any]) -> list[tuple[str, int, dict[str, Any]]]:
     return found
 
 
+def iter_jobs(parsed: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    jobs = parsed.get("jobs", {})
+    if not isinstance(jobs, dict):
+        return []
+    return [(str(job_id), job) for job_id, job in jobs.items() if isinstance(job, dict)]
+
+
+def programme_management_fieldzilla_runtime_fixture(
+    *,
+    workflow_ref: str = "pr-qa-v1-rc999999",
+    tofu_root: str = "deploy/staging/fieldzilla-runtime",
+    include_required_input: bool = True,
+    unknown_input: bool = False,
+) -> str:
+    with_block = [
+        "      mode: plan",
+        "      expected-sha: 0123456789abcdef0123456789abcdef01234567",
+        "      expected-caller-sha: 0123456789abcdef0123456789abcdef01234567",
+        "      expected-workflow-ref: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc999999",
+        "      image-tag: 0123456789abcdef0123456789abcdef01234567",
+        "      expires-at: 2026-09-21T12:00:00Z",
+        "      authorization-id: fieldzilla-runtime-plan-fixture",
+        "      native-reviewers-available: false",
+        f"      tofu-root: {tofu_root}",
+    ]
+    if not include_required_input:
+        with_block = [line for line in with_block if not line.startswith("      expected-sha:")]
+    if unknown_input:
+        with_block.append("      surprise-input: nope")
+    return "\n".join(
+        [
+            "name: Sanitized FieldZilla runtime root plan",
+            "on:",
+            "  workflow_dispatch:",
+            "    inputs:",
+            "      approval_reference:",
+            "        required: true",
+            "        type: string",
+            "      confirm_staging_plan:",
+            "        required: true",
+            "        type: string",
+            "permissions:",
+            "  actions: read",
+            "  contents: read",
+            "  deployments: write",
+            "  id-token: write",
+            "jobs:",
+            "  authorize:",
+            "    runs-on: ubuntu-latest",
+            "    environment: synergie-app-staging",
+            "    steps:",
+            "      - uses: actions/checkout@v4",
+            "      - name: Validate Gate D request",
+            "        env:",
+            "          APPROVAL_REFERENCE: ${{ inputs.approval_reference }}",
+            "          CONFIRM_STAGING_PLAN: ${{ inputs.confirm_staging_plan }}",
+            "        run: |",
+            "          set -euo pipefail",
+            '          test "${GITHUB_ACTOR}" = "SaurabhVermaIN"',
+            '          test "${CONFIRM_STAGING_PLAN}" = "PLAN_FIELDZILLA_STAGING"',
+            '          test -n "${APPROVAL_REFERENCE}"',
+            "  plan:",
+            "    needs: authorize",
+            f"    uses: Synergie-ITCI/.github/.github/workflows/fieldzilla-staging-opentofu-apply.yml@{workflow_ref}",
+            "    with:",
+            *with_block,
+        ]
+    ) + "\n"
+
+
 def validate_central_action_step(root: Path, engine: Any, job_id: str, index: int, step: dict[str, Any]) -> list[str]:
     uses = str(step.get("uses") or "").strip()
     match = CENTRAL_ACTION_RE.fullmatch(uses)
@@ -200,29 +272,106 @@ def validate_central_action_step(root: Path, engine: Any, job_id: str, index: in
     return violations
 
 
-def validate_consumer_workflow(root: Path, text: str) -> list[str]:
+def _workflow_call_inputs_from_text(text: str) -> dict[str, dict[str, Any]]:
+    inputs: dict[str, dict[str, Any]] = {}
+    in_inputs = False
+    current: str | None = None
+    for line in text.splitlines():
+        if re.match(r"^    inputs:\s*$", line):
+            in_inputs = True
+            continue
+        if in_inputs and re.match(r"^  [a-zA-Z_-]+:\s*$", line):
+            break
+        if not in_inputs:
+            continue
+        match = re.match(r"^      ([a-z][a-z0-9-]*):\s*$", line)
+        if match:
+            current = match.group(1)
+            inputs[current] = {}
+            continue
+        if current is None:
+            continue
+        required = re.match(r"^        required:\s*(true|false)\s*$", line)
+        if required:
+            inputs[current]["required"] = required.group(1) == "true"
+        if re.match(r"^        default:\s*", line):
+            inputs[current]["default"] = True
+    return inputs
+
+
+def validate_central_workflow_job(root: Path, engine: Any, job_id: str, job: dict[str, Any]) -> list[str]:
+    uses = str(job.get("uses") or "").strip()
+    match = CENTRAL_WORKFLOW_RE.fullmatch(uses)
+    if not match:
+        return []
+
+    workflow_name, ref = match.groups()
+    prefix = f"job `{job_id}` uses `{uses}`"
+    violations: list[str] = []
+    if workflow_name not in APPROVED_WORKFLOWS:
+        violations.append(f"{prefix}: central reusable workflow is not approved for compatibility fixtures.")
+    if IMMUTABLE_REF_RE.fullmatch(ref) is None:
+        violations.append(f"{prefix}: central reusable workflow reference must be immutable.")
+
+    workflow_file = root / ".github" / "workflows" / workflow_name
+    if not workflow_file.is_file():
+        return violations + [f"{prefix}: candidate reusable workflow metadata is missing."]
+    inputs = _workflow_call_inputs_from_text(workflow_file.read_text(encoding="utf-8"))
+    if not inputs:
+        return violations + [f"{prefix}: candidate reusable workflow has no workflow_call inputs mapping."]
+
+    supplied_raw = job.get("with", {})
+    supplied = supplied_raw if isinstance(supplied_raw, dict) else {}
+    supplied_keys = {str(key) for key in supplied}
+    declared = {str(key) for key in inputs}
+    required = {
+        str(key)
+        for key, spec in inputs.items()
+        if isinstance(spec, dict) and spec.get("required") is True and "default" not in spec
+    }
+    violations.extend(f"{prefix}: undeclared input `{key}`." for key in sorted(supplied_keys - declared))
+    violations.extend(f"{prefix}: missing required input `{key}`." for key in sorted(required - supplied_keys))
+    if supplied.get("tofu-root") not in {None, "infra/aws", "deploy/staging/fieldzilla-runtime"}:
+        violations.append(f"{prefix}: tofu-root is not in the central allowlist.")
+    if supplied_raw and not isinstance(supplied_raw, dict):
+        violations.append(f"{prefix}: `with` must be a mapping.")
+    return violations
+
+
+def validate_consumer_workflow(root: Path, text: str, *, require_controlled_gate_d: bool = True) -> list[str]:
     engine = load_engine(root)
     parsed = engine.parse_workflow_yaml(text)
     violations: list[str] = []
 
     for job_id, index, step in iter_steps(parsed):
         violations.extend(validate_central_action_step(root, engine, job_id, index, step))
+    for job_id, job in iter_jobs(parsed):
+        violations.extend(validate_central_workflow_job(root, engine, job_id, job))
 
-    with tempfile.TemporaryDirectory(prefix="consumer-compatibility-") as tmp:
-        repo = Path(tmp)
-        workflow = repo / ".github" / "workflows" / "deploy.yml"
-        workflow.parent.mkdir(parents=True)
-        workflow.write_text(text, encoding="utf-8")
-        ctx = engine.PRContext(repo=repo, config={}, policy={}, changed_files=[workflow.relative_to(repo).as_posix()])
-        details = engine.controlled_gate_d_workflow_details(workflow.relative_to(repo).as_posix(), text, ctx=ctx)
-        if not details:
-            violations.append("sanitized Telepathy UAT workflow does not satisfy controlled Gate D authorization.")
+    if require_controlled_gate_d:
+        with tempfile.TemporaryDirectory(prefix="consumer-compatibility-") as tmp:
+            repo = Path(tmp)
+            workflow = repo / ".github" / "workflows" / "deploy.yml"
+            workflow.parent.mkdir(parents=True)
+            workflow.write_text(text, encoding="utf-8")
+            ctx = engine.PRContext(repo=repo, config={}, policy={}, changed_files=[workflow.relative_to(repo).as_posix()])
+            details = engine.controlled_gate_d_workflow_details(workflow.relative_to(repo).as_posix(), text, ctx=ctx)
+            if not details:
+                violations.append("sanitized Telepathy UAT workflow does not satisfy controlled Gate D authorization.")
 
     return violations
 
 
 def run(root: Path) -> list[str]:
-    return validate_consumer_workflow(root, telepathy_uat_fixture())
+    violations = validate_consumer_workflow(root, telepathy_uat_fixture())
+    violations.extend(
+        validate_consumer_workflow(
+            root,
+            programme_management_fieldzilla_runtime_fixture(),
+            require_controlled_gate_d=False,
+        )
+    )
+    return violations
 
 
 def main() -> int:
@@ -239,6 +388,7 @@ def main() -> int:
             print(f"- {violation}")
         return 1
     print("FIXTURE: sanitized Telepathy UAT SSM artifact-promotion contract")
+    print("FIXTURE: sanitized programme-management-platform FieldZilla runtime-root plan contract")
     return 0
 
 
