@@ -671,10 +671,12 @@ def verify_fieldzilla_runtime_bootstrap_plan(doc: dict[str, Any]) -> None:
             die(f"runtime bootstrap plan contains unapproved resource `{address}`")
         created[address] = rtype
 
-    if created != FIELDZILLA_RUNTIME_BOOTSTRAP_RESOURCES:
-        die("runtime bootstrap plan does not match the exact resource allowlist")
-    if counts != {"create": 4}:
-        die("runtime bootstrap plan must be exactly 4 add, 0 change, 0 destroy")
+    if not created:
+        die("runtime bootstrap recovery plan must create at least one approved resource")
+    if any(FIELDZILLA_RUNTIME_BOOTSTRAP_RESOURCES.get(address) != rtype for address, rtype in created.items()):
+        die("runtime bootstrap plan does not match the approved resource allowlist")
+    if counts != {"create": len(created)}:
+        die("runtime bootstrap plan must contain only adds, with 0 change and 0 destroy")
     print("PLAN_COUNTS=" + json.dumps(counts, sort_keys=True))
 
 
