@@ -541,7 +541,7 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 auth.verify_plan_safety(Namespace(plan_json_path=plan_json, **vars(args)))
 
-    def test_fieldzilla_runtime_bootstrap_plan_allows_exact_four_creates_only(self) -> None:
+    def test_fieldzilla_runtime_bootstrap_plan_allows_approved_create_subset_for_recovery(self) -> None:
         plan = {
             "planned_values": {
                 "outputs": {
@@ -570,13 +570,29 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             plan_json.write_text(json.dumps(plan), encoding="utf-8")
             auth.verify_plan_safety(Namespace(plan_json_path=plan_json, **vars(args)))
 
+            # Real partial-apply recovery case: IAM resources already exist/no-op and
+            # only the sensitive SSM activation still needs to be created.
+            activation_only = json.loads(json.dumps(plan))
+            activation_only["resource_changes"] = [activation_only["resource_changes"][3]]
+            plan_json.write_text(json.dumps(activation_only), encoding="utf-8")
+            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, **vars(args)))
+
             cases = []
+            empty = json.loads(json.dumps(plan))
+            empty["resource_changes"] = []
+            cases.append(empty)
             extra = json.loads(json.dumps(plan))
             extra["resource_changes"].append({"address": "aws_s3_bucket.bad", "type": "aws_s3_bucket", "change": {"actions": ["create"], "after": {}}})
             cases.append(extra)
             changed = json.loads(json.dumps(plan))
             changed["resource_changes"][0]["change"]["actions"] = ["update"]
             cases.append(changed)
+            no_op = json.loads(json.dumps(plan))
+            no_op["resource_changes"][0]["change"]["actions"] = ["no-op"]
+            cases.append(no_op)
+            delete_create = json.loads(json.dumps(plan))
+            delete_create["resource_changes"][0]["change"]["actions"] = ["delete", "create"]
+            cases.append(delete_create)
             wrong_type = json.loads(json.dumps(plan))
             wrong_type["resource_changes"][0]["type"] = "aws_iam_policy"
             cases.append(wrong_type)
