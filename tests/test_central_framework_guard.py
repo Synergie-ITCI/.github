@@ -29,16 +29,37 @@ class CentralFrameworkGuardTests(unittest.TestCase):
                 break
         return "\n".join(lines) + "\n"
 
-    def run_guard(self, workflow_ref: str) -> subprocess.CompletedProcess[str]:
+    def git_rev_parse(self, ref: str) -> str:
+        return subprocess.check_output(
+            ["git", "rev-parse", ref], cwd=ROOT, text=True
+        ).strip()
+
+    def annotated_tag_object(self, tag: str, target: str = "HEAD") -> str:
+        target_sha = self.git_rev_parse(target)
+        tag_payload = (
+            f"object {target_sha}\n"
+            "type commit\n"
+            f"tag {tag}\n"
+            "tagger Central Guard Tests <central-guard-tests@example.invalid> 1700000000 +0000\n"
+            "\n"
+            f"{tag}\n"
+        )
+        return subprocess.check_output(
+            ["git", "mktag"], cwd=ROOT, input=tag_payload, text=True
+        ).strip()
+
+    def run_guard(
+        self,
+        workflow_ref: str,
+        workflow_sha: str | None = None,
+    ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env.update(
             {
                 "GITHUB_ACTION_PATH": str(ROOT / "actions/central-framework-guard"),
                 "GITHUB_OUTPUT": os.devnull,
                 "WORKFLOW_REF": workflow_ref,
-                "WORKFLOW_SHA": subprocess.check_output(
-                    ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
-                ).strip(),
+                "WORKFLOW_SHA": workflow_sha or self.annotated_tag_object("pr-qa-v1-rc999"),
                 "WORKFLOW_REPOSITORY": "Synergie-ITCI/.github",
                 "WORKFLOW_FILE_PATH": ".github/workflows/fieldzilla-staging-opentofu-apply.yml",
                 "EXPECTED_REPOSITORY": "Synergie-ITCI/.github",
@@ -65,23 +86,56 @@ class CentralFrameworkGuardTests(unittest.TestCase):
         self.assertIn("require-release-tag:", text)
         self.assertIn("refs/tags/*", text)
         self.assertIn('normalized_ref="${ref#refs/tags/}"', text)
+        self.assertIn('object_type="$(git -C "${framework_root}" cat-file -t "${WORKFLOW_SHA}"', text)
+        self.assertIn('[ "${object_type}" = "tag" ]', text)
+        self.assertIn('[ "${tag_object}" = "${WORKFLOW_SHA}" ]', text)
+        self.assertIn('expected_commit="$(git -C "${framework_root}" rev-parse "${WORKFLOW_SHA}^{commit}")"', text)
         self.assertIn('actual="$(git -C "${framework_root}" rev-parse HEAD)"', text)
-        self.assertIn('[ "${actual}" = "${WORKFLOW_SHA}" ]', text)
+        self.assertIn('[ "${actual}" = "${expected_commit}" ]', text)
         self.assertNotIn("fieldzilla", text.lower())
 
-    def test_guard_accepts_github_reusable_workflow_tag_shorthand(self) -> None:
+    def test_guard_accepts_github_reusable_workflow_tag_shorthand_for_annotated_tag(self) -> None:
         proc = self.run_guard(
             "Synergie-ITCI/.github/.github/workflows/"
-            "fieldzilla-staging-opentofu-apply.yml@pr-qa-v1-rc163"
+            "fieldzilla-staging-opentofu-apply.yml@pr-qa-v1-rc999",
+            workflow_sha=self.annotated_tag_object("pr-qa-v1-rc999"),
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
-    def test_guard_accepts_expanded_tag_ref_representation(self) -> None:
+    def test_guard_accepts_expanded_tag_ref_representation_for_annotated_tag(self) -> None:
         proc = self.run_guard(
             "Synergie-ITCI/.github/.github/workflows/"
-            "fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc163"
+            "fieldzilla-staging-opentofu-apply.yml@refs/tags/pr-qa-v1-rc999",
+            workflow_sha=self.annotated_tag_object("pr-qa-v1-rc999"),
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_guard_rejects_lightweight_commit_sha_for_release_tag(self) -> None:
+        proc = self.run_guard(
+            "Synergie-ITCI/.github/.github/workflows/"
+            "fieldzilla-staging-opentofu-apply.yml@pr-qa-v1-rc999",
+            workflow_sha=self.git_rev_parse("HEAD"),
+        )
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("workflow SHA must be the protected annotated release tag object", proc.stderr)
+
+    def test_guard_rejects_annotated_tag_name_mismatch(self) -> None:
+        proc = self.run_guard(
+            "Synergie-ITCI/.github/.github/workflows/"
+            "fieldzilla-staging-opentofu-apply.yml@pr-qa-v1-rc999",
+            workflow_sha=self.annotated_tag_object("pr-qa-v1-rc998"),
+        )
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("annotated release tag name does not match workflow ref", proc.stderr)
+
+    def test_guard_rejects_annotated_tag_that_peels_to_different_commit(self) -> None:
+        proc = self.run_guard(
+            "Synergie-ITCI/.github/.github/workflows/"
+            "fieldzilla-staging-opentofu-apply.yml@pr-qa-v1-rc999",
+            workflow_sha=self.annotated_tag_object("pr-qa-v1-rc999", "HEAD^"),
+        )
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("does not match workflow release commit", proc.stderr)
 
     def test_guard_rejects_mutable_or_malformed_refs(self) -> None:
         refs = [
