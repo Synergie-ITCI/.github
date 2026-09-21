@@ -82,10 +82,21 @@ runs:
         ref="${WORKFLOW_REF#${prefix}}"
         if [ "${REQUIRE_RELEASE_TAG}" = "true" ]; then
           case "${ref}" in
-            refs/tags/pr-qa-v1-rc*[!0-9]*|"refs/tags/pr-qa-v1-rc"|refs/heads/*|"")
+            refs/tags/*)
+              normalized_ref="${ref#refs/tags/}"
+              ;;
+            refs/*)
               fail "workflow ref must be an immutable pr-qa release tag"
               ;;
-            refs/tags/pr-qa-v1-rc*)
+            *)
+              normalized_ref="${ref}"
+              ;;
+          esac
+          case "${normalized_ref}" in
+            pr-qa-v1-rc*[!0-9]*|"pr-qa-v1-rc"|"")
+              fail "workflow ref must be an immutable pr-qa release tag"
+              ;;
+            pr-qa-v1-rc*)
               ;;
             *)
               fail "workflow ref must be an immutable pr-qa release tag"
