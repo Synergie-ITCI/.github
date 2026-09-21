@@ -36,6 +36,10 @@ FIELDZILLA_RUNTIME_BOOTSTRAP_RESOURCES = {
     "aws_iam_role_policy_attachment.ssm_managed_instance_core": "aws_iam_role_policy_attachment",
     "aws_ssm_activation.staging_runtime": "aws_ssm_activation",
 }
+SECRET_VALUE_KEY_RE = re.compile(
+    r"(activation[_-]?code|password|passwd|secret|token|private[_-]?key|access[_-]?key)",
+    re.IGNORECASE,
+)
 RUNTIME_SECRET_ARN_PREFIX = (
     f"arn:aws:secretsmanager:{AWS_REGION}:{AWS_ACCOUNT}:secret:"
     "/synergie/fieldzilla/staging/runtime-"
@@ -651,13 +655,9 @@ def verify_fieldzilla_runtime_bootstrap_plan(doc: dict[str, Any]) -> None:
     if not isinstance(resource_changes, list):
         die("runtime bootstrap plan has invalid resource changes")
 
-    plan_json = json.dumps(doc, sort_keys=True).lower()
-    if "activation_code" in plan_json:
-        die("runtime bootstrap plan exposes SSM activation code")
-
-    for name, output in (doc.get("planned_values", {}).get("outputs") or {}).items():
-        if isinstance(output, dict) and output.get("sensitive") is not False:
-            die(f"runtime bootstrap output `{name}` is sensitive or unclassified")
+    leaked = known_plaintext_secret_path(doc)
+    if leaked:
+        die(f"runtime bootstrap plan exposes known plaintext secret value at `{leaked}`")
 
     for change in resource_changes:
         actions = change.get("change", {}).get("actions", [])
@@ -676,6 +676,34 @@ def verify_fieldzilla_runtime_bootstrap_plan(doc: dict[str, Any]) -> None:
     if counts != {"create": 4}:
         die("runtime bootstrap plan must be exactly 4 add, 0 change, 0 destroy")
     print("PLAN_COUNTS=" + json.dumps(counts, sort_keys=True))
+
+
+def _known_plaintext_value(value: Any) -> bool:
+    return value not in (None, "", [], {})
+
+
+def known_plaintext_secret_path(value: Any, path: tuple[str, ...] = ()) -> str | None:
+    if isinstance(value, dict):
+        if value.get("sensitive") is True and "value" in value and _known_plaintext_value(value.get("value")):
+            return ".".join(path + ("value",))
+        for key, child in value.items():
+            key_text = str(key)
+            child_path = path + (key_text,)
+            if key_text == "after_unknown":
+                continue
+            if SECRET_VALUE_KEY_RE.search(key_text) and not isinstance(child, (dict, list)):
+                if _known_plaintext_value(child):
+                    return ".".join(child_path)
+                continue
+            found = known_plaintext_secret_path(child, child_path)
+            if found:
+                return found
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            found = known_plaintext_secret_path(child, path + (str(index),))
+            if found:
+                return found
+    return None
 
 
 def _decode_container_definitions(value: Any) -> list[dict[str, Any]]:

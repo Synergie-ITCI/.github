@@ -503,14 +503,23 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
         plan = {
             "planned_values": {
                 "outputs": {
-                    "runtime_role_arn": {"sensitive": False, "value": "arn:aws:iam::918870682888:role/FieldZillaRuntime"}
+                    "runtime_role_arn": {"sensitive": False, "value": "arn:aws:iam::918870682888:role/FieldZillaRuntime"},
+                    "activation_code": {"sensitive": True},
                 }
             },
             "resource_changes": [
                 {"address": "aws_iam_role.ssm_hybrid", "type": "aws_iam_role", "change": {"actions": ["create"], "after": {"name": "fieldzilla-staging-runtime"}}},
                 {"address": "aws_iam_role_policy.runtime", "type": "aws_iam_role_policy", "change": {"actions": ["create"], "after": {}}},
                 {"address": "aws_iam_role_policy_attachment.ssm_managed_instance_core", "type": "aws_iam_role_policy_attachment", "change": {"actions": ["create"], "after": {}}},
-                {"address": "aws_ssm_activation.staging_runtime", "type": "aws_ssm_activation", "change": {"actions": ["create"], "after": {"name": "fieldzilla-staging-runtime"}}},
+                {
+                    "address": "aws_ssm_activation.staging_runtime",
+                    "type": "aws_ssm_activation",
+                    "change": {
+                        "actions": ["create"],
+                        "after": {"name": "fieldzilla-staging-runtime"},
+                        "after_unknown": {"activation_code": True},
+                    },
+                },
             ],
         }
         args = Namespace(plan_kind="fieldzilla-runtime-bootstrap", expected_sha=DEPLOY_SHA, image_digest="", image_digest_map="", ecs_families="")
@@ -530,11 +539,14 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             wrong_type["resource_changes"][0]["type"] = "aws_iam_policy"
             cases.append(wrong_type)
             sensitive = json.loads(json.dumps(plan))
-            sensitive["planned_values"]["outputs"]["runtime_role_arn"]["sensitive"] = True
+            sensitive["planned_values"]["outputs"]["activation_code"]["value"] = "SECRET"
             cases.append(sensitive)
             exposed_activation = json.loads(json.dumps(plan))
             exposed_activation["resource_changes"][3]["change"]["after"]["activation_code"] = "SECRET"
             cases.append(exposed_activation)
+            exposed_token = json.loads(json.dumps(plan))
+            exposed_token["resource_changes"][3]["change"]["after"]["api_token"] = "SECRET"
+            cases.append(exposed_token)
 
             for case in cases:
                 plan_json.write_text(json.dumps(case), encoding="utf-8")

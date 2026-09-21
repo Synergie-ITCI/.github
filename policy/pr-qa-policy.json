@@ -70,7 +70,8 @@
       {
         "repository": "Synergie-ITCI/programme-management-platform",
         "paths": [
-          "infra/aws/**"
+          "infra/aws/**",
+          "deploy/staging/fieldzilla-runtime/**"
         ],
         "required_reviewers": [
           "SaurabhVermaIN"
