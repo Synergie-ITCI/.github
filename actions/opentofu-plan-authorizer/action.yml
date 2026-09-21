@@ -91,6 +91,9 @@ inputs:
   backend-metadata-path:
     required: false
     description: Backend evidence JSON path.
+  expected-state-key:
+    required: false
+    description: Exact approved S3 backend state key for this root.
   plan-kind:
     required: false
     description: normal, post-import, drift or final plan.
@@ -127,6 +130,7 @@ runs:
         PLAN_JSON_PATH: ${{ inputs.plan-json-path }}
         IMPORT_MAP_PATH: ${{ inputs.import-map-path }}
         BACKEND_METADATA_PATH: ${{ inputs.backend-metadata-path }}
+        EXPECTED_STATE_KEY: ${{ inputs.expected-state-key }}
         PLAN_KIND: ${{ inputs.plan-kind }}
       run: |
         set -euo pipefail
@@ -167,7 +171,8 @@ runs:
             ;;
           verify-backend)
             python3 "${SCRIPT_PATH}" verify-backend \
-              --backend-metadata-path "${BACKEND_METADATA_PATH}"
+              --backend-metadata-path "${BACKEND_METADATA_PATH}" \
+              --expected-state-key "${EXPECTED_STATE_KEY}"
             ;;
           verify-source-artifact)
             python3 "${SCRIPT_PATH}" verify-source-artifact "${common_args[@]}" \
@@ -189,7 +194,8 @@ runs:
               --source-run-id "${SOURCE_RUN_ID}" \
               --artifact-id "${ARTIFACT_ID}" \
               --artifact-name "${ARTIFACT_NAME}" \
-              --expected-artifact-digest "${EXPECTED_ARTIFACT_DIGEST}"
+              --expected-artifact-digest "${EXPECTED_ARTIFACT_DIGEST}" \
+              --expected-state-key "${EXPECTED_STATE_KEY}"
             ;;
           verify-artifact-files)
             python3 "${SCRIPT_PATH}" verify-artifact-files \

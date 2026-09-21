@@ -39,6 +39,12 @@ class ReleasePreflightTests(unittest.TestCase):
             'env:\n  PR_QA_FRAMEWORK_RELEASE: "pr-qa-v1-test"\n',
         )
         self.write(
+            repo / ".github" / "workflows" / "fieldzilla-staging-opentofu-apply.yml",
+            (ROOT / ".github" / "workflows" / "fieldzilla-staging-opentofu-apply.yml").read_text(
+                encoding="utf-8"
+            ),
+        )
+        self.write(
             repo / "pr-qa" / "pr_qa.py",
             textwrap.dedent(
                 """\

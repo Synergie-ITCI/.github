@@ -97,6 +97,13 @@ on:
         description: Must be false; native environment reviewers take precedence when available.
         required: true
         type: boolean
+      tofu-root:
+        description: >-
+          Exact approved OpenTofu root. Allowed values are infra/aws and
+          deploy/staging/fieldzilla-runtime.
+        required: false
+        default: infra/aws
+        type: string
 
 permissions:
   actions: read
@@ -112,7 +119,6 @@ env:
   AWS_REGION: ap-south-1
   AWS_ACCOUNT_ID: "918870682888"
   STATE_BUCKET: synergie-fieldzilla-opentofu-state-918870682888-ap-south-1
-  STATE_KEY: programme-management-platform/fieldzilla/staging/opentofu.tfstate
   STATE_LOCK_TABLE: synergie-fieldzilla-opentofu-locks
   STATE_KMS_ALIAS: alias/synergie/fieldzilla/opentofu-state
   INFRA_APPLY_ROLE_ARN: arn:aws:iam::918870682888:role/SynergieProgrammeManagementPlatformStagingInfraApplyRole
@@ -152,6 +158,31 @@ jobs:
             echo "authorization failed: workflow commit SHA does not match approved caller SHA" >&2
             exit 1
           fi
+
+      - name: Resolve approved OpenTofu root
+        env:
+          REQUESTED_TOFU_ROOT: ${{ inputs.tofu-root }}
+        run: |
+          set -euo pipefail
+          case "${REQUESTED_TOFU_ROOT}" in
+            infra/aws)
+              state_key="programme-management-platform/fieldzilla/staging/opentofu.tfstate"
+              plan_kind_prefix=""
+              ;;
+            deploy/staging/fieldzilla-runtime)
+              state_key="programme-management-platform/fieldzilla/staging/runtime/opentofu.tfstate"
+              plan_kind_prefix="fieldzilla-runtime-bootstrap"
+              ;;
+            *)
+              echo "unsupported OpenTofu root: ${REQUESTED_TOFU_ROOT}" >&2
+              exit 1
+              ;;
+          esac
+          {
+            echo "TOFU_ROOT=${REQUESTED_TOFU_ROOT}"
+            echo "STATE_KEY=${state_key}"
+            echo "PLAN_KIND_PREFIX=${plan_kind_prefix}"
+          } >> "${GITHUB_ENV}"
 
       - name: Checkout central framework at workflow SHA
         uses: actions/checkout@v4
@@ -307,7 +338,7 @@ jobs:
       - name: Render remote backend override
         run: |
           set -euo pipefail
-          cat > infra/aws/backend_override.tf <<BACKEND
+          cat > "${TOFU_ROOT}/backend_override.tf" <<BACKEND
           terraform {
             backend "s3" {
               bucket         = "${STATE_BUCKET}"
@@ -333,13 +364,14 @@ jobs:
         with:
           command: verify-backend
           backend-metadata-path: ${{ runner.temp }}/backend.json
+          expected-state-key: ${{ env.STATE_KEY }}
 
       - name: Initialize remote OpenTofu state
         run: |
           set -euo pipefail
-          tofu -chdir=infra/aws fmt -check
-          tofu -chdir=infra/aws init -input=false -lockfile=readonly
-          tofu -chdir=infra/aws validate
+          tofu -chdir="${TOFU_ROOT}" fmt -check
+          tofu -chdir="${TOFU_ROOT}" init -input=false -lockfile=readonly
+          tofu -chdir="${TOFU_ROOT}" validate
 
       - name: Backup current remote state object
         if: ${{ inputs.mode == 'import' || inputs.mode == 'apply' }}
@@ -367,12 +399,12 @@ jobs:
           set -euo pipefail
           plan_dir="${RUNNER_TEMP}/fieldzilla-plan"
           mkdir -p "${plan_dir}"
-          tofu -chdir=infra/aws plan -input=false -lock=true -out="${plan_dir}/fieldzilla-staging.tfplan"
-          tofu -chdir=infra/aws show -no-color "${plan_dir}/fieldzilla-staging.tfplan" > "${plan_dir}/fieldzilla-staging.plan.txt"
-          tofu -chdir=infra/aws show -json "${plan_dir}/fieldzilla-staging.tfplan" > "${plan_dir}/fieldzilla-staging.plan.json"
+          tofu -chdir="${TOFU_ROOT}" plan -input=false -lock=true -out="${plan_dir}/fieldzilla-staging.tfplan"
+          tofu -chdir="${TOFU_ROOT}" show -no-color "${plan_dir}/fieldzilla-staging.tfplan" > "${plan_dir}/fieldzilla-staging.plan.txt"
+          tofu -chdir="${TOFU_ROOT}" show -json "${plan_dir}/fieldzilla-staging.tfplan" > "${plan_dir}/fieldzilla-staging.plan.json"
           cp "${RUNNER_TEMP}/backend.json" "${plan_dir}/backend.json"
           plan_sha="$(sha256sum "${plan_dir}/fieldzilla-staging.tfplan" | awk '{print $1}')"
-          lock_sha="$(sha256sum infra/aws/.terraform.lock.hcl | awk '{print $1}')"
+          lock_sha="$(sha256sum "${TOFU_ROOT}/.terraform.lock.hcl" | awk '{print $1}')"
           tofu_version="$(tofu version -json | python3 -c 'import json,sys; print(json.load(sys.stdin)["terraform_version"])')"
           export PLAN_SHA="${plan_sha}"
           export LOCK_SHA="${lock_sha}"
@@ -402,7 +434,7 @@ jobs:
         with:
           command: verify-plan-safety
           plan-json-path: ${{ runner.temp }}/fieldzilla-plan/fieldzilla-staging.plan.json
-          plan-kind: ${{ inputs.mode == 'plan' && 'normal' || inputs.mode == 'post-import-plan' && 'post-import' || 'drift' }}
+          plan-kind: ${{ env.PLAN_KIND_PREFIX != '' && env.PLAN_KIND_PREFIX || inputs.mode == 'plan' && 'normal' || inputs.mode == 'post-import-plan' && 'post-import' || 'drift' }}
           expected-sha: ${{ inputs.expected-sha }}
           image-digest: ${{ inputs.image-digest }}
           image-digest-map: ${{ inputs.image-digest-map }}
@@ -478,6 +510,7 @@ jobs:
         with:
           command: verify-artifact-metadata
           artifact-dir: ${{ env.APPROVED_DIR }}
+          expected-state-key: ${{ env.STATE_KEY }}
           expected-sha: ${{ inputs.expected-sha }}
           expected-caller-sha: ${{ inputs.expected-caller-sha }}
           expected-plan-sha256: ${{ inputs.expected-plan-sha256 }}
@@ -576,7 +609,7 @@ jobs:
           doc = json.loads(path.read_text())
           for item in doc["imports"]:
               subprocess.run(
-                  ["tofu", "-chdir=infra/aws", "import", "-input=false", "-lock=true", item["address"], item["id"]],
+                  ["tofu", "-chdir=" + os.environ["TOFU_ROOT"], "import", "-input=false", "-lock=true", item["address"], item["id"]],
                   check=True,
               )
           PY
@@ -602,7 +635,7 @@ jobs:
 
       - name: Verify approved apply plan safety
         if: ${{ inputs.mode == 'apply' }}
-        run: tofu -chdir=infra/aws show -json "${APPROVED_DIR}/fieldzilla-staging.tfplan" > "${RUNNER_TEMP}/approved-plan.json"
+        run: tofu -chdir="${TOFU_ROOT}" show -json "${APPROVED_DIR}/fieldzilla-staging.tfplan" > "${RUNNER_TEMP}/approved-plan.json"
 
       - name: Gate approved apply plan
         if: ${{ inputs.mode == 'apply' }}
@@ -610,7 +643,7 @@ jobs:
         with:
           command: verify-plan-safety
           plan-json-path: ${{ runner.temp }}/approved-plan.json
-          plan-kind: normal
+          plan-kind: ${{ env.PLAN_KIND_PREFIX != '' && env.PLAN_KIND_PREFIX || 'normal' }}
           expected-sha: ${{ inputs.expected-sha }}
           image-digest: ${{ inputs.image-digest }}
           image-digest-map: ${{ inputs.image-digest-map }}
@@ -641,4 +674,4 @@ jobs:
 
       - name: Apply exact approved plan artifact
         if: ${{ inputs.mode == 'apply' }}
-        run: tofu -chdir=infra/aws apply -input=false -lock=true "${APPROVED_DIR}/fieldzilla-staging.tfplan"
+        run: tofu -chdir="${TOFU_ROOT}" apply -input=false -lock=true "${APPROVED_DIR}/fieldzilla-staging.tfplan"

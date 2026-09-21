@@ -30,7 +30,7 @@ class FieldZillaRemoteStateGovernanceTests(unittest.TestCase):
         self.assertIn("STATE_BUCKET: synergie-fieldzilla-opentofu-state-918870682888-ap-south-1", workflow)
         self.assertIn("STATE_LOCK_TABLE: synergie-fieldzilla-opentofu-locks", workflow)
         self.assertIn('"plan","import","post-import-plan","drift","apply"', workflow)
-        self.assertIn("tofu -chdir=infra/aws init -input=false -lockfile=readonly", workflow)
+        self.assertIn('tofu -chdir="${TOFU_ROOT}" init -input=false -lockfile=readonly', workflow)
         self.assertIn("Verify existing encrypted remote-state backend", workflow)
         self.assertNotIn("create-key", workflow)
         self.assertNotIn("create-bucket", workflow)
@@ -92,7 +92,7 @@ class FieldZillaRemoteStateGovernanceTests(unittest.TestCase):
         import_index = workflow.index("name: Controlled import into locked remote state")
         self.assertLess(verify_index, import_index)
         self.assertIn('"import-map.json"', workflow)
-        self.assertIn('"tofu", "-chdir=infra/aws", "import", "-input=false", "-lock=true"', workflow)
+        self.assertIn('"tofu", "-chdir=" + os.environ["TOFU_ROOT"], "import", "-input=false", "-lock=true"', workflow)
 
     def test_workflow_preserves_exact_artifact_and_oidc_release_binding(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
@@ -107,7 +107,7 @@ class FieldZillaRemoteStateGovernanceTests(unittest.TestCase):
         self.assertIn("Verify OIDC token claims", workflow)
         self.assertIn("verify-source-artifact", workflow)
         self.assertIn("mark-used", workflow)
-        self.assertIn("tofu -chdir=infra/aws apply -input=false -lock=true", workflow)
+        self.assertIn('tofu -chdir="${TOFU_ROOT}" apply -input=false -lock=true', workflow)
 
     def test_plan_safety_rejects_destructive_dns_or_production_changes(self) -> None:
         module = load_authorizer()

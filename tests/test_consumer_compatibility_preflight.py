@@ -62,6 +62,40 @@ class ConsumerCompatibilityPreflightTests(unittest.TestCase):
             "does not satisfy controlled Gate D authorization",
         )
 
+    def test_positive_programme_management_fieldzilla_runtime_fixture_passes(self) -> None:
+        self.assertEqual(
+            self.module.validate_consumer_workflow(
+                ROOT,
+                self.module.programme_management_fieldzilla_runtime_fixture(),
+                require_controlled_gate_d=False,
+            ),
+            [],
+        )
+
+    def test_programme_management_missing_required_input_fails(self) -> None:
+        self.assert_violation(
+            self.module.programme_management_fieldzilla_runtime_fixture(include_required_input=False),
+            "missing required input `expected-sha`",
+        )
+
+    def test_programme_management_unknown_input_fails(self) -> None:
+        self.assert_violation(
+            self.module.programme_management_fieldzilla_runtime_fixture(unknown_input=True),
+            "undeclared input `surprise-input`",
+        )
+
+    def test_programme_management_mutable_workflow_ref_fails(self) -> None:
+        self.assert_violation(
+            self.module.programme_management_fieldzilla_runtime_fixture(workflow_ref="main"),
+            "central reusable workflow reference must be immutable",
+        )
+
+    def test_programme_management_unapproved_tofu_root_fails(self) -> None:
+        self.assert_violation(
+            self.module.programme_management_fieldzilla_runtime_fixture(tofu_root="deploy/production"),
+            "tofu-root is not in the central allowlist",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
