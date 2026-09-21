@@ -109,6 +109,32 @@ class FieldZillaRemoteStateGovernanceTests(unittest.TestCase):
         self.assertIn("mark-used", workflow)
         self.assertIn('tofu -chdir="${TOFU_ROOT}" apply -input=false -lock=true', workflow)
 
+    def test_exact_plan_apply_is_runtime_root_only_and_hash_bound(self) -> None:
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn("environment: synergie-app-staging", workflow)
+        self.assertIn('"deploy/staging/fieldzilla-runtime"', workflow)
+        self.assertIn('if [ "${REQUESTED_MODE}" = "apply" ] && [ "${REQUESTED_TOFU_ROOT}" != "deploy/staging/fieldzilla-runtime" ]; then', workflow)
+        self.assertIn("apply mode is approved only for deploy/staging/fieldzilla-runtime", workflow)
+        self.assertIn('command: verify-source-artifact', workflow)
+        self.assertIn('command: verify-artifact-metadata', workflow)
+        self.assertIn('command: verify-plan-safety', workflow)
+        self.assertIn("plan-kind: ${{ env.PLAN_KIND_PREFIX != '' && env.PLAN_KIND_PREFIX || 'normal' }}", workflow)
+        self.assertIn('actual_plan_sha="$(sha256sum "${APPROVED_DIR}/fieldzilla-staging.tfplan"', workflow)
+        self.assertIn('if [ "${actual_plan_sha}" != "${EXPECTED_PLAN_SHA256}" ]; then', workflow)
+        self.assertIn("approved plan artifact hash changed before apply", workflow)
+
+        verify_source = workflow.index("name: Verify approved source artifact")
+        verify_metadata = workflow.index("name: Verify approved artifact metadata and files")
+        gate_plan = workflow.index("name: Gate approved apply plan")
+        mark_used = workflow.index("name: Mark apply authorization used")
+        apply = workflow.index("name: Apply exact approved plan artifact")
+        self.assertLess(verify_source, verify_metadata)
+        self.assertLess(verify_metadata, gate_plan)
+        self.assertLess(gate_plan, mark_used)
+        self.assertLess(mark_used, apply)
+        self.assertNotIn("tofu output", workflow)
+
     def test_plan_safety_rejects_destructive_dns_or_production_changes(self) -> None:
         module = load_authorizer()
         base = {

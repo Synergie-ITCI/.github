@@ -162,6 +162,7 @@ jobs:
       - name: Resolve approved OpenTofu root
         env:
           REQUESTED_TOFU_ROOT: ${{ inputs.tofu-root }}
+          REQUESTED_MODE: ${{ inputs.mode }}
         run: |
           set -euo pipefail
           case "${REQUESTED_TOFU_ROOT}" in
@@ -178,6 +179,10 @@ jobs:
               exit 1
               ;;
           esac
+          if [ "${REQUESTED_MODE}" = "apply" ] && [ "${REQUESTED_TOFU_ROOT}" != "deploy/staging/fieldzilla-runtime" ]; then
+            echo "apply mode is approved only for deploy/staging/fieldzilla-runtime" >&2
+            exit 1
+          fi
           {
             echo "TOFU_ROOT=${REQUESTED_TOFU_ROOT}"
             echo "STATE_KEY=${state_key}"
@@ -674,4 +679,13 @@ jobs:
 
       - name: Apply exact approved plan artifact
         if: ${{ inputs.mode == 'apply' }}
-        run: tofu -chdir="${TOFU_ROOT}" apply -input=false -lock=true "${APPROVED_DIR}/fieldzilla-staging.tfplan"
+        env:
+          EXPECTED_PLAN_SHA256: ${{ inputs.expected-plan-sha256 }}
+        run: |
+          set -euo pipefail
+          actual_plan_sha="$(sha256sum "${APPROVED_DIR}/fieldzilla-staging.tfplan" | awk '{print $1}')"
+          if [ "${actual_plan_sha}" != "${EXPECTED_PLAN_SHA256}" ]; then
+            echo "approved plan artifact hash changed before apply" >&2
+            exit 1
+          fi
+          tofu -chdir="${TOFU_ROOT}" apply -input=false -lock=true "${APPROVED_DIR}/fieldzilla-staging.tfplan"
