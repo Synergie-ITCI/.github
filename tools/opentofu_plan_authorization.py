@@ -651,6 +651,7 @@ def verify_fieldzilla_runtime_bootstrap_plan(doc: dict[str, Any]) -> None:
     resource_changes = doc.get("resource_changes", [])
     counts: dict[str, int] = {}
     created: dict[str, str] = {}
+    seen: set[str] = set()
 
     if not isinstance(resource_changes, list):
         die("runtime bootstrap plan has invalid resource changes")
@@ -660,23 +661,32 @@ def verify_fieldzilla_runtime_bootstrap_plan(doc: dict[str, Any]) -> None:
         die(f"runtime bootstrap plan exposes known plaintext secret value at `{leaked}`")
 
     for change in resource_changes:
+        if not isinstance(change, dict) or not isinstance(change.get("change"), dict):
+            die("runtime bootstrap plan has invalid resource change shape")
         actions = change.get("change", {}).get("actions", [])
+        if not isinstance(actions, list) or not all(isinstance(action, str) for action in actions):
+            die("runtime bootstrap plan has invalid action shape")
         key = ",".join(actions)
         counts[key] = counts.get(key, 0) + 1
         address = str(change.get("address", ""))
         rtype = str(change.get("type", ""))
-        if actions != ["create"]:
-            die("runtime bootstrap plan must contain only creates")
         if FIELDZILLA_RUNTIME_BOOTSTRAP_RESOURCES.get(address) != rtype:
             die(f"runtime bootstrap plan contains unapproved resource `{address}`")
+        if address in seen:
+            die(f"runtime bootstrap plan contains duplicate resource `{address}`")
+        seen.add(address)
+        if actions == ["no-op"]:
+            continue
+        if actions != ["create"]:
+            die("runtime bootstrap plan must contain only approved creates and no-ops")
         created[address] = rtype
 
     if not created:
         die("runtime bootstrap recovery plan must create at least one approved resource")
     if any(FIELDZILLA_RUNTIME_BOOTSTRAP_RESOURCES.get(address) != rtype for address, rtype in created.items()):
         die("runtime bootstrap plan does not match the approved resource allowlist")
-    if counts != {"create": len(created)}:
-        die("runtime bootstrap plan must contain only adds, with 0 change and 0 destroy")
+    if any(action not in {"create", "no-op"} for action in counts):
+        die("runtime bootstrap plan must contain 0 update, 0 replace and 0 destroy")
     print("PLAN_COUNTS=" + json.dumps(counts, sort_keys=True))
 
 

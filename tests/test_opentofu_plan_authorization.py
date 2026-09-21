@@ -16,6 +16,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
+FIXTURES = ROOT / "tests" / "fixtures"
 
 import opentofu_plan_authorization as auth  # noqa: E402
 
@@ -577,22 +578,64 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             plan_json.write_text(json.dumps(activation_only), encoding="utf-8")
             auth.verify_plan_safety(Namespace(plan_json_path=plan_json, **vars(args)))
 
+            # Exact sanitized failed-run shape from 35615426649: the three IAM resources
+            # are already present/no-op and only the SSM activation remains a create.
+            full_partial_recovery = json.loads(
+                (FIXTURES / "fieldzilla_runtime_bootstrap_partial_recovery_plan.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            plan_json.write_text(json.dumps(full_partial_recovery), encoding="utf-8")
+            auth.verify_plan_safety(Namespace(plan_json_path=plan_json, **vars(args)))
+
+            replay = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "actions/opentofu-plan-authorizer/opentofu_plan_authorization.py"),
+                    "verify-plan-safety",
+                    "--plan-json-path",
+                    str(plan_json),
+                    "--plan-kind",
+                    "fieldzilla-runtime-bootstrap",
+                    "--expected-sha",
+                    DEPLOY_SHA,
+                    "--image-digest",
+                    "",
+                    "--image-digest-map",
+                    "",
+                    "--ecs-families",
+                    "",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(replay.returncode, 0, replay.stderr)
+            self.assertIn('"create": 1', replay.stdout)
+            self.assertIn('"no-op": 3', replay.stdout)
+
             cases = []
             empty = json.loads(json.dumps(plan))
             empty["resource_changes"] = []
             cases.append(empty)
+            all_no_op = json.loads(json.dumps(full_partial_recovery))
+            all_no_op["resource_changes"][3]["change"]["actions"] = ["no-op"]
+            cases.append(all_no_op)
             extra = json.loads(json.dumps(plan))
             extra["resource_changes"].append({"address": "aws_s3_bucket.bad", "type": "aws_s3_bucket", "change": {"actions": ["create"], "after": {}}})
             cases.append(extra)
             changed = json.loads(json.dumps(plan))
             changed["resource_changes"][0]["change"]["actions"] = ["update"]
             cases.append(changed)
-            no_op = json.loads(json.dumps(plan))
-            no_op["resource_changes"][0]["change"]["actions"] = ["no-op"]
-            cases.append(no_op)
             delete_create = json.loads(json.dumps(plan))
             delete_create["resource_changes"][0]["change"]["actions"] = ["delete", "create"]
             cases.append(delete_create)
+            malformed_actions = json.loads(json.dumps(plan))
+            malformed_actions["resource_changes"][0]["change"]["actions"] = "create"
+            cases.append(malformed_actions)
+            duplicate = json.loads(json.dumps(plan))
+            duplicate["resource_changes"].append(json.loads(json.dumps(duplicate["resource_changes"][0])))
+            cases.append(duplicate)
             wrong_type = json.loads(json.dumps(plan))
             wrong_type["resource_changes"][0]["type"] = "aws_iam_policy"
             cases.append(wrong_type)

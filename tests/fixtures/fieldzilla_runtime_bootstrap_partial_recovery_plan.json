@@ -1,0 +1,62 @@
+{
+  "planned_values": {
+    "outputs": {
+      "activation_code": {
+        "sensitive": true
+      },
+      "runtime_role_arn": {
+        "sensitive": false,
+        "value": "arn:aws:iam::918870682888:role/FieldZillaRuntime"
+      }
+    }
+  },
+  "resource_changes": [
+    {
+      "address": "aws_iam_role.ssm_hybrid",
+      "change": {
+        "actions": [
+          "no-op"
+        ],
+        "after": {
+          "name": "fieldzilla-staging-runtime"
+        }
+      },
+      "type": "aws_iam_role"
+    },
+    {
+      "address": "aws_iam_role_policy.runtime",
+      "change": {
+        "actions": [
+          "no-op"
+        ],
+        "after": {}
+      },
+      "type": "aws_iam_role_policy"
+    },
+    {
+      "address": "aws_iam_role_policy_attachment.ssm_managed_instance_core",
+      "change": {
+        "actions": [
+          "no-op"
+        ],
+        "after": {}
+      },
+      "type": "aws_iam_role_policy_attachment"
+    },
+    {
+      "address": "aws_ssm_activation.staging_runtime",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "after": {
+          "name": "fieldzilla-staging-runtime"
+        },
+        "after_unknown": {
+          "activation_code": true
+        }
+      },
+      "type": "aws_ssm_activation"
+    }
+  ]
+}
