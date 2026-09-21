@@ -317,6 +317,32 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 auth.verify_source_artifact(args)
 
+        def mismatched_artifact_api(path: str, method: str = "GET", payload: dict[str, object] | None = None):
+            if path == "actions/runs/34706513572":
+                return {
+                    "head_repository": {"full_name": "Synergie-ITCI/programme-management-platform", "id": 1315697868},
+                    "head_sha": CALLER_SHA,
+                    "conclusion": "success",
+                    "path": ".github/workflows/fieldzilla-staging-iac.yml",
+                    "run_attempt": 1,
+                }
+            if path == "actions/runs/34706513572/artifacts?per_page=100":
+                return {
+                    "artifacts": [
+                        {
+                            "id": 123456,
+                            "name": f"fieldzilla-staging-plan-{'b' * 40}-34706513572",
+                            "expired": False,
+                            "digest": "sha256:" + "e" * 64,
+                        }
+                    ]
+                }
+            raise AssertionError(path)
+
+        with mock.patch.object(auth, "github_api", side_effect=mismatched_artifact_api):
+            with self.assertRaises(SystemExit):
+                auth.verify_source_artifact(args)
+
     def test_verify_source_artifact_rejects_malformed_caller_sha(self) -> None:
         args = valid_args(
             source_run_id="34706513572",
@@ -390,6 +416,22 @@ class FieldZillaPlanAuthorizationTests(unittest.TestCase):
             # plan and apply" case, which must fail closed and force plan regeneration.
             with self.assertRaises(SystemExit):
                 auth.verify_artifact_metadata(base_args(expected_caller_sha="d" * 40))
+
+            # Rejected: a tampered/stale downloaded plan whose bytes no longer match the
+            # operator-approved SHA cannot reach the exact apply step.
+            with self.assertRaises(SystemExit):
+                auth.verify_artifact_metadata(base_args(expected_plan_sha256="0" * 64))
+
+            # Approved: the isolated runtime root's separate state key is accepted only
+            # when the apply invocation explicitly expects that key.
+            runtime_state_key = "programme-management-platform/fieldzilla/staging/runtime/opentofu.tfstate"
+            write_metadata(metadata_doc(state_key=runtime_state_key))
+            auth.verify_artifact_metadata(base_args(expected_state_key=runtime_state_key))
+
+            # Rejected: a plan artifact for any other backend key cannot be substituted
+            # into the isolated runtime-root apply approval.
+            with self.assertRaises(SystemExit):
+                auth.verify_artifact_metadata(base_args())
 
             # Rejected: legacy-ambiguity guard -- an artifact generated before this fix,
             # whose metadata.json has no caller_sha field at all, must never be silently
