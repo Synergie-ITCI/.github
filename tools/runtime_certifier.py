@@ -62,6 +62,8 @@ SUPPORTED_RUNTIME_KINDS = {
 SUPPORTED_PERSISTENCE_MECHANISMS = {
     "SYMLINK",
     "BIND_MOUNT",
+    "S3_OBJECT_STORAGE",
+    "DATABASE_METADATA",
 }
 
 
@@ -203,10 +205,55 @@ def validate_persistent_data(paths: tuple[PersistentDataPath, ...]) -> None:
             raise CertifierError(
                 "The declared persistence mechanism is not supported by Runtime Certifier v1."
             )
+        if mechanism == "S3_OBJECT_STORAGE":
+            validate_s3_persistence_path(item.physical_path)
+        if mechanism == "DATABASE_METADATA":
+            validate_database_metadata_path(item.physical_path)
 
 
 def normalize_persistence_mechanism(value: str) -> str:
     return value.strip().replace("-", "_").upper()
+
+
+S3_PERSISTENCE_RE = re.compile(
+    r"^s3://[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]/[^?#\s]+$"
+)
+DATABASE_METADATA_RE = re.compile(
+    r"^database://[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$"
+)
+
+
+def validate_s3_persistence_path(value: str) -> None:
+    parsed = urlparse(value)
+    if parsed.scheme != "s3" or not parsed.netloc or not parsed.path.strip("/"):
+        raise CertifierError(
+            "S3_OBJECT_STORAGE physical_path must be s3://bucket/key"
+        )
+    if parsed.query or parsed.fragment or parsed.username or parsed.password:
+        raise CertifierError(
+            "S3_OBJECT_STORAGE physical_path must not contain credentials, query, or fragment"
+        )
+    if not S3_PERSISTENCE_RE.fullmatch(value):
+        raise CertifierError(
+            "S3_OBJECT_STORAGE physical_path contains unsupported characters"
+        )
+    path_parts = [part for part in parsed.path.split("/") if part]
+    if any(part in {".", ".."} for part in path_parts):
+        raise CertifierError(
+            "S3_OBJECT_STORAGE physical_path must not contain path traversal"
+        )
+
+
+def validate_database_metadata_path(value: str) -> None:
+    parsed = urlparse(value)
+    if parsed.scheme != "database" or not parsed.netloc or parsed.path or parsed.query or parsed.fragment:
+        raise CertifierError(
+            "DATABASE_METADATA physical_path must be database://table.column"
+        )
+    if not DATABASE_METADATA_RE.fullmatch(value):
+        raise CertifierError(
+            "DATABASE_METADATA physical_path must identify table and column names"
+        )
 
 
 def build_remote_script(config: Config) -> str:
@@ -953,17 +1000,45 @@ certify_persistent_data_path() {
   mechanism="$3"
   app_target="$APP_PATH/$application_path"
 
-  { test -e "$app_target" || test -L "$app_target"; } \
-    || cert_fail "Persistent Data Safety: declared application path is missing"
-
-  expected_target="$(resolve_declared_path "$physical_path")" \
-    || cert_fail "Persistent Data Safety: declared physical path is missing"
-
-  test -e "$expected_target" \
-    || cert_fail "Persistent Data Safety: declared physical path is missing"
-
   case "$mechanism" in
+    S3_OBJECT_STORAGE)
+      case "$physical_path" in
+        s3://*/*)
+          ;;
+        *)
+          cert_fail "Persistent Data Safety: S3 object storage path is malformed"
+          ;;
+      esac
+
+      case "$physical_path" in
+        *".."*|*"?"*|*"#"*|*" "*|*"@"*)
+          cert_fail "Persistent Data Safety: S3 object storage path contains unsafe characters"
+          ;;
+      esac
+
+      return 0
+      ;;
+    DATABASE_METADATA)
+      case "$physical_path" in
+        database://*.*)
+          ;;
+        *)
+          cert_fail "Persistent Data Safety: database metadata path is malformed"
+          ;;
+      esac
+
+      return 0
+      ;;
     SYMLINK)
+      { test -e "$app_target" || test -L "$app_target"; } \
+        || cert_fail "Persistent Data Safety: declared application path is missing"
+
+      expected_target="$(resolve_declared_path "$physical_path")" \
+        || cert_fail "Persistent Data Safety: declared physical path is missing"
+
+      test -e "$expected_target" \
+        || cert_fail "Persistent Data Safety: declared physical path is missing"
+
       test -L "$app_target" \
         || cert_fail "Persistent Data Safety: declared persistent path is a plain directory inside the current release"
 
@@ -974,6 +1049,15 @@ certify_persistent_data_path() {
         || cert_fail "Persistent Data Safety: resolved target does not match declared physical path"
       ;;
     BIND_MOUNT)
+      { test -e "$app_target" || test -L "$app_target"; } \
+        || cert_fail "Persistent Data Safety: declared application path is missing"
+
+      expected_target="$(resolve_declared_path "$physical_path")" \
+        || cert_fail "Persistent Data Safety: declared physical path is missing"
+
+      test -e "$expected_target" \
+        || cert_fail "Persistent Data Safety: declared physical path is missing"
+
       test -d "$app_target" \
         || cert_fail "Persistent Data Safety: declared bind mount application path is missing"
 

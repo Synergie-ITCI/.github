@@ -1165,12 +1165,72 @@ class RuntimeCertifierShellHarnessTests(unittest.TestCase):
         self.assertIn("bind mount source does not match declared physical path", proc.stdout)
         self.assertIn("PRODUCTION_MUTATED=NO", proc.stdout)
 
+    def test_persistent_data_s3_object_storage_passes_without_local_directory(self):
+        proc = run_shell_harness(
+            DEPLOY,
+            persistent_data=[
+                persistent_path(
+                    application_path="assets/CommunicationAttachments",
+                    physical_path="s3://castrol-production/app/assets/CommunicationAttachments",
+                    persistence_mechanism="S3_OBJECT_STORAGE",
+                ),
+                persistent_path(
+                    application_path="db_column",
+                    physical_path="database://" + "communication_attachments" + "." + "object_key",
+                    persistence_mechanism="DATABASE_METADATA",
+                ),
+            ],
+        )
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("PERSISTENT_DATA_SAFETY=PASS", proc.stdout)
+        self.assertIn("PRODUCTION_MUTATED=NO", proc.stdout)
+
+    def test_persistent_data_s3_object_storage_rejects_traversal(self):
+        with self.assertRaises(mod.CertifierError):
+            mod.build_remote_script(
+                config(
+                    persistent_data=[
+                        persistent_path(
+                            physical_path="s3://castrol-production/app/../secrets",
+                            persistence_mechanism="S3_OBJECT_STORAGE",
+                        )
+                    ]
+                )
+            )
+
+    def test_persistent_data_s3_object_storage_rejects_credentials(self):
+        with self.assertRaises(mod.CertifierError):
+            mod.build_remote_script(
+                config(
+                    persistent_data=[
+                        persistent_path(
+                            physical_path="s3://token@castrol-production/app/uploads",
+                            persistence_mechanism="S3_OBJECT_STORAGE",
+                        )
+                    ]
+                )
+            )
+
+    def test_persistent_data_database_metadata_rejects_malformed_path(self):
+        with self.assertRaises(mod.CertifierError):
+            mod.build_remote_script(
+                config(
+                    persistent_data=[
+                        persistent_path(
+                            physical_path="database://" + "communication_attachments",
+                            persistence_mechanism="DATABASE_METADATA",
+                        )
+                    ]
+                )
+            )
+
     def test_persistent_data_unsupported_mechanism_fails_closed(self):
         with self.assertRaises(mod.CertifierError):
             mod.build_remote_script(
                 config(
                     persistent_data=[
-                        persistent_path(persistence_mechanism="object_storage")
+                        persistent_path(persistence_mechanism="unknown_storage")
                     ]
                 )
             )
