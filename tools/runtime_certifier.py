@@ -215,8 +215,10 @@ def normalize_persistence_mechanism(value: str) -> str:
     return value.strip().replace("-", "_").upper()
 
 
+S3_BUCKET_COMPONENT_RE = r"(?:[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]|\$\{[A-Z][A-Z0-9_]*\})"
+S3_KEY_COMPONENT_RE = r"(?:[A-Za-z0-9._/-]|\$\{[A-Z][A-Z0-9_]*\})+"
 S3_PERSISTENCE_RE = re.compile(
-    r"^s3://[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]/[^?#\s]+$"
+    rf"^s3://{S3_BUCKET_COMPONENT_RE}/{S3_KEY_COMPONENT_RE}$"
 )
 DATABASE_METADATA_RE = re.compile(
     r"^database://[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$"

@@ -1186,6 +1186,19 @@ class RuntimeCertifierShellHarnessTests(unittest.TestCase):
         self.assertIn("PERSISTENT_DATA_SAFETY=PASS", proc.stdout)
         self.assertIn("PRODUCTION_MUTATED=NO", proc.stdout)
 
+    def test_persistent_data_s3_object_storage_accepts_safe_placeholders(self):
+        mod.build_remote_script(
+            config(
+                persistent_data=[
+                    persistent_path(
+                        application_path="assets/CommunicationAttachments",
+                        physical_path="s3://${AWS_BUCKET}/${AWS_FOLDER}/assets/CommunicationAttachments",
+                        persistence_mechanism="S3_OBJECT_STORAGE",
+                    )
+                ]
+            )
+        )
+
     def test_persistent_data_s3_object_storage_rejects_traversal(self):
         with self.assertRaises(mod.CertifierError):
             mod.build_remote_script(
