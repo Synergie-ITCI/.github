@@ -3836,6 +3836,7 @@ APPROVED_RUNTIME_CERTIFIER_ACTIONS = {
     "Synergie-ITCI/.github/actions/runtime-certifier@runtime-certifier-action-v1.4",
     "Synergie-ITCI/.github/actions/runtime-certifier@runtime-certifier-action-v1.5",
     "Synergie-ITCI/.github/actions/runtime-certifier@runtime-certifier-action-v1.6",
+    "Synergie-ITCI/.github/actions/runtime-certifier@runtime-certifier-action-v1.8",
 }
 APPROVED_SSM_ARTIFACT_PROMOTER_RE = re.compile(
     r"^Synergie-ITCI/\.github/actions/ssm-artifact-promoter@pr-qa-v1-rc[1-9][0-9]*$"
