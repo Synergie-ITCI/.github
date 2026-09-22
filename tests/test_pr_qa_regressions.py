@@ -6034,6 +6034,7 @@ jobs:
             "runtime-certifier-action-v1.5",
             "runtime-certifier-action-v1.6",
             "runtime-certifier-action-v1.8",
+            "runtime-certifier-action-v1.9",
         ):
             with self.subTest(release=release):
                 repo, base = self.init_repo("approved-gate-d-" + release.replace(".", "-"))
@@ -6051,7 +6052,7 @@ jobs:
 
     def test_controlled_gate_d_rejects_unapproved_runtime_certifier_actions(self) -> None:
         cases = {
-            "future-runtime-release": {"runtime_release": "runtime-certifier-action-v1.9"},
+            "future-runtime-release": {"runtime_release": "runtime-certifier-action-v1.10"},
             "mutable-runtime-release": {"runtime_release": "main"},
             "wrong-action": {
                 "runtime_action": "ExampleOrg/.github/actions/runtime-certifier",
