@@ -106,8 +106,6 @@ def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str) -> bool:
             ),
             encoding="utf-8",
         )
-        env = os.environ.copy()
-        env["PR_QA_FRAMEWORK_RELEASE"] = active_release(root) or ""
         proc = subprocess.run(
             [
                 sys.executable,
@@ -122,7 +120,6 @@ def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str) -> bool:
                 str(tmp_path / "pr-quality-report.json"),
             ],
             cwd=root,
-            env=env,
         )
         return proc.returncode == 0
 
