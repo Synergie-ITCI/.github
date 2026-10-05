@@ -3839,6 +3839,9 @@ APPROVED_RUNTIME_CERTIFIER_ACTIONS = {
     "Synergie-ITCI/.github/actions/runtime-certifier@runtime-certifier-action-v1.8",
     "Synergie-ITCI/.github/actions/runtime-certifier@runtime-certifier-action-v1.9",
 }
+APPROVED_CUSTOM_DOCUMENT_RUNTIME_CERTIFIER_ACTIONS = {
+    "Synergie-ITCI/.github/actions/runtime-certifier@runtime-certifier-action-v1.10",
+}
 APPROVED_SSM_ARTIFACT_PROMOTER_RE = re.compile(
     r"^Synergie-ITCI/\.github/actions/ssm-artifact-promoter@pr-qa-v1-rc[1-9][0-9]*$"
 )
@@ -4071,9 +4074,18 @@ def workflow_has_runtime_certifier_guard(
 
             uses = str(step.get("uses", "") or "").strip()
 
-            if uses in APPROVED_RUNTIME_CERTIFIER_ACTIONS:
+            with_values = step.get("with", {})
+            custom_document_mode = (
+                isinstance(with_values, dict)
+                and bool(str(with_values.get("ssm-document-name", "")).strip())
+            )
+            approved_certifier = uses in APPROVED_RUNTIME_CERTIFIER_ACTIONS or (
+                uses in APPROVED_CUSTOM_DOCUMENT_RUNTIME_CERTIFIER_ACTIONS
+                and custom_document_mode
+            )
+
+            if approved_certifier:
                 step_id = str(step.get("id", "") or "").strip()
-                with_values = step.get("with", {})
                 supplied_inputs = (
                     {str(key) for key in with_values}
                     if isinstance(with_values, dict)
