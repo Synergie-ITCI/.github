@@ -24,6 +24,7 @@ class RuntimeCertifierActionTests(unittest.TestCase):
     def test_required_runtime_inputs_exist(self):
         for value in (
             "instance-id:",
+            "ssm-document-name:",
             "app-path:",
             "app-user:",
             "validation-url:",
@@ -40,6 +41,12 @@ class RuntimeCertifierActionTests(unittest.TestCase):
     def test_action_passes_governance_config_to_certifier(self):
         self.assertIn(
             '--governance-config "${{ inputs.governance-config }}"',
+            self.text,
+        )
+
+    def test_action_passes_optional_ssm_document_to_certifier(self):
+        self.assertIn(
+            '--ssm-document-name "${{ inputs.ssm-document-name }}"',
             self.text,
         )
 

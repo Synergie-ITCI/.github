@@ -5473,6 +5473,7 @@ jobs:
         certifier_after_deploy: bool = False,
         remote_action: bool = False,
         remote_release: str = "pr-qa-v1-rc160",
+        custom_certifier_document: bool = False,
     ) -> str:
         lines = [
             "name: Controlled Production Gate D",
@@ -5582,6 +5583,10 @@ jobs:
                 f"          runtime-kind: {runtime_kind}",
                 f'          runtime-version: "{runtime_version}"',
             ]
+            if custom_certifier_document:
+                runtime_lines.append(
+                    "          ssm-document-name: Synergie-Example-Production-Certify"
+                )
 
         if runtime_lines and not certifier_after_deploy:
             lines.extend(runtime_lines)
@@ -6035,6 +6040,7 @@ jobs:
             "runtime-certifier-action-v1.6",
             "runtime-certifier-action-v1.8",
             "runtime-certifier-action-v1.9",
+            "runtime-certifier-action-v1.10",
         ):
             with self.subTest(release=release):
                 repo, base = self.init_repo("approved-gate-d-" + release.replace(".", "-"))
@@ -6052,7 +6058,7 @@ jobs:
 
     def test_controlled_gate_d_rejects_unapproved_runtime_certifier_actions(self) -> None:
         cases = {
-            "future-runtime-release": {"runtime_release": "runtime-certifier-action-v1.10"},
+            "future-runtime-release": {"runtime_release": "runtime-certifier-action-v1.11"},
             "mutable-runtime-release": {"runtime_release": "main"},
             "wrong-action": {
                 "runtime_action": "ExampleOrg/.github/actions/runtime-certifier",
@@ -6072,6 +6078,23 @@ jobs:
 
                 self.assertNotEqual(code, 0, report)
                 self.assertEqual(report_json["summary"]["gate_statuses"]["Deployment Risk"], "FAIL")
+
+    def test_controlled_gate_d_accepts_restricted_custom_certifier_document(self) -> None:
+        repo, base = self.init_repo("custom-document-gate-d")
+        self.write(
+            repo / ".github" / "workflows" / "production-deploy.yml",
+            self.controlled_gate_d_workflow(
+                runtime_release="runtime-certifier-action-v1.10",
+                custom_certifier_document=True,
+            ),
+        )
+        self.commit(repo, "ci: add restricted custom document gate d")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Deployment Risk"], "WARNING")
+        self.assertIn("CONTROLLED_PRODUCTION_GATE_D", report)
 
     def test_controlled_gate_d_accepts_static_vite_apache_runtime_certifier(self) -> None:
         repo, base = self.init_repo("approved-static-vite-apache-gate-d")

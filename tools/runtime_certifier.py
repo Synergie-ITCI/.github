@@ -99,6 +99,7 @@ class Config:
     legacy_baseline_path: str = ""
     repository: str = ""
     host_profile: str = ""
+    ssm_document_name: str = ""
 
 
 def validate_config(config: Config) -> None:
@@ -149,6 +150,14 @@ def validate_config(config: Config) -> None:
 
     if not config.app_path.startswith("/"):
         raise CertifierError("app_path must be absolute")
+
+    if config.ssm_document_name:
+        if not re.fullmatch(r"Synergie-[A-Za-z0-9_.-]{3,119}", config.ssm_document_name):
+            raise CertifierError("custom SSM document must use an approved Synergie-* name")
+        if config.host_profile:
+            raise CertifierError("custom SSM document mode does not support host-profile")
+        if config.rollback_kind != "exact-sha":
+            raise CertifierError("custom SSM document mode requires exact-sha rollback")
 
     validate_persistent_data(config.persistent_data)
 
@@ -1132,6 +1141,31 @@ def extract_deploy_state(output: str) -> str:
     return state
 
 
+def verify_restricted_document_evidence(output: str) -> str:
+    lines = output.splitlines()
+    required = {
+        "RUNTIME_CERTIFIER=PASS": 1,
+        "READY_TO_DEPLOY=YES": 1,
+        "PRODUCTION_MUTATED=NO": 1,
+    }
+    for marker, count in required.items():
+        if lines.count(marker) != count:
+            raise CertifierError(f"restricted SSM document evidence missing {marker}")
+    if any(line.startswith(("RUNTIME_CERTIFIER=FAIL", "CERTIFIER_REASON=")) for line in lines):
+        raise CertifierError("restricted SSM document returned failure evidence")
+    if sum(line.startswith("DEPLOY_STATE=") for line in lines) != 1:
+        raise CertifierError("restricted SSM document returned ambiguous deployment state")
+    state = extract_deploy_state(output)
+    if state not in {"ALREADY_DEPLOYED", "READY_FROM_ROLLBACK"}:
+        raise CertifierError("restricted SSM document returned unsupported deployment state")
+    expected_required = "NO" if state == "ALREADY_DEPLOYED" else "YES"
+    if lines.count(f"DEPLOYMENT_REQUIRED={expected_required}") != 1:
+        raise CertifierError("restricted SSM document deployment decision is inconsistent")
+    if sum(line.startswith("DEPLOYMENT_REQUIRED=") for line in lines) != 1:
+        raise CertifierError("restricted SSM document returned ambiguous deployment evidence")
+    return state
+
+
 def parse_scalar(value: str) -> object:
     if value in {"true", "True", "TRUE"}:
         return True
@@ -1519,11 +1553,19 @@ def certify(config: Config) -> int:
             "unset runtime_output\n" + build_host_script(profile)
         )
 
-    payload = {
-        "commands": [
-            "bash -lc " + shlex.quote(remote_script),
-        ]
-    }
+    if config.ssm_document_name:
+        payload = {
+            "DeployRef": [config.deploy_ref],
+            "RollbackRef": [config.rollback_ref],
+        }
+        document_name = config.ssm_document_name
+    else:
+        payload = {
+            "commands": [
+                "bash -lc " + shlex.quote(remote_script),
+            ]
+        }
+        document_name = "AWS-RunShellScript"
 
     with tempfile.NamedTemporaryFile(
         mode="w",
@@ -1545,7 +1587,7 @@ def certify(config: Config) -> int:
                 "--instance-ids",
                 config.instance_id,
                 "--document-name",
-                "AWS-RunShellScript",
+                document_name,
                 "--comment",
                 f"Synergie Runtime Certifier {config.deploy_ref}",
                 "--parameters",
@@ -1658,7 +1700,11 @@ def certify(config: Config) -> int:
             )
             return 1
 
-        state = extract_deploy_state(stdout)
+        state = (
+            verify_restricted_document_evidence(stdout)
+            if config.ssm_document_name
+            else extract_deploy_state(stdout)
+        )
         write_github_outputs(state)
 
         return 0
@@ -1681,6 +1727,11 @@ def parse_args() -> Config:
     parser.add_argument(
         "--region",
         default="ap-south-1",
+    )
+
+    parser.add_argument(
+        "--ssm-document-name",
+        default="",
     )
 
     parser.add_argument(
@@ -1768,6 +1819,7 @@ def parse_args() -> Config:
         web_server=args.web_server,
         persistent_data=persistent_data,
         host_profile=args.host_profile,
+        ssm_document_name=args.ssm_document_name,
     )
 
 

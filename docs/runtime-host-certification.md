@@ -16,6 +16,33 @@ action's own release checkout. Unknown IDs and symlinks fail before SSM dispatch
 Only central PR review can approve or change hosts; profiles participate in
 release-drift detection.
 
+## Restricted custom SSM document mode
+
+Runtime Certifier callers on shared hosts may set `ssm-document-name` to an
+approved `Synergie-*` command document. In this mode the action never sends a
+shell command or script body. It supplies exactly two SSM parameters:
+
+- `DeployRef`: the validated 40-character deployment commit;
+- `RollbackRef`: the validated 40-character current rollback commit.
+
+The custom document and its root-owned wrapper must hard-code the application
+path, runtime checks, health endpoint, and read-only behavior. The GitHub OIDC
+role must permit `ssm:SendCommand` only for that document and target instance.
+The wrapper must emit exactly one consistent evidence set:
+
+```text
+RUNTIME_CERTIFIER=PASS
+READY_TO_DEPLOY=YES
+DEPLOY_STATE=ALREADY_DEPLOYED|READY_FROM_ROLLBACK
+DEPLOYMENT_REQUIRED=NO|YES
+PRODUCTION_MUTATED=NO
+```
+
+The certifier rejects missing, duplicate, contradictory, failure, or unknown
+evidence. Restricted mode supports exact-SHA rollback only and does not support
+host profiles. An empty `ssm-document-name` preserves the existing
+`AWS-RunShellScript` behavior for immutable legacy callers.
+
 Schema version 1 requires exactly `schema_version`, `instance_id`, `region`,
 `target_hostname`, and `sites`. Each of one to eight site entries requires exactly
 `label`, `hostname`, `https_required: true`, `accepted_status` (one integer 2xx),

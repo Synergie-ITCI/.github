@@ -11,6 +11,11 @@ inputs:
     required: false
     default: ap-south-1
 
+  ssm-document-name:
+    description: Optional restricted Synergie SSM document. Empty preserves legacy AWS-RunShellScript mode.
+    required: false
+    default: ""
+
   app-path:
     description: Absolute application path on the target host.
     required: true
@@ -106,6 +111,7 @@ runs:
         python3 "${{ github.action_path }}/../../tools/runtime_certifier.py" \
           --instance-id "${{ inputs.instance-id }}" \
           --region "${{ inputs.region }}" \
+          --ssm-document-name "${{ inputs.ssm-document-name }}" \
           --app-path "${{ inputs.app-path }}" \
           --app-user "${{ inputs.app-user }}" \
           --validation-url "${{ inputs.validation-url }}" \
