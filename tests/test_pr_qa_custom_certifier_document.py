@@ -1,6 +1,15 @@
+import importlib.util
+import sys
 import unittest
+from pathlib import Path
 
-from tests import test_pr_qa_regressions as regressions
+
+REGRESSION_MODULE = Path(__file__).with_name("test_pr_qa_regressions.py")
+spec = importlib.util.spec_from_file_location("pr_qa_regressions_for_custom_document", REGRESSION_MODULE)
+assert spec and spec.loader
+regressions = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = regressions
+spec.loader.exec_module(regressions)
 
 
 class PrQaCustomCertifierDocumentTests(unittest.TestCase):
