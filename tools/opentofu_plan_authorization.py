@@ -36,6 +36,9 @@ FIELDZILLA_RUNTIME_BOOTSTRAP_RESOURCES = {
     "aws_iam_role_policy_attachment.ssm_managed_instance_core": "aws_iam_role_policy_attachment",
     "aws_ssm_activation.staging_runtime": "aws_ssm_activation",
 }
+STAGING_MIGRATION_IAM_SOURCE_SHA = "362109240192e6ac817d180a6d1e6b6a422c469b"
+STAGING_MIGRATION_IAM_ADDRESS = "aws_iam_role_policy.staging_migration_task_run"
+STAGING_INFRA_APPLY_ROLE = "SynergieProgrammeManagementPlatformStagingInfraApplyRole"
 SECRET_VALUE_KEY_RE = re.compile(
     r"(activation[_-]?code|password|passwd|secret|token|private[_-]?key|access[_-]?key)",
     re.IGNORECASE,
@@ -572,6 +575,9 @@ def verify_plan_safety(args: argparse.Namespace) -> None:
     if args.plan_kind == "fieldzilla-runtime-bootstrap":
         verify_fieldzilla_runtime_bootstrap_plan(doc)
         return
+    if args.plan_kind == "fieldzilla-staging-migration-iam":
+        verify_staging_migration_iam_plan(doc, args)
+        return
 
     variables = {key: item.get("value") for key, item in doc.get("variables", {}).items()}
     if variables.get("enable_production") is not False:
@@ -645,6 +651,77 @@ def verify_plan_safety(args: argparse.Namespace) -> None:
     if args.plan_kind == "drift" and counts not in ({}, {"no-op": len(doc.get("resource_changes", []))}):
         die("drift plan is not clean")
     print("PLAN_COUNTS=" + json.dumps(counts, sort_keys=True))
+
+
+def verify_staging_migration_iam_plan(doc: dict[str, Any], args: argparse.Namespace) -> None:
+    if args.expected_sha != STAGING_MIGRATION_IAM_SOURCE_SHA:
+        die("migration IAM plan source SHA mismatch")
+    variables = {key: item.get("value") for key, item in doc.get("variables", {}).items()}
+    if variables.get("enable_production") is not False or variables.get("route53_zone_id") not in ("", None):
+        die("migration IAM plan is not staging-only")
+    if known_plaintext_secret_path(doc):
+        die("migration IAM plan contains sensitive plaintext")
+
+    expected_policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Sid": "RunOnlyFieldZillaStagingMigration",
+                "Effect": "Allow",
+                "Action": "ecs:RunTask",
+                "Resource": f"arn:aws:ecs:{AWS_REGION}:{AWS_ACCOUNT}:task-definition/fieldzilla-staging-migration:*",
+                "Condition": {"ArnEquals": {"ecs:cluster": f"arn:aws:ecs:{AWS_REGION}:{AWS_ACCOUNT}:cluster/fieldzilla"}},
+            },
+            {
+                "Sid": "InspectOnlyFieldZillaStagingMigrationTasks",
+                "Effect": "Allow",
+                "Action": "ecs:DescribeTasks",
+                "Resource": f"arn:aws:ecs:{AWS_REGION}:{AWS_ACCOUNT}:task/fieldzilla/*",
+                "Condition": {"ArnEquals": {"ecs:cluster": f"arn:aws:ecs:{AWS_REGION}:{AWS_ACCOUNT}:cluster/fieldzilla"}},
+            },
+        ],
+    }
+    changes = doc.get("resource_changes")
+    if not isinstance(changes, list):
+        die("migration IAM plan has invalid resource changes")
+    created = 0
+    for item in changes:
+        if not isinstance(item, dict) or not isinstance(item.get("change"), dict):
+            die("migration IAM plan has invalid resource change")
+        change = item["change"]
+        actions = change.get("actions")
+        if item.get("mode") == "data" and actions in (["read"], ["no-op"]):
+            continue
+        if actions == ["no-op"]:
+            continue
+        if (item.get("mode"), item.get("address"), item.get("type"), actions) != (
+            "managed", STAGING_MIGRATION_IAM_ADDRESS, "aws_iam_role_policy", ["create"]
+        ):
+            die("migration IAM plan contains an unrelated mutation")
+        after = change.get("after")
+        unknown = change.get("after_unknown") or {}
+        if change.get("before") is not None or not isinstance(after, dict):
+            die("migration IAM policy is not a new resource")
+        if any(unknown.get(key) for key in ("name", "role", "policy")):
+            die("migration IAM policy has unknown security fields")
+        if after.get("name") != "SynergieFieldZillaStagingMigrationRun" or after.get("role") != STAGING_INFRA_APPLY_ROLE:
+            die("migration IAM policy target mismatch")
+        try:
+            policy = json.loads(after["policy"])
+        except (KeyError, TypeError, json.JSONDecodeError):
+            die("migration IAM policy is not known JSON")
+        if policy != expected_policy:
+            die("migration IAM policy exceeds reviewed staging permissions")
+        created += 1
+    if created != 1:
+        die("migration IAM plan must create exactly the reviewed policy")
+    for item in doc.get("resource_drift", []):
+        if item.get("change", {}).get("actions") not in (["no-op"],):
+            die("migration IAM plan contains resource drift")
+    for item in doc.get("output_changes", {}).values():
+        if item.get("actions") not in (["no-op"],):
+            die("migration IAM plan changes outputs")
+    print('PLAN_COUNTS={"create": 1}')
 
 
 def verify_fieldzilla_runtime_bootstrap_plan(doc: dict[str, Any]) -> None:
