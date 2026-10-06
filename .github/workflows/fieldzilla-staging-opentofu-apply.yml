@@ -163,12 +163,23 @@ jobs:
         env:
           REQUESTED_TOFU_ROOT: ${{ inputs.tofu-root }}
           REQUESTED_MODE: ${{ inputs.mode }}
+          APPROVED_SOURCE_SHA: ${{ inputs.expected-sha }}
+          APPROVED_IMAGE_TAG: ${{ inputs.image-tag }}
+          IMAGE_DIGEST_MAP: ${{ inputs.image-digest-map }}
+          IMAGE_DIGEST: ${{ inputs.image-digest }}
+          ECS_FAMILIES: ${{ inputs.ecs-families }}
         run: |
           set -euo pipefail
           case "${REQUESTED_TOFU_ROOT}" in
             infra/aws)
               state_key="programme-management-platform/fieldzilla/staging/opentofu.tfstate"
               plan_kind_prefix=""
+              if [ "${APPROVED_SOURCE_SHA}" = "362109240192e6ac817d180a6d1e6b6a422c469b" ] &&
+                 [ "${APPROVED_IMAGE_TAG}" = "b1679598ea9dfbbac3b8244887fc113636169e6f" ] &&
+                 [ -z "${IMAGE_DIGEST_MAP}${IMAGE_DIGEST}${ECS_FAMILIES}" ] &&
+                 { [ "${REQUESTED_MODE}" = "plan" ] || [ "${REQUESTED_MODE}" = "apply" ]; }; then
+                plan_kind_prefix="fieldzilla-staging-migration-iam"
+              fi
               ;;
             deploy/staging/fieldzilla-runtime)
               state_key="programme-management-platform/fieldzilla/staging/runtime/opentofu.tfstate"
@@ -179,8 +190,10 @@ jobs:
               exit 1
               ;;
           esac
-          if [ "${REQUESTED_MODE}" = "apply" ] && [ "${REQUESTED_TOFU_ROOT}" != "deploy/staging/fieldzilla-runtime" ]; then
-            echo "apply mode is approved only for deploy/staging/fieldzilla-runtime" >&2
+          if [ "${REQUESTED_MODE}" = "apply" ] &&
+             [ "${REQUESTED_TOFU_ROOT}" != "deploy/staging/fieldzilla-runtime" ] &&
+             [ "${plan_kind_prefix}" != "fieldzilla-staging-migration-iam" ]; then
+            echo "infra/aws apply is limited to the reviewed FieldZilla staging migration IAM policy" >&2
             exit 1
           fi
           {
@@ -404,7 +417,13 @@ jobs:
           set -euo pipefail
           plan_dir="${RUNNER_TEMP}/fieldzilla-plan"
           mkdir -p "${plan_dir}"
-          tofu -chdir="${TOFU_ROOT}" plan -input=false -lock=true -out="${plan_dir}/fieldzilla-staging.tfplan"
+          if [ "${PLAN_KIND_PREFIX}" = "fieldzilla-staging-migration-iam" ]; then
+            tofu -chdir="${TOFU_ROOT}" plan -input=false -lock=true \
+              -target=aws_iam_role_policy.staging_migration_task_run \
+              -out="${plan_dir}/fieldzilla-staging.tfplan"
+          else
+            tofu -chdir="${TOFU_ROOT}" plan -input=false -lock=true -out="${plan_dir}/fieldzilla-staging.tfplan"
+          fi
           tofu -chdir="${TOFU_ROOT}" show -no-color "${plan_dir}/fieldzilla-staging.tfplan" > "${plan_dir}/fieldzilla-staging.plan.txt"
           tofu -chdir="${TOFU_ROOT}" show -json "${plan_dir}/fieldzilla-staging.tfplan" > "${plan_dir}/fieldzilla-staging.plan.json"
           cp "${RUNNER_TEMP}/backend.json" "${plan_dir}/backend.json"

@@ -109,13 +109,16 @@ class FieldZillaRemoteStateGovernanceTests(unittest.TestCase):
         self.assertIn("mark-used", workflow)
         self.assertIn('tofu -chdir="${TOFU_ROOT}" apply -input=false -lock=true', workflow)
 
-    def test_exact_plan_apply_is_runtime_root_only_and_hash_bound(self) -> None:
+    def test_exact_plan_apply_is_runtime_or_reviewed_iam_only_and_hash_bound(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
 
         self.assertIn("environment: synergie-app-staging", workflow)
         self.assertIn('"deploy/staging/fieldzilla-runtime"', workflow)
-        self.assertIn('if [ "${REQUESTED_MODE}" = "apply" ] && [ "${REQUESTED_TOFU_ROOT}" != "deploy/staging/fieldzilla-runtime" ]; then', workflow)
-        self.assertIn("apply mode is approved only for deploy/staging/fieldzilla-runtime", workflow)
+        self.assertIn('"${plan_kind_prefix}" != "fieldzilla-staging-migration-iam"', workflow)
+        self.assertIn("infra/aws apply is limited to the reviewed FieldZilla staging migration IAM policy", workflow)
+        self.assertIn('"${APPROVED_SOURCE_SHA}" = "362109240192e6ac817d180a6d1e6b6a422c469b"', workflow)
+        self.assertIn('"${APPROVED_IMAGE_TAG}" = "b1679598ea9dfbbac3b8244887fc113636169e6f"', workflow)
+        self.assertIn('-target=aws_iam_role_policy.staging_migration_task_run', workflow)
         self.assertIn('command: verify-source-artifact', workflow)
         self.assertIn('command: verify-artifact-metadata', workflow)
         self.assertIn('command: verify-plan-safety', workflow)
@@ -134,6 +137,69 @@ class FieldZillaRemoteStateGovernanceTests(unittest.TestCase):
         self.assertLess(gate_plan, mark_used)
         self.assertLess(mark_used, apply)
         self.assertNotIn("tofu output", workflow)
+
+    def test_reviewed_iam_plan_allows_one_staging_policy_only(self) -> None:
+        module = load_authorizer()
+        cluster = "arn:aws:ecs:ap-south-1:918870682888:cluster/fieldzilla"
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "RunOnlyFieldZillaStagingMigration",
+                    "Effect": "Allow",
+                    "Action": "ecs:RunTask",
+                    "Resource": "arn:aws:ecs:ap-south-1:918870682888:task-definition/fieldzilla-staging-migration:*",
+                    "Condition": {"ArnEquals": {"ecs:cluster": cluster}},
+                },
+                {
+                    "Sid": "InspectOnlyFieldZillaStagingMigrationTasks",
+                    "Effect": "Allow",
+                    "Action": "ecs:DescribeTasks",
+                    "Resource": "arn:aws:ecs:ap-south-1:918870682888:task/fieldzilla/*",
+                    "Condition": {"ArnEquals": {"ecs:cluster": cluster}},
+                },
+            ],
+        }
+        create = {
+            "mode": "managed",
+            "address": "aws_iam_role_policy.staging_migration_task_run",
+            "type": "aws_iam_role_policy",
+            "change": {
+                "actions": ["create"],
+                "before": None,
+                "after": {
+                    "name": "SynergieFieldZillaStagingMigrationRun",
+                    "role": "SynergieProgrammeManagementPlatformStagingInfraApplyRole",
+                    "policy": json.dumps(policy),
+                },
+            },
+        }
+        base = {
+            "variables": {"enable_production": {"value": False}, "route53_zone_id": {"value": ""}},
+            "resource_changes": [create],
+        }
+        args = type("Args", (), {"expected_sha": module.STAGING_MIGRATION_IAM_SOURCE_SHA})()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "plan.json"
+            args.plan_json_path = path
+
+            def check(doc: dict, allowed: bool) -> None:
+                path.write_text(json.dumps(doc), encoding="utf-8")
+                if allowed:
+                    module.verify_staging_migration_iam_plan(doc, args)
+                else:
+                    with self.assertRaises(SystemExit):
+                        module.verify_staging_migration_iam_plan(doc, args)
+
+            check(base, True)
+            check({**base, "resource_changes": [create, {"mode": "managed", "address": "aws_security_group.app", "type": "aws_security_group", "change": {"actions": ["update"]}}]}, False)
+            check({**base, "resource_changes": []}, False)
+            check({**base, "variables": {"enable_production": {"value": True}}}, False)
+            broadened = json.loads(json.dumps(base))
+            broadened["resource_changes"][0]["change"]["after"]["policy"] = json.dumps({**policy, "Statement": [{**policy["Statement"][0], "Resource": "*"}, policy["Statement"][1]]})
+            check(broadened, False)
+            args.expected_sha = "0" * 40
+            check(base, False)
 
     def test_plan_safety_rejects_destructive_dns_or_production_changes(self) -> None:
         module = load_authorizer()
