@@ -2,13 +2,24 @@
 
 import copy
 import json
+import subprocess
 import sys
+import types
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pr-qa"))
-from release_pin import EVIDENCE_HEADER, resolve_active_release, same_timestamp, validate_workflow, verify_live_release
+from release_pin import (
+    EVIDENCE_HEADER,
+    evidence_from_annotated_tag,
+    resolve_active_release,
+    ruleset_config_fingerprint,
+    same_timestamp,
+    validate_workflow,
+    verify_live_release,
+    wildcard_policy_snapshot,
+)
 
 
 class ReleasePinTests(unittest.TestCase):
@@ -42,6 +53,169 @@ class ReleasePinTests(unittest.TestCase):
 
     def test_registered_protected_annotated_tag(self):
         verify_live_release(self.release, self.entry, self.lookup)
+
+    def exact_rc173_fixture(self):
+        release = "pr-qa-v1-rc173"
+        commit = "e" * 40
+        entry = {
+            "commit": commit,
+            "ruleset_id": 24571488,
+            "ruleset_updated_at": "2026-10-06T15:17:20.660+05:30",
+            "bypass_actors": [],
+            "protection_mode": "legacy_exact",
+        }
+        ref = {"ref": f"refs/tags/{release}", "object": {"type": "commit", "sha": commit}}
+        ruleset = {
+            "id": 24571488,
+            "target": "tag",
+            "enforcement": "active",
+            "updated_at": entry["ruleset_updated_at"],
+            "bypass_actors": [],
+            "conditions": {
+                "ref_name": {"include": [f"refs/tags/{release}"], "exclude": []},
+                "repository_name": {"include": [".github"], "exclude": [], "protected": False},
+            },
+            "rules": [{"type": "update"}, {"type": "deletion"}],
+        }
+
+        def lookup(path):
+            if path == f"git/ref/tags/{release}":
+                return ref
+            if path == "rulesets/24571488":
+                return ruleset
+            raise AssertionError(path)
+
+        return release, entry, ruleset, lookup
+
+    def test_rc173_exact_org_ruleset_passes_legacy_exact(self):
+        release, entry, _ruleset, lookup = self.exact_rc173_fixture()
+        verify_live_release(release, entry, lookup, self.manifest)
+
+    def test_actual_rc167_verifier_accepts_rc173_exact_org_ruleset(self):
+        source = subprocess.check_output(
+            ["git", "show", "pr-qa-v1-rc167:pr-qa/release_pin.py"],
+            cwd=ROOT,
+            text=True,
+        )
+        rc167 = types.ModuleType("release_pin_rc167")
+        rc167.__file__ = str(ROOT / "pr-qa" / "release_pin_rc167.py")
+        exec(compile(source, rc167.__file__, "exec"), rc167.__dict__)
+        release, entry, _ruleset, lookup = self.exact_rc173_fixture()
+        rc167.verify_live_release(release, entry, lookup)
+
+    def test_rc173_annotated_evidence_requires_declared_legacy_mode(self):
+        release, entry, _ruleset, _lookup = self.exact_rc173_fixture()
+        tag_sha = "1" * 40
+        ref = {"object": {"type": "tag", "sha": tag_sha}}
+        evidence = {
+            "release": release,
+            **entry,
+            "release_workflow_run_id": 123456,
+        }
+
+        def parse(payload):
+            tag = {
+                "tag": release,
+                "message": EVIDENCE_HEADER + "\n" + json.dumps(payload),
+                "object": {"type": "commit", "sha": entry["commit"]},
+            }
+            return evidence_from_annotated_tag(release, ref, lambda _path: tag)
+
+        parsed = parse(evidence)
+        self.assertEqual(parsed["protection_mode"], "legacy_exact")
+        evidence.pop("protection_mode")
+        with self.assertRaisesRegex(ValueError, "declare protection_mode"):
+            parse(evidence)
+
+    def wildcard_fixture(self, release_number=174):
+        release = f"pr-qa-v1-rc{release_number}"
+        commit = "d" * 40
+        policy = {
+            "ruleset_id": 999174,
+            "ruleset_updated_at": "2026-10-07T10:00:00.000+05:30",
+            "target": "tag",
+            "enforcement": "active",
+            "include": ["refs/tags/pr-qa-v1-rc*"],
+            "exclude": [],
+            "repository_include": [".github"],
+            "repository_exclude": [],
+            "repository_protected": False,
+            "rules": ["update", "deletion"],
+            "bypass_actors": [],
+        }
+        policy["config_fingerprint"] = ruleset_config_fingerprint(
+            wildcard_policy_snapshot(policy)
+        )
+        manifest = copy.deepcopy(self.manifest)
+        manifest["tag_protection_policies"]["wildcard_namespace"]["approved_rulesets"] = [policy]
+        entry = {
+            "commit": commit,
+            "ruleset_id": policy["ruleset_id"],
+            "ruleset_updated_at": policy["ruleset_updated_at"],
+            "bypass_actors": [],
+            "protection_mode": "wildcard_namespace",
+        }
+        ref = {"ref": f"refs/tags/{release}", "object": {"type": "commit", "sha": commit}}
+        ruleset = {
+            "id": policy["ruleset_id"],
+            "updated_at": policy["ruleset_updated_at"],
+            "target": "tag",
+            "enforcement": "active",
+            "bypass_actors": [],
+            "conditions": {
+                "ref_name": {"include": policy["include"], "exclude": []},
+                "repository_name": {"include": [".github"], "exclude": [], "protected": False},
+            },
+            "rules": [{"type": "update"}, {"type": "deletion"}],
+        }
+
+        def lookup(path):
+            if path == f"git/ref/tags/{release}":
+                return ref
+            if path == f"rulesets/{policy['ruleset_id']}":
+                return ruleset
+            raise AssertionError(path)
+
+        return release, entry, policy, ruleset, manifest, lookup
+
+    def test_wildcard_rc174_passes_only_with_approved_policy(self):
+        release, entry, _policy, _ruleset, manifest, lookup = self.wildcard_fixture()
+        verify_live_release(release, entry, lookup, manifest)
+        manifest["tag_protection_policies"]["wildcard_namespace"]["approved_rulesets"] = []
+        with self.assertRaisesRegex(ValueError, "not approved"):
+            verify_live_release(release, entry, lookup, manifest)
+
+    def test_wildcard_rejected_below_rc174(self):
+        release, entry, _policy, _ruleset, manifest, lookup = self.wildcard_fixture(173)
+        with self.assertRaisesRegex(ValueError, "not approved for this release number"):
+            verify_live_release(release, entry, lookup, manifest)
+
+    def test_wildcard_ruleset_failures(self):
+        mutations = [
+            ("disabled", lambda ruleset, policy, entry: ruleset.update(enforcement="disabled")),
+            ("missing update", lambda ruleset, policy, entry: ruleset.update(rules=[{"type": "deletion"}])),
+            ("missing deletion", lambda ruleset, policy, entry: ruleset.update(rules=[{"type": "update"}])),
+            ("wrong pattern", lambda ruleset, policy, entry: ruleset["conditions"]["ref_name"].update(include=["refs/tags/other*"])),
+            ("matching exclude", lambda ruleset, policy, entry: ruleset["conditions"]["ref_name"].update(exclude=["refs/tags/pr-qa-v1-rc174"])),
+            ("visible bypass", lambda ruleset, policy, entry: ruleset.update(bypass_actors=[{"actor_id": 1}])),
+            ("mode mismatch", lambda ruleset, policy, entry: entry.update(protection_mode="legacy_exact")),
+            ("broad repo", lambda ruleset, policy, entry: ruleset["conditions"]["repository_name"].update(include=["~ALL"])),
+        ]
+        for name, mutate in mutations:
+            release, entry, policy, ruleset, manifest, lookup = self.wildcard_fixture()
+            mutate(ruleset, policy, entry)
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                verify_live_release(release, entry, lookup, manifest)
+
+    def test_wildcard_rejects_unknown_or_unreadable_policy_scope(self):
+        release, entry, policy, _ruleset, manifest, lookup = self.wildcard_fixture()
+        policy["repository_include"] = None
+        policy["config_fingerprint"] = ruleset_config_fingerprint(wildcard_policy_snapshot(policy))
+        with self.assertRaisesRegex(ValueError, "insufficiently scoped"):
+            verify_live_release(release, entry, lookup, manifest)
+        entry["ruleset_id"] = 999999
+        with self.assertRaisesRegex(ValueError, "not approved"):
+            verify_live_release(release, entry, lookup, manifest)
 
     def test_read_only_response_requires_exact_reviewed_ruleset_timestamp(self):
         del self.ruleset["bypass_actors"]

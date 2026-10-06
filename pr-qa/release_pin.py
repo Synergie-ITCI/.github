@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
+import hashlib
 import json
 import os
 import re
@@ -20,6 +22,9 @@ EVIDENCE_HEADER = "SYNERGIE_PR_QA_RELEASE_EVIDENCE_V1"
 MAIN_BRANCH = "main"
 RELEASE_SOURCE_ANNOTATED_TAG = "annotated-tag"
 RELEASE_SOURCE_LEGACY_REGISTRY = "legacy-registry"
+PROTECTION_MODE_LEGACY_EXACT = "legacy_exact"
+PROTECTION_MODE_WILDCARD_NAMESPACE = "wildcard_namespace"
+PROTECTION_MODE_REQUIRED_FROM = 173
 ALLOWED_RELEASE_WORKFLOW_PATHS = {".github/workflows/pr-qa-release.yml"}
 ALLOWED_RELEASE_ACTORS = {"SaurabhVermaIN"}
 REQUIRED_RELEASE_CHECKS = {
@@ -91,6 +96,75 @@ def active_release_from_manifest(manifest: dict) -> tuple[str, dict]:
     return release, entry
 
 
+def release_number(release: str) -> int:
+    match = RELEASE_RE.fullmatch(release)
+    if not match:
+        raise ValueError("Invalid PR-QA release name")
+    return int(match.group(1))
+
+
+def protection_mode(release: str, entry: dict) -> str:
+    """Require explicit protection declarations for the rc173 bridge and later."""
+    declared = entry.get("protection_mode")
+    if declared in {PROTECTION_MODE_LEGACY_EXACT, PROTECTION_MODE_WILDCARD_NAMESPACE}:
+        return declared
+    if release_number(release) < PROTECTION_MODE_REQUIRED_FROM:
+        return PROTECTION_MODE_LEGACY_EXACT
+    raise ValueError("Release evidence must declare protection_mode")
+
+
+def wildcard_policy_snapshot(policy: dict) -> dict:
+    return {
+        "ruleset_id": policy.get("ruleset_id"),
+        "target": policy.get("target"),
+        "enforcement": policy.get("enforcement"),
+        "include": policy.get("include"),
+        "exclude": policy.get("exclude"),
+        "repository_include": policy.get("repository_include"),
+        "repository_exclude": policy.get("repository_exclude"),
+        "repository_protected": policy.get("repository_protected"),
+        "rules": sorted(policy.get("rules", [])),
+        "bypass_actors": policy.get("bypass_actors"),
+    }
+
+
+def ruleset_config_fingerprint(snapshot: dict) -> str:
+    canonical = json.dumps(snapshot, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def approved_wildcard_policy(release: str, entry: dict, manifest: dict | None) -> dict:
+    namespace = (manifest or {}).get("tag_protection_policies", {}).get(
+        PROTECTION_MODE_WILDCARD_NAMESPACE, {}
+    )
+    minimum = namespace.get("min_release_number")
+    if type(minimum) is not int or release_number(release) < minimum:
+        raise ValueError("wildcard_namespace is not approved for this release number")
+    approved = namespace.get("approved_rulesets", [])
+    policy = next(
+        (item for item in approved if item.get("ruleset_id") == entry.get("ruleset_id")),
+        None,
+    )
+    if not isinstance(policy, dict):
+        raise ValueError("Wildcard ruleset is not approved by central policy")
+    snapshot = wildcard_policy_snapshot(policy)
+    if (
+        policy.get("config_fingerprint") != ruleset_config_fingerprint(snapshot)
+        or policy.get("bypass_actors") != []
+        or policy.get("repository_include") != [".github"]
+        or policy.get("repository_exclude") != []
+        or policy.get("repository_protected") is not False
+        or policy.get("target") != "tag"
+        or policy.get("enforcement") != "active"
+        or policy.get("include") != ["refs/tags/pr-qa-v1-rc*"]
+        or policy.get("exclude") != []
+        or not {"update", "deletion"}.issubset(set(policy.get("rules", [])))
+        or not policy.get("ruleset_updated_at")
+    ):
+        raise ValueError("Wildcard ruleset policy is invalid or insufficiently scoped")
+    return policy
+
+
 def github_json(path: str) -> dict:
     result = subprocess.run(
         ["gh", "api", f"repos/{REPOSITORY}/{path}"],
@@ -124,7 +198,12 @@ def same_timestamp(actual: object, expected: object) -> bool:
         return False
 
 
-def verify_live_release(release: str, entry: dict, lookup=github_json) -> None:
+def verify_live_release(
+    release: str,
+    entry: dict,
+    lookup=github_json,
+    manifest: dict | None = None,
+) -> None:
     """Freshly verify tag resolution and exact, non-bypassable update/delete protection."""
     if not re.fullmatch(r"[0-9a-f]{40}", str(entry.get("commit", ""))):
         raise ValueError("Release must bind an exact commit")
@@ -140,6 +219,75 @@ def verify_live_release(release: str, entry: dict, lookup=github_json) -> None:
         obj = lookup(f"git/tags/{obj['sha']}")["object"]
     if obj.get("type") != "commit" or obj.get("sha") != entry["commit"]:
         raise ValueError("Release tag does not resolve to registered commit")
+    mode = protection_mode(release, entry)
+    if mode == PROTECTION_MODE_WILDCARD_NAMESPACE:
+        policy = approved_wildcard_policy(release, entry, manifest)
+        ruleset = lookup(f"rulesets/{entry['ruleset_id']}")
+        ref_conditions = ruleset.get("conditions", {}).get("ref_name", {})
+        includes = ref_conditions.get("include", [])
+        excludes = ref_conditions.get("exclude", [])
+        release_ref = f"refs/tags/{release}"
+        repository = ruleset.get("conditions", {}).get("repository_name")
+        full_visibility = repository is not None and "bypass_actors" in ruleset
+        if full_visibility:
+            live_snapshot = {
+                "ruleset_id": ruleset.get("id"),
+                "target": ruleset.get("target"),
+                "enforcement": ruleset.get("enforcement"),
+                "include": includes,
+                "exclude": excludes,
+                "repository_include": repository.get("include"),
+                "repository_exclude": repository.get("exclude"),
+                "repository_protected": repository.get("protected"),
+                "rules": sorted(rule.get("type") for rule in ruleset.get("rules", [])),
+                "bypass_actors": ruleset.get("bypass_actors"),
+            }
+            fingerprint_matches = (
+                ruleset_config_fingerprint(live_snapshot) == policy["config_fingerprint"]
+            )
+        else:
+            # Repository-scoped responses omit organization-only fields. The
+            # exact reviewed timestamp binds the privileged policy snapshot;
+            # any scope or bypass edit changes updated_at and fails closed.
+            fingerprint_matches = same_timestamp(
+                ruleset.get("updated_at"), policy["ruleset_updated_at"]
+            )
+        checks = {
+            "ruleset_id": ruleset.get("id") == policy["ruleset_id"],
+            "tag_target": ruleset.get("target") == "tag",
+            "active": ruleset.get("enforcement") == "active",
+            "reviewed_timestamp": same_timestamp(
+                ruleset.get("updated_at"), policy["ruleset_updated_at"]
+            ),
+            "evidence_timestamp": same_timestamp(
+                entry.get("ruleset_updated_at"), policy["ruleset_updated_at"]
+            ),
+            "visible_bypass_empty": (
+                "bypass_actors" not in ruleset or ruleset["bypass_actors"] == []
+            ),
+            "include_matches": any(fnmatch.fnmatchcase(release_ref, pattern) for pattern in includes),
+            "exclude_does_not_match": not any(
+                fnmatch.fnmatchcase(release_ref, pattern) for pattern in excludes
+            ),
+            "approved_pattern": includes == policy["include"] and excludes == policy["exclude"],
+            "repository_scope": (
+                repository is None
+                or (
+                    repository.get("include") == [".github"]
+                    and repository.get("exclude") == []
+                    and repository.get("protected") is False
+                )
+            ),
+            "update_delete_rules": {"update", "deletion"}.issubset(
+                {rule.get("type") for rule in ruleset.get("rules", [])}
+            ),
+            "config_fingerprint": fingerprint_matches,
+        }
+        failed = ", ".join(name for name, passed in checks.items() if not passed)
+        if failed:
+            raise ValueError(f"Wildcard tag protection verification failed: {failed}")
+        return
+
     ruleset = lookup(f"rulesets/{entry['ruleset_id']}")
     expected_refs = {"include": [f"refs/tags/{release}"], "exclude": []}
     if (
@@ -259,11 +407,13 @@ def evidence_from_annotated_tag(release: str, ref: dict, lookup=github_json) -> 
         raise ValueError("Release evidence commit mismatch")
     if evidence.get("bypass_actors") != []:
         raise ValueError("Release evidence requires zero bypass actors")
+    mode = protection_mode(release, evidence)
     return {
         "commit": evidence.get("commit", ""),
         "ruleset_id": evidence.get("ruleset_id"),
         "ruleset_updated_at": evidence.get("ruleset_updated_at", ""),
         "bypass_actors": evidence.get("bypass_actors", []),
+        "protection_mode": mode,
         "release_workflow_run_id": evidence.get("release_workflow_run_id"),
         "_source": RELEASE_SOURCE_ANNOTATED_TAG,
     }
@@ -303,7 +453,7 @@ def resolve_active_release(
     for _, release, entry in sorted(candidates, reverse=True):
         if entry.get("invalid") is True:
             raise ValueError(f"Newest PR-QA release {release} has invalid immutable evidence")
-        verify_live_release(release, entry, lookup)
+        verify_live_release(release, entry, lookup, manifest)
         if entry.get("_source") == RELEASE_SOURCE_ANNOTATED_TAG:
             verify_release_provenance(release, entry, lookup, list_refs)
         return release, entry

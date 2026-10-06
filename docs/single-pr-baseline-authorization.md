@@ -89,3 +89,32 @@ fail closed. Any visible nonempty bypass list also fails. A changed ruleset must
 be inspected and registered again through central review. Before release
 activation or merge, independently repeat the full privileged read-only check.
 CI does not receive administration credentials or permission to mutate rulesets.
+
+### Bridge release and future wildcard protection
+
+`pr-qa-v1-rc173` is the bridge release. Its annotated evidence must declare
+`protection_mode: legacy_exact`, and its organization ruleset must protect only
+`refs/tags/pr-qa-v1-rc173`. This keeps rc173 verifiable by consumers still
+running the rc167 verifier.
+
+`wildcard_namespace` is reserved for rc174 and later. It is disabled until a
+governed policy change records a real organization ruleset ID, exact include
+and repository scope, empty bypass list, complete rule set, reviewed
+`updated_at`, and normalized configuration fingerprint. The approved wildcard
+ruleset is frozen after review. Any subsequent ruleset edit requires a new
+ruleset ID and a new central policy entry; editing an approved ruleset in place
+does not preserve authorization.
+
+Before preparing any wildcard release, the release operator must attach an
+organization-wide inventory proving every active consumer pins rc173 or newer.
+Incomplete search visibility, an older pin, or an unknown owner blocks the
+release. This is a mandatory manual precondition for the release workflow; do
+not create the wildcard ruleset or a `wildcard_namespace` tag until the
+inventory and the separate policy entry have passed central review.
+
+For every rc173-or-newer tag, prepare the annotated evidence locally first and
+parse it with the verifier that will consume it. Before pushing rc173, run the
+actual rc167 verifier against the live exact rc173 ruleset and parse the
+prepared evidence with rc167's `evidence_from_annotated_tag()` implementation.
+Tag creation is a one-time final action only after those checks, central PR-QA,
+and release provenance all pass.
