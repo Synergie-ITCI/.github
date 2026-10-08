@@ -1,4 +1,4 @@
-"""Fail-closed, single-PR acceptance of a documented mobile tooling audit result."""
+"""Fail-closed acceptance of explicitly documented, exact-PR mobile audits."""
 
 from __future__ import annotations
 
@@ -11,7 +11,11 @@ from pathlib import Path
 
 from .base import CheckResult, CommandOutcome, PRContext, warning
 
-EXCEPTION_FILE = Path(__file__).resolve().parents[2] / "policy/exceptions/fieldzilla-pr476-mobile-audit.json"
+EXCEPTION_DIRECTORY = Path(__file__).resolve().parents[2] / "policy/exceptions"
+EXCEPTION_FILES = {
+    476: EXCEPTION_DIRECTORY / "fieldzilla-pr476-mobile-audit.json",
+    477: EXCEPTION_DIRECTORY / "fieldzilla-pr477-mobile-audit.json",
+}
 DEPENDENCY_FILES = {"apps/mobile/package.json", "apps/mobile/package-lock.json"}
 ADVISORY_ID = re.compile(r"^GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}$")
 
@@ -66,7 +70,11 @@ def evaluate_mobile_audit_exception(ctx: PRContext, root: Path, original: Comman
     """
     event_pr = ctx.event.get("pull_request") or {}
     repository = (ctx.event.get("repository") or {}).get("full_name")
-    if repository != "Synergie-ITCI/programme-management-platform" or event_pr.get("number") != 476:
+    number = event_pr.get("number")
+    if type(number) is not int:
+        return None
+    exception_file = EXCEPTION_FILES.get(number)
+    if repository != "Synergie-ITCI/programme-management-platform" or exception_file is None:
         return None
     if ctx.rel(root) != "apps/mobile" or original.ok or original.skipped or original.timed_out:
         return None
@@ -74,8 +82,8 @@ def evaluate_mobile_audit_exception(ctx: PRContext, root: Path, original: Comman
         package = json.loads((root / "package.json").read_text(encoding="utf-8"))
         if package.get("scripts", {}).get("audit:ci") != "npm audit --audit-level=high":
             return None
-        manifest = json.loads(EXCEPTION_FILE.read_text(encoding="utf-8"))
-        evidence = EXCEPTION_FILE.parent / manifest["evidence_file"]
+        manifest = json.loads(exception_file.read_text(encoding="utf-8"))
+        evidence = exception_file.parent / manifest["evidence_file"]
         if not evidence.is_file() or _digest(evidence) != manifest["evidence_sha256"]:
             return None
         if not all(manifest.get(field) for field in ("approver", "reason", "residual_risk", "remediation_owner")):
@@ -124,7 +132,7 @@ def evaluate_mobile_audit_exception(ctx: PRContext, root: Path, original: Comman
         output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
         return warning(
             "Dependencies", "Node.js",
-            "apps/mobile: npm audit failed; PR #476 exact-head mobile tooling exception accepted until expiry or next tag/release. Residual build risk remains.",
+            f"apps/mobile: npm audit failed; PR #{manifest['pr']} exact-head mobile tooling exception accepted until expiry or next tag/release. Residual build risk remains.",
             [f"Audit report: pr-qa-results/mobile-audit-exception.json; approver: {manifest['approver']}; remediation owner: {manifest['remediation_owner']}"],
         )
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
