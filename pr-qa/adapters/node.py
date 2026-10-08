@@ -25,6 +25,7 @@ from .base import (
     script_command,
     warning,
 )
+from .node_audit_exception import evaluate_mobile_audit_exception
 
 
 class NodeAdapter(TechnologyAdapter):
@@ -164,6 +165,11 @@ class NodeAdapter(TechnologyAdapter):
                 if any(result.status == FAIL for result in results[-1:]):
                     continue
                 outcome = ctx.run(script_command(manager, script), cwd=root)
+                if not outcome.ok:
+                    exception = evaluate_mobile_audit_exception(ctx, root, outcome)
+                    if exception is not None:
+                        results.append(exception)
+                        continue
                 results.append(
                     command_result(
                         "Dependencies",
