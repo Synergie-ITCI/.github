@@ -1,0 +1,26 @@
+{
+  "repository": "Synergie-ITCI/programme-management-platform",
+  "pr": 477,
+  "head_sha": "79a44636930214b4dd9383a1975f3b9bd0466c30",
+  "approver": "Saurabh Verma",
+  "reason": "Separately approved one-time acceptance of the staging promotion mobile tooling audit findings absent from Android and iOS release JavaScript bundles",
+  "residual_risk": "Vulnerable packages remain in install/build tooling and may affect CI or native build environments; release bundle absence does not eliminate risk",
+  "remediation_owner": "Mobile Platform Lead",
+  "approved_at": "2026-10-08T17:58:38Z",
+  "expires_at": "2026-11-07T16:40:21Z",
+  "evidence_file": "fieldzilla-pr477-mobile-evidence.md",
+  "evidence_sha256": "e3a2fbdf8a12beac39b35951e1c4e9cc968c738a2b125656b2099274af241755",
+  "dependency_sha256": {
+    "apps/mobile/package.json": "8b50c6cd23f88b70225090e288cf6796f2ffd7cb71c882be016c489e547899b5",
+    "apps/mobile/package-lock.json": "e29a71921f02b6fc02e6331018d0043dda3bdd257b7cd61d7e166c311897acf9"
+  },
+  "baseline_tags": ["fieldzilla-apply-dispatch-2c8a4015"],
+  "baseline_releases": [],
+  "advisories": [
+    {"package": "braces", "id": "GHSA-vfj7-8cjw-p6xm", "severity": "high", "range": "<=3.0.3"},
+    {"package": "compression", "id": "GHSA-vc2v-76pw-4v95", "severity": "high", "range": "<1.8.2"},
+    {"package": "joi", "id": "GHSA-wr44-6hxh-3jwq", "severity": "moderate", "range": "<17.13.8"},
+    {"package": "shell-quote", "id": "GHSA-pqg4-j6r4-53mv", "severity": "critical", "range": ">=1.8.4 <1.11.0"},
+    {"package": "sprintf-js", "id": "GHSA-hp3w-g68c-fv3c", "severity": "moderate", "range": "<=1.1.3"}
+  ]
+}
