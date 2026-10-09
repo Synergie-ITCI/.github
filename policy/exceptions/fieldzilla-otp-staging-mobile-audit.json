@@ -1,0 +1,28 @@
+{
+  "repository": "Synergie-ITCI/programme-management-platform",
+  "environment": "staging",
+  "workflow": "staging-deploy.yml",
+  "exception_id": "fieldzilla-staging-mobile-tooling-2026-10",
+  "approver": "",
+  "reason": "One-time acceptance of unchanged mobile tooling audit findings for the OTP staging release candidate after exact bundle and dependency evidence review",
+  "residual_risk": "Vulnerable packages remain in install/build tooling and may affect CI or native build environments; release bundle absence does not eliminate risk",
+  "remediation_owner": "Mobile Platform Lead",
+  "approved_at": "",
+  "expires_at": "2026-11-07T16:40:21Z",
+  "evidence_file": "fieldzilla-otp-staging-mobile-evidence.md",
+  "evidence_sha256": "7dcaf13ac671b62210e2e69d85664d2c00769c963b089a4a400673c532b3b35f",
+  "dependency_sha256": {
+    "apps/mobile/package.json": "8b50c6cd23f88b70225090e288cf6796f2ffd7cb71c882be016c489e547899b5",
+    "apps/mobile/package-lock.json": "e29a71921f02b6fc02e6331018d0043dda3bdd257b7cd61d7e166c311897acf9"
+  },
+  "audit_script_sha256": "f5a44419fe62aee20f13a0f1cbfcedebbc50361d3c2c7f3cf067ac4e413bf927",
+  "baseline_tags": ["fieldzilla-apply-dispatch-2c8a4015"],
+  "baseline_releases": [],
+  "advisories": [
+    {"package": "braces", "id": "GHSA-vfj7-8cjw-p6xm", "severity": "high", "range": "<=3.0.3"},
+    {"package": "compression", "id": "GHSA-vc2v-76pw-4v95", "severity": "high", "range": "<1.8.2"},
+    {"package": "joi", "id": "GHSA-wr44-6hxh-3jwq", "severity": "moderate", "range": "<17.13.8"},
+    {"package": "shell-quote", "id": "GHSA-pqg4-j6r4-53mv", "severity": "critical", "range": ">=1.8.4 <1.11.0"},
+    {"package": "sprintf-js", "id": "GHSA-hp3w-g68c-fv3c", "severity": "moderate", "range": "<=1.1.3"}
+  ]
+}
