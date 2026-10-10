@@ -1,0 +1,89 @@
+{
+  "repository": "Synergie-ITCI/programme-management-platform",
+  "pr": 485,
+  "head_sha": "22b368c58b4db7881381f87ff0fcd91295bf1557",
+  "approver": "Saurabh Verma",
+  "reason": "One-time staging-only acceptance of unchanged mobile tooling audit findings for localization foundation PR #485 after exact-head Android and iOS release bundle review",
+  "residual_risk": "Vulnerable packages remain in install/build tooling and may affect CI or native build environments; release bundle absence does not eliminate risk",
+  "remediation_owner": "Mobile Platform Lead",
+  "approved_at": "2026-10-10T02:50:53Z",
+  "expires_at": "2026-11-07T16:40:21Z",
+  "evidence_file": "fieldzilla-pr485-mobile-evidence.md",
+  "evidence_sha256": "2091118b649cb69a3c691c3ac6f4872e08be0f26172413a07fd627f391a72a22",
+  "dependency_sha256": {
+    "apps/mobile/package.json": "6bc69c28df41f51a60b4384cf565c3107556b577da58c7c1ebce3ae53791f678",
+    "apps/mobile/package-lock.json": "1393ec5cb4710b4bb9d5b19ecb8dc24363a4c5d98598359892fe95f7a742e69b"
+  },
+  "baseline_tags": [
+    "fieldzilla-apply-dispatch-2c8a4015"
+  ],
+  "baseline_releases": [],
+  "advisories": [
+    {
+      "package": "braces",
+      "id": "GHSA-vfj7-8cjw-p6xm",
+      "severity": "high",
+      "range": "<=3.0.3"
+    },
+    {
+      "package": "compression",
+      "id": "GHSA-vc2v-76pw-4v95",
+      "severity": "high",
+      "range": "<1.8.2"
+    },
+    {
+      "package": "joi",
+      "id": "GHSA-wr44-6hxh-3jwq",
+      "severity": "moderate",
+      "range": "<17.13.8"
+    },
+    {
+      "package": "shell-quote",
+      "id": "GHSA-pqg4-j6r4-53mv",
+      "severity": "critical",
+      "range": ">=1.8.4 <1.11.0"
+    },
+    {
+      "package": "sprintf-js",
+      "id": "GHSA-hp3w-g68c-fv3c",
+      "severity": "moderate",
+      "range": "<=1.1.3"
+    }
+  ],
+  "environment": "staging",
+  "production_excluded": true,
+  "audit_script_sha256": "f5a44419fe62aee20f13a0f1cbfcedebbc50361d3c2c7f3cf067ac4e413bf927",
+  "package_paths": {
+    "braces": [
+      "node_modules/braces"
+    ],
+    "compression": [
+      "node_modules/compression"
+    ],
+    "joi": [
+      "node_modules/joi"
+    ],
+    "shell-quote": [
+      "node_modules/shell-quote"
+    ],
+    "sprintf-js": [
+      "node_modules/sprintf-js"
+    ]
+  },
+  "bundle_evidence": {
+    "android": {
+      "source_file": "fieldzilla-pr485-android-sources.json",
+      "source_sha256": "30d828c9f1a490c7587d7375204e817dfdce82b1a72f2083aef4066f95934a85",
+      "source_count": 1250,
+      "map_sha256": "c0e2ffa5db11d5adba0e6a52b0101a638112868f1c0e2965e2abe8a39cc1c6f8",
+      "bundle_sha256": "23518fb13410f7946da50009ef8faccfcf3cba088f57f7ad8b695696a733aae4"
+    },
+    "ios": {
+      "source_file": "fieldzilla-pr485-ios-sources.json",
+      "source_sha256": "2d5fe6be887335821c8e7cb3f2f7da14df26d34e13a35c30244d29d97d2305e5",
+      "source_count": 1250,
+      "map_sha256": "2c4763339845ab1d452b799730cadf2879208332a231276f1defe9478acf4e8d",
+      "bundle_sha256": "4b4366ff227123c978bb22b9b669b08dd73ba88294418e51221bcf17251fecaf"
+    }
+  }
+}

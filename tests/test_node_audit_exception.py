@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,7 +9,7 @@ from unittest.mock import patch
 
 from adapters.base import CommandOutcome, PRContext
 from adapters.node import NodeAdapter
-from adapters.node_audit_exception import EXCEPTION_FILES, evaluate_mobile_audit_exception
+from adapters.node_audit_exception import EXCEPTION_DIRECTORY, EXCEPTION_FILES, evaluate_mobile_audit_exception
 
 
 class MobileAuditExceptionTests(unittest.TestCase):
@@ -31,15 +32,17 @@ class MobileAuditExceptionTests(unittest.TestCase):
         self.ctx = PRContext(
             repo=self.repo, config={}, policy={}, changed_files=["apps/mobile/src/feature.ts"],
             event={"repository": {"full_name": self.manifest["repository"]},
-                   "pull_request": {"number": self.pr, "head": {"sha": self.manifest["head_sha"]}}},
+                   "pull_request": {"number": self.pr, "head": {"sha": self.manifest["head_sha"]},
+                                    "base": {"ref": "development"}}},
         )
         self.original = CommandOutcome("npm run audit:ci", str(self.mobile), 1)
 
-    def evaluate(self, *, audit=None, tags=None, releases=None):
+    def evaluate(self, *, audit=None, tags=None, releases=None, sources_override=None):
         if audit is None:
             audit = {"vulnerabilities": {
                 item["package"]: {"via": [{"url": "https://github.com/advisories/" + item["id"],
-                                            "severity": item["severity"], "range": item["range"]}]}
+                                            "severity": item["severity"], "range": item["range"]}],
+                                  "nodes": ["node_modules/" + item["package"]]}
                 for item in self.manifest["advisories"]
             }}
         def run(args, cwd=None):
@@ -56,6 +59,17 @@ class MobileAuditExceptionTests(unittest.TestCase):
         source_evidence = EXCEPTION_FILES[self.pr].with_name(canonical_evidence).read_bytes()
         with patch.dict("adapters.node_audit_exception.EXCEPTION_FILES", {self.pr: self.repo / "exception.json"}), \
              patch.dict("os.environ", {"GH_TOKEN": "test"}):
+            if self.pr == 485:
+                for platform, item in self.manifest["bundle_evidence"].items():
+                    source = EXCEPTION_DIRECTORY / item["source_file"]
+                    destination = self.repo / item["source_file"]
+                    if source.is_file():
+                        destination.write_bytes(source.read_bytes())
+                    if sources_override and platform in sources_override:
+                        data = json.loads(destination.read_text())
+                        data["sources"][0] = sources_override[platform]
+                        destination.write_text(json.dumps(data))
+                        item["source_sha256"] = hashlib.sha256(destination.read_bytes()).hexdigest()
             (self.repo / "exception.json").write_text(json.dumps(self.manifest))
             (self.repo / canonical_evidence).write_bytes(source_evidence)
             with patch.object(self.ctx, "run", side_effect=run):
@@ -118,6 +132,38 @@ class MobileAuditExceptionTests(unittest.TestCase):
 
 class StagingPromotionAuditExceptionTests(MobileAuditExceptionTests):
     pr = 477
+
+
+class LocalizationFoundationAuditExceptionTests(MobileAuditExceptionTests):
+    pr = 485
+
+    def test_missing_or_contaminated_bundle_evidence_fails_closed(self):
+        self.assertEqual(self.evaluate().status, "WARNING")
+        self.manifest["bundle_evidence"]["android"]["source_file"] = "missing.json"
+        self.assertIsNone(self.evaluate())
+        self.manifest["bundle_evidence"]["android"]["source_file"] = "fieldzilla-pr485-android-sources.json"
+        self.assertIsNone(self.evaluate(sources_override={"android": "node_modules/shell-quote/index.js"}))
+
+    def test_staging_scope_package_paths_and_feature_edit_fail_closed(self):
+        self.ctx.event["pull_request"]["base"]["ref"] = "main"
+        self.assertIsNone(self.evaluate())
+        self.ctx.event["pull_request"]["base"]["ref"] = "development"
+        self.manifest["production_excluded"] = False
+        self.assertIsNone(self.evaluate())
+        self.manifest["production_excluded"] = True
+        self.manifest["package_paths"]["shell-quote"] = ["node_modules/other"]
+        self.assertIsNone(self.evaluate())
+        self.manifest["package_paths"]["shell-quote"] = ["node_modules/shell-quote"]
+        self.ctx.changed_files.append("policy/exceptions/fieldzilla-pr485-mobile-audit.json")
+        self.assertIsNone(self.evaluate())
+
+    def test_more_severe_advisory_fails_closed(self):
+        audit = {"vulnerabilities": {item["package"]: {
+            "via": [{"url": "https://github.com/advisories/" + item["id"],
+                     "severity": "critical", "range": item["range"]}],
+            "nodes": ["node_modules/" + item["package"]],
+        } for item in self.manifest["advisories"]}}
+        self.assertIsNone(self.evaluate(audit=audit))
 
 
 if __name__ == "__main__":
