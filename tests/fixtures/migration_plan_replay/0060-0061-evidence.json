@@ -1,0 +1,354 @@
+{
+  "artifact_is_ancestor_of_workflow": true,
+  "artifact_sha": "a3b6fb2738788f864d26823fb36cda79b7a7face",
+  "base_sha": "fcf75e91d1f0a3554ddcf19ff25fe9779675f0c4",
+  "changed_paths": [
+    {
+      "path": ".github/workflows/fieldzilla-staging-images.yml",
+      "status": "modified"
+    },
+    {
+      "path": ".github/workflows/staging-deploy.yml",
+      "status": "modified"
+    },
+    {
+      "path": "apps/admin-web/src/App.test.tsx",
+      "status": "modified"
+    },
+    {
+      "path": "apps/admin-web/src/App.tsx",
+      "status": "modified"
+    },
+    {
+      "path": "apps/admin-web/src/consentSetup.test.tsx",
+      "status": "modified"
+    },
+    {
+      "path": "apps/admin-web/src/consentSetup.tsx",
+      "status": "modified"
+    },
+    {
+      "path": "apps/admin-web/src/locationCreateForm.test.tsx",
+      "status": "modified"
+    },
+    {
+      "path": "apps/admin-web/src/locationCreateForm.tsx",
+      "status": "modified"
+    },
+    {
+      "path": "apps/admin-web/src/locationEditForm.test.tsx",
+      "status": "added"
+    },
+    {
+      "path": "apps/admin-web/src/locationEditForm.tsx",
+      "status": "added"
+    },
+    {
+      "path": "apps/admin-web/src/locationRecovery.test.ts",
+      "status": "added"
+    },
+    {
+      "path": "apps/admin-web/src/locationRecovery.ts",
+      "status": "added"
+    },
+    {
+      "path": "apps/admin-web/src/operations.tsx",
+      "status": "modified"
+    },
+    {
+      "path": "apps/admin-web/src/projectLocations.test.tsx",
+      "status": "modified"
+    },
+    {
+      "path": "apps/admin-web/src/projectLocations.tsx",
+      "status": "modified"
+    },
+    {
+      "path": "apps/admin-web/src/projectSetup.test.tsx",
+      "status": "modified"
+    },
+    {
+      "path": "apps/admin-web/src/projectSetup.tsx",
+      "status": "modified"
+    },
+    {
+      "path": "apps/admin-web/src/tenantAdministration.test.tsx",
+      "status": "modified"
+    },
+    {
+      "path": "apps/admin-web/src/tenantAdministration.tsx",
+      "status": "modified"
+    },
+    {
+      "path": "apps/admin-web/src/userTypeAssignment.test.tsx",
+      "status": "added"
+    },
+    {
+      "path": "apps/admin-web/src/userTypeAssignment.tsx",
+      "status": "added"
+    },
+    {
+      "path": "apps/api/alembic/versions/20261008_0061_beneficiary_consent_otp.py",
+      "status": "added"
+    },
+    {
+      "path": "apps/api/app/modules/consents/api.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/app/modules/consents/models.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/app/modules/consents/otp.py",
+      "status": "added"
+    },
+    {
+      "path": "apps/api/app/modules/consents/schemas.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/app/modules/consents/service.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/app/modules/forms/api.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/app/modules/identity_access/api.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/app/modules/identity_access/policies.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/app/modules/identity_access/repository.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/app/modules/identity_access/role_templates.py",
+      "status": "added"
+    },
+    {
+      "path": "apps/api/app/modules/identity_access/schemas.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/app/modules/identity_access/service.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/app/modules/locations/api.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/app/modules/locations/exceptions.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/app/modules/locations/repository.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/app/modules/locations/schemas.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/app/modules/locations/service.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/app/modules/programmes/api.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/app/modules/programmes/exceptions.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/app/modules/programmes/schemas.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/app/modules/programmes/service.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/app/modules/sync/bootstrap.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/app/modules/sync/schemas.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/tests/architecture/test_case_identity_uniqueness.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/tests/architecture/test_managed_kms_field_encryption.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/tests/architecture/test_normalized_submissions.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/tests/architecture/test_p0a_domain_contracts.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/tests/architecture/test_p1l_audit_contracts.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/tests/architecture/test_phase1_delta_sync.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/tests/architecture/test_phase1_incentives.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/tests/architecture/test_project_scope_authorization_contracts.py",
+      "status": "added"
+    },
+    {
+      "path": "apps/api/tests/architecture/test_role_template_catalogue.py",
+      "status": "added"
+    },
+    {
+      "path": "apps/api/tests/architecture/test_staging_alembic_reconciliation_in_place.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/tests/architecture/test_staging_audit_scope.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/tests/architecture/test_staging_pr7b_migration_lane.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/tests/architecture/test_submission_reviews_amendments.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/tests/unit/test_access_policies.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/tests/unit/test_consent_otp.py",
+      "status": "added"
+    },
+    {
+      "path": "apps/api/tests/unit/test_default_project_programme.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/tests/unit/test_location_move.py",
+      "status": "added"
+    },
+    {
+      "path": "apps/api/tests/unit/test_project_scoped_forms.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/tests/unit/test_role_delegation_routes.py",
+      "status": "added"
+    },
+    {
+      "path": "apps/api/tests/unit/test_role_templates.py",
+      "status": "added"
+    },
+    {
+      "path": "apps/mobile/__tests__/consentOtpPolicy.test.ts",
+      "status": "added"
+    },
+    {
+      "path": "apps/mobile/src/features/work/captureService.ts",
+      "status": "modified"
+    },
+    {
+      "path": "apps/mobile/src/features/work/consentOtpPolicy.ts",
+      "status": "added"
+    },
+    {
+      "path": "apps/mobile/src/features/work/screens/ConsentOtpCapture.tsx",
+      "status": "added"
+    },
+    {
+      "path": "apps/mobile/src/features/work/screens/ConsentScreens.tsx",
+      "status": "modified"
+    },
+    {
+      "path": "apps/mobile/src/services/api/fieldApi.ts",
+      "status": "modified"
+    },
+    {
+      "path": "deploy/staging/audit_scope.py",
+      "status": "modified"
+    },
+    {
+      "path": "deploy/staging/otp_migration_dispatch_guard.py",
+      "status": "added"
+    },
+    {
+      "path": "deploy/staging/project_publish_ecs_migration.py",
+      "status": "modified"
+    }
+  ],
+  "environment": "synergie-app-staging",
+  "evidence_schema_version": 1,
+  "image_evidence": [
+    {
+      "digest": "sha256:457efb36596a8dcd9dcc64f353011653994dbd394919017c9740c4c1efbce98a",
+      "registry": "918870682888.dkr.ecr.ap-south-1.amazonaws.com",
+      "repository": "synergie/fieldzilla/staging/api",
+      "service": "api",
+      "tag": "a3b6fb2738788f864d26823fb36cda79b7a7face"
+    },
+    {
+      "digest": "sha256:37501c8486a9ccad59f3d11d617da827d684bfd87678a6c905fb285b32c21555",
+      "registry": "918870682888.dkr.ecr.ap-south-1.amazonaws.com",
+      "repository": "synergie/fieldzilla/staging/admin-web",
+      "service": "admin-web",
+      "tag": "a3b6fb2738788f864d26823fb36cda79b7a7face"
+    }
+  ],
+  "live_db_head": "20261006_0060",
+  "migration_runner": "fieldzilla-staging-migration",
+  "migration_tool": "alembic",
+  "paths_changed_between_artifact_and_workflow": [],
+  "plan_id": "fieldzilla-0060-0061",
+  "repository": "Synergie-ITCI/programme-management-platform",
+  "service": "api",
+  "target_head": "20261008_0061",
+  "task_definition_diff": [
+    {
+      "changes": [
+        {
+          "after": "918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/api@sha256:457efb36596a8dcd9dcc64f353011653994dbd394919017c9740c4c1efbce98a",
+          "before": "prior-image",
+          "path": "/containerDefinitions/0/image"
+        }
+      ],
+      "family": "fieldzilla-staging-api",
+      "service": "api"
+    },
+    {
+      "changes": [
+        {
+          "after": "918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/admin-web@sha256:37501c8486a9ccad59f3d11d617da827d684bfd87678a6c905fb285b32c21555",
+          "before": "prior-image",
+          "path": "/containerDefinitions/0/image"
+        }
+      ],
+      "family": "fieldzilla-staging-admin-web",
+      "service": "admin-web"
+    }
+  ],
+  "workflow_sha": "a3b6fb2738788f864d26823fb36cda79b7a7face"
+}
