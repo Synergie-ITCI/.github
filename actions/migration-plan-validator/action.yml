@@ -1,0 +1,46 @@
+name: Migration Plan Validator
+description: Validate a reviewed migration plan against offline deployment evidence.
+inputs:
+  plan-id:
+    required: true
+    description: Reviewed plan ID in .github/migration-plans/ at the workflow SHA.
+  evidence-file:
+    required: true
+    description: Path to trusted JSON evidence gathered by the caller.
+  base-sha:
+    required: true
+    description: Last deployed SHA from the caller's trusted deployment-state step.
+  service:
+    required: true
+    description: Service being deployed.
+  environment:
+    required: true
+    description: Deployment environment.
+  report-file:
+    required: true
+    description: Path for the machine-readable validation report.
+runs:
+  using: composite
+  steps:
+    - name: Check exact deploy checkout and validate plan
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        WORKFLOW_SHA: ${{ github.sha }}
+        REPOSITORY: ${{ github.repository }}
+        PLAN_ID: ${{ inputs.plan-id }}
+        EVIDENCE_FILE: ${{ inputs.evidence-file }}
+        BASE_SHA: ${{ inputs.base-sha }}
+        SERVICE: ${{ inputs.service }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        REPORT_FILE: ${{ inputs.report-file }}
+      run: |
+        set -euo pipefail
+        tree_head="$(git rev-parse HEAD 2>/dev/null || true)"
+        python3 "$ACTION_PATH/migration_plan_validator.py" \
+          --tree "$GITHUB_WORKSPACE" --plan-id "$PLAN_ID" \
+          --evidence "$EVIDENCE_FILE" --workflow-sha "$WORKFLOW_SHA" \
+          --tree-head "$tree_head" \
+          --base-sha "$BASE_SHA" \
+          --repository "$REPOSITORY" --environment "$ENVIRONMENT" \
+          --service "$SERVICE" --report "$REPORT_FILE"

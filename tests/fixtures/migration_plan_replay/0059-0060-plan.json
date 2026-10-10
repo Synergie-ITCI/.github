@@ -1,0 +1,71 @@
+{
+  "allowed_changed_paths": [
+    ".github/migration-plans/fieldzilla-0059-0060.json",
+    ".github/workflows/fieldzilla-staging-iac.yml",
+    ".github/workflows/fieldzilla-staging-images.yml",
+    ".github/workflows/staging-deploy.yml",
+    "apps/admin-web/src/projectSetup.test.tsx",
+    "apps/admin-web/src/projectSetup.tsx",
+    "apps/api/alembic/versions/20261006_0060_project_configuration_versions.py",
+    "apps/api/app/modules/projects/api.py",
+    "apps/api/app/modules/projects/models.py",
+    "apps/api/app/modules/projects/publication.py",
+    "apps/api/app/modules/projects/schemas.py",
+    "apps/api/tests/architecture/test_aws_environment_iac.py",
+    "apps/api/tests/architecture/test_case_identity_uniqueness.py",
+    "apps/api/tests/architecture/test_managed_kms_field_encryption.py",
+    "apps/api/tests/architecture/test_mobile_backend_integration_contracts.py",
+    "apps/api/tests/architecture/test_normalized_submissions.py",
+    "apps/api/tests/architecture/test_p0a_domain_contracts.py",
+    "apps/api/tests/architecture/test_p1l_audit_contracts.py",
+    "apps/api/tests/architecture/test_phase1_delta_sync.py",
+    "apps/api/tests/architecture/test_phase1_incentives.py",
+    "apps/api/tests/architecture/test_project_setup_publication.py",
+    "apps/api/tests/architecture/test_staging_alembic_reconciliation_in_place.py",
+    "apps/api/tests/architecture/test_staging_audit_scope.py",
+    "apps/api/tests/architecture/test_staging_pr7b_migration_lane.py",
+    "apps/api/tests/architecture/test_submission_reviews_amendments.py",
+    "apps/api/tests/unit/test_project_configuration_publish.py",
+    "deploy/staging/audit_scope.py",
+    "deploy/staging/project_publish_ecs_migration.py",
+    "docs/project-configuration-publication.md",
+    "infra/aws/plan-discovery.tf"
+  ],
+  "allowed_non_runtime_paths": [
+    ".github/workflows/**",
+    "docs/**",
+    "**/tests/**",
+    "*.md"
+  ],
+  "allowed_services": [
+    "api",
+    "admin-web"
+  ],
+  "environment": "synergie-app-staging",
+  "expected_post_head": "20261006_0060",
+  "expected_pre_head": "20261001_0059",
+  "forbidden_paths": [
+    "deploy/legacy/compose.yml",
+    "deploy/legacy/ssm.sh"
+  ],
+  "image_rule": {
+    "registries": [
+      "918870682888.dkr.ecr.ap-south-1.amazonaws.com"
+    ],
+    "repositories": {
+      "admin-web": "synergie/fieldzilla/staging/admin-web",
+      "api": "synergie/fieldzilla/staging/api"
+    },
+    "task_definition_families": {
+      "admin-web": "fieldzilla-staging-admin-web",
+      "api": "fieldzilla-staging-api"
+    }
+  },
+  "migration_runner": "fieldzilla-staging-migration",
+  "migration_tool": "alembic",
+  "plan_id": "fieldzilla-0059-0060",
+  "repository": "Synergie-ITCI/programme-management-platform",
+  "rollback_note": "Restore the pre-migration backup; downgrade is not assured.",
+  "schema_version": 1,
+  "service": "api"
+}

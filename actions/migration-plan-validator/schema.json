@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Synergie-ITCI/.github/actions/migration-plan-validator/schema.json",
+  "title": "Migration plan and runtime evidence v1",
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "head": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_]+$"},
+    "path": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)(?!.*\\\\)(?!.*[?\\[\\]])[^/]+(?:/[^/]+)*$"},
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "plan_id", "repository", "environment", "service", "migration_tool", "expected_pre_head", "expected_post_head", "allowed_changed_paths", "allowed_non_runtime_paths", "forbidden_paths", "migration_runner", "allowed_services", "image_rule", "rollback_note"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "plan_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$"},
+        "repository": {"type": "string", "minLength": 1},
+        "environment": {"type": "string", "minLength": 1},
+        "service": {"type": "string", "minLength": 1},
+        "migration_tool": {"type": "string", "minLength": 1},
+        "expected_pre_head": {"$ref": "#/$defs/head"},
+        "expected_post_head": {"$ref": "#/$defs/head"},
+        "allowed_changed_paths": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/path"}},
+        "allowed_non_runtime_paths": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/path"}},
+        "forbidden_paths": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/path"}},
+        "migration_runner": {"type": "string", "minLength": 1},
+        "allowed_services": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "image_rule": {
+          "type": "object", "additionalProperties": false,
+          "required": ["registries", "repositories", "task_definition_families"],
+          "properties": {
+            "registries": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+            "repositories": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "string", "minLength": 1}},
+            "task_definition_families": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "string", "minLength": 1}}
+          }
+        },
+        "rollback_note": {"type": "string", "minLength": 1},
+        "baseline_ancestor_sha": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "evidence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["evidence_schema_version", "plan_id", "workflow_sha", "artifact_sha", "artifact_is_ancestor_of_workflow", "paths_changed_between_artifact_and_workflow", "repository", "environment", "service", "migration_tool", "migration_runner", "base_sha", "changed_paths", "live_db_head", "target_head", "image_evidence", "task_definition_diff"],
+      "properties": {
+        "evidence_schema_version": {"const": 1},
+        "plan_id": {"type": "string", "minLength": 1},
+        "workflow_sha": {"$ref": "#/$defs/sha"},
+        "artifact_sha": {"$ref": "#/$defs/sha"},
+        "artifact_is_ancestor_of_workflow": {"const": true},
+        "paths_changed_between_artifact_and_workflow": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/path"}},
+        "repository": {"type": "string", "minLength": 1},
+        "environment": {"type": "string", "minLength": 1},
+        "service": {"type": "string", "minLength": 1},
+        "migration_tool": {"type": "string", "minLength": 1},
+        "migration_runner": {"type": "string", "minLength": 1},
+        "base_sha": {"$ref": "#/$defs/sha"},
+        "changed_paths": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["status", "path"],
+            "properties": {
+              "status": {"enum": ["added", "modified", "deleted", "renamed"]},
+              "path": {"$ref": "#/$defs/path"},
+              "previous_path": {"$ref": "#/$defs/path"}
+            }
+          }
+        },
+        "live_db_head": {"$ref": "#/$defs/head"},
+        "target_head": {"$ref": "#/$defs/head"},
+        "image_evidence": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["service", "registry", "repository", "tag", "digest"],
+            "properties": {
+              "service": {"type": "string", "minLength": 1},
+              "registry": {"type": "string", "minLength": 1},
+              "repository": {"type": "string", "minLength": 1},
+              "tag": {"$ref": "#/$defs/sha"},
+              "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+            }
+          }
+        },
+        "task_definition_diff": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["service", "family", "changes"],
+            "properties": {
+              "service": {"type": "string", "minLength": 1},
+              "family": {"type": "string", "minLength": 1},
+              "changes": {
+                "type": "array", "minItems": 1,
+                "items": {
+                  "type": "object", "additionalProperties": false,
+                  "required": ["path", "before", "after"],
+                  "properties": {
+                    "path": {"type": "string"},
+                    "before": {"type": "string"},
+                    "after": {"type": "string"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

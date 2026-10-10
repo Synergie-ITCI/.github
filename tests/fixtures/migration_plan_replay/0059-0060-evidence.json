@@ -1,0 +1,184 @@
+{
+  "artifact_is_ancestor_of_workflow": true,
+  "artifact_sha": "b1679598ea9dfbbac3b8244887fc113636169e6f",
+  "base_sha": "563e555c60876916afcd169434c63180d54e1e9d",
+  "changed_paths": [
+    {
+      "path": ".github/workflows/fieldzilla-staging-iac.yml",
+      "status": "modified"
+    },
+    {
+      "path": ".github/workflows/fieldzilla-staging-images.yml",
+      "status": "modified"
+    },
+    {
+      "path": ".github/workflows/staging-deploy.yml",
+      "status": "modified"
+    },
+    {
+      "path": "apps/admin-web/src/projectSetup.test.tsx",
+      "status": "modified"
+    },
+    {
+      "path": "apps/admin-web/src/projectSetup.tsx",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/alembic/versions/20261006_0060_project_configuration_versions.py",
+      "status": "added"
+    },
+    {
+      "path": "apps/api/app/modules/projects/api.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/app/modules/projects/models.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/app/modules/projects/publication.py",
+      "status": "added"
+    },
+    {
+      "path": "apps/api/app/modules/projects/schemas.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/tests/architecture/test_aws_environment_iac.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/tests/architecture/test_case_identity_uniqueness.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/tests/architecture/test_managed_kms_field_encryption.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/tests/architecture/test_mobile_backend_integration_contracts.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/tests/architecture/test_normalized_submissions.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/tests/architecture/test_p0a_domain_contracts.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/tests/architecture/test_p1l_audit_contracts.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/tests/architecture/test_phase1_delta_sync.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/tests/architecture/test_phase1_incentives.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/tests/architecture/test_project_setup_publication.py",
+      "status": "added"
+    },
+    {
+      "path": "apps/api/tests/architecture/test_staging_alembic_reconciliation_in_place.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/tests/architecture/test_staging_audit_scope.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/tests/architecture/test_staging_pr7b_migration_lane.py",
+      "status": "added"
+    },
+    {
+      "path": "apps/api/tests/architecture/test_submission_reviews_amendments.py",
+      "status": "modified"
+    },
+    {
+      "path": "apps/api/tests/unit/test_project_configuration_publish.py",
+      "status": "added"
+    },
+    {
+      "path": "deploy/staging/audit_scope.py",
+      "status": "modified"
+    },
+    {
+      "path": "deploy/staging/project_publish_ecs_migration.py",
+      "status": "added"
+    },
+    {
+      "path": "docs/project-configuration-publication.md",
+      "status": "added"
+    },
+    {
+      "path": "infra/aws/plan-discovery.tf",
+      "status": "modified"
+    }
+  ],
+  "environment": "synergie-app-staging",
+  "evidence_schema_version": 1,
+  "image_evidence": [
+    {
+      "digest": "sha256:042dc6afc85c962bb03b335a48798b177644551dd0298590d5cab76813ad0645",
+      "registry": "918870682888.dkr.ecr.ap-south-1.amazonaws.com",
+      "repository": "synergie/fieldzilla/staging/api",
+      "service": "api",
+      "tag": "b1679598ea9dfbbac3b8244887fc113636169e6f"
+    },
+    {
+      "digest": "sha256:9ef743773d758a486ccb058cfead805aa355c2a35337d107cbc68f6ef61f190b",
+      "registry": "918870682888.dkr.ecr.ap-south-1.amazonaws.com",
+      "repository": "synergie/fieldzilla/staging/admin-web",
+      "service": "admin-web",
+      "tag": "b1679598ea9dfbbac3b8244887fc113636169e6f"
+    }
+  ],
+  "live_db_head": "20261001_0059",
+  "migration_runner": "fieldzilla-staging-migration",
+  "migration_tool": "alembic",
+  "paths_changed_between_artifact_and_workflow": [
+    ".github/workflows/fieldzilla-staging-iac.yml",
+    ".github/workflows/fieldzilla-staging-images.yml",
+    ".github/workflows/staging-deploy.yml",
+    "apps/api/tests/architecture/test_aws_environment_iac.py",
+    "apps/api/tests/architecture/test_staging_audit_scope.py",
+    "apps/api/tests/architecture/test_staging_pr7b_migration_lane.py",
+    "deploy/staging/audit_scope.py",
+    "deploy/staging/project_publish_ecs_migration.py",
+    "infra/aws/plan-discovery.tf"
+  ],
+  "plan_id": "fieldzilla-0059-0060",
+  "repository": "Synergie-ITCI/programme-management-platform",
+  "service": "api",
+  "target_head": "20261006_0060",
+  "task_definition_diff": [
+    {
+      "changes": [
+        {
+          "after": "918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/api@sha256:042dc6afc85c962bb03b335a48798b177644551dd0298590d5cab76813ad0645",
+          "before": "prior-image",
+          "path": "/containerDefinitions/0/image"
+        }
+      ],
+      "family": "fieldzilla-staging-api",
+      "service": "api"
+    },
+    {
+      "changes": [
+        {
+          "after": "918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/staging/admin-web@sha256:9ef743773d758a486ccb058cfead805aa355c2a35337d107cbc68f6ef61f190b",
+          "before": "prior-image",
+          "path": "/containerDefinitions/0/image"
+        }
+      ],
+      "family": "fieldzilla-staging-admin-web",
+      "service": "admin-web"
+    }
+  ],
+  "workflow_sha": "fcf75e91d1f0a3554ddcf19ff25fe9779675f0c4"
+}
