@@ -16,7 +16,9 @@ EXCEPTION_FILES = {
     476: EXCEPTION_DIRECTORY / "fieldzilla-pr476-mobile-audit.json",
     477: EXCEPTION_DIRECTORY / "fieldzilla-pr477-mobile-audit.json",
     485: EXCEPTION_DIRECTORY / "fieldzilla-pr485-mobile-audit.json",
+    487: EXCEPTION_DIRECTORY / "fieldzilla-pr487-mobile-audit.json",
 }
+EVIDENCE_GATED_PRS = {485, 487}
 DEPENDENCY_FILES = {"apps/mobile/package.json", "apps/mobile/package-lock.json"}
 ADVISORY_ID = re.compile(r"^GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}$")
 NON_RUNTIME_PACKAGES = {"braces", "micromatch", "shell-quote", "compression", "joi", "sprintf-js", "metro-config", "@react-native-community/cli", "jest"}
@@ -64,7 +66,7 @@ def _github_list(ctx: PRContext, endpoint: str, key: str) -> set[str]:
     return set(names)
 
 
-def _validate_pr485_bundle_evidence(manifest: dict, exception_file: Path, head: str) -> bool:
+def _validate_bundle_evidence(manifest: dict, exception_file: Path, head: str, number: int) -> bool:
     if manifest.get("environment") != "staging" or manifest.get("production_excluded") is not True:
         return False
     bundles = manifest.get("bundle_evidence")
@@ -72,7 +74,7 @@ def _validate_pr485_bundle_evidence(manifest: dict, exception_file: Path, head: 
         return False
     for platform in ("android", "ios"):
         item = bundles[platform]
-        expected_name = f"fieldzilla-pr485-{platform}-sources.json"
+        expected_name = f"fieldzilla-pr{number}-{platform}-sources.json"
         if not isinstance(item, dict) or item.get("source_file") != expected_name:
             return False
         if not all(re.fullmatch(r"[0-9a-f]{64}", item.get(key, "")) for key in ("source_sha256", "map_sha256", "bundle_sha256")):
@@ -121,16 +123,16 @@ def evaluate_mobile_audit_exception(ctx: PRContext, root: Path, original: Comman
             return None
         if not all(manifest.get(field) for field in ("approver", "reason", "residual_risk", "remediation_owner")):
             return None
-        if number == 485 and any(path.startswith("policy/exceptions/") or path.startswith("pr-qa/adapters/node_audit_exception.py") for path in ctx.changed_files):
+        if number in EVIDENCE_GATED_PRS and any(path.startswith("policy/exceptions/") or path.startswith("pr-qa/adapters/node_audit_exception.py") for path in ctx.changed_files):
             return None
         if manifest["repository"] != repository or manifest["pr"] != event_pr["number"]:
             return None
-        if number == 485 and event_pr.get("base", {}).get("ref") != "development":
+        if number in EVIDENCE_GATED_PRS and event_pr.get("base", {}).get("ref") != "development":
             return None
         head = event_pr["head"]["sha"]
         if head != manifest["head_sha"]:
             return None
-        if number == 485 and not _validate_pr485_bundle_evidence(manifest, exception_file, head):
+        if number in EVIDENCE_GATED_PRS and not _validate_bundle_evidence(manifest, exception_file, head, number):
             return None
         actual_head = ctx.run(["git", "rev-parse", "HEAD"], cwd=ctx.repo)
         if not actual_head.ok or actual_head.stdout.strip() != head:
@@ -141,7 +143,7 @@ def evaluate_mobile_audit_exception(ctx: PRContext, root: Path, original: Comman
             return None
         if set(manifest["dependency_sha256"]) != DEPENDENCY_FILES:
             return None
-        if number == 485:
+        if number in EVIDENCE_GATED_PRS:
             script = package["scripts"]["audit:ci"]
             if hashlib.sha256(script.encode()).hexdigest() != manifest["audit_script_sha256"]:
                 return None
@@ -159,7 +161,7 @@ def evaluate_mobile_audit_exception(ctx: PRContext, root: Path, original: Comman
         observed = _advisories(audit_report)
         if observed != manifest["advisories"]:
             return None
-        if number == 485:
+        if number in EVIDENCE_GATED_PRS:
             expected_paths = manifest["package_paths"]
             if set(expected_paths) != {item["package"] for item in observed}:
                 return None
@@ -177,7 +179,7 @@ def evaluate_mobile_audit_exception(ctx: PRContext, root: Path, original: Comman
             "advisories": observed,
             "audit_metadata": audit_report.get("metadata", {}).get("vulnerabilities", {}),
         }
-        if number == 485:
+        if number in EVIDENCE_GATED_PRS:
             result["bundle_evidence"] = manifest["bundle_evidence"]
         output = ctx.repo / "pr-qa-results/mobile-audit-exception.json"
         output.parent.mkdir(exist_ok=True)

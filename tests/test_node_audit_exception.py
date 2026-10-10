@@ -59,7 +59,7 @@ class MobileAuditExceptionTests(unittest.TestCase):
         source_evidence = EXCEPTION_FILES[self.pr].with_name(canonical_evidence).read_bytes()
         with patch.dict("adapters.node_audit_exception.EXCEPTION_FILES", {self.pr: self.repo / "exception.json"}), \
              patch.dict("os.environ", {"GH_TOKEN": "test"}):
-            if self.pr == 485:
+            if self.pr in (485, 487):
                 for platform, item in self.manifest["bundle_evidence"].items():
                     source = EXCEPTION_DIRECTORY / item["source_file"]
                     destination = self.repo / item["source_file"]
@@ -141,7 +141,7 @@ class LocalizationFoundationAuditExceptionTests(MobileAuditExceptionTests):
         self.assertEqual(self.evaluate().status, "WARNING")
         self.manifest["bundle_evidence"]["android"]["source_file"] = "missing.json"
         self.assertIsNone(self.evaluate())
-        self.manifest["bundle_evidence"]["android"]["source_file"] = "fieldzilla-pr485-android-sources.json"
+        self.manifest["bundle_evidence"]["android"]["source_file"] = f"fieldzilla-pr{self.pr}-android-sources.json"
         self.assertIsNone(self.evaluate(sources_override={"android": "node_modules/shell-quote/index.js"}))
 
     def test_staging_scope_package_paths_and_feature_edit_fail_closed(self):
@@ -154,7 +154,7 @@ class LocalizationFoundationAuditExceptionTests(MobileAuditExceptionTests):
         self.manifest["package_paths"]["shell-quote"] = ["node_modules/other"]
         self.assertIsNone(self.evaluate())
         self.manifest["package_paths"]["shell-quote"] = ["node_modules/shell-quote"]
-        self.ctx.changed_files.append("policy/exceptions/fieldzilla-pr485-mobile-audit.json")
+        self.ctx.changed_files.append(f"policy/exceptions/fieldzilla-pr{self.pr}-mobile-audit.json")
         self.assertIsNone(self.evaluate())
 
     def test_more_severe_advisory_fails_closed(self):
@@ -164,6 +164,16 @@ class LocalizationFoundationAuditExceptionTests(MobileAuditExceptionTests):
             "nodes": ["node_modules/" + item["package"]],
         } for item in self.manifest["advisories"]}}
         self.assertIsNone(self.evaluate(audit=audit))
+
+
+class ConsentConfirmationAuditExceptionTests(LocalizationFoundationAuditExceptionTests):
+    pr = 487
+
+    def test_pr485_evidence_does_not_authorize_pr487(self):
+        original = self.manifest["head_sha"]
+        self.manifest["head_sha"] = "22b368c58b4db7881381f87ff0fcd91295bf1557"
+        self.assertIsNone(self.evaluate())
+        self.manifest["head_sha"] = original
 
 
 if __name__ == "__main__":
