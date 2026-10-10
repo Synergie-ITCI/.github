@@ -15,9 +15,11 @@ EXCEPTION_DIRECTORY = Path(__file__).resolve().parents[2] / "policy/exceptions"
 EXCEPTION_FILES = {
     476: EXCEPTION_DIRECTORY / "fieldzilla-pr476-mobile-audit.json",
     477: EXCEPTION_DIRECTORY / "fieldzilla-pr477-mobile-audit.json",
+    485: EXCEPTION_DIRECTORY / "fieldzilla-pr485-mobile-audit.json",
 }
 DEPENDENCY_FILES = {"apps/mobile/package.json", "apps/mobile/package-lock.json"}
 ADVISORY_ID = re.compile(r"^GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}$")
+NON_RUNTIME_PACKAGES = {"braces", "micromatch", "shell-quote", "compression", "joi", "sprintf-js", "metro-config", "@react-native-community/cli", "jest"}
 
 
 def _digest(path: Path) -> str:
@@ -62,6 +64,37 @@ def _github_list(ctx: PRContext, endpoint: str, key: str) -> set[str]:
     return set(names)
 
 
+def _validate_pr485_bundle_evidence(manifest: dict, exception_file: Path, head: str) -> bool:
+    if manifest.get("environment") != "staging" or manifest.get("production_excluded") is not True:
+        return False
+    bundles = manifest.get("bundle_evidence")
+    if not isinstance(bundles, dict) or set(bundles) != {"android", "ios"}:
+        return False
+    for platform in ("android", "ios"):
+        item = bundles[platform]
+        expected_name = f"fieldzilla-pr485-{platform}-sources.json"
+        if not isinstance(item, dict) or item.get("source_file") != expected_name:
+            return False
+        if not all(re.fullmatch(r"[0-9a-f]{64}", item.get(key, "")) for key in ("source_sha256", "map_sha256", "bundle_sha256")):
+            return False
+        source_file = exception_file.with_name(expected_name)
+        if not source_file.is_file() or _digest(source_file) != item["source_sha256"]:
+            return False
+        source_data = json.loads(source_file.read_text(encoding="utf-8"))
+        if not isinstance(source_data, dict):
+            return False
+        sources = source_data.get("sources")
+        if source_data.get("platform") != platform or source_data.get("head_sha") != head:
+            return False
+        if not isinstance(sources, list) or len(sources) != item.get("source_count") or len(sources) < 1000:
+            return False
+        if not all(isinstance(source, str) for source in sources):
+            return False
+        if any(any(f"node_modules/{package}/" in f"{source}/" for package in NON_RUNTIME_PACKAGES) for source in sources):
+            return False
+    return True
+
+
 def evaluate_mobile_audit_exception(ctx: PRContext, root: Path, original: CommandOutcome) -> CheckResult | None:
     """Return a visible warning only when every approved boundary still matches.
 
@@ -88,10 +121,16 @@ def evaluate_mobile_audit_exception(ctx: PRContext, root: Path, original: Comman
             return None
         if not all(manifest.get(field) for field in ("approver", "reason", "residual_risk", "remediation_owner")):
             return None
+        if number == 485 and any(path.startswith("policy/exceptions/") or path.startswith("pr-qa/adapters/node_audit_exception.py") for path in ctx.changed_files):
+            return None
         if manifest["repository"] != repository or manifest["pr"] != event_pr["number"]:
+            return None
+        if number == 485 and event_pr.get("base", {}).get("ref") != "development":
             return None
         head = event_pr["head"]["sha"]
         if head != manifest["head_sha"]:
+            return None
+        if number == 485 and not _validate_pr485_bundle_evidence(manifest, exception_file, head):
             return None
         actual_head = ctx.run(["git", "rev-parse", "HEAD"], cwd=ctx.repo)
         if not actual_head.ok or actual_head.stdout.strip() != head:
@@ -102,6 +141,10 @@ def evaluate_mobile_audit_exception(ctx: PRContext, root: Path, original: Comman
             return None
         if set(manifest["dependency_sha256"]) != DEPENDENCY_FILES:
             return None
+        if number == 485:
+            script = package["scripts"]["audit:ci"]
+            if hashlib.sha256(script.encode()).hexdigest() != manifest["audit_script_sha256"]:
+                return None
         expiry = datetime.fromisoformat(manifest["expires_at"].replace("Z", "+00:00"))
         if datetime.now(timezone.utc) >= expiry:
             return None
@@ -116,6 +159,13 @@ def evaluate_mobile_audit_exception(ctx: PRContext, root: Path, original: Comman
         observed = _advisories(audit_report)
         if observed != manifest["advisories"]:
             return None
+        if number == 485:
+            expected_paths = manifest["package_paths"]
+            if set(expected_paths) != {item["package"] for item in observed}:
+                return None
+            for package_name, vulnerability in audit_report["vulnerabilities"].items():
+                if package_name in expected_paths and sorted(vulnerability["nodes"]) != sorted(expected_paths[package_name]):
+                    return None
         result = {
             "decision": "time-boxed exception; audit remains vulnerable",
             "repository": repository,
@@ -127,6 +177,8 @@ def evaluate_mobile_audit_exception(ctx: PRContext, root: Path, original: Comman
             "advisories": observed,
             "audit_metadata": audit_report.get("metadata", {}).get("vulnerabilities", {}),
         }
+        if number == 485:
+            result["bundle_evidence"] = manifest["bundle_evidence"]
         output = ctx.repo / "pr-qa-results/mobile-audit-exception.json"
         output.parent.mkdir(exist_ok=True)
         output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
