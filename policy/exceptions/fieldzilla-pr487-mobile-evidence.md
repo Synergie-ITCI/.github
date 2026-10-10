@@ -1,0 +1,16 @@
+# PR #487 mobile dependency audit evidence
+
+This record is scoped to FieldZilla PR #487 at `d433c9704a87fd71771086474fc8c3fef8adf92e`, targeting `development`, and to staging only. Saurabh Verma authorized the controlled exception process for this PR. The Mobile Platform Lead owns remediation. This record does not authorize merge, deployment, production, or tenant-data changes.
+
+The PR changes no mobile dependency manifest or lockfile relative to `development`. The files match the approved PR #485 dependency baseline: `apps/mobile/package.json` SHA-256 `6bc69c28df41f51a60b4384cf565c3107556b577da58c7c1ebce3ae53791f678`; `apps/mobile/package-lock.json` SHA-256 `1393ec5cb4710b4bb9d5b19ecb8dc24363a4c5d98598359892fe95f7a742e69b`. The unchanged `audit:ci` command is `npm audit --audit-level=high`, SHA-256 `f5a44419fe62aee20f13a0f1cbfcedebbc50361d3c2c7f3cf067ac4e413bf927`.
+
+The exact-head `npm audit --json` run reported 59 inherited vulnerabilities: 6 moderate, 52 high, and 1 critical. PR-QA reported 58 (6 moderate, 51 high, 1 critical); the approved #485 record also observed this count variation. The five direct advisory identities, severities, ranges, and paths remain identical to the baseline: braces `GHSA-vfj7-8cjw-p6xm` high at `node_modules/braces`; compression `GHSA-vc2v-76pw-4v95` high at `node_modules/compression`; joi `GHSA-wr44-6hxh-3jwq` moderate at `node_modules/joi`; shell-quote `GHSA-pqg4-j6r4-53mv` critical at `node_modules/shell-quote`; sprintf-js `GHSA-hp3w-g68c-fv3c` moderate at `node_modules/sprintf-js`. The audit remains executed and visible.
+
+At exact head, Android and iOS release JavaScript bundles were built with `react-native bundle --platform android|ios --dev false --entry-file index.js`. Both source maps list 1,250 modules. Neither list contains braces, micromatch, shell-quote, compression, joi, sprintf-js, metro-config, the React Native CLI, or Jest. The normalized source lists are pinned in this central repository. The local build used Node 23.11.0, which emitted an engine warning for the mobile app; Metro completed both bundles. The governed CI result remains authoritative for application validation.
+
+| Platform | Bundle SHA-256 | Source-map SHA-256 | Normalized source-list SHA-256 |
+| --- | --- | --- | --- |
+| Android | `63a899e2c3e8800a65b161acdc7d7bdbdb6962881ac06f460255eb3034cbbde4` | `6dd25bba49fdf1104951994557f0da734a66f8755e32b910b5c2683296112713` | `31be6875e18bf885a550758da3b834e1234e2a9c0856d25bc6a05bff0c484139` |
+| iOS | `7fb60961ef4be11b4fdf31e6b2b7c95d7705d7987c2c36f7466be5d3e4998d3c` | `894efac0c0754b3801e3c673657e9a1a150ebadc46326b6b3eeb744de50cf15d` | `8f3120dc049206c0c289fd6f4e8cde23117f348fd7649fe5fd2148b02ae7486a` |
+
+Absence from release JavaScript bundles does not eliminate install, build, or CI exposure. The exception expires on 2026-11-07 at 16:40:21 UTC or on any new FieldZilla tag or GitHub Release, whichever comes first. At review, the sole FieldZilla tag was `fieldzilla-apply-dispatch-2c8a4015`; there were no GitHub Releases. Any change to the exact PR or head, dependencies, audit command, advisory set or severity, package paths, bundle evidence, expiry, or feature-repository exception files leaves the audit blocking.
