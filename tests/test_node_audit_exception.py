@@ -59,7 +59,7 @@ class MobileAuditExceptionTests(unittest.TestCase):
         source_evidence = EXCEPTION_FILES[self.pr].with_name(canonical_evidence).read_bytes()
         with patch.dict("adapters.node_audit_exception.EXCEPTION_FILES", {self.pr: self.repo / "exception.json"}), \
              patch.dict("os.environ", {"GH_TOKEN": "test"}):
-            if self.pr in (485, 487):
+            if self.pr in (485, 487, 489):
                 for platform, item in self.manifest["bundle_evidence"].items():
                     source = EXCEPTION_DIRECTORY / item["source_file"]
                     destination = self.repo / item["source_file"]
@@ -172,6 +172,16 @@ class ConsentConfirmationAuditExceptionTests(LocalizationFoundationAuditExceptio
     def test_pr485_evidence_does_not_authorize_pr487(self):
         original = self.manifest["head_sha"]
         self.manifest["head_sha"] = "22b368c58b4db7881381f87ff0fcd91295bf1557"
+        self.assertIsNone(self.evaluate())
+        self.manifest["head_sha"] = original
+
+
+class MobileStagingFoundationAuditExceptionTests(LocalizationFoundationAuditExceptionTests):
+    pr = 489
+
+    def test_prior_pr_evidence_does_not_authorize_pr489(self):
+        original = self.manifest["head_sha"]
+        self.manifest["head_sha"] = "d433c9704a87fd71771086474fc8c3fef8adf92e"
         self.assertIsNone(self.evaluate())
         self.manifest["head_sha"] = original
 

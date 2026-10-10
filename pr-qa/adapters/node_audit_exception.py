@@ -17,8 +17,9 @@ EXCEPTION_FILES = {
     477: EXCEPTION_DIRECTORY / "fieldzilla-pr477-mobile-audit.json",
     485: EXCEPTION_DIRECTORY / "fieldzilla-pr485-mobile-audit.json",
     487: EXCEPTION_DIRECTORY / "fieldzilla-pr487-mobile-audit.json",
+    489: EXCEPTION_DIRECTORY / "fieldzilla-pr489-mobile-audit.json",
 }
-EVIDENCE_GATED_PRS = {485, 487}
+EVIDENCE_GATED_PRS = {485, 487, 489}
 DEPENDENCY_FILES = {"apps/mobile/package.json", "apps/mobile/package-lock.json"}
 ADVISORY_ID = re.compile(r"^GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}$")
 NON_RUNTIME_PACKAGES = {"braces", "micromatch", "shell-quote", "compression", "joi", "sprintf-js", "metro-config", "@react-native-community/cli", "jest"}
