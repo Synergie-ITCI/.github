@@ -86,7 +86,8 @@ def plan() -> dict:
     ):
         before, after = policy_update(action)
         updates.append(resource(address, before, after, ["update"]))
-    return {"variables": {"enable_production": {"value": False}, "route53_zone_id": {"value": ""}},
+    return {"variables": {"enable_production": {"value": False}, "route53_zone_id": {"value": ""},
+                          "image_tag": {"value": "b1679598ea9dfbbac3b8244887fc113636169e6f"}},
             "resource_changes": [role, attachment, inline, task, *updates],
             "resource_drift": [], "output_changes": {}}
 
@@ -98,7 +99,7 @@ class Pr521PlanTests(unittest.TestCase):
         plan_path = Path(self.temp.name) / "fieldzilla-staging.plan.json"
         (plan_path.parent / "metadata.json").write_text(json.dumps({
             "commit_sha": auth.PR521_SOURCE_SHA, "repository": auth.REPOSITORY,
-            "environment": auth.ENVIRONMENT,
+            "environment": auth.ENVIRONMENT, "state_key": auth.STATE_KEY,
             "image_digest_map": {"synergie/fieldzilla/staging/api": "sha256:" + "a" * 64,
                                  "synergie/fieldzilla/staging/admin-web": "sha256:" + "b" * 64},
         }), encoding="utf-8")
@@ -162,6 +163,16 @@ class Pr521PlanTests(unittest.TestCase):
         container[0]["image"] = container[0]["image"].replace("a" * 64, "c" * 64)
         task["change"]["after"]["container_definitions"] = json.dumps(container)
         self.check_fails(document)
+
+    def test_wrong_image_tag_or_state_key_fails(self) -> None:
+        document = plan()
+        document["variables"]["image_tag"]["value"] = "f" * 40
+        self.check_fails(document)
+        metadata_path = self.args.plan_json_path.parent / "metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["state_key"] = "production/opentofu.tfstate"
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+        self.check_fails(plan())
 
     def test_wrong_role_boundary_secret_and_wildcard_fail(self) -> None:
         for change in ("role", "boundary", "secret", "wildcard"):

@@ -869,15 +869,18 @@ def verify_pr521_staging_plan(doc: dict[str, Any], args: argparse.Namespace) -> 
         metadata = json.loads((args.plan_json_path.parent / "metadata.json").read_text(encoding="utf-8"))
     except (AttributeError, OSError, ValueError):
         die("PR 521 plan has no generated artifact metadata")
-    if (metadata.get("commit_sha"), metadata.get("repository"), metadata.get("environment")) != (
-        PR521_SOURCE_SHA, REPOSITORY, ENVIRONMENT
+    if (metadata.get("commit_sha"), metadata.get("repository"), metadata.get("environment"),
+        metadata.get("state_key")) != (
+        PR521_SOURCE_SHA, REPOSITORY, ENVIRONMENT, STATE_KEY
     ):
         die("PR 521 plan artifact metadata is not exact-head staging evidence")
     digest_map = _parse_image_digest_map(json.dumps(metadata.get("image_digest_map")))
     if digest_map is None:
         die("PR 521 plan has no complete ECR-verified image digest map")
     variables = {key: item.get("value") for key, item in doc.get("variables", {}).items()}
-    if variables.get("enable_production") is not False or variables.get("route53_zone_id") not in ("", None):
+    if (variables.get("enable_production") is not False
+        or variables.get("route53_zone_id") not in ("", None)
+        or variables.get("image_tag") != "b1679598ea9dfbbac3b8244887fc113636169e6f"):
         die("PR 521 plan is not staging-only")
     if known_plaintext_secret_path(doc):
         die("PR 521 plan contains sensitive plaintext")
