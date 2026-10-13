@@ -180,6 +180,12 @@ jobs:
                  { [ "${REQUESTED_MODE}" = "plan" ] || [ "${REQUESTED_MODE}" = "apply" ]; }; then
                 plan_kind_prefix="fieldzilla-staging-migration-iam"
               fi
+              if [ "${APPROVED_SOURCE_SHA}" = "a06e6f827d540a716b155ace2b33bb65491c29cf" ] &&
+                 [ "${APPROVED_IMAGE_TAG}" = "b1679598ea9dfbbac3b8244887fc113636169e6f" ] &&
+                 [ -z "${IMAGE_DIGEST_MAP}${IMAGE_DIGEST}${ECS_FAMILIES}" ] &&
+                 [ "${REQUESTED_MODE}" = "plan" ]; then
+                plan_kind_prefix="fieldzilla-pr521-staging-plan"
+              fi
               ;;
             deploy/staging/fieldzilla-runtime)
               state_key="programme-management-platform/fieldzilla/staging/runtime/opentofu.tfstate"
@@ -452,6 +458,33 @@ jobs:
             echo "ARTIFACT_NAME=${ARTIFACT_NAME}"
           } >> "${GITHUB_ENV}"
 
+      - name: Verify generated artifact contents
+        if: ${{ inputs.mode == 'plan' || inputs.mode == 'post-import-plan' || inputs.mode == 'drift' }}
+        uses: ./.central-framework/actions/opentofu-plan-authorizer
+        with:
+          command: verify-artifact-files
+          artifact-dir: ${{ runner.temp }}/fieldzilla-plan
+
+      - name: Reject plaintext secrets before PR 521 plan capture
+        if: ${{ env.PLAN_KIND_PREFIX == 'fieldzilla-pr521-staging-plan' }}
+        uses: ./.central-framework/actions/opentofu-plan-authorizer
+        with:
+          command: verify-plan-capture
+          plan-json-path: ${{ runner.temp }}/fieldzilla-plan/fieldzilla-staging.plan.json
+          expected-sha: ${{ inputs.expected-sha }}
+          repository: ${{ github.repository }}
+          environment: synergie-app-staging
+
+      - name: Preserve exact PR 521 plan for security review
+        if: ${{ env.PLAN_KIND_PREFIX == 'fieldzilla-pr521-staging-plan' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ runner.temp }}/fieldzilla-plan
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+
       - name: Verify generated plan safety
         if: ${{ inputs.mode == 'plan' || inputs.mode == 'post-import-plan' || inputs.mode == 'drift' }}
         uses: ./.central-framework/actions/opentofu-plan-authorizer
@@ -460,19 +493,14 @@ jobs:
           plan-json-path: ${{ runner.temp }}/fieldzilla-plan/fieldzilla-staging.plan.json
           plan-kind: ${{ env.PLAN_KIND_PREFIX != '' && env.PLAN_KIND_PREFIX || inputs.mode == 'plan' && 'normal' || inputs.mode == 'post-import-plan' && 'post-import' || 'drift' }}
           expected-sha: ${{ inputs.expected-sha }}
+          repository: ${{ github.repository }}
+          environment: synergie-app-staging
           image-digest: ${{ inputs.image-digest }}
           image-digest-map: ${{ inputs.image-digest-map }}
           ecs-families: ${{ inputs.ecs-families }}
 
-      - name: Verify generated artifact contents
-        if: ${{ inputs.mode == 'plan' || inputs.mode == 'post-import-plan' || inputs.mode == 'drift' }}
-        uses: ./.central-framework/actions/opentofu-plan-authorizer
-        with:
-          command: verify-artifact-files
-          artifact-dir: ${{ runner.temp }}/fieldzilla-plan
-
       - name: Upload generated artifact
-        if: ${{ inputs.mode == 'plan' || inputs.mode == 'post-import-plan' || inputs.mode == 'drift' }}
+        if: ${{ (inputs.mode == 'plan' || inputs.mode == 'post-import-plan' || inputs.mode == 'drift') && env.PLAN_KIND_PREFIX != 'fieldzilla-pr521-staging-plan' }}
         id: upload-generated
         uses: actions/upload-artifact@v4
         with:
@@ -669,6 +697,8 @@ jobs:
           plan-json-path: ${{ runner.temp }}/approved-plan.json
           plan-kind: ${{ env.PLAN_KIND_PREFIX != '' && env.PLAN_KIND_PREFIX || 'normal' }}
           expected-sha: ${{ inputs.expected-sha }}
+          repository: ${{ github.repository }}
+          environment: synergie-app-staging
           image-digest: ${{ inputs.image-digest }}
           image-digest-map: ${{ inputs.image-digest-map }}
           ecs-families: ${{ inputs.ecs-families }}

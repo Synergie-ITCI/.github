@@ -40,6 +40,18 @@ artifacts from the exact requested commit using the staging role. The artifact
 contains the raw binary plan, human-readable plan, JSON plan, backend metadata,
 checksums, and release metadata.
 
+For FieldZilla PR #521 only, the `infra/aws` plan route accepts source SHA
+`a06e6f827d540a716b155ace2b33bb65491c29cf` with the reviewed existing
+image tag `b1679598ea9dfbbac3b8244887fc113636169e6f`. It checks the plan
+for known plaintext secrets, then uploads the exact-head plan artifact before
+the authorization check so an unknown IAM value or unrelated mutation
+still leaves a one-day artifact for security review. A failed plan run is not
+an apply authorization. The checker requires the concrete staging role ARN,
+trust, boundary, secret/KMS policy, attachment, policy updates and migration
+task-definition role and image values. Unknown security-sensitive values are
+reported and rejected. The `infra/aws` apply route remains closed for PR #521;
+it requires a separate central change after a real plan has been examined.
+
 In `import` mode, the workflow verifies the approved source artifact and import
 map hash, backs up any existing remote state object, validates each import entry
 against FieldZilla ownership evidence, and imports only those approved

@@ -201,11 +201,20 @@ runs:
             python3 "${SCRIPT_PATH}" verify-artifact-files \
               --artifact-dir "${ARTIFACT_DIR}"
             ;;
+          verify-plan-capture)
+            python3 "${SCRIPT_PATH}" verify-plan-capture \
+              --plan-json-path "${PLAN_JSON_PATH}" \
+              --expected-sha "${EXPECTED_SHA}" \
+              --repository "${REPOSITORY}" \
+              --environment "${ENVIRONMENT}"
+            ;;
           verify-plan-safety)
             python3 "${SCRIPT_PATH}" verify-plan-safety \
               --plan-json-path "${PLAN_JSON_PATH}" \
               --plan-kind "${PLAN_KIND}" \
               --expected-sha "${EXPECTED_SHA}" \
+              --repository "${REPOSITORY}" \
+              --environment "${ENVIRONMENT}" \
               --image-digest "${IMAGE_DIGEST}" \
               --image-digest-map "${IMAGE_DIGEST_MAP}" \
               --ecs-families "${ECS_FAMILIES}"

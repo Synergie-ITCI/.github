@@ -38,6 +38,24 @@ FIELDZILLA_RUNTIME_BOOTSTRAP_RESOURCES = {
 }
 STAGING_MIGRATION_IAM_SOURCE_SHA = "362109240192e6ac817d180a6d1e6b6a422c469b"
 STAGING_MIGRATION_IAM_ADDRESS = "aws_iam_role_policy.staging_migration_task_run"
+PR521_SOURCE_SHA = "a06e6f827d540a716b155ace2b33bb65491c29cf"
+PR521_ROLE_NAME = "SynergieFieldzillaStagingMigrationExecution"
+PR521_ROLE_ARN = f"arn:aws:iam::{AWS_ACCOUNT}:role/{PR521_ROLE_NAME}"
+PR521_BOUNDARY_ARN = f"arn:aws:iam::{AWS_ACCOUNT}:policy/SynergieFieldzillaStagingMigrationExecutionBoundary"
+PR521_RDS_SECRET_ARN = (
+    f"arn:aws:secretsmanager:{AWS_REGION}:{AWS_ACCOUNT}:secret:"
+    "rds!db-66dc9146-2f00-40bf-a0ae-c78f4b984dbc-gbUi1V"
+)
+PR521_KMS_KEY_ARN = f"arn:aws:kms:{AWS_REGION}:{AWS_ACCOUNT}:key/97b547d5-8bb8-463b-aee5-5fbdc471cb1e"
+PR521_CHANGES = {
+    "aws_iam_role.staging_migration_execution": ("aws_iam_role", ["create"]),
+    "aws_iam_role_policy_attachment.staging_migration_execution": ("aws_iam_role_policy_attachment", ["create"]),
+    "aws_iam_role_policy.staging_migration_execution_secrets": ("aws_iam_role_policy", ["create"]),
+    'aws_ecs_task_definition.migration["staging"]': ("aws_ecs_task_definition", ["delete", "create"]),
+    'aws_iam_role_policy.deploy["staging"]': ("aws_iam_role_policy", ["update"]),
+    "aws_iam_role_policy.staging_infra_plan_discovery": ("aws_iam_role_policy", ["update"]),
+    "aws_iam_policy.staging_infra_ecs_rollout": ("aws_iam_policy", ["update"]),
+}
 STAGING_INFRA_APPLY_ROLE = "SynergieProgrammeManagementPlatformStagingInfraApplyRole"
 SECRET_VALUE_KEY_RE = re.compile(
     r"(activation[_-]?code|password|passwd|secret|token|private[_-]?key|access[_-]?key)",
@@ -578,6 +596,9 @@ def verify_plan_safety(args: argparse.Namespace) -> None:
     if args.plan_kind == "fieldzilla-staging-migration-iam":
         verify_staging_migration_iam_plan(doc, args)
         return
+    if args.plan_kind == "fieldzilla-pr521-staging-plan":
+        verify_pr521_staging_plan(doc, args)
+        return
 
     variables = {key: item.get("value") for key, item in doc.get("variables", {}).items()}
     if variables.get("enable_production") is not False:
@@ -653,6 +674,19 @@ def verify_plan_safety(args: argparse.Namespace) -> None:
     print("PLAN_COUNTS=" + json.dumps(counts, sort_keys=True))
 
 
+def verify_plan_capture(args: argparse.Namespace) -> None:
+    """Permit diagnostic upload only after the established plaintext-secret scan."""
+    if (args.expected_sha, args.repository, args.environment) != (PR521_SOURCE_SHA, REPOSITORY, ENVIRONMENT):
+        die("PR 521 diagnostic plan identity mismatch")
+    try:
+        doc = json.loads(args.plan_json_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        die("PR 521 diagnostic plan is unavailable or malformed")
+    leaked = known_plaintext_secret_path(doc)
+    if leaked:
+        die(f"PR 521 diagnostic plan contains sensitive plaintext at `{leaked}`")
+
+
 def verify_staging_migration_iam_plan(doc: dict[str, Any], args: argparse.Namespace) -> None:
     if args.expected_sha != STAGING_MIGRATION_IAM_SOURCE_SHA:
         die("migration IAM plan source SHA mismatch")
@@ -722,6 +756,259 @@ def verify_staging_migration_iam_plan(doc: dict[str, Any], args: argparse.Namesp
         if item.get("actions") not in (["no-op"],):
             die("migration IAM plan changes outputs")
     print('PLAN_COUNTS={"create": 1}')
+
+
+def _pr521_json(value: Any, label: str) -> dict[str, Any]:
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError):
+        die(f"PR 521 {label} is not known JSON")
+    if not isinstance(parsed, dict):
+        die(f"PR 521 {label} is not a JSON object")
+    return parsed
+
+
+def _pr521_unknown_paths(value: Any, prefix: str = "") -> list[str]:
+    if isinstance(value, dict):
+        return [path for key, item in value.items()
+                for path in _pr521_unknown_paths(item, f"{prefix}.{key}" if prefix else key)]
+    if isinstance(value, list):
+        return [path for index, item in enumerate(value)
+                for path in _pr521_unknown_paths(item, f"{prefix}[{index}]")]
+    return [prefix] if value is True else []
+
+
+def _pr521_statements(policy: dict[str, Any]) -> list[dict[str, Any]]:
+    statements = policy.get("Statement")
+    if policy.get("Version") != "2012-10-17" or not isinstance(statements, list):
+        die("PR 521 IAM policy has invalid version or statements")
+    return statements
+
+
+def _pr521_exact_secret_policy(policy: dict[str, Any]) -> bool:
+    statements = _pr521_statements(policy)
+    if len(statements) != 2:
+        return False
+    secrets = {EXACT_RUNTIME_SECRET_ARN, PR521_RDS_SECRET_ARN}
+    expected = {
+        ("secretsmanager:GetSecretValue", tuple(sorted(secrets)), ""),
+        ("kms:Decrypt", (PR521_KMS_KEY_ARN,), "kms"),
+    }
+    actual = set()
+    for statement in statements:
+        if set(statement) - {"Sid", "Effect", "Action", "Resource", "Condition"} or statement.get("Effect") != "Allow":
+            return False
+        action = statement.get("Action")
+        actions = [action] if isinstance(action, str) else action
+        resources = statement.get("Resource")
+        resources = [resources] if isinstance(resources, str) else resources
+        if not isinstance(actions, list) or not isinstance(resources, list) or len(actions) != 1:
+            return False
+        condition = statement.get("Condition")
+        if actions[0] == "kms:Decrypt":
+            if condition != {"StringEquals": {
+                "kms:ViaService": f"secretsmanager.{AWS_REGION}.amazonaws.com",
+                "kms:EncryptionContext:SecretARN": sorted(secrets),
+            }}:
+                # The provider may preserve the reviewed source ordering rather than sort it.
+                values = (condition or {}).get("StringEquals", {}).get("kms:EncryptionContext:SecretARN")
+                if not isinstance(values, list) or set(values) != secrets or len(values) != 2 or (
+                    (condition or {}).get("StringEquals", {}).get("kms:ViaService")
+                    != f"secretsmanager.{AWS_REGION}.amazonaws.com"
+                ) or set(condition) != {"StringEquals"} or set(condition["StringEquals"]) != {
+                    "kms:ViaService", "kms:EncryptionContext:SecretARN"
+                }:
+                    return False
+            kind = "kms"
+        elif condition is None:
+            kind = ""
+        else:
+            return False
+        actual.add((actions[0], tuple(sorted(resources)), kind))
+    return actual == expected
+
+
+def _pr521_only_role_added(before: dict[str, Any], after: dict[str, Any], action: str) -> bool:
+    old = _pr521_statements(before)
+    new = _pr521_statements(after)
+    if len(old) != len(new) or set(before) != set(after):
+        return False
+    matches = 0
+    for prior, current in zip(old, new, strict=True):
+        if prior == current:
+            continue
+        if prior.get("Effect") != "Allow" or current.get("Effect") != "Allow":
+            return False
+        actions = prior.get("Action")
+        actions = [actions] if isinstance(actions, str) else actions
+        if not isinstance(actions, list) or action not in actions:
+            return False
+        old_resources = prior.get("Resource")
+        new_resources = current.get("Resource")
+        old_resources = [old_resources] if isinstance(old_resources, str) else old_resources
+        new_resources = [new_resources] if isinstance(new_resources, str) else new_resources
+        if not isinstance(old_resources, list) or not isinstance(new_resources, list):
+            return False
+        if PR521_ROLE_ARN in old_resources or new_resources.count(PR521_ROLE_ARN) != 1:
+            return False
+        reduced = dict(current)
+        reduced["Resource"] = [item for item in new_resources if item != PR521_ROLE_ARN]
+        original = dict(prior)
+        original["Resource"] = old_resources
+        if reduced != original:
+            return False
+        matches += 1
+    return matches == 1
+
+
+def verify_pr521_staging_plan(doc: dict[str, Any], args: argparse.Namespace) -> None:
+    """Authorize only a complete, concrete PR 521 plan. Unknown security values fail closed."""
+    if (args.expected_sha, args.repository, args.environment) != (PR521_SOURCE_SHA, REPOSITORY, ENVIRONMENT):
+        die("PR 521 plan repository, environment, or exact source SHA mismatch")
+    try:
+        metadata = json.loads((args.plan_json_path.parent / "metadata.json").read_text(encoding="utf-8"))
+    except (AttributeError, OSError, ValueError):
+        die("PR 521 plan has no generated artifact metadata")
+    if (metadata.get("commit_sha"), metadata.get("repository"), metadata.get("environment")) != (
+        PR521_SOURCE_SHA, REPOSITORY, ENVIRONMENT
+    ):
+        die("PR 521 plan artifact metadata is not exact-head staging evidence")
+    digest_map = _parse_image_digest_map(json.dumps(metadata.get("image_digest_map")))
+    if digest_map is None:
+        die("PR 521 plan has no complete ECR-verified image digest map")
+    variables = {key: item.get("value") for key, item in doc.get("variables", {}).items()}
+    if variables.get("enable_production") is not False or variables.get("route53_zone_id") not in ("", None):
+        die("PR 521 plan is not staging-only")
+    if known_plaintext_secret_path(doc):
+        die("PR 521 plan contains sensitive plaintext")
+    changes = doc.get("resource_changes")
+    if not isinstance(changes, list):
+        die("PR 521 plan has invalid resource changes")
+    mutations: dict[str, dict[str, Any]] = {}
+    for item in changes:
+        if not isinstance(item, dict) or not isinstance(item.get("change"), dict):
+            die("PR 521 plan has malformed resource change")
+        change = item["change"]
+        actions = change.get("actions")
+        if item.get("mode") == "data" and actions in (["read"], ["no-op"]):
+            continue
+        if actions == ["no-op"]:
+            continue
+        address = item.get("address")
+        if item.get("mode") != "managed" or address not in PR521_CHANGES or (
+            item.get("type"), actions
+        ) != PR521_CHANGES[address] or address in mutations:
+            die(f"PR 521 plan contains unrelated or duplicate mutation: {address}")
+        unknowns = _pr521_unknown_paths(change.get("after_unknown") or {})
+        computed_only = {"id"}
+        if address == 'aws_ecs_task_definition.migration["staging"]':
+            computed_only |= {"arn", "arn_without_revision", "revision"}
+        if address == "aws_iam_role.staging_migration_execution":
+            computed_only |= {"create_date", "unique_id"}
+        # Every other unknown may conceal a security-sensitive result. In particular,
+        # the new role ARN is NOT a harmless provider-computed field for this gate.
+        sensitive = [path for path in unknowns if path not in computed_only]
+        if sensitive:
+            die(f"PR 521 plan has unknown security-sensitive values at {address}: {', '.join(sensitive)}")
+        mutations[address] = change
+    if set(mutations) != set(PR521_CHANGES):
+        die("PR 521 plan does not contain exactly the reviewed staging changes")
+
+    role = mutations["aws_iam_role.staging_migration_execution"]
+    role_after = role.get("after")
+    if role.get("before") is not None or not isinstance(role_after, dict) or (
+        role_after.get("name"), role_after.get("arn"), role_after.get("permissions_boundary")
+    ) != (PR521_ROLE_NAME, PR521_ROLE_ARN, PR521_BOUNDARY_ARN):
+        die("PR 521 migration execution role or boundary mismatch")
+    trust = _pr521_json(role_after.get("assume_role_policy"), "role trust policy")
+    if trust != {"Version": "2012-10-17", "Statement": [{
+        "Effect": "Allow", "Action": "sts:AssumeRole", "Principal": {"Service": "ecs-tasks.amazonaws.com"}
+    }]}:
+        die("PR 521 role trust policy mismatch")
+    if role_after.get("tags") not in ({}, None) or role_after.get("tags_all") != {
+        "Application": "fieldzilla",
+        "Repository": REPOSITORY,
+        "ManagedBy": "opentofu",
+        "Governance": "synergie-pr-qa",
+    }:
+        die("PR 521 role tags mismatch")
+
+    attachment = mutations["aws_iam_role_policy_attachment.staging_migration_execution"]
+    attached = attachment.get("after")
+    if attachment.get("before") is not None or not isinstance(attached, dict) or (
+        attached.get("role"), attached.get("policy_arn")
+    ) != (PR521_ROLE_NAME, "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"):
+        die("PR 521 policy attachment mismatch")
+
+    inline = mutations["aws_iam_role_policy.staging_migration_execution_secrets"]
+    inline_after = inline.get("after")
+    if inline.get("before") is not None or not isinstance(inline_after, dict) or (
+        inline_after.get("name"), inline_after.get("role")
+    ) != ("fieldzilla-staging-migration-execution-secrets", PR521_ROLE_NAME) or not _pr521_exact_secret_policy(
+        _pr521_json(inline_after.get("policy") if isinstance(inline_after, dict) else None, "secret policy")
+    ):
+        die("PR 521 secret/KMS policy exceeds reviewed scope")
+
+    for address, action in (
+        ('aws_iam_role_policy.deploy["staging"]', "iam:PassRole"),
+        ("aws_iam_role_policy.staging_infra_plan_discovery", "iam:GetRole"),
+        ("aws_iam_policy.staging_infra_ecs_rollout", "iam:PassRole"),
+    ):
+        change = mutations[address]
+        before, after = change.get("before"), change.get("after")
+        if not isinstance(before, dict) or not isinstance(after, dict):
+            die(f"PR 521 {address} is not a known policy update")
+        before_policy = _pr521_json(before.get("policy"), address)
+        after_policy = _pr521_json(after.get("policy"), address)
+        if not _pr521_only_role_added(before_policy, after_policy, action):
+            die(f"PR 521 {address} changes more than the exact role resource")
+        if {key: value for key, value in before.items() if key != "policy"} != {
+            key: value for key, value in after.items() if key != "policy"
+        }:
+            die(f"PR 521 {address} changes other policy fields")
+
+    task = mutations['aws_ecs_task_definition.migration["staging"]']
+    before, after = task.get("before"), task.get("after")
+    if not isinstance(before, dict) or not isinstance(after, dict) or (
+        before.get("family"), after.get("family"), before.get("execution_role_arn"),
+        after.get("execution_role_arn"), before.get("task_role_arn"), after.get("task_role_arn")
+    ) != ("fieldzilla-staging-migration", "fieldzilla-staging-migration", _EXECUTION_ROLE_ARN,
+          PR521_ROLE_ARN, _TASK_ROLE_ARN, _TASK_ROLE_ARN):
+        die("PR 521 staging migration task role mismatch")
+    before_containers = _decode_container_definitions(before.get("container_definitions"))
+    after_containers = _decode_container_definitions(after.get("container_definitions"))
+    if len(before_containers) != 1 or len(after_containers) != 1:
+        die("PR 521 migration task must contain exactly one container")
+    previous, current = before_containers[0], after_containers[0]
+    if previous.get("name") != "migration" or previous.get("command") != ["alembic", "upgrade", "head"]:
+        die("PR 521 prior migration container mismatch")
+    prior_secrets = previous.get("secrets")
+    if not isinstance(prior_secrets, list) or len(prior_secrets) != len(_MIGRATION_SECRET_KEYS) or {
+        (item.get("name"), item.get("valueFrom")) for item in prior_secrets if isinstance(item, dict)
+    } != {(name, f"{EXACT_RUNTIME_SECRET_ARN}:{name}::") for name in _MIGRATION_SECRET_KEYS}:
+        die("PR 521 prior migration secrets mismatch")
+    image = current.get("image", "")
+    digest_prefix = f"{AWS_ACCOUNT}.dkr.ecr.{AWS_REGION}.amazonaws.com/{_API_ECR_REPOSITORY}@"
+    if not isinstance(image, str) or image != digest_prefix + digest_map[_API_ECR_REPOSITORY]:
+        die("PR 521 migration image is not an exact staging API digest")
+    expected_secrets = list(previous.get("secrets") or []) + [{
+        "name": "APP_MIGRATION_DB_PASSWORD", "valueFrom": f"{PR521_RDS_SECRET_ARN}:password::"
+    }]
+    expected_container = dict(previous, image=image, secrets=expected_secrets)
+    if current != expected_container or current.get("command") != ["alembic", "upgrade", "head"]:
+        die("PR 521 migration container changes more than image and database secret")
+    ignored_computed = {"arn", "arn_without_revision", "id", "revision"}
+    old_fields = {key: value for key, value in before.items() if key not in ignored_computed | {"container_definitions", "execution_role_arn"}}
+    new_fields = {key: value for key, value in after.items() if key not in ignored_computed | {"container_definitions", "execution_role_arn"}}
+    if old_fields != new_fields:
+        die("PR 521 migration task changes unrelated fields")
+    for item in doc.get("resource_drift", []):
+        if item.get("change", {}).get("actions") != ["no-op"]:
+            die("PR 521 plan contains resource drift")
+    for item in doc.get("output_changes", {}).values():
+        if item.get("actions") != ["no-op"]:
+            die("PR 521 plan changes outputs")
+    print('PLAN_COUNTS={"create": 3, "update": 3, "replace": 1}')
 
 
 def verify_fieldzilla_runtime_bootstrap_plan(doc: dict[str, Any]) -> None:
@@ -1365,9 +1652,16 @@ def main() -> None:
     safety.add_argument("--plan-json-path", type=Path, required=True)
     safety.add_argument("--plan-kind", default="normal")
     safety.add_argument("--expected-sha", default="")
+    safety.add_argument("--repository", default="")
+    safety.add_argument("--environment", default="")
     safety.add_argument("--image-digest", default="")
     safety.add_argument("--image-digest-map", default="")
     safety.add_argument("--ecs-families", default="")
+    capture = sub.add_parser("verify-plan-capture")
+    capture.add_argument("--plan-json-path", type=Path, required=True)
+    capture.add_argument("--expected-sha", required=True)
+    capture.add_argument("--repository", required=True)
+    capture.add_argument("--environment", required=True)
     imports = sub.add_parser("verify-import-map")
     imports.add_argument("--import-map-path", type=Path, required=True)
     imports.add_argument("--expected-import-map-sha256", required=True)
@@ -1383,6 +1677,7 @@ def main() -> None:
         "verify-artifact-metadata": verify_artifact_metadata,
         "verify-artifact-files": verify_artifact_files,
         "verify-plan-safety": verify_plan_safety,
+        "verify-plan-capture": verify_plan_capture,
         "verify-import-map": verify_import_map,
         "check-single-use": check_single_use,
         "mark-used": mark_used,
