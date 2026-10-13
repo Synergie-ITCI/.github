@@ -895,9 +895,13 @@ def verify_pr521_staging_plan(doc: dict[str, Any], args: argparse.Namespace) -> 
         if actions == ["no-op"]:
             continue
         address = item.get("address")
-        if item.get("mode") != "managed" or address not in PR521_CHANGES or (
+        expected = PR521_CHANGES.get(address)
+        expected_actions = expected[1] if expected else None
+        if address == 'aws_ecs_task_definition.migration["staging"]' and actions == ["create", "delete"]:
+            expected_actions = actions
+        if item.get("mode") != "managed" or expected is None or (
             item.get("type"), actions
-        ) != PR521_CHANGES[address] or address in mutations:
+        ) != (expected[0], expected_actions) or address in mutations:
             die(f"PR 521 plan contains unrelated or duplicate mutation: {address}")
         unknowns = _pr521_unknown_paths(change.get("after_unknown") or {})
         computed_only = {"id"}

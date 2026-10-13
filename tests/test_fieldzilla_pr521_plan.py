@@ -115,6 +115,12 @@ class Pr521PlanTests(unittest.TestCase):
         task["change"]["after_unknown"] = {"arn": True, "revision": True, "id": True}
         auth.verify_pr521_staging_plan(document, self.args)
 
+    def test_create_before_destroy_task_revision_passes(self) -> None:
+        document = plan()
+        task = next(item for item in document["resource_changes"] if item["type"] == "aws_ecs_task_definition")
+        task["change"]["actions"] = ["create", "delete"]
+        auth.verify_pr521_staging_plan(document, self.args)
+
     def test_wrong_commit_repo_and_environment_fail(self) -> None:
         for field, value in (("expected_sha", "f" * 40), ("repository", "Other/repo"),
                              ("environment", "production")):
