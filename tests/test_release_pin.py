@@ -185,6 +185,36 @@ class ReleasePinTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not approved"):
             verify_live_release(release, entry, lookup, manifest)
 
+    def test_registered_wildcard_policy_matches_reviewed_configuration(self):
+        policy = self.manifest["tag_protection_policies"]["wildcard_namespace"]["approved_rulesets"][0]
+        self.assertEqual(policy["ruleset_id"], 25061784)
+        self.assertEqual(policy["config_fingerprint"], ruleset_config_fingerprint(wildcard_policy_snapshot(policy)))
+        release, entry, _synthetic_policy, ruleset, manifest, _lookup = self.wildcard_fixture(185)
+        entry["ruleset_id"] = policy["ruleset_id"]
+        entry["ruleset_updated_at"] = policy["ruleset_updated_at"]
+        ruleset["id"] = policy["ruleset_id"]
+        ruleset["updated_at"] = policy["ruleset_updated_at"]
+        manifest["tag_protection_policies"]["wildcard_namespace"]["approved_rulesets"] = [policy]
+        ref = {"ref": f"refs/tags/{release}", "object": {"type": "commit", "sha": entry["commit"]}}
+
+        def lookup(path):
+            if path == f"git/ref/tags/{release}":
+                return ref
+            if path == f"rulesets/{policy['ruleset_id']}":
+                return ruleset
+            raise AssertionError(path)
+
+        verify_live_release(release, entry, lookup, manifest)
+        for field, replacement in (("config_fingerprint", "0" * 64), ("include", ["refs/tags/other*"]),
+                                   ("repository_include", ["~ALL"]), ("bypass_actors", [{"actor_id": 1}])):
+            changed = copy.deepcopy(manifest)
+            changed["tag_protection_policies"]["wildcard_namespace"]["approved_rulesets"][0][field] = replacement
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                verify_live_release(release, entry, lookup, changed)
+        ruleset["rules"] = [{"type": "update"}]
+        with self.assertRaises(ValueError):
+            verify_live_release(release, entry, lookup, manifest)
+
     def test_wildcard_rejected_below_rc174(self):
         release, entry, _policy, _ruleset, manifest, lookup = self.wildcard_fixture(173)
         with self.assertRaisesRegex(ValueError, "not approved for this release number"):

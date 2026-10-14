@@ -4,7 +4,22 @@
   "tag_protection_policies": {
     "wildcard_namespace": {
       "min_release_number": 174,
-      "approved_rulesets": []
+      "approved_rulesets": [
+        {
+          "ruleset_id": 25061784,
+          "ruleset_updated_at": "2026-10-14T13:19:05.354+05:30",
+          "target": "tag",
+          "enforcement": "active",
+          "include": ["refs/tags/pr-qa-v1-rc*"],
+          "exclude": [],
+          "repository_include": [".github"],
+          "repository_exclude": [],
+          "repository_protected": false,
+          "rules": ["update", "deletion"],
+          "bypass_actors": [],
+          "config_fingerprint": "626cd233bdba46535cab71c270a7ac833bdc36b5ccf68d1285fd4392cb372f56"
+        }
+      ]
     }
   },
   "releases": {
