@@ -92,29 +92,30 @@ CI does not receive administration credentials or permission to mutate rulesets.
 
 ### Bridge release and future wildcard protection
 
-`pr-qa-v1-rc173` is the bridge release. Its annotated evidence must declare
-`protection_mode: legacy_exact`, and its organization ruleset must protect only
-`refs/tags/pr-qa-v1-rc173`. This keeps rc173 verifiable by consumers still
-running the rc167 verifier.
+`pr-qa-v1-rc173` was the first exact-protection bridge release. The next
+release, `pr-qa-v1-rc184`, must also use `protection_mode: legacy_exact` and
+the separate exact organization ruleset for `refs/tags/pr-qa-v1-rc184`.
+This lets older pinned consumers verify the release while the wildcard policy
+is introduced. The wildcard ruleset does not replace rc184's exact protection.
 
-`wildcard_namespace` is reserved for rc174 and later. It is disabled until a
-governed policy change records a real organization ruleset ID, exact include
+`wildcard_namespace` is reserved for rc174 and later. Its use requires a
+governed policy entry recording the live organization ruleset ID, exact include
 and repository scope, empty bypass list, complete rule set, reviewed
 `updated_at`, and normalized configuration fingerprint. The approved wildcard
 ruleset is frozen after review. Any subsequent ruleset edit requires a new
 ruleset ID and a new central policy entry; editing an approved ruleset in place
 does not preserve authorization.
 
-Before preparing any wildcard release, the release operator must attach an
-organization-wide inventory proving every active consumer pins rc173 or newer.
-Incomplete search visibility, an older pin, or an unknown owner blocks the
-release. This is a mandatory manual precondition for the release workflow; do
-not create the wildcard ruleset or a `wildcard_namespace` tag until the
-inventory and the separate policy entry have passed central review.
+Before preparing any `wildcard_namespace` release, the release operator must
+attach an organization-wide inventory proving every active consumer pins rc184
+or newer, or is confirmed retired or not a consumer by its owner. Incomplete
+search visibility, an older pin, or an unknown owner blocks the release. The
+wildcard ruleset and policy entry alone do not authorize a wildcard-only tag.
 
 For every rc173-or-newer tag, prepare the annotated evidence locally first and
-parse it with the verifier that will consume it. Before pushing rc173, run the
-actual rc167 verifier against the live exact rc173 ruleset and parse the
-prepared evidence with rc167's `evidence_from_annotated_tag()` implementation.
+parse it with the verifier that will consume it. Before pushing rc184, run the
+actual older consumer verifier against the live exact rc184 ruleset and parse
+the prepared evidence with that verifier's `evidence_from_annotated_tag()`
+implementation.
 Tag creation is a one-time final action only after those checks, central PR-QA,
 and release provenance all pass.
