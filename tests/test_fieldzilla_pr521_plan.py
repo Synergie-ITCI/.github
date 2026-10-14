@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import copy
+import contextlib
+import hashlib
+import io
 import json
 import sys
 import tempfile
@@ -206,6 +209,9 @@ class Pr521PlanTests(unittest.TestCase):
         authorization = workflow.index("- name: Verify generated plan safety")
         self.assertLess(capture_check, upload)
         self.assertLess(upload, authorization)
+        self.assertIn("steps.plan_capture_guard.outcome == 'success'", workflow)
+        self.assertIn("Fail closed after plan-capture guard failure", workflow)
+        self.assertIn("fieldzilla-plan-capture-diagnostic.json", workflow)
         self.assertIn('[ "${plan_kind_prefix}" != "fieldzilla-staging-migration-iam" ]; then', workflow)
         self.assertIn('run.get("conclusion") != "success"',
                       (Path(__file__).resolve().parents[1] / "tools/opentofu_plan_authorization.py").read_text())
@@ -219,6 +225,84 @@ class Pr521PlanTests(unittest.TestCase):
         document["resource_changes"][0]["change"]["after"].pop("api_token")
         self.args.plan_json_path.write_text(json.dumps(document), encoding="utf-8")
         auth.verify_plan_capture(self.args)
+
+    def test_type_aware_ordinary_values_and_string_scanning(self) -> None:
+        document = plan()
+        values = {"manage_master_user_password": True, "password_rotation_enabled": False,
+                  "retry_count": 3, "optional_password": None, "nested": [False, 2, None]}
+        document["planned_values"] = {"root_module": {"resources": [{"values": values}]}}
+        self.args.plan_json_path.write_text(json.dumps(document), encoding="utf-8")
+        auth.verify_plan_capture(self.args)
+        values["manage_master_user_password"] = False
+        self.args.plan_json_path.write_text(json.dumps(document), encoding="utf-8")
+        auth.verify_plan_capture(self.args)
+        for field, value in (("manage_master_user_password", "true"),
+                             ("comment", "password=synthetic-test-value"),
+                             ("nested", ["-----BEGIN PRIVATE KEY----- synthetic"]),
+                             ("private_key", "synthetic-private-key-material")):
+            with self.subTest(field=field):
+                original = values.get(field)
+                values[field] = value
+                self.args.plan_json_path.write_text(json.dumps(document), encoding="utf-8")
+                with self.assertRaises(SystemExit):
+                    auth.verify_plan_capture(self.args)
+                if original is None and field not in ("optional_password",):
+                    values.pop(field)
+                else:
+                    values[field] = original
+
+        values["password"] = 123456
+        self.args.plan_json_path.write_text(json.dumps(document), encoding="utf-8")
+        with self.assertRaises(SystemExit):
+            auth.verify_plan_capture(self.args)
+
+    def test_marked_sensitive_structures_still_fail_closed(self) -> None:
+        for value in (123456, ["synthetic"], {"nested": "synthetic"}):
+            with self.subTest(value_type=type(value).__name__):
+                document = plan()
+                document["output_changes"]["sensitive_output"] = {"sensitive": True, "value": value}
+                self.args.plan_json_path.write_text(json.dumps(document), encoding="utf-8")
+                with self.assertRaises(SystemExit):
+                    auth.verify_plan_capture(self.args)
+
+    def test_capture_failure_diagnostic_contains_no_value(self) -> None:
+        document = plan()
+        document["planned_values"] = {"root_module": {"resources": [{
+            "address": "aws_db_instance.staging", "type": "aws_db_instance",
+            "values": {"master_password": "synthetic-secret-do-not-print"},
+        }]}}
+        self.args.diagnostic_path = self.args.plan_json_path.parent / "diagnostic.json"
+        self.args.plan_json_path.write_text(json.dumps(document), encoding="utf-8")
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
+            auth.verify_plan_capture(self.args)
+        raw = self.args.diagnostic_path.read_text(encoding="utf-8")
+        diagnostic = json.loads(raw)
+        self.assertNotIn("synthetic-secret-do-not-print", raw)
+        self.assertNotIn("synthetic-secret-do-not-print", stderr.getvalue())
+        self.assertEqual(diagnostic, {
+            "schema_version": 1,
+            "path": "planned_values.root_module.resources.0.values.<key-sha256:"
+                    + hashlib.sha256(b"master_password").hexdigest()[:16] + ">",
+            "json_type": "string", "reason": "sensitive_key_string",
+            "resource_address": "aws_db_instance.<name-sha256:"
+                                + hashlib.sha256(b"staging").hexdigest()[:16] + ">",
+            "resource_type": "aws_db_instance",
+        })
+
+    def test_diagnostic_redacts_untrusted_map_keys_and_address(self) -> None:
+        document = {"planned_values": {"root_module": {"resources": [{
+            "address": 'aws_db_instance.example["unsafe-key"]', "type": "aws_db_instance",
+            "values": {"https://private.example.invalid/user:secret@host": "password=synthetic-test-value"},
+        }]}}}
+        finding = auth.classify_plan_secret(document)
+        self.assertIsNotNone(finding)
+        path = self.args.plan_json_path.parent / "redacted.json"
+        auth._write_plan_diagnostic(path, document, finding)
+        diagnostic = json.loads(path.read_text(encoding="utf-8"))
+        self.assertIn("<key-sha256:", diagnostic["path"])
+        self.assertIsNone(diagnostic["resource_address"])
+        self.assertNotIn("private.example", path.read_text(encoding="utf-8"))
 
     def test_capture_accepts_only_opentofu_sensitive_markers(self) -> None:
         document = plan()

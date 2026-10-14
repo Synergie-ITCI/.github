@@ -56,6 +56,38 @@ that preserve element positions; a whole `before_sensitive` or
 `after_sensitive` value may also be `false`. The capture guard rejects other
 scalar marker values and still scans ordinary plan values for plaintext secrets.
 
+### Plan-capture secret classification and failure diagnostic
+
+The guard recursively scans ordinary JSON values. Booleans are control values,
+including fields such as `manage_master_user_password`, and are never plaintext
+credentials. Ordinary numbers and `null` are non-secret primitives. A number
+under a secret-named key or an explicit `sensitive: true` value still fails,
+preserving the prior protection for numeric credentials.
+Strings under secret-named keys are rejected, as are strings matching credential,
+private-key or password-assignment patterns elsewhere (including inside lists).
+The string `"true"` is a string and receives these checks. Empty strings are
+treated as absent values. Objects and lists are scanned recursively. OpenTofu
+`sensitive_values`, `before_sensitive` and `after_sensitive` contain marker
+metadata only: `true` leaves and `false` list placeholders are accepted;
+strings, numbers, nulls and false object leaves are rejected. Unknown
+security-sensitive IAM and task-definition values remain subject to the
+separate fail-closed authorizer checks.
+
+On a capture-guard failure, the workflow uploads a one-day JSON diagnostic
+artifact containing only the failing JSON path, JSON type, fixed classification
+reason, and safe resource address/type when available. Array indices and
+OpenTofu structure names remain visible; all variable/provider/map key segments
+are replaced by short SHA-256 identifiers. Simple resource types remain visible,
+but their instance names are hashed; unsafe or complex addresses are omitted.
+The hashes can be matched against local schema names without sharing
+the raw plan. No value, full plan, binary plan, variable,
+secret, token, private key or database URL is written to this artifact. The full
+plan upload is conditional on the guard succeeding, and the workflow fails after
+uploading the sanitized diagnostic. A consumer should use the path and reason to
+inspect the provider schema or plan locally in an approved secure environment;
+never paste raw plan values into a PR or issue. A diagnostic does not authorize
+apply, and the PR #521 apply route remains closed.
+
 In `import` mode, the workflow verifies the approved source artifact and import
 map hash, backs up any existing remote state object, validates each import entry
 against FieldZilla ownership evidence, and imports only those approved

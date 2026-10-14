@@ -13,7 +13,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 APPROVER = "SaurabhVermaIN"
 REPOSITORY = "Synergie-ITCI/programme-management-platform"
@@ -62,6 +62,12 @@ SECRET_VALUE_KEY_RE = re.compile(
     re.IGNORECASE,
 )
 SENSITIVE_MARKER_KEYS = {"sensitive_values", "before_sensitive", "after_sensitive"}
+SECRET_STRING_RE = re.compile(
+    r"-----BEGIN (?:[A-Z ]*PRIVATE KEY|OPENSSH PRIVATE KEY)-----|"
+    r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b|\b(?:ghp_|github_pat_)[A-Za-z0-9_]{20,}|"
+    r"(?i:password|passwd|token)\s*=\s*[^\s,;]{4,}|"
+    r"[a-z][a-z0-9+.-]*://[^/@\s:]+:[^/@\s]+@",
+)
 RUNTIME_SECRET_ARN_PREFIX = (
     f"arn:aws:secretsmanager:{AWS_REGION}:{AWS_ACCOUNT}:secret:"
     "/synergie/fieldzilla/staging/runtime-"
@@ -677,15 +683,22 @@ def verify_plan_safety(args: argparse.Namespace) -> None:
 
 def verify_plan_capture(args: argparse.Namespace) -> None:
     """Permit diagnostic upload only after the established plaintext-secret scan."""
+    diagnostic_path = getattr(args, "diagnostic_path", None)
     if (args.expected_sha, args.repository, args.environment) != (PR521_SOURCE_SHA, REPOSITORY, ENVIRONMENT):
+        _write_plan_diagnostic(diagnostic_path, None, PlanSecretFinding((), "unknown", "identity_mismatch"))
         die("PR 521 diagnostic plan identity mismatch")
     try:
         doc = json.loads(args.plan_json_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
+        _write_plan_diagnostic(diagnostic_path, None, PlanSecretFinding((), "unknown", "plan_unavailable_or_malformed"))
         die("PR 521 diagnostic plan is unavailable or malformed")
-    leaked = known_plaintext_secret_path(doc)
-    if leaked:
-        die(f"PR 521 diagnostic plan contains sensitive plaintext at `{leaked}`")
+    if not isinstance(doc, dict) or not isinstance(doc.get("resource_changes"), list):
+        _write_plan_diagnostic(diagnostic_path, None, PlanSecretFinding((), _json_type(doc), "plan_unavailable_or_malformed"))
+        die("PR 521 diagnostic plan is unavailable or malformed")
+    finding = classify_plan_secret(doc)
+    if finding:
+        _write_plan_diagnostic(diagnostic_path, doc, finding)
+        die(f"PR 521 diagnostic plan rejected {finding.reason} at `{_safe_diagnostic_path(finding.path)}`")
 
 
 def verify_staging_migration_iam_plan(doc: dict[str, Any], args: argparse.Namespace) -> None:
@@ -1062,13 +1075,37 @@ def verify_fieldzilla_runtime_bootstrap_plan(doc: dict[str, Any]) -> None:
     print("PLAN_COUNTS=" + json.dumps(counts, sort_keys=True))
 
 
-def _known_plaintext_value(value: Any) -> bool:
-    return value not in (None, "", [], {})
+class PlanSecretFinding(NamedTuple):
+    path: tuple[str, ...]
+    json_type: str
+    reason: str
+
+
+def _json_type(value: Any) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, (int, float)):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, list):
+        return "array"
+    if isinstance(value, dict):
+        return "object"
+    return "unknown"
+
+
+def _sensitive_string(value: Any, *, secret_key: bool = False) -> bool:
+    return isinstance(value, str) and bool(value) and (
+        secret_key or bool(SECRET_STRING_RE.search(value))
+    )
 
 
 def _invalid_sensitive_marker_path(
     value: Any, path: tuple[str, ...], *, list_element: bool = False
-) -> str | None:
+) -> PlanSecretFinding | None:
     """Allow true markers and false list placeholders, never secret values."""
     if isinstance(value, dict):
         for key, child in value.items():
@@ -1084,13 +1121,26 @@ def _invalid_sensitive_marker_path(
         return None
     # OpenTofu retains false entries in arrays to preserve indices, but omits
     # false entries from objects/maps. All other scalar marker values are invalid.
-    return None if value is True or (list_element and value is False) else ".".join(path)
+    return None if value is True or (list_element and value is False) else PlanSecretFinding(
+        path, _json_type(value), "invalid_sensitivity_marker"
+    )
 
 
-def known_plaintext_secret_path(value: Any, path: tuple[str, ...] = ()) -> str | None:
+def classify_plan_secret(value: Any, path: tuple[str, ...] = ()) -> PlanSecretFinding | None:
+    """Classify JSON primitives by type; never mistake booleans for strings."""
+    if _sensitive_string(value):
+        return PlanSecretFinding(path, "string", "secret_pattern_string")
     if isinstance(value, dict):
-        if value.get("sensitive") is True and "value" in value and _known_plaintext_value(value.get("value")):
-            return ".".join(path + ("value",))
+        if value.get("sensitive") is True:
+            marked_value = value.get("value")
+            if (isinstance(marked_value, str) and bool(marked_value)) or type(marked_value) in (int, float):
+                return PlanSecretFinding(
+                    path + ("value",), _json_type(marked_value), "marked_sensitive_primitive"
+                )
+            if isinstance(marked_value, (dict, list)) and marked_value:
+                return PlanSecretFinding(
+                    path + ("value",), _json_type(marked_value), "marked_sensitive_structure"
+                )
         for key, child in value.items():
             key_text = str(key)
             child_path = path + (key_text,)
@@ -1105,19 +1155,89 @@ def known_plaintext_secret_path(value: Any, path: tuple[str, ...] = ()) -> str |
                 if found:
                     return found
                 continue
-            if SECRET_VALUE_KEY_RE.search(key_text) and not isinstance(child, (dict, list)):
-                if _known_plaintext_value(child):
-                    return ".".join(child_path)
-                continue
-            found = known_plaintext_secret_path(child, child_path)
+            if isinstance(child, str) and _sensitive_string(
+                child, secret_key=bool(SECRET_VALUE_KEY_RE.search(key_text))
+            ):
+                return PlanSecretFinding(child_path, "string", "sensitive_key_string" if SECRET_VALUE_KEY_RE.search(key_text) else "secret_pattern_string")
+            if type(child) in (int, float) and SECRET_VALUE_KEY_RE.search(key_text):
+                return PlanSecretFinding(child_path, "number", "sensitive_key_number")
+            found = classify_plan_secret(child, child_path)
             if found:
                 return found
     elif isinstance(value, list):
         for index, child in enumerate(value):
-            found = known_plaintext_secret_path(child, path + (str(index),))
+            found = classify_plan_secret(child, path + (str(index),))
             if found:
                 return found
     return None
+
+
+def known_plaintext_secret_path(value: Any, path: tuple[str, ...] = ()) -> str | None:
+    finding = classify_plan_secret(value, path)
+    return ".".join(finding.path) if finding else None
+
+
+_PLAN_STRUCTURE_SEGMENTS = {
+    "planned_values", "prior_state", "root_module", "child_modules", "resources",
+    "resource_changes", "resource_drift", "change", "values", "before", "after",
+    "before_sensitive", "after_sensitive", "sensitive_values", "after_unknown",
+    "variables", "value", "output_changes", "outputs",
+}
+_SAFE_DIAGNOSTIC_SEGMENT = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
+_ARRAY_INDEX = re.compile(r"[0-9]{1,8}\Z")
+_SAFE_RESOURCE_ADDRESS = re.compile(r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*(?:\[[0-9]+\])?\Z")
+
+
+def _safe_diagnostic_path(path: tuple[str, ...]) -> str:
+    # Plan map keys can be user-controlled. Never place arbitrary keys in logs or artifacts.
+    return ".".join(
+        segment if segment in _PLAN_STRUCTURE_SEGMENTS or _ARRAY_INDEX.fullmatch(segment)
+        else f"<key-sha256:{hashlib.sha256(segment.encode()).hexdigest()[:16]}>"
+        for segment in path
+    )
+
+
+def _resource_context(doc: Any, path: tuple[str, ...]) -> tuple[str | None, str | None]:
+    node = doc
+    context: tuple[str | None, str | None] = (None, None)
+    for segment in path:
+        if isinstance(node, dict) and "address" in node and "type" in node:
+            address, resource_type = node.get("address"), node.get("type")
+            safe_type = resource_type if isinstance(resource_type, str) and _SAFE_DIAGNOSTIC_SEGMENT.fullmatch(resource_type) else None
+            safe_address = None
+            if safe_type and isinstance(address, str) and _SAFE_RESOURCE_ADDRESS.fullmatch(address) and address.startswith(safe_type + "."):
+                suffix = address[len(safe_type) + 1:]
+                safe_address = safe_type + ".<name-sha256:" + hashlib.sha256(suffix.encode()).hexdigest()[:16] + ">"
+            context = (
+                safe_address,
+                safe_type,
+            )
+        if isinstance(node, dict):
+            node = node.get(segment)
+        elif isinstance(node, list) and segment.isdigit() and int(segment) < len(node):
+            node = node[int(segment)]
+        else:
+            break
+    return context
+
+
+def _write_plan_diagnostic(path: Path | None, doc: Any, finding: PlanSecretFinding) -> None:
+    if path is None:
+        return
+    address, resource_type = _resource_context(doc, finding.path)
+    diagnostic = {
+        "schema_version": 1,
+        "path": _safe_diagnostic_path(finding.path),
+        "json_type": finding.json_type,
+        "reason": finding.reason,
+        "resource_address": address,
+        "resource_type": resource_type,
+    }
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    descriptor = os.open(path, flags, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        json.dump(diagnostic, handle, sort_keys=True)
+        handle.write("\n")
 
 
 def _decode_container_definitions(value: Any) -> list[dict[str, Any]]:
@@ -1700,6 +1820,7 @@ def main() -> None:
     capture.add_argument("--expected-sha", required=True)
     capture.add_argument("--repository", required=True)
     capture.add_argument("--environment", required=True)
+    capture.add_argument("--diagnostic-path", type=Path)
     imports = sub.add_parser("verify-import-map")
     imports.add_argument("--import-map-path", type=Path, required=True)
     imports.add_argument("--expected-import-map-sha256", required=True)
