@@ -61,6 +61,7 @@ SECRET_VALUE_KEY_RE = re.compile(
     r"(activation[_-]?code|password|passwd|secret|token|private[_-]?key|access[_-]?key)",
     re.IGNORECASE,
 )
+SENSITIVE_MARKER_KEYS = {"sensitive_values", "before_sensitive", "after_sensitive"}
 RUNTIME_SECRET_ARN_PREFIX = (
     f"arn:aws:secretsmanager:{AWS_REGION}:{AWS_ACCOUNT}:secret:"
     "/synergie/fieldzilla/staging/runtime-"
@@ -1065,6 +1066,23 @@ def _known_plaintext_value(value: Any) -> bool:
     return value not in (None, "", [], {})
 
 
+def _invalid_sensitive_marker_path(value: Any, path: tuple[str, ...]) -> str | None:
+    """OpenTofu sensitivity maps contain only true leaves, never secret values."""
+    if isinstance(value, dict):
+        for key, child in value.items():
+            found = _invalid_sensitive_marker_path(child, path + (str(key),))
+            if found:
+                return found
+        return None
+    if isinstance(value, list):
+        for index, child in enumerate(value):
+            found = _invalid_sensitive_marker_path(child, path + (str(index),))
+            if found:
+                return found
+        return None
+    return None if value is True else ".".join(path)
+
+
 def known_plaintext_secret_path(value: Any, path: tuple[str, ...] = ()) -> str | None:
     if isinstance(value, dict):
         if value.get("sensitive") is True and "value" in value and _known_plaintext_value(value.get("value")):
@@ -1073,6 +1091,11 @@ def known_plaintext_secret_path(value: Any, path: tuple[str, ...] = ()) -> str |
             key_text = str(key)
             child_path = path + (key_text,)
             if key_text == "after_unknown":
+                continue
+            if key_text in SENSITIVE_MARKER_KEYS:
+                found = _invalid_sensitive_marker_path(child, child_path)
+                if found:
+                    return found
                 continue
             if SECRET_VALUE_KEY_RE.search(key_text) and not isinstance(child, (dict, list)):
                 if _known_plaintext_value(child):

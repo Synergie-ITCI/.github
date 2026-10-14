@@ -220,6 +220,54 @@ class Pr521PlanTests(unittest.TestCase):
         self.args.plan_json_path.write_text(json.dumps(document), encoding="utf-8")
         auth.verify_plan_capture(self.args)
 
+    def test_capture_accepts_only_opentofu_sensitive_markers(self) -> None:
+        document = plan()
+        document["planned_values"] = {"root_module": {"resources": [{
+            "values": {"name": auth.PR521_ROLE_NAME},
+            "sensitive_values": {"private_key": True},
+        }]}}
+        document["resource_changes"][0]["change"]["after_sensitive"] = {"private_key": True}
+        original = copy.deepcopy(document)
+        self.args.plan_json_path.write_text(json.dumps(document), encoding="utf-8")
+        auth.verify_plan_capture(self.args)
+        self.assertEqual(json.loads(self.args.plan_json_path.read_text(encoding="utf-8")), original)
+        auth.verify_pr521_staging_plan(document, self.args)
+
+    def test_capture_rejects_private_key_material_even_in_metadata(self) -> None:
+        for marker in ("synthetic-private-key-material", False, 1):
+            with self.subTest(marker_type=type(marker).__name__):
+                document = plan()
+                document["planned_values"] = {"root_module": {"resources": [{
+                    "sensitive_values": {"private_key": marker},
+                }]}}
+                self.args.plan_json_path.write_text(json.dumps(document), encoding="utf-8")
+                with self.assertRaises(SystemExit):
+                    auth.verify_plan_capture(self.args)
+
+    def test_capture_rejects_plaintext_in_normal_values(self) -> None:
+        document = plan()
+        document["planned_values"] = {"root_module": {"resources": [{
+            "values": {"private_key": "synthetic-private-key-material"},
+            "sensitive_values": {"private_key": True},
+        }]}}
+        self.args.plan_json_path.write_text(json.dumps(document), encoding="utf-8")
+        with self.assertRaises(SystemExit):
+            auth.verify_plan_capture(self.args)
+
+    def test_sensitive_marker_does_not_hide_unknown_iam_or_task_fields(self) -> None:
+        for address, field in (
+            ("aws_iam_role.staging_migration_execution", "permissions_boundary"),
+            ('aws_ecs_task_definition.migration["staging"]', "execution_role_arn"),
+        ):
+            with self.subTest(address=address):
+                document = plan()
+                item = next(change for change in document["resource_changes"] if change["address"] == address)
+                item["change"]["after_sensitive"] = {"private_key": True}
+                item["change"]["after_unknown"][field] = True
+                self.args.plan_json_path.write_text(json.dumps(document), encoding="utf-8")
+                auth.verify_plan_capture(self.args)
+                self.check_fails(document)
+
 
 if __name__ == "__main__":
     unittest.main()
