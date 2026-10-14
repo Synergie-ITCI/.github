@@ -51,6 +51,10 @@ trust, boundary, secret/KMS policy, attachment, policy updates and migration
 task-definition role and image values. Unknown security-sensitive values are
 reported and rejected. The `infra/aws` apply route remains closed for PR #521;
 it requires a separate central change after a real plan has been examined.
+OpenTofu sensitivity maps may contain `true` leaves and `false` list entries
+that preserve element positions; a whole `before_sensitive` or
+`after_sensitive` value may also be `false`. The capture guard rejects other
+scalar marker values and still scans ordinary plan values for plaintext secrets.
 
 In `import` mode, the workflow verifies the approved source artifact and import
 map hash, backs up any existing remote state object, validates each import entry

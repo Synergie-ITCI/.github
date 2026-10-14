@@ -224,9 +224,13 @@ class Pr521PlanTests(unittest.TestCase):
         document = plan()
         document["planned_values"] = {"root_module": {"resources": [{
             "values": {"name": auth.PR521_ROLE_NAME},
-            "sensitive_values": {"private_key": True},
+            "sensitive_values": {"private_key": True,
+                                 "subject_alternative_names": [False, True]},
         }]}}
-        document["resource_changes"][0]["change"]["after_sensitive"] = {"private_key": True}
+        document["resource_changes"][0]["change"]["after_sensitive"] = {
+            "private_key": True, "nested": [{"names": [False, True]}]
+        }
+        document["resource_changes"][0]["change"]["before_sensitive"] = False
         original = copy.deepcopy(document)
         self.args.plan_json_path.write_text(json.dumps(document), encoding="utf-8")
         auth.verify_plan_capture(self.args)
@@ -243,6 +247,39 @@ class Pr521PlanTests(unittest.TestCase):
                 self.args.plan_json_path.write_text(json.dumps(document), encoding="utf-8")
                 with self.assertRaises(SystemExit):
                     auth.verify_plan_capture(self.args)
+
+    def test_capture_rejects_malformed_list_markers(self) -> None:
+        for marker in ("synthetic-private-key-material", 0, None, {"name": False}):
+            with self.subTest(marker_type=type(marker).__name__):
+                document = plan()
+                document["planned_values"] = {"root_module": {"resources": [{
+                    "sensitive_values": {"subject_alternative_names": [marker]},
+                }]}}
+                self.args.plan_json_path.write_text(json.dumps(document), encoding="utf-8")
+                with self.assertRaises(SystemExit):
+                    auth.verify_plan_capture(self.args)
+
+    def test_capture_rejects_false_map_leaf_and_invalid_root_marker(self) -> None:
+        document = plan()
+        item = document["resource_changes"][0]["change"]
+        item["before_sensitive"] = {"name": False}
+        self.args.plan_json_path.write_text(json.dumps(document), encoding="utf-8")
+        with self.assertRaises(SystemExit):
+            auth.verify_plan_capture(self.args)
+        item["before_sensitive"] = "synthetic-private-key-material"
+        self.args.plan_json_path.write_text(json.dumps(document), encoding="utf-8")
+        with self.assertRaises(SystemExit):
+            auth.verify_plan_capture(self.args)
+
+    def test_list_marker_does_not_hide_plaintext_in_normal_values(self) -> None:
+        document = plan()
+        document["planned_values"] = {"root_module": {"resources": [{
+            "values": {"private_key": "synthetic-private-key-material"},
+            "sensitive_values": {"subject_alternative_names": [False]},
+        }]}}
+        self.args.plan_json_path.write_text(json.dumps(document), encoding="utf-8")
+        with self.assertRaises(SystemExit):
+            auth.verify_plan_capture(self.args)
 
     def test_capture_rejects_plaintext_in_normal_values(self) -> None:
         document = plan()
