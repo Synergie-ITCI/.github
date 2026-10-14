@@ -1066,8 +1066,10 @@ def _known_plaintext_value(value: Any) -> bool:
     return value not in (None, "", [], {})
 
 
-def _invalid_sensitive_marker_path(value: Any, path: tuple[str, ...]) -> str | None:
-    """OpenTofu sensitivity maps contain only true leaves, never secret values."""
+def _invalid_sensitive_marker_path(
+    value: Any, path: tuple[str, ...], *, list_element: bool = False
+) -> str | None:
+    """Allow true markers and false list placeholders, never secret values."""
     if isinstance(value, dict):
         for key, child in value.items():
             found = _invalid_sensitive_marker_path(child, path + (str(key),))
@@ -1076,11 +1078,13 @@ def _invalid_sensitive_marker_path(value: Any, path: tuple[str, ...]) -> str | N
         return None
     if isinstance(value, list):
         for index, child in enumerate(value):
-            found = _invalid_sensitive_marker_path(child, path + (str(index),))
+            found = _invalid_sensitive_marker_path(child, path + (str(index),), list_element=True)
             if found:
                 return found
         return None
-    return None if value is True else ".".join(path)
+    # OpenTofu retains false entries in arrays to preserve indices, but omits
+    # false entries from objects/maps. All other scalar marker values are invalid.
+    return None if value is True or (list_element and value is False) else ".".join(path)
 
 
 def known_plaintext_secret_path(value: Any, path: tuple[str, ...] = ()) -> str | None:
@@ -1093,6 +1097,10 @@ def known_plaintext_secret_path(value: Any, path: tuple[str, ...] = ()) -> str |
             if key_text == "after_unknown":
                 continue
             if key_text in SENSITIVE_MARKER_KEYS:
+                # A whole before/after value can be non-sensitive (for example,
+                # the null "before" side of a create), which OpenTofu emits as false.
+                if key_text in {"before_sensitive", "after_sensitive"} and child is False:
+                    continue
                 found = _invalid_sensitive_marker_path(child, child_path)
                 if found:
                     return found
