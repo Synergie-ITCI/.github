@@ -68,6 +68,9 @@ SECRET_STRING_RE = re.compile(
     r"(?i:password|passwd|token)\s*=\s*[^\s,;]{4,}|"
     r"[a-z][a-z0-9+.-]*://[^/@\s:]+:[^/@\s]+@",
 )
+SECRETS_MANAGER_ARN_RE = re.compile(
+    r"arn:aws(?:-us-gov|-cn)?:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:[A-Za-z0-9/_+=.@-]+\Z"
+)
 RUNTIME_SECRET_ARN_PREFIX = (
     f"arn:aws:secretsmanager:{AWS_REGION}:{AWS_ACCOUNT}:secret:"
     "/synergie/fieldzilla/staging/runtime-"
@@ -1103,6 +1106,15 @@ def _sensitive_string(value: Any, *, secret_key: bool = False) -> bool:
     )
 
 
+def _secret_arn_reference(key: str, value: str) -> bool:
+    """An ARN identifies a secret; it is not the secret's plaintext value."""
+    return (
+        key.endswith("_arn")
+        and SECRETS_MANAGER_ARN_RE.fullmatch(value) is not None
+        and SECRET_STRING_RE.search(value) is None
+    )
+
+
 def _invalid_sensitive_marker_path(
     value: Any, path: tuple[str, ...], *, list_element: bool = False
 ) -> PlanSecretFinding | None:
@@ -1157,7 +1169,7 @@ def classify_plan_secret(value: Any, path: tuple[str, ...] = ()) -> PlanSecretFi
                 continue
             if isinstance(child, str) and _sensitive_string(
                 child, secret_key=bool(SECRET_VALUE_KEY_RE.search(key_text))
-            ):
+            ) and not _secret_arn_reference(key_text, child):
                 return PlanSecretFinding(child_path, "string", "sensitive_key_string" if SECRET_VALUE_KEY_RE.search(key_text) else "secret_pattern_string")
             if type(child) in (int, float) and SECRET_VALUE_KEY_RE.search(key_text):
                 return PlanSecretFinding(child_path, "number", "sensitive_key_number")

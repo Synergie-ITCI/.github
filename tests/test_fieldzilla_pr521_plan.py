@@ -290,6 +290,39 @@ class Pr521PlanTests(unittest.TestCase):
             "resource_type": "aws_db_instance",
         })
 
+    def test_capture_accepts_secrets_manager_arn_reference(self) -> None:
+        document = plan()
+        document["planned_values"] = {"root_module": {"resources": [{
+            "address": "aws_db_instance.postgres", "type": "aws_db_instance",
+            "values": {"manage_master_user_password": True, "master_user_secret": [{
+                "secret_arn": "arn:aws:secretsmanager:ap-south-1:123456789012:secret:example-AbCdEf",
+            }]},
+        }]}}
+        self.args.plan_json_path.write_text(json.dumps(document), encoding="utf-8")
+        auth.verify_plan_capture(self.args)
+
+    def test_capture_rejects_credentials_and_invalid_secret_arn_references(self) -> None:
+        values = (
+            "synthetic-plaintext-password",
+            "arn:aws:secretsmanager:ap-south-1:123456789012:secret:password=synthetic",
+            "arn:aws:secretsmanager:ap-south-1:123456789012:secret:example\nplaintext",
+            "arn:aws:secretsmanager:ap-south-1:123456789012:secret:",
+            "https://user:password@example.invalid/secret",
+        )
+        for value in values:
+            with self.subTest(value=value):
+                document = plan()
+                document["planned_values"] = {"root_module": {"resources": [{
+                    "address": "aws_db_instance.postgres", "type": "aws_db_instance",
+                    "values": {"master_user_secret": [{"secret_arn": value}]},
+                }]}}
+                self.args.plan_json_path.write_text(json.dumps(document), encoding="utf-8")
+                with self.assertRaises(SystemExit):
+                    auth.verify_plan_capture(self.args)
+
+        self.assertIsNotNone(auth.classify_plan_secret({"password": "synthetic-plaintext"}))
+        self.assertIsNotNone(auth.classify_plan_secret({"secret_arn": "not-an-arn"}))
+
     def test_diagnostic_redacts_untrusted_map_keys_and_address(self) -> None:
         document = {"planned_values": {"root_module": {"resources": [{
             "address": 'aws_db_instance.example["unsafe-key"]', "type": "aws_db_instance",

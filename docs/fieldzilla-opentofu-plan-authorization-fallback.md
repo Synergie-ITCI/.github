@@ -63,8 +63,11 @@ including fields such as `manage_master_user_password`, and are never plaintext
 credentials. Ordinary numbers and `null` are non-secret primitives. A number
 under a secret-named key or an explicit `sensitive: true` value still fails,
 preserving the prior protection for numeric credentials.
-Strings under secret-named keys are rejected, as are strings matching credential,
-private-key or password-assignment patterns elsewhere (including inside lists).
+Strings under secret-named keys are rejected, except a complete AWS Secrets
+Manager ARN in an `_arn` field. Such an ARN identifies a secret and does not
+contain its plaintext credential; malformed ARNs and strings matching credential
+patterns still fail. Strings matching credential, private-key or
+password-assignment patterns elsewhere (including inside lists) also fail.
 The string `"true"` is a string and receives these checks. Empty strings are
 treated as absent values. Objects and lists are scanned recursively. OpenTofu
 `sensitive_values`, `before_sensitive` and `after_sensitive` contain marker
