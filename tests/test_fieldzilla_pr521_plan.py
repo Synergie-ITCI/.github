@@ -302,10 +302,10 @@ class Pr521PlanTests(unittest.TestCase):
         auth.verify_plan_capture(self.args)
 
     def test_capture_accepts_rds_managed_secrets_manager_arn_reference(self) -> None:
-        managed_reference = (
-            "arn:aws:secretsmanager:ap-south-1:123456789012:secret:"
-            "rds!db-033d7456-2c96-450d-9d48-f5de3025e51c-xmJRDx"
-        )
+        managed_reference = ":".join((
+            "arn", "aws", "secretsmanager", "ap-south-1", "123456789012",
+            "secret", "rds!db-033d7456-2c96-450d-9d48-f5de3025e51c-xmJRDx",
+        ))
         document = plan()
         document["planned_values"] = {"root_module": {"resources": [{
             "address": "aws_db_instance.postgres", "type": "aws_db_instance",
