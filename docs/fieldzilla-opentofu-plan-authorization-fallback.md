@@ -66,7 +66,9 @@ preserving the prior protection for numeric credentials.
 Strings under secret-named keys are rejected, except a complete AWS Secrets
 Manager ARN in an `_arn` field. Such an ARN identifies a secret and does not
 contain its plaintext credential; malformed ARNs and strings matching credential
-patterns still fail. Strings matching credential, private-key or
+patterns still fail. The ARN resource name accepts ordinary Secrets Manager
+names and the AWS RDS-managed `rds!db-` form; other uses of `!` fail.
+Strings matching credential, private-key or
 password-assignment patterns elsewhere (including inside lists) also fail.
 The string `"true"` is a string and receives these checks. Empty strings are
 treated as absent values. Objects and lists are scanned recursively. OpenTofu

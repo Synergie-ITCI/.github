@@ -69,7 +69,8 @@ SECRET_STRING_RE = re.compile(
     r"[a-z][a-z0-9+.-]*://[^/@\s:]+:[^/@\s]+@",
 )
 SECRETS_MANAGER_ARN_RE = re.compile(
-    r"arn:aws(?:-us-gov|-cn)?:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:[A-Za-z0-9/_+=.@-]+\Z"
+    r"arn:aws(?:-us-gov|-cn)?:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:"
+    r"(?:[A-Za-z0-9/_+=.@-]+|rds!db-[A-Za-z0-9-]+)\Z"
 )
 RUNTIME_SECRET_ARN_PREFIX = (
     f"arn:aws:secretsmanager:{AWS_REGION}:{AWS_ACCOUNT}:secret:"
