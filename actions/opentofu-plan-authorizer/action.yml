@@ -85,6 +85,9 @@ inputs:
   plan-json-path:
     required: false
     description: JSON OpenTofu plan path for safety verification.
+  diagnostic-path:
+    required: false
+    description: Sanitized plan-capture failure diagnostic JSON path; never contains plan values.
   import-map-path:
     required: false
     description: JSON import mapping path.
@@ -128,6 +131,7 @@ runs:
         EXPECTED_ARTIFACT_DIGEST: ${{ inputs.expected-artifact-digest }}
         ARTIFACT_DIR: ${{ inputs.artifact-dir }}
         PLAN_JSON_PATH: ${{ inputs.plan-json-path }}
+        DIAGNOSTIC_PATH: ${{ inputs.diagnostic-path }}
         IMPORT_MAP_PATH: ${{ inputs.import-map-path }}
         BACKEND_METADATA_PATH: ${{ inputs.backend-metadata-path }}
         EXPECTED_STATE_KEY: ${{ inputs.expected-state-key }}
@@ -204,6 +208,7 @@ runs:
           verify-plan-capture)
             python3 "${SCRIPT_PATH}" verify-plan-capture \
               --plan-json-path "${PLAN_JSON_PATH}" \
+              --diagnostic-path "${DIAGNOSTIC_PATH}" \
               --expected-sha "${EXPECTED_SHA}" \
               --repository "${REPOSITORY}" \
               --environment "${ENVIRONMENT}"

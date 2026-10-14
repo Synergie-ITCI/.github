@@ -466,17 +466,33 @@ jobs:
           artifact-dir: ${{ runner.temp }}/fieldzilla-plan
 
       - name: Reject plaintext secrets before PR 521 plan capture
+        id: plan_capture_guard
         if: ${{ env.PLAN_KIND_PREFIX == 'fieldzilla-pr521-staging-plan' }}
+        continue-on-error: true
         uses: ./.central-framework/actions/opentofu-plan-authorizer
         with:
           command: verify-plan-capture
           plan-json-path: ${{ runner.temp }}/fieldzilla-plan/fieldzilla-staging.plan.json
+          diagnostic-path: ${{ runner.temp }}/fieldzilla-plan-capture-diagnostic.json
           expected-sha: ${{ inputs.expected-sha }}
           repository: ${{ github.repository }}
           environment: synergie-app-staging
 
+      - name: Upload sanitized plan-capture failure diagnostic
+        if: ${{ always() && steps.plan_capture_guard.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: fieldzilla-pr521-plan-diagnostic-${{ github.run_id }}
+          path: ${{ runner.temp }}/fieldzilla-plan-capture-diagnostic.json
+          if-no-files-found: warn
+          retention-days: 1
+
+      - name: Fail closed after plan-capture guard failure
+        if: ${{ always() && steps.plan_capture_guard.outcome == 'failure' }}
+        run: exit 1
+
       - name: Preserve exact PR 521 plan for security review
-        if: ${{ env.PLAN_KIND_PREFIX == 'fieldzilla-pr521-staging-plan' }}
+        if: ${{ env.PLAN_KIND_PREFIX == 'fieldzilla-pr521-staging-plan' && steps.plan_capture_guard.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARTIFACT_NAME }}
