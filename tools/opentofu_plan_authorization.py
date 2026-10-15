@@ -13,6 +13,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any, NamedTuple
 
 APPROVER = "SaurabhVermaIN"
@@ -1116,6 +1117,40 @@ def _secret_arn_reference(key: str, value: str) -> bool:
     )
 
 
+# Non-credential attributes whose names match SECRET_VALUE_KEY_RE. Each is
+# accepted only on its resource type, at its exact path below a resource
+# values/before/after container ("#" is an array index), with a valid value.
+# Every other secret-named attribute is still rejected.
+MANAGED_SECRET_STATUSES = frozenset({"creating", "active", "rotating", "impaired"})
+IMDS_HTTP_TOKENS = frozenset({"required", "optional"})
+_KMS_KEY_UUID = r"(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|mrk-[0-9a-f]{32})"
+KMS_KEY_REFERENCE_RE = re.compile(
+    rf"{_KMS_KEY_UUID}|arn:aws(?:-us-gov|-cn)?:kms:[a-z0-9-]+:[0-9]{{12}}:key/{_KMS_KEY_UUID}"
+)
+_RESOURCE_ATTRIBUTE_CONTAINERS = frozenset({"values", "before", "after"})
+NAME_RULE_EXEMPTIONS: tuple[tuple[str, tuple[str, ...], str, Callable[[str], bool]], ...] = (
+    # RDS-managed master-user secret: KMS key reference and lifecycle state.
+    ("aws_db_instance", (), "master_user_secret_kms_key_id",
+     lambda value: KMS_KEY_REFERENCE_RE.fullmatch(value) is not None),
+    ("aws_db_instance", ("master_user_secret", "#"), "secret_status", MANAGED_SECRET_STATUSES.__contains__),
+    # EC2 IMDSv2 setting, not a token value.
+    ("aws_launch_template", ("metadata_options", "#"), "http_tokens", IMDS_HTTP_TOKENS.__contains__),
+)
+
+
+def _name_rule_exempt(resource_type: str | None, path: tuple[str, ...], key: str, value: str) -> bool:
+    for exempt_type, parents, attribute, valid in NAME_RULE_EXEMPTIONS:
+        depth = len(parents)
+        if (resource_type, key) != (exempt_type, attribute) or len(path) <= depth:
+            continue
+        if path[len(path) - depth - 1] in _RESOURCE_ATTRIBUTE_CONTAINERS and all(
+            segment.isdigit() if expected == "#" else segment == expected
+            for segment, expected in zip(path[len(path) - depth:], parents)
+        ) and valid(value):
+            return True
+    return False
+
+
 def _invalid_sensitive_marker_path(
     value: Any, path: tuple[str, ...], *, list_element: bool = False
 ) -> PlanSecretFinding | None:
@@ -1139,11 +1174,15 @@ def _invalid_sensitive_marker_path(
     )
 
 
-def classify_plan_secret(value: Any, path: tuple[str, ...] = ()) -> PlanSecretFinding | None:
+def classify_plan_secret(
+    value: Any, path: tuple[str, ...] = (), resource_type: str | None = None
+) -> PlanSecretFinding | None:
     """Classify JSON primitives by type; never mistake booleans for strings."""
     if _sensitive_string(value):
         return PlanSecretFinding(path, "string", "secret_pattern_string")
     if isinstance(value, dict):
+        if isinstance(value.get("address"), str) and isinstance(value.get("type"), str):
+            resource_type = value["type"]
         if value.get("sensitive") is True:
             marked_value = value.get("value")
             if (isinstance(marked_value, str) and bool(marked_value)) or type(marked_value) in (int, float):
@@ -1170,16 +1209,16 @@ def classify_plan_secret(value: Any, path: tuple[str, ...] = ()) -> PlanSecretFi
                 continue
             if isinstance(child, str) and _sensitive_string(
                 child, secret_key=bool(SECRET_VALUE_KEY_RE.search(key_text))
-            ) and not _secret_arn_reference(key_text, child):
+            ) and not _secret_arn_reference(key_text, child) and not _name_rule_exempt(resource_type, path, key_text, child):
                 return PlanSecretFinding(child_path, "string", "sensitive_key_string" if SECRET_VALUE_KEY_RE.search(key_text) else "secret_pattern_string")
             if type(child) in (int, float) and SECRET_VALUE_KEY_RE.search(key_text):
                 return PlanSecretFinding(child_path, "number", "sensitive_key_number")
-            found = classify_plan_secret(child, child_path)
+            found = classify_plan_secret(child, child_path, resource_type)
             if found:
                 return found
     elif isinstance(value, list):
         for index, child in enumerate(value):
-            found = classify_plan_secret(child, path + (str(index),))
+            found = classify_plan_secret(child, path + (str(index),), resource_type)
             if found:
                 return found
     return None

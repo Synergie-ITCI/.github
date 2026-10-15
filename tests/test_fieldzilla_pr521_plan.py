@@ -448,5 +448,131 @@ class Pr521PlanTests(unittest.TestCase):
                 self.check_fails(document)
 
 
+    # Fixture provenance: synthetic, provenance documented. The shape follows the
+    # aws_db_instance and aws_launch_template provider attributes (AWS provider
+    # 5.100.0 schema) and the RDS MasterUserSecret object
+    # (kms_key_id, secret_arn, secret_status). The failing path of run
+    # 38688148874 (planned_values resource, master_user_secret[0].secret_status,
+    # reason sensitive_key_string, JSON string) was identified from the hashed
+    # diagnostic. No real plan value is used; the historical status value is not recorded.
+    @staticmethod
+    def managed_db_plan(status: object = "active", kms_secret_key: object = None, mutate=None,
+                        resource_type: str = "aws_db_instance", http_tokens: object = "required",
+                        lt_mutate=None, lt_type: str = "aws_launch_template") -> dict:
+        arn = ":".join(("arn", "aws", "secretsmanager", "ap-south-1", "123456789012", "secret",
+                        "rds!db-00000000-0000-0000-0000-000000000000-AbCdEf"))
+        kms = "arn:aws:kms:ap-south-1:123456789012:key/00000000-0000-0000-0000-000000000000"
+        values = {"identifier": "synthetic-staging", "engine": "postgres", "username": "synthetic_admin",
+                  "storage_encrypted": True, "kms_key_id": kms, "manage_master_user_password": True,
+                  "password": None,
+                  "master_user_secret_kms_key_id": kms if kms_secret_key is None else kms_secret_key,
+                  "performance_insights_kms_key_id": kms,
+                  "master_user_secret": [{"kms_key_id": kms, "secret_arn": arn, "secret_status": status}]}
+        markers = {"password": True, "master_user_secret": [{}], "tags": {}, "tags_all": {}}
+        if mutate:
+            mutate(values, markers)
+        lt_values = {"name_prefix": "synthetic-ecs-", "instance_type": "t4g.small",
+                     "update_default_version": True,
+                     "metadata_options": [{"http_endpoint": "enabled", "http_put_response_hop_limit": 1,
+                                           "http_tokens": http_tokens}]}
+        lt_markers = {"metadata_options": [{}], "tags": {}, "tags_all": {}}
+        if lt_mutate:
+            lt_mutate(lt_values, lt_markers)
+        items = ((resource_type, ".postgres", values, markers),
+                 (lt_type, ".container_instance", lt_values, lt_markers))
+        document = plan()
+        document["planned_values"] = {"root_module": {"resources": [{
+            "address": kind + name, "mode": "managed", "type": kind,
+            "values": copy.deepcopy(val), "sensitive_values": copy.deepcopy(mark)}
+            for kind, name, val, mark in items]}}
+        document["prior_state"] = {"values": {"root_module": {"resources": [{
+            "address": kind + name, "mode": "managed", "type": kind,
+            "values": copy.deepcopy(val), "sensitive_values": copy.deepcopy(mark)}
+            for kind, name, val, mark in items]}}}
+        document["resource_changes"].extend({
+            "address": kind + name, "mode": "managed", "type": kind,
+            "change": {"actions": ["no-op"], "before": copy.deepcopy(val), "after": copy.deepcopy(val),
+                       "after_unknown": {"latest_restorable_time": True},
+                       "before_sensitive": copy.deepcopy(mark), "after_sensitive": copy.deepcopy(mark)}}
+            for kind, name, val, mark in items)
+        return document
+
+    def test_capture_name_rule_exemption_variants(self) -> None:
+        def move_status(values, markers):  # status outside master_user_secret[idx]
+            values["master_user_secret"][0].pop("secret_status")
+            values["secret_status"] = "active"
+
+        def status_in_object(values, markers):  # master_user_secret is not a list element
+            values["master_user_secret"] = {"secret_status": "active"}
+
+        def injected_sibling(values, markers):
+            values["master_user_secret"][0]["password"] = "synthetic-plaintext"
+
+        def injected_arn(values, markers):
+            values["master_user_secret"][0]["secret_arn"] = "password=synthetic-plaintext"
+
+        def bad_marker(values, markers):
+            markers["master_user_secret"] = "yes"
+
+        def kms_inside_secret(values, markers):  # exact path: resource attribute only
+            values["master_user_secret"][0]["master_user_secret_kms_key_id"] = values.pop(
+                "master_user_secret_kms_key_id")
+
+        def credential_resource_sibling(values, markers):
+            values["password"] = "synthetic-plaintext"
+
+        def tokens_wrong_path(values, markers):  # directly on the resource, not metadata_options[idx]
+            values["http_tokens"] = values["metadata_options"][0].pop("http_tokens")
+
+        def tokens_in_object(values, markers):  # metadata_options object instead of a list
+            values["metadata_options"] = {"http_tokens": "required"}
+
+        def tokens_credential_sibling(values, markers):
+            values["metadata_options"][0]["auth_token"] = "synthetic-plaintext"
+
+        uuid_key = "00000000-0000-0000-0000-000000000000"
+        cases = (
+            ("valid_http_tokens_optional", dict(http_tokens="optional"), True),
+            ("credential_http_tokens", dict(http_tokens="password=synthetic-plaintext"), False),
+            ("wrong_value_http_tokens", dict(http_tokens="Required"), False),
+            ("unsupported_http_tokens", dict(http_tokens="disabled"), False),
+            ("numeric_http_tokens", dict(http_tokens=1), False),
+            ("http_tokens_wrong_path", dict(lt_mutate=tokens_wrong_path), False),
+            ("http_tokens_in_object", dict(lt_mutate=tokens_in_object), False),
+            ("http_tokens_wrong_resource_type", dict(lt_type="aws_instance"), False),
+            ("http_tokens_credential_sibling", dict(lt_mutate=tokens_credential_sibling), False),
+            ("valid", dict(), True),
+            ("valid_rotating", dict(status="rotating"), True),
+            ("valid_kms_key_id", dict(kms_secret_key=uuid_key), True),
+            ("valid_kms_multi_region_key_id", dict(kms_secret_key="mrk-" + "0" * 32), True),
+            ("credential_kms_value", dict(kms_secret_key="password=synthetic-plaintext"), False),
+            ("plain_string_kms_value", dict(kms_secret_key="synthetic-plaintext-key"), False),
+            ("alias_kms_value", dict(kms_secret_key="alias/synthetic"), False),
+            ("non_kms_arn_kms_value", dict(kms_secret_key="arn:aws:s3:::synthetic/" + uuid_key), False),
+            ("numeric_kms_value", dict(kms_secret_key=1), False),
+            ("kms_wrong_path", dict(mutate=kms_inside_secret), False),
+            ("kms_wrong_resource_type", dict(resource_type="aws_iam_role"), False),
+            ("kms_with_credential_sibling", dict(mutate=credential_resource_sibling), False),
+            ("credential_status", dict(status="synthetic-plaintext-password"), False),
+            ("credential_pattern_status", dict(status="password=synthetic-plaintext"), False),
+            ("unsupported_status", dict(status="ready"), False),
+            ("wrong_case_status", dict(status="Active"), False),
+            ("numeric_status", dict(status=1), False),
+            ("status_outside_secret", dict(mutate=move_status), False),
+            ("status_in_object", dict(mutate=status_in_object), False),
+            ("credential_sibling", dict(mutate=injected_sibling), False),
+            ("credential_arn", dict(mutate=injected_arn), False),
+            ("malformed_marker", dict(mutate=bad_marker), False),
+        )
+        for name, kwargs, accepted in cases:
+            with self.subTest(variant=name):
+                self.args.plan_json_path.write_text(json.dumps(self.managed_db_plan(**kwargs)), encoding="utf-8")
+                if accepted:
+                    auth.verify_plan_capture(self.args)
+                else:
+                    with self.assertRaises(SystemExit):
+                        auth.verify_plan_capture(self.args)
+
+
 if __name__ == "__main__":
     unittest.main()
