@@ -100,6 +100,21 @@ inputs:
   plan-kind:
     required: false
     description: normal, post-import, drift or final plan.
+  plan-id:
+    required: false
+    description: Reviewed plan id; names the consumer-owned expected-change file (reviewed plan kind only).
+  plan-workspace:
+    required: false
+    description: Checkout of the project repository at the approved source SHA that holds the reviewed plan file.
+  plan-spec-dir:
+    required: false
+    description: Directory that receives the validated target list and plan file sha256.
+  image-tag:
+    required: false
+    description: Dispatched image tag; must equal the reviewed plan file image_tag.
+  metadata-path:
+    required: false
+    description: Approved artifact metadata.json whose reviewed plan file sha256 must match.
 
 runs:
   using: composite
@@ -136,6 +151,11 @@ runs:
         BACKEND_METADATA_PATH: ${{ inputs.backend-metadata-path }}
         EXPECTED_STATE_KEY: ${{ inputs.expected-state-key }}
         PLAN_KIND: ${{ inputs.plan-kind }}
+        PLAN_ID: ${{ inputs.plan-id }}
+        PLAN_WORKSPACE: ${{ inputs.plan-workspace }}
+        PLAN_SPEC_DIR: ${{ inputs.plan-spec-dir }}
+        IMAGE_TAG: ${{ inputs.image-tag }}
+        METADATA_PATH: ${{ inputs.metadata-path }}
       run: |
         set -euo pipefail
         common_args=(
@@ -222,7 +242,21 @@ runs:
               --environment "${ENVIRONMENT}" \
               --image-digest "${IMAGE_DIGEST}" \
               --image-digest-map "${IMAGE_DIGEST_MAP}" \
-              --ecs-families "${ECS_FAMILIES}"
+              --ecs-families "${ECS_FAMILIES}" \
+              --plan-id "${PLAN_ID}" \
+              --plan-workspace "${PLAN_WORKSPACE:-.}"
+            ;;
+          verify-reviewed-plan-file)
+            reviewed_args=()
+            if [ -n "${METADATA_PATH}" ]; then reviewed_args+=(--metadata-path "${METADATA_PATH}"); fi
+            if [ -n "${PLAN_SPEC_DIR}" ]; then reviewed_args+=(--spec-out-dir "${PLAN_SPEC_DIR}"); fi
+            python3 "${SCRIPT_PATH}" verify-reviewed-plan-file \
+              --plan-id "${PLAN_ID}" \
+              --plan-workspace "${PLAN_WORKSPACE:-.}" \
+              --expected-sha "${EXPECTED_SHA}" \
+              --repository "${REPOSITORY}" \
+              --image-tag "${IMAGE_TAG}" \
+              "${reviewed_args[@]}"
             ;;
           verify-import-map)
             python3 "${SCRIPT_PATH}" verify-import-map \
