@@ -611,6 +611,9 @@ def verify_plan_safety(args: argparse.Namespace) -> None:
     if args.plan_kind == "fieldzilla-pr521-staging-plan":
         verify_pr521_staging_plan(doc, args)
         return
+    if args.plan_kind == REVIEWED_PLAN_KIND:
+        verify_reviewed_staging_plan(doc, args)
+        return
 
     variables = {key: item.get("value") for key, item in doc.get("variables", {}).items()}
     if variables.get("enable_production") is not False:
@@ -1078,6 +1081,260 @@ def verify_fieldzilla_runtime_bootstrap_plan(doc: dict[str, Any]) -> None:
     if any(action not in {"create", "no-op"} for action in counts):
         die("runtime bootstrap plan must contain 0 update, 0 replace and 0 destroy")
     print("PLAN_COUNTS=" + json.dumps(counts, sort_keys=True))
+
+
+# --- Reviewed staging plan kind -------------------------------------------------
+# Expected changes come from a consumer-owned file read from the checked-out source
+# at expected-sha. Nothing about a particular PR, SHA or image tag lives here.
+REVIEWED_PLAN_KIND = "fieldzilla-staging-reviewed-plan"
+REVIEWED_PLAN_DIRECTORY = ".github/opentofu-plans"
+REVIEWED_PLAN_MAX_BYTES = 65536
+REVIEWED_PLAN_MAX_ITEMS = 64
+REVIEWED_PLAN_BRANCH = "staging"
+REVIEWED_PLAN_KEYS = frozenset({"plan_id", "image_tag", "targets", "expected_changes"})
+REVIEWED_PLAN_ID = re.compile(r"^[a-z0-9][a-z0-9-]{2,62}$")
+REVIEWED_PLAN_ADDRESS = re.compile(
+    r'^[a-z][a-z0-9_]*\.[A-Za-z0-9_-]+(?:\[(?:"[A-Za-z0-9_.-]+"|[0-9]+)\])?$'
+)
+REVIEWED_PLAN_ACTIONS = frozenset({("create",), ("update",), ("create", "delete")})
+STATEFUL_RESOURCE_TYPES = frozenset({
+    "aws_db_instance", "aws_kms_key", "aws_s3_bucket", "aws_secretsmanager_secret",
+    "aws_vpc", "aws_subnet", "aws_ecr_repository",
+})
+IAM_POLICY_ATTRIBUTES = ("policy", "assume_role_policy")
+
+
+def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate key")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(_: str) -> Any:
+    raise ValueError("non-finite number")
+
+
+def _reviewed_plan_items(spec: dict[str, Any], key: str) -> list[Any]:
+    items = spec.get(key)
+    if not isinstance(items, list) or len(items) > REVIEWED_PLAN_MAX_ITEMS:
+        die(f"reviewed plan file {key} must be a list of at most {REVIEWED_PLAN_MAX_ITEMS} entries")
+    return items
+
+
+def load_reviewed_plan_spec(path: Path, plan_id: str) -> tuple[dict[str, Any], str]:
+    """Strictly load the consumer-owned expected-change file and return it with its sha256."""
+    if not REVIEWED_PLAN_ID.fullmatch(plan_id or ""):
+        die("reviewed plan id is invalid")
+    if path.name != f"{plan_id}.json":
+        die("reviewed plan file name does not match the plan id")
+    if path.is_symlink() or not path.is_file():
+        die("reviewed plan file is missing")
+    if path.stat().st_size > REVIEWED_PLAN_MAX_BYTES:
+        die("reviewed plan file is too large")
+    raw = path.read_bytes()
+    try:
+        spec = json.loads(
+            raw.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_keys,
+            parse_constant=_reject_json_constant,
+        )
+    except (UnicodeDecodeError, ValueError):
+        die("reviewed plan file is malformed")
+    if not isinstance(spec, dict) or set(spec) != REVIEWED_PLAN_KEYS:
+        die("reviewed plan file must contain exactly plan_id, image_tag, targets and expected_changes")
+    if spec["plan_id"] != plan_id:
+        die("reviewed plan file plan_id does not match the plan id")
+    if not isinstance(spec["image_tag"], str) or not SHA.fullmatch(spec["image_tag"]):
+        die("reviewed plan file image_tag must be an exact 40-character lowercase hex SHA")
+    targets = _reviewed_plan_items(spec, "targets")
+    if any(not isinstance(item, str) or not REVIEWED_PLAN_ADDRESS.fullmatch(item) for item in targets):
+        die("reviewed plan file targets must be exact resource addresses")
+    if len(set(targets)) != len(targets):
+        die("reviewed plan file targets must be unique")
+    changes = _reviewed_plan_items(spec, "expected_changes")
+    seen: set[str] = set()
+    for item in changes:
+        if not isinstance(item, dict) or set(item) != {"address", "actions"}:
+            die("reviewed plan file expected_changes entries must contain exactly address and actions")
+        address, actions = item["address"], item["actions"]
+        if not isinstance(address, str) or not REVIEWED_PLAN_ADDRESS.fullmatch(address) or address in seen:
+            die("reviewed plan file expected_changes addresses must be unique resource addresses")
+        seen.add(address)
+        if (
+            not isinstance(actions, list)
+            or any(not isinstance(action, str) for action in actions)
+            or tuple(sorted(actions)) not in REVIEWED_PLAN_ACTIONS
+        ):
+            die("reviewed plan file expected_changes actions must be create, update or replace")
+    return spec, hashlib.sha256(raw).hexdigest()
+
+
+def _require_reachable_from_protected_branch(sha: str) -> None:
+    """expected-sha must be the protected staging tip or one of its ancestors."""
+    compare = github_api(f"compare/{sha}...{REVIEWED_PLAN_BRANCH}")
+    if (
+        compare.get("status") not in {"ahead", "identical"}
+        or (compare.get("merge_base_commit") or {}).get("sha") != sha
+    ):
+        die("approved source commit is not reachable from the protected staging branch")
+
+
+def _write_private_file(path: Path, text: str) -> None:
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(text)
+
+
+def verify_reviewed_plan_file(args: argparse.Namespace) -> None:
+    """Validate the consumer file and its source commit before any plan or apply uses it."""
+    if args.repository != REPOSITORY:
+        die("repository mismatch")
+    if not SHA.fullmatch(args.expected_sha or ""):
+        die("expected commit SHA must be exact 40-character lowercase hex")
+    spec, digest = load_reviewed_plan_spec(
+        args.plan_workspace / REVIEWED_PLAN_DIRECTORY / f"{args.plan_id}.json", args.plan_id
+    )
+    if spec["image_tag"] != args.image_tag:
+        die("reviewed plan file image_tag does not match the dispatched image tag")
+    _require_reachable_from_protected_branch(args.expected_sha)
+    if args.metadata_path:
+        metadata = json.loads(args.metadata_path.read_text(encoding="utf-8"))
+        if (
+            metadata.get("reviewed_plan_id") != args.plan_id
+            or metadata.get("reviewed_plan_file_sha256") != digest
+        ):
+            die("approved artifact was not generated from this reviewed plan file")
+    if args.spec_out_dir:
+        _write_private_file(args.spec_out_dir / "reviewed-plan-targets.txt", "".join(f"{item}\n" for item in spec["targets"]))
+        _write_private_file(args.spec_out_dir / "reviewed-plan-file.sha256", digest + "\n")
+    print(f"REVIEWED_PLAN_ID={args.plan_id}")
+    print(f"REVIEWED_PLAN_FILE_SHA256={digest}")
+    print(f"REVIEWED_PLAN_TARGET_COUNT={len(spec['targets'])}")
+
+
+def _statement_key(effect: Any, actions: Any, not_actions: Any, resources: Any, not_resources: Any) -> tuple:
+    def values(item: Any) -> tuple[str, ...]:
+        if isinstance(item, str):
+            item = [item]
+        # Elements that are not known until apply are represented as null in plan JSON.
+        return tuple(sorted(element if isinstance(element, str) else "<unknown>" for element in (item or [])))
+    return (str(effect or "Allow"), values(actions), values(not_actions), values(resources), values(not_resources))
+
+
+def _json_policy_statements(policy: Any) -> list[tuple]:
+    if not isinstance(policy, str):
+        return []
+    try:
+        document = json.loads(policy)
+    except ValueError:
+        return []
+    statements = document.get("Statement", []) if isinstance(document, dict) else []
+    if isinstance(statements, dict):
+        statements = [statements]
+    return [
+        _statement_key(s.get("Effect"), s.get("Action"), s.get("NotAction"), s.get("Resource"), s.get("NotResource"))
+        for s in statements if isinstance(s, dict)
+    ]
+
+
+def _policy_document_statements(after: Any) -> list[tuple]:
+    statements = after.get("statement") if isinstance(after, dict) else None
+    return [
+        _statement_key(s.get("effect"), s.get("actions"), s.get("not_actions"), s.get("resources"), s.get("not_resources"))
+        for s in (statements or []) if isinstance(s, dict)
+    ]
+
+
+def _statement_has_wildcard(key: tuple) -> bool:
+    effect, actions, not_actions, resources, not_resources = key
+    return "*" in actions or "*" in resources or (effect == "Allow" and bool(not_actions or not_resources))
+
+
+def _iam_wildcards_introduced(resource_changes: list[dict[str, Any]]) -> list[str]:
+    """Return addresses whose new or changed IAM statements contain a bare "*" Action or
+    Resource (or an Allow NotAction/NotResource). Statements already present, unchanged,
+    in a changed policy's previous version are allowed: reviewed read-only discovery
+    policies legitimately carry Resource "*". Partial wildcards such as kms:ReEncrypt* or
+    an ARN ending in :* are not rejected."""
+    previous: set[tuple] = set()
+    candidates: list[tuple[str, tuple]] = []
+    for change in resource_changes:
+        detail = change.get("change") or {}
+        actions = tuple(sorted(detail.get("actions") or []))
+        address = change.get("address", "")
+        if change.get("mode") == "data" and change.get("type") == "aws_iam_policy_document":
+            if actions == ("read",):
+                candidates.extend((address, key) for key in _policy_document_statements(detail.get("after")))
+            continue
+        if actions in ((), ("no-op",), ("read",)):
+            continue
+        for attribute in IAM_POLICY_ATTRIBUTES:
+            previous.update(_json_policy_statements((detail.get("before") or {}).get(attribute)))
+            candidates.extend(
+                (address, key) for key in _json_policy_statements((detail.get("after") or {}).get(attribute))
+            )
+    return sorted({address for address, key in candidates if _statement_has_wildcard(key) and key not in previous})
+
+
+def _bounded_addresses(addresses: list[str]) -> str:
+    shown = ", ".join(addresses[:10])
+    return shown + (f" (+{len(addresses) - 10} more)" if len(addresses) > 10 else "")
+
+
+def verify_reviewed_staging_plan(doc: dict[str, Any], args: argparse.Namespace) -> None:
+    """Same checks at plan time and at apply time on the approved plan JSON."""
+    if args.repository != REPOSITORY or args.environment != ENVIRONMENT:
+        die("reviewed plan identity mismatch")
+    spec, digest = load_reviewed_plan_spec(
+        args.plan_workspace / REVIEWED_PLAN_DIRECTORY / f"{args.plan_id}.json", args.plan_id
+    )
+    variables = {key: item.get("value") for key, item in doc.get("variables", {}).items()}
+    if variables.get("image_tag") != spec["image_tag"]:
+        die("plan image tag does not match the reviewed plan file")
+    if variables.get("enable_production") is not False:
+        die("production resources are enabled")
+    if variables.get("route53_zone_id") not in ("", None):
+        die("DNS changes are enabled")
+    finding = classify_plan_secret(doc)
+    if finding:
+        die(f"reviewed plan rejected {finding.reason} at `{_safe_diagnostic_path(finding.path)}`")
+
+    expected = {item["address"]: tuple(sorted(item["actions"])) for item in spec["expected_changes"]}
+    actual: dict[str, tuple[str, ...]] = {}
+    for change in doc.get("resource_changes", []):
+        actions = tuple(sorted((change.get("change") or {}).get("actions") or []))
+        if actions in ((), ("no-op",), ("read",)):
+            continue
+        address, resource_type = change.get("address", ""), change.get("type", "")
+        if address in actual:
+            die("reviewed plan contains a duplicate resource change")
+        if actions == ("delete",):
+            die(f"reviewed plan contains a delete action: {address}")
+        if actions not in REVIEWED_PLAN_ACTIONS:
+            die(f"reviewed plan contains an unsupported action on {address}")
+        if actions == ("create", "delete") and resource_type in STATEFUL_RESOURCE_TYPES:
+            die(f"reviewed plan replaces a stateful resource: {address}")
+        actual[address] = actions
+    extra = sorted(set(actual) - set(expected))
+    missing = sorted(set(expected) - set(actual))
+    mismatched = sorted(address for address in actual if address in expected and actual[address] != expected[address])
+    if extra or missing or mismatched:
+        parts = [f"{name}: {_bounded_addresses(items)}" for name, items in (
+            ("unexpected", extra), ("missing", missing), ("action mismatch", mismatched)) if items]
+        die("plan changes differ from the reviewed plan file -- " + "; ".join(parts))
+    wildcards = _iam_wildcards_introduced(doc.get("resource_changes", []))
+    if wildcards:
+        die("reviewed plan introduces a wildcard IAM action or resource: " + _bounded_addresses(wildcards))
+    print(f"REVIEWED_PLAN_ID={args.plan_id}")
+    print(f"REVIEWED_PLAN_FILE_SHA256={digest}")
+    print("PLAN_COUNTS=" + json.dumps(
+        {"+".join(actions): sum(1 for value in actual.values() if value == actions) for actions in sorted(set(actual.values()))},
+        sort_keys=True,
+    ))
+
 
 
 class PlanSecretFinding(NamedTuple):
@@ -1867,6 +2124,16 @@ def main() -> None:
     safety.add_argument("--image-digest", default="")
     safety.add_argument("--image-digest-map", default="")
     safety.add_argument("--ecs-families", default="")
+    safety.add_argument("--plan-id", default="")
+    safety.add_argument("--plan-workspace", type=Path, default=Path("."))
+    reviewed = sub.add_parser("verify-reviewed-plan-file")
+    reviewed.add_argument("--plan-id", required=True)
+    reviewed.add_argument("--plan-workspace", type=Path, default=Path("."))
+    reviewed.add_argument("--expected-sha", required=True)
+    reviewed.add_argument("--repository", required=True)
+    reviewed.add_argument("--image-tag", required=True)
+    reviewed.add_argument("--metadata-path", type=Path)
+    reviewed.add_argument("--spec-out-dir", type=Path)
     capture = sub.add_parser("verify-plan-capture")
     capture.add_argument("--plan-json-path", type=Path, required=True)
     capture.add_argument("--expected-sha", required=True)
@@ -1888,6 +2155,7 @@ def main() -> None:
         "verify-artifact-metadata": verify_artifact_metadata,
         "verify-artifact-files": verify_artifact_files,
         "verify-plan-safety": verify_plan_safety,
+        "verify-reviewed-plan-file": verify_reviewed_plan_file,
         "verify-plan-capture": verify_plan_capture,
         "verify-import-map": verify_import_map,
         "check-single-use": check_single_use,

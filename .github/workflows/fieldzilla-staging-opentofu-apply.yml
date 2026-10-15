@@ -104,6 +104,14 @@ on:
         required: false
         default: infra/aws
         type: string
+      plan-id:
+        description: >-
+          Reviewed plan id (fieldzilla-staging-reviewed-plan). Names the consumer-owned
+          .github/opentofu-plans/<plan-id>.json at expected-sha. Valid only for infra/aws
+          plan or apply without image digest evidence.
+        required: false
+        default: ""
+        type: string
 
 permissions:
   actions: read
@@ -168,6 +176,7 @@ jobs:
           IMAGE_DIGEST_MAP: ${{ inputs.image-digest-map }}
           IMAGE_DIGEST: ${{ inputs.image-digest }}
           ECS_FAMILIES: ${{ inputs.ecs-families }}
+          REVIEWED_PLAN_ID: ${{ inputs.plan-id }}
         run: |
           set -euo pipefail
           case "${REQUESTED_TOFU_ROOT}" in
@@ -186,6 +195,11 @@ jobs:
                  [ "${REQUESTED_MODE}" = "plan" ]; then
                 plan_kind_prefix="fieldzilla-pr521-staging-plan"
               fi
+              if [ -n "${REVIEWED_PLAN_ID}" ] &&
+                 [ -z "${IMAGE_DIGEST_MAP}${IMAGE_DIGEST}${ECS_FAMILIES}" ] &&
+                 { [ "${REQUESTED_MODE}" = "plan" ] || [ "${REQUESTED_MODE}" = "apply" ]; }; then
+                plan_kind_prefix="fieldzilla-staging-reviewed-plan"
+              fi
               ;;
             deploy/staging/fieldzilla-runtime)
               state_key="programme-management-platform/fieldzilla/staging/runtime/opentofu.tfstate"
@@ -196,10 +210,15 @@ jobs:
               exit 1
               ;;
           esac
+          if [ -n "${REVIEWED_PLAN_ID}" ] && [ "${plan_kind_prefix}" != "fieldzilla-staging-reviewed-plan" ]; then
+            echo "plan-id is valid only for infra/aws plan or apply without image digest evidence" >&2
+            exit 1
+          fi
           if [ "${REQUESTED_MODE}" = "apply" ] &&
              [ "${REQUESTED_TOFU_ROOT}" != "deploy/staging/fieldzilla-runtime" ] &&
+             [ "${plan_kind_prefix}" != "fieldzilla-staging-reviewed-plan" ] &&
              [ "${plan_kind_prefix}" != "fieldzilla-staging-migration-iam" ]; then
-            echo "infra/aws apply is limited to the reviewed FieldZilla staging migration IAM policy" >&2
+            echo "infra/aws apply is limited to the reviewed FieldZilla staging migration IAM policy and reviewed plan files" >&2
             exit 1
           fi
           {
@@ -224,6 +243,20 @@ jobs:
           workflow-repository: ${{ job.workflow_repository || 'Synergie-ITCI/.github' }}
           workflow-file-path: ${{ job.workflow_file_path || '.github/workflows/fieldzilla-staging-opentofu-apply.yml' }}
           expected-workflow-file: .github/workflows/fieldzilla-staging-opentofu-apply.yml
+
+      - name: Verify reviewed plan file and source commit
+        if: ${{ env.PLAN_KIND_PREFIX == 'fieldzilla-staging-reviewed-plan' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        uses: ./.central-framework/actions/opentofu-plan-authorizer
+        with:
+          command: verify-reviewed-plan-file
+          plan-id: ${{ inputs.plan-id }}
+          plan-workspace: ${{ github.workspace }}
+          plan-spec-dir: ${{ runner.temp }}
+          expected-sha: ${{ inputs.expected-sha }}
+          repository: ${{ github.repository }}
+          image-tag: ${{ inputs.image-tag }}
 
       - name: Validate image tag input
         run: |
@@ -419,6 +452,7 @@ jobs:
           ARTIFACT_NAME: fieldzilla-staging-${{ inputs.mode == 'post-import-plan' && 'post-import' || inputs.mode }}-${{ inputs.expected-sha }}-${{ github.run_id }}
           EXPECTED_SHA: ${{ inputs.expected-sha }}
           EXPECTED_CALLER_SHA: ${{ inputs.expected-caller-sha }}
+          REVIEWED_PLAN_ID: ${{ inputs.plan-id }}
         run: |
           set -euo pipefail
           plan_dir="${RUNNER_TEMP}/fieldzilla-plan"
@@ -426,6 +460,13 @@ jobs:
           if [ "${PLAN_KIND_PREFIX}" = "fieldzilla-staging-migration-iam" ]; then
             tofu -chdir="${TOFU_ROOT}" plan -input=false -lock=true \
               -target=aws_iam_role_policy.staging_migration_task_run \
+              -out="${plan_dir}/fieldzilla-staging.tfplan"
+          elif [ "${PLAN_KIND_PREFIX}" = "fieldzilla-staging-reviewed-plan" ]; then
+            target_args=()
+            while IFS= read -r target; do
+              if [ -n "${target}" ]; then target_args+=("-target=${target}"); fi
+            done < "${RUNNER_TEMP}/reviewed-plan-targets.txt"
+            tofu -chdir="${TOFU_ROOT}" plan -input=false -lock=true "${target_args[@]}" \
               -out="${plan_dir}/fieldzilla-staging.tfplan"
           else
             tofu -chdir="${TOFU_ROOT}" plan -input=false -lock=true -out="${plan_dir}/fieldzilla-staging.tfplan"
@@ -445,6 +486,11 @@ jobs:
           # records what ECR actually resolved to, which apply-time re-resolution then
           # checks against.
           IMAGE_DIGEST="${{ inputs.image-digest }}" ECS_FAMILIES="${{ inputs.ecs-families }}" RESOLVED_DIGESTS_PATH="${RUNNER_TEMP}/resolved-image-digests.json" python3 -c 'import json,os; from datetime import datetime, timezone; families=sorted([item for item in os.environ["ECS_FAMILIES"].split(",") if item]); resolved=json.load(open(os.environ["RESOLVED_DIGESTS_PATH"])); print(json.dumps({"repository":"Synergie-ITCI/programme-management-platform","repository_id":1315697868,"environment":"synergie-app-staging","commit_sha":os.environ["EXPECTED_SHA"],"caller_sha":os.environ["EXPECTED_CALLER_SHA"],"image_digest":os.environ["IMAGE_DIGEST"],"image_digest_map":resolved,"ecs_families":families,"workflow_run_id":os.environ["GITHUB_RUN_ID"],"workflow_run_attempt":os.environ["GITHUB_RUN_ATTEMPT"],"artifact_name":os.environ["ARTIFACT_NAME"],"generated_at":datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),"opentofu_version":os.environ["TOFU_VERSION"],"provider_lock_sha256":os.environ["LOCK_SHA"],"plan_sha256":os.environ["PLAN_SHA"],"state_backend":"s3","state_bucket":os.environ["STATE_BUCKET"],"state_key":os.environ["STATE_KEY"],"lock_table":os.environ["STATE_LOCK_TABLE"]}, indent=2, sort_keys=True))' > "${plan_dir}/metadata.json"
+          if [ "${PLAN_KIND_PREFIX}" = "fieldzilla-staging-reviewed-plan" ]; then
+            reviewed_sha="$(tr -d '\n' < "${RUNNER_TEMP}/reviewed-plan-file.sha256")"
+            REVIEWED_PLAN_FILE_SHA256="${reviewed_sha}" METADATA_PATH="${plan_dir}/metadata.json" python3 -c 'import json,os; path=os.environ["METADATA_PATH"]; meta=json.load(open(path)); meta["reviewed_plan_id"]=os.environ["REVIEWED_PLAN_ID"]; meta["reviewed_plan_file_sha256"]=os.environ["REVIEWED_PLAN_FILE_SHA256"]; json.dump(meta, open(path, "w"), indent=2, sort_keys=True)'
+            echo "Reviewed plan ${REVIEWED_PLAN_ID} file sha256: ${reviewed_sha}" >> "${GITHUB_STEP_SUMMARY}"
+          fi
           {
             echo "${plan_sha}  fieldzilla-staging.tfplan"
             sha256sum "${plan_dir}/fieldzilla-staging.plan.txt" | sed "s#${plan_dir}/##"
@@ -514,6 +560,8 @@ jobs:
           image-digest: ${{ inputs.image-digest }}
           image-digest-map: ${{ inputs.image-digest-map }}
           ecs-families: ${{ inputs.ecs-families }}
+          plan-id: ${{ inputs.plan-id }}
+          plan-workspace: ${{ github.workspace }}
 
       - name: Upload generated artifact
         if: ${{ (inputs.mode == 'plan' || inputs.mode == 'post-import-plan' || inputs.mode == 'drift') && env.PLAN_KIND_PREFIX != 'fieldzilla-pr521-staging-plan' }}
@@ -701,6 +749,20 @@ jobs:
           overwrite: false
           retention-days: 1
 
+      - name: Verify approved artifact matches the reviewed plan file
+        if: ${{ inputs.mode == 'apply' && env.PLAN_KIND_PREFIX == 'fieldzilla-staging-reviewed-plan' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        uses: ./.central-framework/actions/opentofu-plan-authorizer
+        with:
+          command: verify-reviewed-plan-file
+          plan-id: ${{ inputs.plan-id }}
+          plan-workspace: ${{ github.workspace }}
+          expected-sha: ${{ inputs.expected-sha }}
+          repository: ${{ github.repository }}
+          image-tag: ${{ inputs.image-tag }}
+          metadata-path: ${{ env.APPROVED_DIR }}/metadata.json
+
       - name: Verify approved apply plan safety
         if: ${{ inputs.mode == 'apply' }}
         run: tofu -chdir="${TOFU_ROOT}" show -json "${APPROVED_DIR}/fieldzilla-staging.tfplan" > "${RUNNER_TEMP}/approved-plan.json"
@@ -718,6 +780,8 @@ jobs:
           image-digest: ${{ inputs.image-digest }}
           image-digest-map: ${{ inputs.image-digest-map }}
           ecs-families: ${{ inputs.ecs-families }}
+          plan-id: ${{ inputs.plan-id }}
+          plan-workspace: ${{ github.workspace }}
 
       - name: Mark apply authorization used
         if: ${{ inputs.mode == 'apply' }}

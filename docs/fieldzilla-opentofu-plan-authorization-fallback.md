@@ -144,3 +144,49 @@ to the infrastructure apply role.
 This fallback does not approve production, DNS cutover, real data loading,
 secret disclosure, branch-protection weakening, bypass actors or workstation
 OpenTofu apply.
+
+## Reviewed plan kind (`fieldzilla-staging-reviewed-plan`)
+
+A generic kind for `infra/aws` plans whose expected changes are owned by the project repository
+instead of being hardcoded here. It is selected when the caller passes the `plan-id` input to the
+reusable workflow (plan or apply, no image digest evidence). Any other combination with `plan-id`
+fails. The earlier per-change kinds and their constants are unchanged.
+
+**Consumer file.** `.github/opentofu-plans/<plan-id>.json` at the dispatched `expected-sha`. Exactly
+these keys, no others (duplicate keys, NaN, files over 64 KiB, symlinks and more than 64 list entries are
+rejected):
+
+```json
+{
+  "plan_id": "<plan-id>",
+  "image_tag": "<40-hex image tag>",
+  "targets": ["aws_iam_role.example", "aws_ecs_task_definition.migration[\"staging\"]"],
+  "expected_changes": [{"address": "aws_iam_role.example", "actions": ["create"]}]
+}
+```
+
+`actions` must be `["create"]`, `["update"]` or a replace (`["delete", "create"]` in either order);
+a delete-only expectation is not accepted. `targets` become `-target=` flags (empty means an
+untargeted plan). The dispatched `image-tag` must equal the file's `image_tag`.
+
+**Trust.** The file is read from the checkout at `expected-sha`, and `expected-sha` must equal the
+protected `staging` tip or be one of its ancestors (GitHub compare API; the merge base must be the
+SHA itself). Before this kind the workflow enforced only that the dispatching commit equals
+`expected-caller-sha` and that artifact metadata repeats the same SHAs; neither proved that the source
+commit was reviewed on `staging`.
+
+**Verification (plan time and, on the approved plan JSON, apply time).** The set of non-no-op,
+non-read changes must equal `expected_changes` exactly (extra, missing and action-mismatched addresses
+are named in the failure). The file cannot override: no delete-only action; no replace of
+`aws_db_instance`, `aws_kms_key`, `aws_s3_bucket`, `aws_secretsmanager_secret`, `aws_vpc`,
+`aws_subnet` or `aws_ecr_repository`; no new or changed IAM statement with a bare `"*"` Action or
+Resource (or an Allow `NotAction`/`NotResource`); the plan image tag, staging-only and no-DNS
+variables; and the unchanged plaintext-secret scan. Statements that already exist unchanged in the
+policy being updated are allowed, because the reviewed read-only discovery policies legitimately carry
+`Resource: "*"`; partial wildcards such as `kms:ReEncrypt*` or an ARN ending in `:*` are not rejected.
+Policies that are unknown until apply are checked through their deferred policy-document reads.
+
+**Evidence.** The file's sha256 and plan id are written to the plan artifact `metadata.json`
+(`reviewed_plan_file_sha256`, `reviewed_plan_id`), to the job summary and to the step output; the apply
+path recomputes the hash from the checkout and requires it to match the approved artifact. Apply keeps
+the existing plan-hash binding, single-use authorization, expiry, native-reviewer and actor controls.

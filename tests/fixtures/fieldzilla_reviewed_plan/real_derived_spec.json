@@ -1,0 +1,58 @@
+{
+ "plan_id": "synthetic-reviewed-plan",
+ "image_tag": "b1679598ea9dfbbac3b8244887fc113636169e6f",
+ "targets": [
+  "aws_iam_role.staging_migration_execution",
+  "aws_iam_role_policy_attachment.staging_migration_execution",
+  "aws_iam_role_policy.staging_migration_execution_secrets",
+  "aws_ecs_task_definition.migration[\"staging\"]",
+  "aws_iam_role_policy.deploy[\"staging\"]",
+  "aws_iam_role_policy.staging_infra_plan_discovery",
+  "aws_iam_policy.staging_infra_ecs_rollout"
+ ],
+ "expected_changes": [
+  {
+   "address": "aws_ecs_task_definition.migration[\"staging\"]",
+   "actions": [
+    "delete",
+    "create"
+   ]
+  },
+  {
+   "address": "aws_iam_policy.staging_infra_ecs_rollout",
+   "actions": [
+    "update"
+   ]
+  },
+  {
+   "address": "aws_iam_role.staging_migration_execution",
+   "actions": [
+    "create"
+   ]
+  },
+  {
+   "address": "aws_iam_role_policy.deploy[\"staging\"]",
+   "actions": [
+    "update"
+   ]
+  },
+  {
+   "address": "aws_iam_role_policy.staging_infra_plan_discovery",
+   "actions": [
+    "update"
+   ]
+  },
+  {
+   "address": "aws_iam_role_policy.staging_migration_execution_secrets",
+   "actions": [
+    "create"
+   ]
+  },
+  {
+   "address": "aws_iam_role_policy_attachment.staging_migration_execution",
+   "actions": [
+    "create"
+   ]
+  }
+ ]
+}
