@@ -68,6 +68,9 @@ Manager ARN in an `_arn` field. Such an ARN identifies a secret and does not
 contain its plaintext credential; malformed ARNs and strings matching credential
 patterns still fail. The ARN resource name accepts ordinary Secrets Manager
 names and the AWS RDS-managed `rds!db-` form; other uses of `!` fail.
+The RDS-managed `master_user_secret[<index>].secret_status` field is likewise
+accepted only when it is one of `creating`, `active`, `rotating` or `impaired`;
+any other value there, or the same key elsewhere, still fails.
 Strings matching credential, private-key or
 password-assignment patterns elsewhere (including inside lists) also fail.
 The string `"true"` is a string and receives these checks. Empty strings are

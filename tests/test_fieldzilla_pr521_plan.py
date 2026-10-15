@@ -448,5 +448,78 @@ class Pr521PlanTests(unittest.TestCase):
                 self.check_fails(document)
 
 
+    # Fixture provenance: synthetic, provenance documented. The shape follows the
+    # aws_db_instance provider attributes and the RDS MasterUserSecret object
+    # (kms_key_id, secret_arn, secret_status). The failing path of run
+    # 38688148874 (planned_values resource, master_user_secret[0].secret_status,
+    # reason sensitive_key_string, JSON string) was identified from the hashed
+    # diagnostic. No real plan value is used; the historical status value is not recorded.
+    @staticmethod
+    def managed_db_plan(status: object = "active", mutate=None) -> dict:
+        arn = ":".join(("arn", "aws", "secretsmanager", "ap-south-1", "123456789012", "secret",
+                        "rds!db-00000000-0000-0000-0000-000000000000-AbCdEf"))
+        kms = "arn:aws:kms:ap-south-1:123456789012:key/00000000-0000-0000-0000-000000000000"
+        values = {"identifier": "synthetic-staging", "engine": "postgres", "username": "synthetic_admin",
+                  "storage_encrypted": True, "kms_key_id": kms, "manage_master_user_password": True,
+                  "password": None, "master_user_secret_kms_key_id": None,
+                  "master_user_secret": [{"kms_key_id": kms, "secret_arn": arn, "secret_status": status}]}
+        markers = {"password": True, "master_user_secret": [{}], "tags": {}, "tags_all": {}}
+        if mutate:
+            mutate(values, markers)
+        document = plan()
+        document["planned_values"] = {"root_module": {"resources": [{
+            "address": "aws_db_instance.postgres", "mode": "managed", "type": "aws_db_instance",
+            "values": values, "sensitive_values": markers}]}}
+        document["prior_state"] = {"values": {"root_module": {"resources": [{
+            "address": "aws_db_instance.postgres", "mode": "managed", "type": "aws_db_instance",
+            "values": copy.deepcopy(values), "sensitive_values": copy.deepcopy(markers)}]}}}
+        document["resource_changes"].append({
+            "address": "aws_db_instance.postgres", "mode": "managed", "type": "aws_db_instance",
+            "change": {"actions": ["no-op"], "before": copy.deepcopy(values), "after": copy.deepcopy(values),
+                       "after_unknown": {"latest_restorable_time": True},
+                       "before_sensitive": copy.deepcopy(markers), "after_sensitive": copy.deepcopy(markers)}})
+        return document
+
+    def test_capture_managed_master_user_secret_metadata_variants(self) -> None:
+        def move_status(values, markers):  # status outside master_user_secret[idx]
+            values["master_user_secret"][0].pop("secret_status")
+            values["secret_status"] = "active"
+
+        def status_in_object(values, markers):  # master_user_secret is not a list element
+            values["master_user_secret"] = {"secret_status": "active"}
+
+        def injected_sibling(values, markers):
+            values["master_user_secret"][0]["password"] = "synthetic-plaintext"
+
+        def injected_arn(values, markers):
+            values["master_user_secret"][0]["secret_arn"] = "password=synthetic-plaintext"
+
+        def bad_marker(values, markers):
+            markers["master_user_secret"] = "yes"
+
+        cases = (
+            ("valid", dict(), True),
+            ("valid_rotating", dict(status="rotating"), True),
+            ("credential_status", dict(status="synthetic-plaintext-password"), False),
+            ("credential_pattern_status", dict(status="password=synthetic-plaintext"), False),
+            ("unsupported_status", dict(status="ready"), False),
+            ("wrong_case_status", dict(status="Active"), False),
+            ("numeric_status", dict(status=1), False),
+            ("status_outside_secret", dict(mutate=move_status), False),
+            ("status_in_object", dict(mutate=status_in_object), False),
+            ("credential_sibling", dict(mutate=injected_sibling), False),
+            ("credential_arn", dict(mutate=injected_arn), False),
+            ("malformed_marker", dict(mutate=bad_marker), False),
+        )
+        for name, kwargs, accepted in cases:
+            with self.subTest(variant=name):
+                self.args.plan_json_path.write_text(json.dumps(self.managed_db_plan(**kwargs)), encoding="utf-8")
+                if accepted:
+                    auth.verify_plan_capture(self.args)
+                else:
+                    with self.assertRaises(SystemExit):
+                        auth.verify_plan_capture(self.args)
+
+
 if __name__ == "__main__":
     unittest.main()

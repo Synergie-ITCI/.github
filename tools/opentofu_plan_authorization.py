@@ -1116,6 +1116,22 @@ def _secret_arn_reference(key: str, value: str) -> bool:
     )
 
 
+# RDS reports the managed master-user secret's lifecycle state (RDS API
+# MasterUserSecret.SecretStatus). It names a state, not a credential.
+MANAGED_SECRET_STATUSES = frozenset({"creating", "active", "rotating", "impaired"})
+
+
+def _managed_secret_status(path: tuple[str, ...], key: str, value: str) -> bool:
+    """Accept only master_user_secret[<index>].secret_status with a known state."""
+    return (
+        key == "secret_status"
+        and value in MANAGED_SECRET_STATUSES
+        and len(path) >= 2
+        and path[-2] == "master_user_secret"
+        and path[-1].isdigit()
+    )
+
+
 def _invalid_sensitive_marker_path(
     value: Any, path: tuple[str, ...], *, list_element: bool = False
 ) -> PlanSecretFinding | None:
@@ -1170,7 +1186,7 @@ def classify_plan_secret(value: Any, path: tuple[str, ...] = ()) -> PlanSecretFi
                 continue
             if isinstance(child, str) and _sensitive_string(
                 child, secret_key=bool(SECRET_VALUE_KEY_RE.search(key_text))
-            ) and not _secret_arn_reference(key_text, child):
+            ) and not _secret_arn_reference(key_text, child) and not _managed_secret_status(path, key_text, child):
                 return PlanSecretFinding(child_path, "string", "sensitive_key_string" if SECRET_VALUE_KEY_RE.search(key_text) else "secret_pattern_string")
             if type(child) in (int, float) and SECRET_VALUE_KEY_RE.search(key_text):
                 return PlanSecretFinding(child_path, "number", "sensitive_key_number")
