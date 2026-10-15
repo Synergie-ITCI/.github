@@ -449,14 +449,16 @@ class Pr521PlanTests(unittest.TestCase):
 
 
     # Fixture provenance: synthetic, provenance documented. The shape follows the
-    # aws_db_instance provider attributes and the RDS MasterUserSecret object
+    # aws_db_instance and aws_launch_template provider attributes (AWS provider
+    # 5.100.0 schema) and the RDS MasterUserSecret object
     # (kms_key_id, secret_arn, secret_status). The failing path of run
     # 38688148874 (planned_values resource, master_user_secret[0].secret_status,
     # reason sensitive_key_string, JSON string) was identified from the hashed
     # diagnostic. No real plan value is used; the historical status value is not recorded.
     @staticmethod
     def managed_db_plan(status: object = "active", kms_secret_key: object = None, mutate=None,
-                        resource_type: str = "aws_db_instance") -> dict:
+                        resource_type: str = "aws_db_instance", http_tokens: object = "required",
+                        lt_mutate=None, lt_type: str = "aws_launch_template") -> dict:
         arn = ":".join(("arn", "aws", "secretsmanager", "ap-south-1", "123456789012", "secret",
                         "rds!db-00000000-0000-0000-0000-000000000000-AbCdEf"))
         kms = "arn:aws:kms:ap-south-1:123456789012:key/00000000-0000-0000-0000-000000000000"
@@ -469,21 +471,33 @@ class Pr521PlanTests(unittest.TestCase):
         markers = {"password": True, "master_user_secret": [{}], "tags": {}, "tags_all": {}}
         if mutate:
             mutate(values, markers)
+        lt_values = {"name_prefix": "synthetic-ecs-", "instance_type": "t4g.small",
+                     "update_default_version": True,
+                     "metadata_options": [{"http_endpoint": "enabled", "http_put_response_hop_limit": 1,
+                                           "http_tokens": http_tokens}]}
+        lt_markers = {"metadata_options": [{}], "tags": {}, "tags_all": {}}
+        if lt_mutate:
+            lt_mutate(lt_values, lt_markers)
+        items = ((resource_type, ".postgres", values, markers),
+                 (lt_type, ".container_instance", lt_values, lt_markers))
         document = plan()
         document["planned_values"] = {"root_module": {"resources": [{
-            "address": resource_type + ".postgres", "mode": "managed", "type": resource_type,
-            "values": values, "sensitive_values": markers}]}}
+            "address": kind + name, "mode": "managed", "type": kind,
+            "values": copy.deepcopy(val), "sensitive_values": copy.deepcopy(mark)}
+            for kind, name, val, mark in items]}}
         document["prior_state"] = {"values": {"root_module": {"resources": [{
-            "address": resource_type + ".postgres", "mode": "managed", "type": resource_type,
-            "values": copy.deepcopy(values), "sensitive_values": copy.deepcopy(markers)}]}}}
-        document["resource_changes"].append({
-            "address": resource_type + ".postgres", "mode": "managed", "type": resource_type,
-            "change": {"actions": ["no-op"], "before": copy.deepcopy(values), "after": copy.deepcopy(values),
+            "address": kind + name, "mode": "managed", "type": kind,
+            "values": copy.deepcopy(val), "sensitive_values": copy.deepcopy(mark)}
+            for kind, name, val, mark in items]}}}
+        document["resource_changes"].extend({
+            "address": kind + name, "mode": "managed", "type": kind,
+            "change": {"actions": ["no-op"], "before": copy.deepcopy(val), "after": copy.deepcopy(val),
                        "after_unknown": {"latest_restorable_time": True},
-                       "before_sensitive": copy.deepcopy(markers), "after_sensitive": copy.deepcopy(markers)}})
+                       "before_sensitive": copy.deepcopy(mark), "after_sensitive": copy.deepcopy(mark)}}
+            for kind, name, val, mark in items)
         return document
 
-    def test_capture_managed_master_user_secret_metadata_variants(self) -> None:
+    def test_capture_name_rule_exemption_variants(self) -> None:
         def move_status(values, markers):  # status outside master_user_secret[idx]
             values["master_user_secret"][0].pop("secret_status")
             values["secret_status"] = "active"
@@ -507,8 +521,26 @@ class Pr521PlanTests(unittest.TestCase):
         def credential_resource_sibling(values, markers):
             values["password"] = "synthetic-plaintext"
 
+        def tokens_wrong_path(values, markers):  # directly on the resource, not metadata_options[idx]
+            values["http_tokens"] = values["metadata_options"][0].pop("http_tokens")
+
+        def tokens_in_object(values, markers):  # metadata_options object instead of a list
+            values["metadata_options"] = {"http_tokens": "required"}
+
+        def tokens_credential_sibling(values, markers):
+            values["metadata_options"][0]["auth_token"] = "synthetic-plaintext"
+
         uuid_key = "00000000-0000-0000-0000-000000000000"
         cases = (
+            ("valid_http_tokens_optional", dict(http_tokens="optional"), True),
+            ("credential_http_tokens", dict(http_tokens="password=synthetic-plaintext"), False),
+            ("wrong_value_http_tokens", dict(http_tokens="Required"), False),
+            ("unsupported_http_tokens", dict(http_tokens="disabled"), False),
+            ("numeric_http_tokens", dict(http_tokens=1), False),
+            ("http_tokens_wrong_path", dict(lt_mutate=tokens_wrong_path), False),
+            ("http_tokens_in_object", dict(lt_mutate=tokens_in_object), False),
+            ("http_tokens_wrong_resource_type", dict(lt_type="aws_instance"), False),
+            ("http_tokens_credential_sibling", dict(lt_mutate=tokens_credential_sibling), False),
             ("valid", dict(), True),
             ("valid_rotating", dict(status="rotating"), True),
             ("valid_kms_key_id", dict(kms_secret_key=uuid_key), True),

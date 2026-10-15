@@ -68,11 +68,14 @@ Manager ARN in an `_arn` field. Such an ARN identifies a secret and does not
 contain its plaintext credential; malformed ARNs and strings matching credential
 patterns still fail. The ARN resource name accepts ordinary Secrets Manager
 names and the AWS RDS-managed `rds!db-` form; other uses of `!` fail.
-On `aws_db_instance` only, two RDS-managed secret attributes are accepted at
-their exact paths: `master_user_secret[<index>].secret_status` with one of
-`creating`, `active`, `rotating` or `impaired`, and the resource attribute
-`master_user_secret_kms_key_id` with a KMS key id or KMS key ARN. Any other
-value, path, resource type or type, and every other secret-named key, still fails.
+Three non-credential attributes are exempt from the secret-name rule, each only
+on its resource type, at its exact path and with a valid value (table
+`NAME_RULE_EXEMPTIONS`): `aws_db_instance.master_user_secret_kms_key_id` (KMS key id
+or KMS key ARN), `aws_db_instance.master_user_secret[<index>].secret_status`
+(`creating`, `active`, `rotating` or `impaired`) and
+`aws_launch_template.metadata_options[<index>].http_tokens` (`required` or
+`optional`). Any other value, path, resource type or type, and every other
+secret-named key, still fails.
 Strings matching credential, private-key or
 password-assignment patterns elsewhere (including inside lists) also fail.
 The string `"true"` is a string and receives these checks. Empty strings are
