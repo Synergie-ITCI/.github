@@ -455,26 +455,29 @@ class Pr521PlanTests(unittest.TestCase):
     # reason sensitive_key_string, JSON string) was identified from the hashed
     # diagnostic. No real plan value is used; the historical status value is not recorded.
     @staticmethod
-    def managed_db_plan(status: object = "active", mutate=None) -> dict:
+    def managed_db_plan(status: object = "active", kms_secret_key: object = None, mutate=None,
+                        resource_type: str = "aws_db_instance") -> dict:
         arn = ":".join(("arn", "aws", "secretsmanager", "ap-south-1", "123456789012", "secret",
                         "rds!db-00000000-0000-0000-0000-000000000000-AbCdEf"))
         kms = "arn:aws:kms:ap-south-1:123456789012:key/00000000-0000-0000-0000-000000000000"
         values = {"identifier": "synthetic-staging", "engine": "postgres", "username": "synthetic_admin",
                   "storage_encrypted": True, "kms_key_id": kms, "manage_master_user_password": True,
-                  "password": None, "master_user_secret_kms_key_id": None,
+                  "password": None,
+                  "master_user_secret_kms_key_id": kms if kms_secret_key is None else kms_secret_key,
+                  "performance_insights_kms_key_id": kms,
                   "master_user_secret": [{"kms_key_id": kms, "secret_arn": arn, "secret_status": status}]}
         markers = {"password": True, "master_user_secret": [{}], "tags": {}, "tags_all": {}}
         if mutate:
             mutate(values, markers)
         document = plan()
         document["planned_values"] = {"root_module": {"resources": [{
-            "address": "aws_db_instance.postgres", "mode": "managed", "type": "aws_db_instance",
+            "address": resource_type + ".postgres", "mode": "managed", "type": resource_type,
             "values": values, "sensitive_values": markers}]}}
         document["prior_state"] = {"values": {"root_module": {"resources": [{
-            "address": "aws_db_instance.postgres", "mode": "managed", "type": "aws_db_instance",
+            "address": resource_type + ".postgres", "mode": "managed", "type": resource_type,
             "values": copy.deepcopy(values), "sensitive_values": copy.deepcopy(markers)}]}}}
         document["resource_changes"].append({
-            "address": "aws_db_instance.postgres", "mode": "managed", "type": "aws_db_instance",
+            "address": resource_type + ".postgres", "mode": "managed", "type": resource_type,
             "change": {"actions": ["no-op"], "before": copy.deepcopy(values), "after": copy.deepcopy(values),
                        "after_unknown": {"latest_restorable_time": True},
                        "before_sensitive": copy.deepcopy(markers), "after_sensitive": copy.deepcopy(markers)}})
@@ -497,9 +500,27 @@ class Pr521PlanTests(unittest.TestCase):
         def bad_marker(values, markers):
             markers["master_user_secret"] = "yes"
 
+        def kms_inside_secret(values, markers):  # exact path: resource attribute only
+            values["master_user_secret"][0]["master_user_secret_kms_key_id"] = values.pop(
+                "master_user_secret_kms_key_id")
+
+        def credential_resource_sibling(values, markers):
+            values["password"] = "synthetic-plaintext"
+
+        uuid_key = "00000000-0000-0000-0000-000000000000"
         cases = (
             ("valid", dict(), True),
             ("valid_rotating", dict(status="rotating"), True),
+            ("valid_kms_key_id", dict(kms_secret_key=uuid_key), True),
+            ("valid_kms_multi_region_key_id", dict(kms_secret_key="mrk-" + "0" * 32), True),
+            ("credential_kms_value", dict(kms_secret_key="password=synthetic-plaintext"), False),
+            ("plain_string_kms_value", dict(kms_secret_key="synthetic-plaintext-key"), False),
+            ("alias_kms_value", dict(kms_secret_key="alias/synthetic"), False),
+            ("non_kms_arn_kms_value", dict(kms_secret_key="arn:aws:s3:::synthetic/" + uuid_key), False),
+            ("numeric_kms_value", dict(kms_secret_key=1), False),
+            ("kms_wrong_path", dict(mutate=kms_inside_secret), False),
+            ("kms_wrong_resource_type", dict(resource_type="aws_iam_role"), False),
+            ("kms_with_credential_sibling", dict(mutate=credential_resource_sibling), False),
             ("credential_status", dict(status="synthetic-plaintext-password"), False),
             ("credential_pattern_status", dict(status="password=synthetic-plaintext"), False),
             ("unsupported_status", dict(status="ready"), False),

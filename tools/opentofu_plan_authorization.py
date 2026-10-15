@@ -1116,17 +1116,34 @@ def _secret_arn_reference(key: str, value: str) -> bool:
     )
 
 
-# RDS reports the managed master-user secret's lifecycle state (RDS API
-# MasterUserSecret.SecretStatus). It names a state, not a credential.
+# RDS-managed master-user secret metadata on aws_db_instance. These attributes
+# name a secret or its KMS key; they are not credentials. Each is accepted only
+# at its exact path, on that resource type, with a value of its expected shape.
 MANAGED_SECRET_STATUSES = frozenset({"creating", "active", "rotating", "impaired"})
+_KMS_KEY_UUID = r"(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|mrk-[0-9a-f]{32})"
+KMS_KEY_REFERENCE_RE = re.compile(
+    rf"{_KMS_KEY_UUID}|arn:aws(?:-us-gov|-cn)?:kms:[a-z0-9-]+:[0-9]{{12}}:key/{_KMS_KEY_UUID}"
+)
+_RESOURCE_ATTRIBUTE_CONTAINERS = frozenset({"values", "before", "after"})
 
 
-def _managed_secret_status(path: tuple[str, ...], key: str, value: str) -> bool:
-    """Accept only master_user_secret[<index>].secret_status with a known state."""
+def _managed_rds_secret_attribute(
+    resource_type: str | None, path: tuple[str, ...], key: str, value: str
+) -> bool:
+    """Accept aws_db_instance.master_user_secret_kms_key_id and
+    master_user_secret[<index>].secret_status, nothing else."""
+    if resource_type != "aws_db_instance" or not path:
+        return False
+    if key == "master_user_secret_kms_key_id":
+        return (
+            path[-1] in _RESOURCE_ATTRIBUTE_CONTAINERS
+            and KMS_KEY_REFERENCE_RE.fullmatch(value) is not None
+        )
     return (
         key == "secret_status"
         and value in MANAGED_SECRET_STATUSES
-        and len(path) >= 2
+        and len(path) >= 3
+        and path[-3] in _RESOURCE_ATTRIBUTE_CONTAINERS
         and path[-2] == "master_user_secret"
         and path[-1].isdigit()
     )
@@ -1155,11 +1172,15 @@ def _invalid_sensitive_marker_path(
     )
 
 
-def classify_plan_secret(value: Any, path: tuple[str, ...] = ()) -> PlanSecretFinding | None:
+def classify_plan_secret(
+    value: Any, path: tuple[str, ...] = (), resource_type: str | None = None
+) -> PlanSecretFinding | None:
     """Classify JSON primitives by type; never mistake booleans for strings."""
     if _sensitive_string(value):
         return PlanSecretFinding(path, "string", "secret_pattern_string")
     if isinstance(value, dict):
+        if isinstance(value.get("address"), str) and isinstance(value.get("type"), str):
+            resource_type = value["type"]
         if value.get("sensitive") is True:
             marked_value = value.get("value")
             if (isinstance(marked_value, str) and bool(marked_value)) or type(marked_value) in (int, float):
@@ -1186,16 +1207,16 @@ def classify_plan_secret(value: Any, path: tuple[str, ...] = ()) -> PlanSecretFi
                 continue
             if isinstance(child, str) and _sensitive_string(
                 child, secret_key=bool(SECRET_VALUE_KEY_RE.search(key_text))
-            ) and not _secret_arn_reference(key_text, child) and not _managed_secret_status(path, key_text, child):
+            ) and not _secret_arn_reference(key_text, child) and not _managed_rds_secret_attribute(resource_type, path, key_text, child):
                 return PlanSecretFinding(child_path, "string", "sensitive_key_string" if SECRET_VALUE_KEY_RE.search(key_text) else "secret_pattern_string")
             if type(child) in (int, float) and SECRET_VALUE_KEY_RE.search(key_text):
                 return PlanSecretFinding(child_path, "number", "sensitive_key_number")
-            found = classify_plan_secret(child, child_path)
+            found = classify_plan_secret(child, child_path, resource_type)
             if found:
                 return found
     elif isinstance(value, list):
         for index, child in enumerate(value):
-            found = classify_plan_secret(child, path + (str(index),))
+            found = classify_plan_secret(child, path + (str(index),), resource_type)
             if found:
                 return found
     return None
