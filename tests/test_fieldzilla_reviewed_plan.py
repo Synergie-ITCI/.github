@@ -84,6 +84,125 @@ class ReviewedPlanTestCase(unittest.TestCase):
 
 
 class ReviewedPlanVerificationTests(ReviewedPlanTestCase):
+    def test_regional_allowance_is_bound_to_one_reviewed_plan_id(self) -> None:
+        with mock.patch.object(auth, "_iam_wildcards_introduced", return_value=[]) as checker:
+            self.check_plan()
+            self.assertFalse(checker.call_args.kwargs["allow_region_reads"])
+            self.write_spec({**self.spec, "plan_id": auth.REVIEWED_STAGING_REGION_READ_PLAN_ID},
+                            auth.REVIEWED_STAGING_REGION_READ_PLAN_ID)
+            args = self.plan_args()
+            args.plan_id = auth.REVIEWED_STAGING_REGION_READ_PLAN_ID
+            with contextlib.redirect_stdout(io.StringIO()):
+                auth.verify_reviewed_staging_plan(self.plan, args)
+            self.assertTrue(checker.call_args.kwargs["allow_region_reads"])
+
+    def test_exact_regional_reads_pass_full_reviewed_plan_only_for_approved_id(self) -> None:
+        actions = ["ecs:DescribeTaskDefinition", "elasticloadbalancing:DescribeTargetHealth"]
+        inline = self.change(auth.REVIEWED_STAGING_INLINE_POLICY)
+        policy = json.loads(inline["change"]["before"]["policy"])
+        policy["Statement"].append({"Effect": "Allow", "Action": actions, "Resource": "*",
+                                    "Condition": {"StringEquals": {"aws:RequestedRegion": auth.AWS_REGION}}})
+        inline["change"]["after"]["policy"] = json.dumps(policy)
+        inline["change"]["after_unknown"].pop("policy", None)
+        document = self.change(auth.REVIEWED_STAGING_POLICY_DOCUMENT)
+        document["change"]["after"]["statement"].append({
+            "effect": "Allow", "actions": actions, "resources": ["*"],
+            "condition": [{"test": "StringEquals", "variable": "aws:RequestedRegion",
+                           "values": [auth.AWS_REGION]}],
+        })
+        self.dies(self.check_plan, "wildcard IAM action or resource")
+        self.write_spec({**self.spec, "plan_id": auth.REVIEWED_STAGING_REGION_READ_PLAN_ID},
+                        auth.REVIEWED_STAGING_REGION_READ_PLAN_ID)
+        args = self.plan_args()
+        args.plan_id = auth.REVIEWED_STAGING_REGION_READ_PLAN_ID
+        with contextlib.redirect_stdout(io.StringIO()):
+            auth.verify_reviewed_staging_plan(self.plan, args)
+
+    def test_exact_regional_staging_reads_only(self) -> None:
+        def statement(actions, *, condition=None, **extra):
+            return {"Effect": "Allow", "Action": actions, "Resource": "*",
+                    "Condition": condition if condition is not None else
+                    {"StringEquals": {"aws:RequestedRegion": auth.AWS_REGION}}, **extra}
+
+        def changes(statements, *, address=auth.REVIEWED_STAGING_INLINE_POLICY, resource_type="aws_iam_role_policy"):
+            return [{"address": address, "mode": "managed", "type": resource_type,
+                     "change": {"actions": ["update"],
+                                "before": {"policy": json.dumps({"Statement": [
+                                    {"Effect": "Allow", "Action": "ecr:GetAuthorizationToken", "Resource": "*"}]})},
+                                "after": {"policy": json.dumps({"Statement": [
+                                    {"Effect": "Allow", "Action": "ecr:GetAuthorizationToken", "Resource": "*"},
+                                    *statements]})}}}]
+
+        for actions in (["ecs:DescribeTaskDefinition"], ["elasticloadbalancing:DescribeTargetHealth"],
+                        ["ecs:DescribeTaskDefinition", "elasticloadbalancing:DescribeTargetHealth"]):
+            with self.subTest(allowed=actions):
+                self.assertEqual(auth._iam_wildcards_introduced(changes([statement(actions)]), allow_region_reads=True), [])
+                data = {"address": auth.REVIEWED_STAGING_POLICY_DOCUMENT, "mode": "data",
+                        "type": "aws_iam_policy_document",
+                        "change": {"actions": ["read"], "after": {"statement": [{
+                            "effect": "Allow", "actions": actions, "resources": ["*"],
+                            "condition": [{"test": "StringEquals", "variable": "aws:RequestedRegion",
+                                           "values": [auth.AWS_REGION]}]}]}}}
+                self.assertEqual(auth._iam_wildcards_introduced(changes([statement(actions)]) + [data],
+                                                              allow_region_reads=True), [])
+                unknown_inline = changes([statement(actions)]) + [data]
+                unknown_inline[0]["change"]["after_unknown"] = {"policy": True}
+                self.assertEqual(auth._iam_wildcards_introduced(unknown_inline, allow_region_reads=True),
+                                 [auth.REVIEWED_STAGING_INLINE_POLICY])
+                unknown_data = changes([statement(actions)]) + [copy.deepcopy(data)]
+                unknown_data[1]["change"]["after_unknown"] = {"statement": [{"condition": [{"values": [True]}]}]}
+                self.assertEqual(auth._iam_wildcards_introduced(unknown_data, allow_region_reads=True),
+                                 [auth.REVIEWED_STAGING_POLICY_DOCUMENT])
+                self.assertEqual(auth._iam_wildcards_introduced([data]),
+                                 [auth.REVIEWED_STAGING_POLICY_DOCUMENT])
+                self.assertEqual(auth._iam_wildcards_introduced(changes([statement(actions)])),
+                                 [auth.REVIEWED_STAGING_INLINE_POLICY])
+
+        rejected = [
+            statement(["ecs:DescribeTaskDefinition", "ecs:UpdateService"]),
+            statement(["ecs:DescribeTaskDefinition", "*"]),
+            statement(["ecs:DescribeTaskDefinition"], condition={}),
+            statement(["ecs:DescribeTaskDefinition"], condition={"StringLike": {"aws:RequestedRegion": auth.AWS_REGION}}),
+            statement(["ecs:DescribeTaskDefinition"], condition={"StringEquals": {"aws:RequestedRegion": "us-east-1"}}),
+            statement(["ecs:DescribeTaskDefinition"], condition={"StringEquals": {"aws:RequestedRegion": [auth.AWS_REGION, "us-east-1"]}}),
+            statement(["ecs:DescribeTaskDefinition"], condition={"StringEquals": {"aws:RequestedRegion": auth.AWS_REGION, "aws:PrincipalTag/Team": "x"}}),
+            statement(["ecs:DescribeTaskDefinition"], NotAction="ecs:UpdateService"),
+            statement(["ecs:DescribeTaskDefinition"], NotResource="arn:aws:ecs:::x"),
+            statement(["ecs:DescribeTaskDefinition"], Principal="*"),
+            statement(["ecs:DescribeTaskDefinition"], NotPrincipal="*"),
+        ]
+        for item in rejected:
+            with self.subTest(rejected=item):
+                self.assertEqual(auth._iam_wildcards_introduced(changes([item]), allow_region_reads=True),
+                                 [auth.REVIEWED_STAGING_INLINE_POLICY])
+        canonical_list = statement(["ecs:DescribeTaskDefinition"],
+                                   condition={"StringEquals": {"aws:RequestedRegion": [auth.AWS_REGION]}})
+        self.assertEqual(auth._iam_wildcards_introduced(changes([canonical_list]), allow_region_reads=True), [])
+        unrelated = statement(["ecs:UpdateService"])
+        self.assertEqual(auth._iam_wildcards_introduced(changes([unrelated]), allow_region_reads=True),
+                         [auth.REVIEWED_STAGING_INLINE_POLICY])
+        self.assertEqual(auth._iam_wildcards_introduced(changes([statement(["ecs:DescribeTaskDefinition"])],
+                      address="aws_iam_role_policy.other"), allow_region_reads=True), ["aws_iam_role_policy.other"])
+        self.assertEqual(auth._iam_wildcards_introduced(changes([statement(["ecs:DescribeTaskDefinition"])],
+                      resource_type="aws_iam_policy"), allow_region_reads=True), [auth.REVIEWED_STAGING_INLINE_POLICY])
+        self.assertEqual(auth._iam_wildcards_introduced(changes([statement(["ecs:DescribeTaskDefinition"])],
+                      address="aws_iam_role.deploy[\"staging\"]", resource_type="aws_iam_role"), allow_region_reads=True),
+                      ['aws_iam_role.deploy["staging"]'])
+        trust = changes([statement(["ecs:DescribeTaskDefinition"])],
+                        address='aws_iam_role.deploy["staging"]', resource_type="aws_iam_role")
+        trust[0]["change"]["after"]["assume_role_policy"] = trust[0]["change"]["after"].pop("policy")
+        trust[0]["change"]["before"]["assume_role_policy"] = trust[0]["change"]["before"].pop("policy")
+        self.assertEqual(auth._iam_wildcards_introduced(trust, allow_region_reads=True),
+                         ['aws_iam_role.deploy["staging"]'])
+        malformed = changes([statement(["ecs:DescribeTaskDefinition"])])
+        malformed[0]["change"]["after"]["policy"] = "{"
+        self.assertEqual(auth._iam_wildcards_introduced(malformed, allow_region_reads=True),
+                         [auth.REVIEWED_STAGING_INLINE_POLICY])
+        missing_before = changes([statement(["ecs:DescribeTaskDefinition"])])
+        missing_before[0]["change"]["before"] = None
+        self.assertEqual(auth._iam_wildcards_introduced(missing_before, allow_region_reads=True),
+                         [auth.REVIEWED_STAGING_INLINE_POLICY])
+
     def test_real_derived_plan_passes_with_replace_and_preexisting_wildcards(self) -> None:
         self.check_plan()
         self.assertEqual(auth._iam_wildcards_introduced(self.plan["resource_changes"]), [])

@@ -1102,6 +1102,15 @@ STATEFUL_RESOURCE_TYPES = frozenset({
     "aws_vpc", "aws_subnet", "aws_ecr_repository",
 })
 IAM_POLICY_ATTRIBUTES = ("policy", "assume_role_policy")
+# AWS does not support resource-level IAM authorization for these staging reads.
+# This is policy data for the reviewed staging plan only, not a general IAM exception.
+REVIEWED_STAGING_REGION_READ_ACTIONS = frozenset({
+    "ecs:DescribeTaskDefinition",
+    "elasticloadbalancing:DescribeTargetHealth",
+})
+REVIEWED_STAGING_REGION_READ_PLAN_ID = "staging-ecs-deploy-role"
+REVIEWED_STAGING_INLINE_POLICY = 'aws_iam_role_policy.deploy["staging"]'
+REVIEWED_STAGING_POLICY_DOCUMENT = 'data.aws_iam_policy_document.deploy["staging"]'
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -1240,43 +1249,142 @@ def _json_policy_statements(policy: Any) -> list[tuple]:
     ]
 
 
-def _policy_document_statements(after: Any) -> list[tuple]:
-    statements = after.get("statement") if isinstance(after, dict) else None
-    return [
-        _statement_key(s.get("effect"), s.get("actions"), s.get("not_actions"), s.get("resources"), s.get("not_resources"))
-        for s in (statements or []) if isinstance(s, dict)
-    ]
-
-
 def _statement_has_wildcard(key: tuple) -> bool:
     effect, actions, not_actions, resources, not_resources = key
     return "*" in actions or "*" in resources or (effect == "Allow" and bool(not_actions or not_resources))
 
 
-def _iam_wildcards_introduced(resource_changes: list[dict[str, Any]]) -> list[str]:
+def _reviewed_region_read_allowed(statement: dict[str, Any], *, data_document: bool = False) -> bool:
+    """Allow only exact AWS-required regional reads in the staging inline policy."""
+    if not isinstance(statement, dict):
+        return False
+    if data_document:
+        if set(statement) - {"sid", "effect", "actions", "not_actions", "resources", "not_resources",
+                              "principals", "not_principals", "condition"}:
+            return False
+        actions = statement.get("actions")
+        resources = statement.get("resources")
+        conditions = statement.get("condition")
+        if statement.get("effect") != "Allow" or statement.get("not_actions") or statement.get("not_resources"):
+            return False
+        if statement.get("principals") or statement.get("not_principals"):
+            return False
+        valid_condition = (
+            isinstance(conditions, list) and len(conditions) == 1
+            and isinstance(conditions[0], dict)
+            and set(conditions[0]) == {"test", "variable", "values"}
+            and conditions[0].get("test") == "StringEquals"
+            and conditions[0].get("variable") == "aws:RequestedRegion"
+            and conditions[0].get("values") == [AWS_REGION]
+        )
+    else:
+        actions = statement.get("Action")
+        resources = statement.get("Resource")
+        conditions = statement.get("Condition")
+        if set(statement) - {"Sid", "Effect", "Action", "Resource", "Condition"}:
+            return False
+        if statement.get("Effect") != "Allow":
+            return False
+        valid_condition = conditions in (
+            {"StringEquals": {"aws:RequestedRegion": AWS_REGION}},
+            {"StringEquals": {"aws:RequestedRegion": [AWS_REGION]}},
+        )
+    if isinstance(actions, str):
+        actions = [actions]
+    if isinstance(resources, str):
+        resources = [resources]
+    return (
+        valid_condition and isinstance(actions, list) and bool(actions)
+        and all(isinstance(action, str) and action in REVIEWED_STAGING_REGION_READ_ACTIONS for action in actions)
+        and len(actions) == len(set(actions)) and resources == ["*"]
+    )
+
+
+def _raw_policy_statements(policy: Any) -> list[dict[str, Any]] | None:
+    if not isinstance(policy, str):
+        return None
+    try:
+        document = json.loads(policy)
+    except ValueError:
+        return None
+    if not isinstance(document, dict):
+        return None
+    statements = document.get("Statement")
+    if isinstance(statements, dict):
+        statements = [statements]
+    return statements if isinstance(statements, list) and all(isinstance(s, dict) for s in statements) else None
+
+
+def _has_unknown(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any(_has_unknown(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_has_unknown(item) for item in value)
+    return value is True
+
+
+def _iam_wildcards_introduced(resource_changes: list[dict[str, Any]], *, allow_region_reads: bool = False) -> list[str]:
     """Return addresses whose new or changed IAM statements contain a bare "*" Action or
     Resource (or an Allow NotAction/NotResource). Statements already present, unchanged,
     in a changed policy's previous version are allowed: reviewed read-only discovery
     policies legitimately carry Resource "*". Partial wildcards such as kms:ReEncrypt* or
     an ARN ending in :* are not rejected."""
     previous: set[tuple] = set()
-    candidates: list[tuple[str, tuple]] = []
+    candidates: list[tuple[str, tuple, dict[str, Any], bool]] = []
+    inline_change = next((c for c in resource_changes if c.get("address") == REVIEWED_STAGING_INLINE_POLICY
+                          and c.get("type") == "aws_iam_role_policy" and c.get("mode") == "managed"
+                          and tuple(sorted((c.get("change") or {}).get("actions") or [])) == ("update",)), None)
+    inline_after = (((inline_change or {}).get("change") or {}).get("after") or {})
+    inline_before = (((inline_change or {}).get("change") or {}).get("before") or {})
+    if allow_region_reads and inline_change and _raw_policy_statements(inline_before.get("policy")) is None:
+        return [REVIEWED_STAGING_INLINE_POLICY]
+    inline_unknown = (((inline_change or {}).get("change") or {}).get("after_unknown") or {})
+    if allow_region_reads and inline_change and _has_unknown(inline_unknown.get("policy")):
+        return [REVIEWED_STAGING_INLINE_POLICY]
+    inline_statements = _raw_policy_statements(inline_after.get("policy"))
+    approved_keys = {
+        _statement_key(s.get("Effect"), s.get("Action"), None, s.get("Resource"), None)
+        for s in (inline_statements or []) if _reviewed_region_read_allowed(s)
+    }
     for change in resource_changes:
         detail = change.get("change") or {}
         actions = tuple(sorted(detail.get("actions") or []))
         address = change.get("address", "")
         if change.get("mode") == "data" and change.get("type") == "aws_iam_policy_document":
             if actions == ("read",):
-                candidates.extend((address, key) for key in _policy_document_statements(detail.get("after")))
+                statements = (detail.get("after") or {}).get("statement")
+                if not isinstance(statements, list) or not all(isinstance(s, dict) for s in statements):
+                    return [address]
+                unknown = (detail.get("after_unknown") or {}).get("statement") or []
+                if address == REVIEWED_STAGING_POLICY_DOCUMENT and any(
+                    _reviewed_region_read_allowed(s, data_document=True)
+                    and index < len(unknown) and _has_unknown(unknown[index])
+                    for index, s in enumerate(statements)
+                ):
+                    return [address]
+                candidates.extend((address, _statement_key(s.get("effect"), s.get("actions"), s.get("not_actions"),
+                                                          s.get("resources"), s.get("not_resources")), s, True)
+                                  for s in statements)
             continue
         if actions in ((), ("no-op",), ("read",)):
             continue
         for attribute in IAM_POLICY_ATTRIBUTES:
             previous.update(_json_policy_statements((detail.get("before") or {}).get(attribute)))
-            candidates.extend(
-                (address, key) for key in _json_policy_statements((detail.get("after") or {}).get(attribute))
-            )
-    return sorted({address for address, key in candidates if _statement_has_wildcard(key) and key not in previous})
+            raw = (detail.get("after") or {}).get(attribute)
+            if raw is None:
+                continue
+            statements = _raw_policy_statements(raw)
+            if statements is None:
+                return [address]
+            candidates.extend((address, _statement_key(s.get("Effect"), s.get("Action"), s.get("NotAction"),
+                                                      s.get("Resource"), s.get("NotResource")), s, False)
+                              for s in statements)
+    return sorted({address for address, key, statement, data_document in candidates
+                   if _statement_has_wildcard(key) and key not in previous
+                   and not (allow_region_reads
+                            and address in {REVIEWED_STAGING_INLINE_POLICY, REVIEWED_STAGING_POLICY_DOCUMENT}
+                            and key in approved_keys
+                            and _reviewed_region_read_allowed(statement, data_document=data_document))})
 
 
 def _bounded_addresses(addresses: list[str]) -> str:
@@ -1325,7 +1433,9 @@ def verify_reviewed_staging_plan(doc: dict[str, Any], args: argparse.Namespace) 
         parts = [f"{name}: {_bounded_addresses(items)}" for name, items in (
             ("unexpected", extra), ("missing", missing), ("action mismatch", mismatched)) if items]
         die("plan changes differ from the reviewed plan file -- " + "; ".join(parts))
-    wildcards = _iam_wildcards_introduced(doc.get("resource_changes", []))
+    wildcards = _iam_wildcards_introduced(
+        doc.get("resource_changes", []), allow_region_reads=args.plan_id == REVIEWED_STAGING_REGION_READ_PLAN_ID
+    )
     if wildcards:
         die("reviewed plan introduces a wildcard IAM action or resource: " + _bounded_addresses(wildcards))
     print(f"REVIEWED_PLAN_ID={args.plan_id}")
