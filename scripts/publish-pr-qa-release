@@ -1,0 +1,227 @@
+#!/usr/bin/env python3
+"""Publish one protected PR-QA tag after an owner-created exact-tag ruleset.
+
+The provenance workflow must finish successfully before this command creates
+the annotated tag. A failure never retries a dispatch, tag push, or release.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "pr-qa"))
+from release_pin import (  # noqa: E402
+    ALLOWED_RELEASE_ACTORS,
+    EVIDENCE_HEADER,
+    REPOSITORY,
+    verify_release_provenance,
+)
+
+WORKFLOW = "pr-qa-release.yml"
+ORIGIN = "https://github.com/Synergie-ITCI/.github.git"
+SHA = re.compile(r"[0-9a-f]{40}\Z")
+RELEASE = re.compile(r"pr-qa-v1-rc([1-9][0-9]*)\Z")
+
+
+def command(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(args, cwd=ROOT, text=True, capture_output=True, check=False,
+                            env={**os.environ, "GH_PAGER": "cat"})
+    if check and result.returncode:
+        raise ValueError(f"Command failed: {args[0]} {args[1] if len(args) > 1 else ''}: {result.stderr.strip()}")
+    return result
+
+
+def api(path: str) -> dict | list:
+    return json.loads(command("gh", "api", path).stdout)
+
+
+def validate_ruleset(release: str, ruleset_id: int, org: dict, repo: dict) -> str:
+    ref = f"refs/tags/{release}"
+    if org.get("id") != ruleset_id or repo.get("id") != ruleset_id:
+        raise ValueError("Ruleset ID mismatch")
+    if org.get("updated_at") != repo.get("updated_at"):
+        raise ValueError("Ruleset timestamp mismatch")
+    if org.get("target") != "tag" or repo.get("target") != "tag":
+        raise ValueError("Ruleset is not tag protection")
+    if org.get("enforcement") != "active" or repo.get("enforcement") != "active":
+        raise ValueError("Ruleset is not active")
+    if org.get("conditions", {}).get("repository_name") != {"include": [".github"], "exclude": []}:
+        raise ValueError("Ruleset is not scoped only to the central repository")
+    expected_ref = {"include": [ref], "exclude": []}
+    if any(rule.get("conditions", {}).get("ref_name") != expected_ref for rule in (org, repo)):
+        raise ValueError("Ruleset does not protect only the exact candidate tag")
+    if any(rule.get("bypass_actors") != [] for rule in (org, repo)):
+        raise ValueError("Ruleset contains bypass actors")
+    if any({item.get("type") for item in rule.get("rules", [])} != {"update", "deletion"} for rule in (org, repo)):
+        raise ValueError("Ruleset must restrict update and deletion without restricting creation")
+    return str(org["updated_at"])
+
+
+def next_release(refs: list[dict]) -> str:
+    numbers = [int(match.group(1)) for ref in refs
+               if (match := RELEASE.fullmatch(str(ref.get("ref", "")).removeprefix("refs/tags/")))]
+    if not numbers:
+        raise ValueError("No existing PR-QA release tags")
+    return f"pr-qa-v1-rc{max(numbers) + 1}"
+
+
+def annotation(release: str, commit: str, ruleset_id: int, updated_at: str, run_id: int) -> str:
+    evidence = {
+        "release": release,
+        "commit": commit,
+        "ruleset_id": ruleset_id,
+        "ruleset_updated_at": updated_at,
+        "bypass_actors": [],
+        "protection_mode": "legacy_exact",
+        "release_workflow_run_id": run_id,
+    }
+    return EVIDENCE_HEADER + "\n" + json.dumps(evidence, separators=(",", ":"))
+
+
+def matching_run(runs: list[dict], release: str, commit: str, actor: str, started: datetime) -> dict | None:
+    title = f"PR-QA release {release} @ {commit}"
+    matches = [run for run in runs if run.get("display_title") == title
+               and run.get("head_sha") == commit
+               and run.get("event") == "workflow_dispatch"
+               and run.get("path") == ".github/workflows/pr-qa-release.yml"
+               and run.get("run_attempt") == 1
+               and (run.get("actor") or {}).get("login") == actor
+               and datetime.fromisoformat(run["created_at"].replace("Z", "+00:00")) >= started]
+    if len(matches) > 1:
+        raise ValueError("Provenance dispatch outcome is ambiguous; do not dispatch again")
+    return matches[0] if matches else None
+
+
+def wait_for_provenance_run(release: str, commit: str, actor: str, started: datetime,
+                            fetch=api, pause=time.sleep, attempts: int = 30) -> dict:
+    for attempt in range(attempts):
+        runs = fetch(f"repos/{REPOSITORY}/actions/workflows/{WORKFLOW}/runs?event=workflow_dispatch&branch=main&per_page=30")["workflow_runs"]
+        match = matching_run(runs, release, commit, actor, started)
+        if match:
+            run = fetch(f"repos/{REPOSITORY}/actions/runs/{match['id']}")
+            if run.get("status") == "completed":
+                if run.get("conclusion") != "success":
+                    raise ValueError("Provenance failed or was cancelled; do not dispatch again")
+                return run
+        if attempt + 1 < attempts:
+            pause(60)
+    raise ValueError("Provenance did not complete; dispatch outcome is uncertain; do not dispatch again")
+
+
+def dispatch_provenance(release: str, commit: str) -> None:
+    result = command("gh", "workflow", "run", WORKFLOW, "-R", REPOSITORY, "--ref", "main",
+                     "-f", f"release={release}", "-f", f"commit={commit}", check=False)
+    if result.returncode:
+        raise ValueError("Provenance dispatch outcome is uncertain; do not dispatch again")
+
+
+def verify_source(release: str, commit: str) -> str:
+    if not RELEASE.fullmatch(release) or not SHA.fullmatch(commit):
+        raise ValueError("Expected exact RC tag and 40-character source SHA")
+    if command("git", "remote", "get-url", "origin").stdout.strip() != ORIGIN:
+        raise ValueError("origin is not the central repository")
+    if command("git", "status", "--porcelain").stdout.strip():
+        raise ValueError("Release checkout is not clean")
+    if command("git", "rev-parse", "HEAD").stdout.strip() != commit:
+        raise ValueError("Release checkout is not at the approved source SHA")
+    if api(f"repos/{REPOSITORY}/git/ref/heads/main")["object"]["sha"] != commit:
+        raise ValueError("Protected main moved from the approved source SHA")
+    actor = str(api("user")["login"])
+    if actor not in ALLOWED_RELEASE_ACTORS:
+        raise ValueError("Authenticated actor is not an approved release owner")
+    refs = api(f"repos/{REPOSITORY}/git/matching-refs/tags/pr-qa-v1-rc")
+    if next_release(refs) != release:
+        raise ValueError("Candidate is not the next available release tag")
+    if command("git", "ls-remote", "--tags", "origin", f"refs/tags/{release}").stdout.strip():
+        raise ValueError("Candidate tag already exists remotely")
+    if command("git", "show-ref", "--verify", f"refs/tags/{release}", check=False).returncode == 0:
+        raise ValueError("Candidate tag already exists locally")
+    return actor
+
+
+def verify_protection(release: str, ruleset_id: int) -> str:
+    org = api(f"orgs/Synergie-ITCI/rulesets/{ruleset_id}")
+    repo = api(f"repos/{REPOSITORY}/rulesets/{ruleset_id}")
+    return validate_ruleset(release, ruleset_id, org, repo)
+
+
+def remote_tag_object(release: str) -> str | None:
+    output = command("git", "ls-remote", "--tags", "origin", f"refs/tags/{release}").stdout.strip()
+    return output.split()[0] if output else None
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--release", required=True)
+    parser.add_argument("--commit", required=True)
+    parser.add_argument("--ruleset-id", required=True, type=int)
+    parser.add_argument("--check-only", action="store_true")
+    args = parser.parse_args()
+    actor = verify_source(args.release, args.commit)
+    updated_at = verify_protection(args.release, args.ruleset_id)
+    active = command("python3", "pr-qa/release_pin.py", "--resolve-active").stdout
+    previous = f"pr-qa-v1-rc{int(RELEASE.fullmatch(args.release).group(1)) - 1}"
+    if f"Resolved active release {previous} at " not in active:
+        raise ValueError("Current active release is not the immediate predecessor")
+    command("python3", "scripts/release-preflight", "--base", "main")
+    if args.check_only:
+        print("Release source, protection, and preflight verified; no dispatch or tag created")
+        return 0
+
+    started = datetime.now(timezone.utc).replace(microsecond=0)
+    dispatch_provenance(args.release, args.commit)
+    print("One provenance dispatch submitted; waiting for its exact run", flush=True)
+    run = wait_for_provenance_run(args.release, args.commit, actor, started)
+
+    verify_source(args.release, args.commit)
+    if verify_protection(args.release, args.ruleset_id) != updated_at:
+        raise ValueError("Ruleset changed after provenance; no tag created")
+    entry = {"commit": args.commit, "release_workflow_run_id": run["id"]}
+    verify_release_provenance(args.release, entry)
+    message = annotation(args.release, args.commit, args.ruleset_id, updated_at, run["id"])
+    with tempfile.TemporaryDirectory(prefix="pr-qa-release-") as temp:
+        message_file = Path(temp) / "annotation.txt"
+        message_file.write_text(message, encoding="utf-8")
+        command("git", "tag", "-a", "--cleanup=verbatim", args.release,
+                "-F", str(message_file), args.commit)
+    if command("git", "cat-file", "-t", f"refs/tags/{args.release}").stdout.strip() != "tag":
+        raise ValueError("Local candidate is not an annotated tag")
+    if command("git", "rev-parse", f"refs/tags/{args.release}^{{commit}}").stdout.strip() != args.commit:
+        raise ValueError("Local annotated tag targets a different commit")
+    local_object = command("git", "rev-parse", f"refs/tags/{args.release}").stdout.strip()
+    tag_content = command("git", "cat-file", "-p", f"refs/tags/{args.release}").stdout
+    if tag_content.split("\n\n", 1)[-1] != message:
+        raise ValueError("Local tag annotation differs from approved evidence")
+    if api(f"repos/{REPOSITORY}/git/ref/heads/main")["object"]["sha"] != args.commit:
+        raise ValueError("Protected main moved before tag publication")
+    if verify_protection(args.release, args.ruleset_id) != updated_at:
+        raise ValueError("Ruleset changed before tag publication")
+    if remote_tag_object(args.release):
+        raise ValueError("Candidate tag appeared remotely before publication")
+    result = command("git", "push", "origin", f"refs/tags/{args.release}:refs/tags/{args.release}", check=False)
+    if result.returncode:
+        remote = remote_tag_object(args.release)
+        raise ValueError(f"Single tag push failed; remote object is {remote or 'absent'}; do not retry")
+    if remote_tag_object(args.release) != local_object:
+        raise ValueError("Published tag object does not match local annotation; do not alter it")
+    command("python3", "pr-qa/release_pin.py", "--resolve-active")
+    print(f"Published and resolved {args.release} at {args.commit}; provenance run {run['id']}")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except (ValueError, KeyError, json.JSONDecodeError) as exc:
+        print(f"Release stopped: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc

@@ -1,4 +1,5 @@
 name: PR-QA Release Provenance
+run-name: PR-QA release ${{ inputs.release }} @ ${{ inputs.commit }}
 
 on:
   workflow_dispatch:
