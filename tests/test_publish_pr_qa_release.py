@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import tempfile
 import unittest
 from datetime import datetime, timezone
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,6 +48,32 @@ class PublishReleaseTests(unittest.TestCase):
             "bypass_actors": [], "protection_mode": "legacy_exact",
             "release_workflow_run_id": 123,
         })
+        self.assertFalse(message.endswith("\n"))
+
+    def test_complete_rc191_annotation_matches_published_tag(self) -> None:
+        expected = (
+            "SYNERGIE_PR_QA_RELEASE_EVIDENCE_V1\n"
+            '{"release":"pr-qa-v1-rc191","commit":"186c1b10d20e249caf0c473f5d7239c31f4d3110",'
+            '"ruleset_id":25373314,"ruleset_updated_at":"2026-10-19T10:39:14.856+05:30",'
+            '"bypass_actors":[],"protection_mode":"legacy_exact","release_workflow_run_id":39204389576}'
+        )
+        self.assertEqual(release.annotation(
+            "pr-qa-v1-rc191", "186c1b10d20e249caf0c473f5d7239c31f4d3110",
+            25373314, "2026-10-19T10:39:14.856+05:30", 39204389576,
+        ), expected)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def git(*args: str) -> bytes:
+                return subprocess.run(
+                    ["git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid", *args],
+                    cwd=root, check=True, capture_output=True,
+                ).stdout
+            git("init", "-q")
+            git("commit", "--allow-empty", "-qm", "base")
+            (root / "message").write_text(expected, encoding="utf-8")
+            git("tag", "-a", "--cleanup=verbatim", "candidate", "-F", "message")
+            self.assertEqual(git("cat-file", "-p", "refs/tags/candidate").split(b"\n\n", 1)[1],
+                             expected.encode("utf-8"))
 
     def test_ruleset_security_failures(self) -> None:
         for field, value in (
@@ -82,11 +111,14 @@ class PublishReleaseTests(unittest.TestCase):
         valid = {
             "id": 123, "display_title": f"PR-QA release pr-qa-v1-rc192 @ {'a' * 40}",
             "head_sha": "a" * 40, "event": "workflow_dispatch",
+            "path": ".github/workflows/pr-qa-release.yml", "run_attempt": 1,
             "actor": {"login": "SaurabhVermaIN"}, "created_at": "2026-10-19T12:00:01Z",
         }
         self.assertEqual(release.matching_run([valid], "pr-qa-v1-rc192", "a" * 40,
                                               "SaurabhVermaIN", started)["id"], 123)
         for change in ({"head_sha": "b" * 40}, {"event": "push"},
+                       {"path": ".github/workflows/other.yml"}, {"run_attempt": 2},
+                       {"display_title": "different release"},
                        {"actor": {"login": "other"}}, {"created_at": "2026-10-19T11:59:59Z"}):
             with self.subTest(change=change):
                 self.assertIsNone(release.matching_run([{**valid, **change}],
@@ -95,6 +127,51 @@ class PublishReleaseTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             release.matching_run([valid, {**valid, "id": 124}], "pr-qa-v1-rc192",
                                  "a" * 40, "SaurabhVermaIN", started)
+
+    def test_delayed_provenance_visibility_and_failed_runs(self) -> None:
+        started = datetime(2026, 10, 19, 12, tzinfo=timezone.utc)
+        valid = {
+            "id": 123, "display_title": f"PR-QA release pr-qa-v1-rc192 @ {'a' * 40}",
+            "head_sha": "a" * 40, "event": "workflow_dispatch",
+            "path": ".github/workflows/pr-qa-release.yml", "run_attempt": 1,
+            "actor": {"login": "SaurabhVermaIN"}, "created_at": "2026-10-19T12:00:01Z",
+        }
+        responses = iter([
+            {"workflow_runs": []}, {"workflow_runs": [valid]},
+            {**valid, "status": "completed", "conclusion": "success"},
+        ])
+        pauses = []
+        result = release.wait_for_provenance_run(
+            "pr-qa-v1-rc192", "a" * 40, "SaurabhVermaIN", started,
+            fetch=lambda _path: next(responses), pause=pauses.append, attempts=3,
+        )
+        self.assertEqual(result["id"], 123)
+        self.assertEqual(pauses, [60])
+        for conclusion in ("failure", "cancelled"):
+            with self.subTest(conclusion=conclusion), self.assertRaises(ValueError):
+                responses = iter([{"workflow_runs": [valid]},
+                                  {**valid, "status": "completed", "conclusion": conclusion}])
+                release.wait_for_provenance_run(
+                    "pr-qa-v1-rc192", "a" * 40, "SaurabhVermaIN", started,
+                    fetch=lambda _path: next(responses), pause=lambda _seconds: None, attempts=1,
+                )
+
+    def test_api_failure_and_ambiguous_dispatch_never_retry(self) -> None:
+        started = datetime(2026, 10, 19, 12, tzinfo=timezone.utc)
+        calls = []
+        def unavailable(path: str) -> dict:
+            calls.append(path)
+            raise ValueError("API unavailable")
+        with self.assertRaisesRegex(ValueError, "API unavailable"):
+            release.wait_for_provenance_run(
+                "pr-qa-v1-rc192", "a" * 40, "SaurabhVermaIN", started,
+                fetch=unavailable, pause=lambda _seconds: self.fail("unexpected retry"),
+            )
+        self.assertEqual(len(calls), 1)
+        with patch.object(release, "command", return_value=subprocess.CompletedProcess([], 1)) as run:
+            with self.assertRaisesRegex(ValueError, "uncertain"):
+                release.dispatch_provenance("pr-qa-v1-rc192", "a" * 40)
+            self.assertEqual(run.call_count, 1)
 
 
 if __name__ == "__main__":

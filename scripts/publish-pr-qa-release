@@ -85,7 +85,7 @@ def annotation(release: str, commit: str, ruleset_id: int, updated_at: str, run_
         "protection_mode": "legacy_exact",
         "release_workflow_run_id": run_id,
     }
-    return EVIDENCE_HEADER + "\n" + json.dumps(evidence, separators=(",", ":")) + "\n"
+    return EVIDENCE_HEADER + "\n" + json.dumps(evidence, separators=(",", ":"))
 
 
 def matching_run(runs: list[dict], release: str, commit: str, actor: str, started: datetime) -> dict | None:
@@ -93,11 +93,36 @@ def matching_run(runs: list[dict], release: str, commit: str, actor: str, starte
     matches = [run for run in runs if run.get("display_title") == title
                and run.get("head_sha") == commit
                and run.get("event") == "workflow_dispatch"
+               and run.get("path") == ".github/workflows/pr-qa-release.yml"
+               and run.get("run_attempt") == 1
                and (run.get("actor") or {}).get("login") == actor
                and datetime.fromisoformat(run["created_at"].replace("Z", "+00:00")) >= started]
     if len(matches) > 1:
         raise ValueError("Provenance dispatch outcome is ambiguous; do not dispatch again")
     return matches[0] if matches else None
+
+
+def wait_for_provenance_run(release: str, commit: str, actor: str, started: datetime,
+                            fetch=api, pause=time.sleep, attempts: int = 30) -> dict:
+    for attempt in range(attempts):
+        runs = fetch(f"repos/{REPOSITORY}/actions/workflows/{WORKFLOW}/runs?event=workflow_dispatch&branch=main&per_page=30")["workflow_runs"]
+        match = matching_run(runs, release, commit, actor, started)
+        if match:
+            run = fetch(f"repos/{REPOSITORY}/actions/runs/{match['id']}")
+            if run.get("status") == "completed":
+                if run.get("conclusion") != "success":
+                    raise ValueError("Provenance failed or was cancelled; do not dispatch again")
+                return run
+        if attempt + 1 < attempts:
+            pause(60)
+    raise ValueError("Provenance did not complete; dispatch outcome is uncertain; do not dispatch again")
+
+
+def dispatch_provenance(release: str, commit: str) -> None:
+    result = command("gh", "workflow", "run", WORKFLOW, "-R", REPOSITORY, "--ref", "main",
+                     "-f", f"release={release}", "-f", f"commit={commit}", check=False)
+    if result.returncode:
+        raise ValueError("Provenance dispatch outcome is uncertain; do not dispatch again")
 
 
 def verify_source(release: str, commit: str) -> str:
@@ -154,20 +179,9 @@ def main() -> int:
         return 0
 
     started = datetime.now(timezone.utc).replace(microsecond=0)
-    command("gh", "workflow", "run", WORKFLOW, "-R", REPOSITORY, "--ref", "main",
-            "-f", f"release={args.release}", "-f", f"commit={args.commit}")
+    dispatch_provenance(args.release, args.commit)
     print("One provenance dispatch submitted; waiting for its exact run", flush=True)
-    run = None
-    for _ in range(30):
-        runs = api(f"repos/{REPOSITORY}/actions/workflows/{WORKFLOW}/runs?event=workflow_dispatch&branch=main&per_page=30")["workflow_runs"]
-        run = matching_run(runs, args.release, args.commit, actor, started)
-        if run:
-            run = api(f"repos/{REPOSITORY}/actions/runs/{run['id']}")
-            if run.get("status") == "completed":
-                break
-        time.sleep(60)
-    if not run or run.get("status") != "completed" or run.get("conclusion") != "success":
-        raise ValueError("Provenance did not complete successfully; do not dispatch again")
+    run = wait_for_provenance_run(args.release, args.commit, actor, started)
 
     verify_source(args.release, args.commit)
     if verify_protection(args.release, args.ruleset_id) != updated_at:
@@ -178,7 +192,8 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="pr-qa-release-") as temp:
         message_file = Path(temp) / "annotation.txt"
         message_file.write_text(message, encoding="utf-8")
-        command("git", "tag", "-a", args.release, "-F", str(message_file), args.commit)
+        command("git", "tag", "-a", "--cleanup=verbatim", args.release,
+                "-F", str(message_file), args.commit)
     if command("git", "cat-file", "-t", f"refs/tags/{args.release}").stdout.strip() != "tag":
         raise ValueError("Local candidate is not an annotated tag")
     if command("git", "rev-parse", f"refs/tags/{args.release}^{{commit}}").stdout.strip() != args.commit:
