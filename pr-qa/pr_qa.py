@@ -3768,7 +3768,10 @@ def roadsense_gate_d_caller_details(ctx: PRContext, path: str, text: str) -> boo
         return False
     job_id, central_file, permissions, inputs, approver_only = contract
     parsed = parse_workflow_yaml(text)
-    if not workflow_dispatch_only(parsed, text) or set(parsed) != {"name", "on", "permissions", "jobs"}:
+    if not workflow_dispatch_only(parsed, text) or set(parsed) not in (
+        {"name", "on", "permissions", "jobs"},
+        {"name", True, "permissions", "jobs"},
+    ):
         return False
     dispatch = workflow_on_section(parsed).get("workflow_dispatch")
     if not isinstance(dispatch, dict) or set(dispatch) != {"inputs"}:

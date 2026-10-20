@@ -5,6 +5,7 @@ import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 ENGINE = ROOT / "pr-qa" / "pr_qa.py"
@@ -40,6 +41,14 @@ class CallerClassifierTests(unittest.TestCase):
         for path in engine.ROADSENSE_GATE_D_CALLERS:
             with self.subTest(path=path):
                 self.assertTrue(engine.roadsense_gate_d_caller_details(self.ctx, path, caller(path)))
+
+    def test_pyyaml_boolean_on_key_is_accepted(self):
+        path = ".github/workflows/roadsense-controlled-release.yml"
+        text = caller(path)
+        parsed = engine.parse_workflow_yaml(text)
+        parsed[True] = parsed.pop("on")
+        with patch.object(engine, "parse_workflow_yaml", return_value=parsed):
+            self.assertTrue(engine.roadsense_gate_d_caller_details(self.ctx, path, text))
 
     def test_changed_pin_trigger_permission_and_actor_are_rejected(self):
         path = ".github/workflows/roadsense-controlled-release.yml"
