@@ -46,7 +46,8 @@ class CallerClassifierTests(unittest.TestCase):
         path = ".github/workflows/roadsense-controlled-release.yml"
         text = caller(path)
         parsed = engine.parse_workflow_yaml(text)
-        parsed[True] = parsed.pop("on")
+        parsed[True] = parsed.pop("on", parsed.get(True))
+        parsed.pop("on", None)
         with patch.object(engine, "parse_workflow_yaml", return_value=parsed):
             self.assertTrue(engine.roadsense_gate_d_caller_details(self.ctx, path, text))
 
