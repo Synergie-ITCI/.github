@@ -5,14 +5,31 @@ import subprocess
 import tempfile
 import textwrap
 import unittest
+from importlib.machinery import SourceFileLoader
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "release-preflight"
+preflight = SourceFileLoader("release_preflight", str(SCRIPT)).load_module()
 
 
 class ReleasePreflightTests(unittest.TestCase):
+    def test_central_preflight_uses_live_governed_release(self):
+        origin = subprocess.CompletedProcess([], 0, preflight.CENTRAL_ORIGIN + "\n", "")
+        active = subprocess.CompletedProcess([], 0, "Resolved active release pr-qa-v1-rc191 at " + "a" * 40 + "\n", "")
+        with patch.object(preflight, "git", return_value=origin), patch.object(preflight, "run", return_value=active):
+            self.assertEqual(preflight.active_release(ROOT), "pr-qa-v1-rc191")
+
+        failed = subprocess.CompletedProcess([], 1, "", "resolution failed")
+        with patch.object(preflight, "git", return_value=origin), patch.object(preflight, "run", return_value=failed):
+            self.assertIsNone(preflight.active_release(ROOT))
+
+        malformed = subprocess.CompletedProcess([], 0, "Resolved active release pr-qa-v1-rc191 at wrong\n", "")
+        with patch.object(preflight, "git", return_value=origin), patch.object(preflight, "run", return_value=malformed):
+            self.assertIsNone(preflight.active_release(ROOT))
+
     def run_cmd(self, args, cwd, env=None):
         merged_env = os.environ.copy()
         if env:

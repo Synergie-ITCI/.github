@@ -16,6 +16,8 @@ from pathlib import Path
 
 PIN_RE = re.compile(r'(?m)^\s*PR_QA_FRAMEWORK_RELEASE:\s*["\']?([^"\'\s]+)["\']?\s*$')
 RC_RE = re.compile(r"^pr-qa-v1-rc([1-9][0-9]*)$")
+CENTRAL_ORIGIN = "https://github.com/Synergie-ITCI/.github.git"
+RESOLVED_RELEASE_RE = re.compile(r"Resolved active release (pr-qa-v1-rc[1-9][0-9]*) at [0-9a-f]{40}")
 
 
 def run(cmd: list[str], cwd: Path, **kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -34,6 +36,14 @@ def repo_root() -> Path | None:
 
 
 def active_release(root: Path) -> str | None:
+    origin = git(["remote", "get-url", "origin"], root)
+    if origin.returncode == 0 and origin.stdout.strip() == CENTRAL_ORIGIN:
+        resolved = run([sys.executable, str(root / "pr-qa" / "release_pin.py"), "--resolve-active"], root)
+        if resolved.returncode != 0:
+            return None
+        match = RESOLVED_RELEASE_RE.fullmatch(resolved.stdout.strip())
+        return match.group(1) if match else None
+
     workflow = root / ".github" / "workflows" / "pr-qa.yml"
     if workflow.exists():
         match = PIN_RE.search(workflow.read_text(encoding="utf-8"))
