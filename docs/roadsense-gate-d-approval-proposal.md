@@ -98,8 +98,10 @@ verifier. The scoped AWS role trust is restricted to the RoadSense repository,
 protected `main`, and the approved immutable central reusable workflow identity;
 no production permission is given to the approval workflow.
 
-The deployment records a single-use GitHub deployment marker, keyed by unique
-release ID and approval run ID, before SSM execution. A repeated or conflicting
+The deployment records a single-use GitHub deployment marker in the distinct
+`roadsense-gate-d-ledger` environment, keyed by unique release ID and approval
+run ID, before SSM execution. This ledger is not a production environment or
+an approval substitute; it cannot grant AWS access. A repeated or conflicting
 marker fails closed. The marker, approval run URLs, artifact digest, source SHA,
 image digest, database SHA, policy version, SSM command ID, and result are
 recorded without secrets. OIDC then assumes a narrowly scoped production role
@@ -127,6 +129,26 @@ unsupported schema; a deployment request that reaches AWS credential acquisition
 before approval. Each test must assert no OIDC token request, AWS role assumption,
 or SSM command. Positive tests must prove the complete approved tuple and
 single-use marker, then a controlled non-production or mocked execution path.
+
+
+## Implementation preparation in this PR
+
+`tools/roadsense_gate_d.py` and `actions/roadsense-gate-d/action.yml` are
+review-only candidates. The action fetches GitHub run, artifact, protected-main,
+and deployment-marker evidence itself; it verifies the full release tuple and
+records single use in the separate approval ledger before returning success. It requests no OIDC token and
+invokes no AWS or SSM command. The deployment caller does not yet exist. When
+implemented after policy approval, it must call this action in a serialized
+job with only `contents: read`, `actions: read`, and `deployments: write`; only
+a downstream job with `needs` on that job may request `id-token: write`. The
+central action must be pinned to an approved immutable release tag. No caller
+may use this candidate branch or an unreviewed `main` reference.
+
+The current tests use mocked GitHub evidence and cover positive exact binding,
+missing and forged artifacts, stale approval, replay markers, every tuple
+mismatch, wrong actor/workflow/branch, reruns and malformed JSON. A live,
+non-production integration test of the eventual caller, approval issuance,
+artifact digest behavior and IAM trust is still required before activation.
 
 ## Governance decisions required
 

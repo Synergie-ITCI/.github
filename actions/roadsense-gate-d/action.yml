@@ -1,0 +1,26 @@
+name: RoadSense Gate D approval verifier (proposed)
+description: Verify and consume a GitHub artifact-bound RoadSense production approval before OIDC or SSM.
+inputs:
+  expected-json:
+    description: Exact release tuple from the protected deployment request.
+    required: true
+  approval-json:
+    description: Approval record from the identified GitHub Actions artifact.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Verify and consume exact approval
+      shell: bash
+      env:
+        EXPECTED_JSON: ${{ inputs.expected-json }}
+        APPROVAL_JSON: ${{ inputs.approval-json }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        work_dir="$(mktemp -d)"
+        trap 'rm -rf "$work_dir"' EXIT
+        printf '%s' "$EXPECTED_JSON" > "$work_dir/expected.json"
+        printf '%s' "$APPROVAL_JSON" > "$work_dir/approval.json"
+        python3 "${{ github.action_path }}/../../tools/roadsense_gate_d.py" \
+          "$work_dir/expected.json" "$work_dir/approval.json" --mark-used
