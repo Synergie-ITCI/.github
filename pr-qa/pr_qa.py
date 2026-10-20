@@ -3716,6 +3716,10 @@ def classify_safe_deployment_workflows(ctx: PRContext, changed: list[str]) -> tu
         if not workflow_path.is_file():
             continue
         text = read_text(workflow_path)
+        if roadsense_gate_d_caller_details(ctx, path, text):
+            details.append(f"{path}: ROADSENSE_GATE_D_CALLER exact protected-main central release pin and permission contract verified.")
+            safe_paths.add(path)
+            continue
         if is_authorized_jkcement_env_bootstrap_workflow(ctx, path, text):
             details.append(
                 f"{path}: EXACT_JKCEMENT_ENV_BOOTSTRAP PR head, workflow SHA-256, production environment, actor, OIDC role, and SSM instance verified."
@@ -3732,6 +3736,69 @@ def classify_safe_deployment_workflows(ctx: PRContext, changed: list[str]) -> tu
             details.extend(staging)
             safe_paths.add(path)
     return details, safe_paths
+
+
+ROADSENSE_GATE_D_CALLERS = {
+    ".github/workflows/roadsense-build-release.yml": (
+        "build", "roadsense-build-release.yml", {"contents": "read", "id-token": "write"},
+        {"source_sha": "source-sha", "database_version": "database-version"}, False,
+    ),
+    ".github/workflows/roadsense-release-intent.yml": (
+        "intent", "roadsense-release-intent.yml", {"contents": "read", "actions": "read"},
+        {"expected_json": "expected-json"}, False,
+    ),
+    ".github/workflows/roadsense-gate-d-approve.yml": (
+        "approve", "roadsense-gate-d-approve.yml", {"contents": "read", "actions": "read"},
+        {"intent_run_id": "intent-run-id", "intent_sha256": "intent-sha256"}, True,
+    ),
+    ".github/workflows/roadsense-controlled-release.yml": (
+        "deploy", "roadsense-controlled-release.yml",
+        {"contents": "read", "actions": "read", "deployments": "write", "id-token": "write"},
+        {"expected_json": "expected-json", "approval_run_id": "approval-run-id"}, False,
+    ),
+}
+
+
+def roadsense_gate_d_caller_details(ctx: PRContext, path: str, text: str) -> bool:
+    """Recognize only the four RoadSense manual, step-free central callers."""
+    if resolve_repository_name(ctx) != "Synergie-ITCI/roadsense-production-dashboard":
+        return False
+    contract = ROADSENSE_GATE_D_CALLERS.get(path)
+    if contract is None:
+        return False
+    job_id, central_file, permissions, inputs, approver_only = contract
+    parsed = parse_workflow_yaml(text)
+    if not workflow_dispatch_only(parsed, text) or set(parsed) != {"name", "on", "permissions", "jobs"}:
+        return False
+    dispatch = workflow_on_section(parsed).get("workflow_dispatch")
+    if not isinstance(dispatch, dict) or set(dispatch) != {"inputs"}:
+        return False
+    declared_inputs = dispatch["inputs"]
+    if not isinstance(declared_inputs, dict) or set(declared_inputs) != set(inputs):
+        return False
+    for value in declared_inputs.values():
+        if not isinstance(value, dict) or set(value) != {"description", "required", "type"}:
+            return False
+        if value.get("required") is not True or value.get("type") != "string":
+            return False
+    if parsed.get("permissions") != permissions:
+        return False
+    jobs = parsed.get("jobs")
+    if not isinstance(jobs, dict) or set(jobs) != {job_id}:
+        return False
+    job = jobs[job_id]
+    if not isinstance(job, dict) or set(job) != {"if", "uses", "with"}:
+        return False
+    expected_if = "github.ref == 'refs/heads/main'"
+    if approver_only:
+        expected_if += " && github.actor == 'SaurabhVermaIN' && github.actor_id == '52234089'"
+    if str(job["if"]) != expected_if:
+        return False
+    expected_uses = f"Synergie-ITCI/.github/.github/workflows/{central_file}@roadsense-gate-d-v1"
+    if job["uses"] != expected_uses:
+        return False
+    expected_with = {target: "${{ inputs." + source + " }}" for source, target in inputs.items()}
+    return job["with"] == expected_with
 
 
 CENTRAL_ACTION_USES_RE = re.compile(r"^Synergie-ITCI/\.github/actions/([^@\s]+)@([^@\s]+)$")

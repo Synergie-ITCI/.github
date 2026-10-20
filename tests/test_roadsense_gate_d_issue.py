@@ -11,9 +11,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import roadsense_gate_d as gate  # noqa: E402
 import roadsense_gate_d_issue as issue  # noqa: E402
-from tests.test_roadsense_gate_d import fixture, NOW, SHA, zipped
+from test_roadsense_gate_d import fixture, NOW, SHA, zipped
 
 
 class IssuanceTests(unittest.TestCase):
