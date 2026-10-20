@@ -92,6 +92,8 @@ jobs:
           set -euo pipefail
           bash -n .github/scripts/roadsense-production-remote.sh
           test -x .github/scripts/roadsense-production-remote.sh
+          printf '%s  %s\n' '459f0aa8a0eb95a9f459ad0fa042db7abfefc33a648b51d66889bde45b898e0a' \
+            .github/scripts/roadsense-production-remote.sh | sha256sum -c -
       - name: Resolve exact central revision for pre-OIDC recheck
         id: central
         env:
@@ -143,14 +145,12 @@ jobs:
           EXPECTED_JSON: ${{ inputs.expected-json }}
         run: |
           set -euo pipefail
-          script_b64="$(base64 -w0 .github/scripts/roadsense-production-remote.sh)"
           release_b64="$(printf '%s' "$EXPECTED_JSON" | base64 -w0)"
-          command="$(jq -nr --arg script "$script_b64" --arg release "$release_b64" \
-            '"script=$(mktemp /tmp/roadsense-gate-d.XXXXXX.sh); printf %s " + ($script|@sh) + " | base64 -d > \"$script\"; chmod 700 \"$script\"; RELEASE_JSON_B64=" + ($release|@sh) + " \"$script\"; rc=$?; rm -f \"$script\"; exit $rc"')"
-          jq -n --arg cmd "$command" '{commands:[$cmd]}' > ssm-parameters.json
+          jq -n --arg release "$release_b64" '{ReleaseJsonBase64:[$release]}' > ssm-parameters.json
           command_id="$(aws ssm send-command \
             --instance-ids mi-0dade13fd68d1b435 \
-            --document-name AWS-RunShellScript \
+            --document-name RoadSense-GateD-Production-Command-v1 \
+            --document-version 1 \
             --comment "RoadSense Gate D $GITHUB_RUN_ID" \
             --parameters file://ssm-parameters.json \
             --query 'Command.CommandId' --output text)"

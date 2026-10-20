@@ -12,7 +12,7 @@
       "Effect": "Allow",
       "Action": "ssm:SendCommand",
       "Resource": [
-        "arn:aws:ssm:ap-south-1::document/AWS-RunShellScript",
+        "arn:aws:ssm:ap-south-1:918870682888:document/RoadSense-GateD-Production-Command-v1",
         "arn:aws:ssm:ap-south-1:918870682888:managed-instance/mi-0dade13fd68d1b435"
       ]
     },
