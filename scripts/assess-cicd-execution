@@ -143,7 +143,7 @@ def assess(repo: Path) -> dict[str, Any]:
         if isinstance(events, str) and events.strip() == "[pull_request]":
             events = ["pull_request"]
         pr = events.get("pull_request") if isinstance(events, dict) else None
-        if pr is None and events not in ("pull_request", ["pull_request"]):
+        if not (isinstance(events, dict) and "pull_request" in events) and events not in ("pull_request", ["pull_request"]):
             standards.append(finding("pr_execution", "NOT VERIFIED", "PR trigger configuration is missing or ambiguous.",
                                      evidence=evidence(path, text, "on:")))
         else:

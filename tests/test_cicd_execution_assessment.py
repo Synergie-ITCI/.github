@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "assess-cicd-execution"
@@ -103,6 +104,10 @@ jobs:
         self.write(".github/workflows/pr-qa.yml", CALLER.replace("  pull_request:\n    types: [opened, synchronize, reopened, ready_for_review]", "  pull_request:"))
         self.commit()
         self.assertEqual(self.item("pr_execution")["status"], "COMPLIANT")
+        parsed_like_pyyaml = {True: {"pull_request": None},
+                              "concurrency": {"group": "${{ github.event.pull_request.number }}", "cancel-in-progress": True}}
+        with mock.patch.object(assessment, "parse_workflow_yaml", return_value=parsed_like_pyyaml):
+            self.assertEqual(self.item("pr_execution")["status"], "COMPLIANT")
         self.write(".github/workflows/pr-qa.yml", CALLER.replace("on:\n  pull_request:\n    types: [opened, synchronize, reopened, ready_for_review]", "on: [pull_request]"))
         self.commit()
         self.assertEqual(self.item("pr_execution")["status"], "COMPLIANT")
