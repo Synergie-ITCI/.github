@@ -1,6 +1,24 @@
 {
   "version": 1,
   "repository": "Synergie-ITCI/.github",
+  "gate_d_workflow_releases": {
+    "roadsense-gate-d-v1": {
+      "commit": "80aabee78b8e59fc4f9efe3431ca4510a7bcc56a",
+      "tag_object": "19db3099572061234f60555e1f80e6b7fab46234",
+      "ruleset_id": 25474407,
+      "ruleset_updated_at": "2026-10-20T17:59:16.191+05:30",
+      "bypass_actors": [],
+      "workflows": ["roadsense-build-release.yml", "roadsense-release-intent.yml", "roadsense-gate-d-approve.yml"]
+    },
+    "roadsense-gate-d-v3": {
+      "commit": "aff25c6c43ad7a43dd70b40b0644cd8d849f0a7c",
+      "tag_object": "1a593383c80e0ca88935f63b9378b2cf7cd032b5",
+      "ruleset_id": 25488844,
+      "ruleset_updated_at": "2026-10-20T21:54:26.592+05:30",
+      "bypass_actors": [],
+      "workflows": ["roadsense-controlled-release.yml"]
+    }
+  },
   "tag_protection_policies": {
     "wildcard_namespace": {
       "min_release_number": 174,

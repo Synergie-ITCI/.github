@@ -17,6 +17,7 @@ from release_pin import (
     ruleset_config_fingerprint,
     same_timestamp,
     validate_workflow,
+    verify_bound_release,
     verify_live_release,
     wildcard_policy_snapshot,
 )
@@ -53,6 +54,19 @@ class ReleasePinTests(unittest.TestCase):
 
     def test_registered_protected_annotated_tag(self):
         verify_live_release(self.release, self.entry, self.lookup)
+
+    def test_failed_job_rerun_retains_verified_detector_release(self):
+        # A newer tag may appear between attempts; the bound check must not select it.
+        self.ref["object"] = {"type": "commit", "sha": self.entry["commit"]}
+        verify_bound_release(self.release, self.entry["commit"], self.manifest, self.lookup,
+                             lambda _path: self.fail("rerun must not enumerate newer tags"))
+        with self.assertRaisesRegex(ValueError, "rerun the complete workflow"):
+            verify_bound_release(self.release, "b" * 40, self.manifest, self.lookup)
+        with self.assertRaisesRegex(ValueError, "rerun the complete workflow"):
+            verify_bound_release("", self.entry["commit"], self.manifest, self.lookup)
+        self.ruleset["enforcement"] = "disabled"
+        with self.assertRaises(ValueError):
+            verify_bound_release(self.release, self.entry["commit"], self.manifest, self.lookup)
 
     def exact_rc173_fixture(self):
         release = "pr-qa-v1-rc173"
@@ -292,6 +306,15 @@ class ReleasePinTests(unittest.TestCase):
         ]
         for workflow in mutations:
             with self.subTest(workflow=mutations.index(workflow)), self.assertRaises(ValueError):
+                validate_workflow(workflow, self.manifest)
+
+    def test_rerun_identity_verification_cannot_be_removed(self):
+        for workflow in (
+            self.workflow.replace("framework_commit: ${{ steps.active-framework.outputs.commit }}", "framework_commit: ''"),
+            self.workflow.replace("--verify-bound \"$DETECTED_RELEASE\" --commit \"$DETECTED_COMMIT\"", "--resolve-active"),
+            self.workflow.replace("git -C .pr-qa-framework rev-parse HEAD", "echo unverified"),
+        ):
+            with self.subTest(workflow=workflow[-100:]), self.assertRaises(ValueError):
                 validate_workflow(workflow, self.manifest)
 
     def test_moved_tag_and_unprotected_or_bypassable_tags_rejected(self):

@@ -172,10 +172,14 @@ def main() -> int:
     actor = verify_source(args.release, args.commit)
     updated_at = verify_protection(args.release, args.ruleset_id)
     active = command("python3", "pr-qa/release_pin.py", "--resolve-active").stdout
+    bound = re.fullmatch(r"Resolved active release (pr-qa-v1-rc[1-9][0-9]*) at ([0-9a-f]{40})\s*", active)
+    if bound is None:
+        raise ValueError("Active release identity could not be established")
     previous = f"pr-qa-v1-rc{int(RELEASE.fullmatch(args.release).group(1)) - 1}"
     if f"Resolved active release {previous} at " not in active:
         raise ValueError("Current active release is not the immediate predecessor")
-    command("python3", "scripts/release-preflight", "--base", "main")
+    command("python3", "scripts/release-preflight", "--base", "main",
+            "--verified-release", bound.group(1), "--verified-commit", bound.group(2))
     if args.check_only:
         print("Release source, protection, and preflight verified; no dispatch or tag created")
         return 0
