@@ -6,7 +6,7 @@
       "type": "String",
       "description": "Base64-encoded exact Gate D release JSON",
       "interpolationType": "ENV_VAR",
-      "allowedPattern": "^[A-Za-z0-9+/=]{100,8192}$",
+      "allowedPattern": "^[A-Za-z0-9+/=]+$",
       "minChars": 100,
       "maxChars": 8192
     }
