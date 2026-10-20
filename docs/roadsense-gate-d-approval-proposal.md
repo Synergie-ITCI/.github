@@ -18,9 +18,10 @@ it does not authorize production. Castrol's existing Gate D uses a manual
 `workflow_dispatch`, a `SaurabhVermaIN` actor check, an approval-reference input,
 OIDC, and SSM. Its environment has a branch restriction but no required
 reviewer. Those controls demonstrate the approved OIDC/SSM deployment shape,
-but they do not independently attest an exact RoadSense release pair or prevent
-the release requester from approving their own deployment. RoadSense needs the
-additional controls below before any deploy workflow is activated.
+but they do not independently attest an exact RoadSense release pair.
+RoadSense needs the additional controls below before any deploy workflow is
+activated. The established Saurabh author exception remains valid: Saurabh
+may authorize and deploy his own release.
 
 The central `docs/gate-d-deployment-standard.md` remains authoritative:
 Gate D is separate from Gate C, requires explicit Saurabh authorization, an
@@ -29,20 +30,22 @@ SSM execution, runtime verification, and recovery.
 
 ## Proposed approval authority
 
-The governance owner must approve and register the numeric GitHub ID of a
-separate RoadSense production approver in central governed policy. The approver
-must be independent of the authenticated release requester. `SaurabhVermaIN`
-remains the required Executive Release Authority for Gate D. If Saurabh is the
-requester, an additional registered independent approver must approve; Saurabh
-cannot satisfy that second signature. If someone else requests the release,
-Saurabh may serve as the independent approver. No approver ID is assumed or
-provisioned by this proposal.
+The existing central Executive Release Authority, `SaurabhVermaIN`, is the
+only Gate D approver. The central policy already permits Saurabh to authorize
+and deploy his own release after mandatory automated gates pass. No second
+human approver is required when Saurabh is the requester. For a release
+requested by anyone else, the Gate D approver is necessarily independent of
+that requester. The verifier checks both the login and numeric GitHub ID
+against the centrally governed authority record; a caller-supplied login
+cannot confer authority.
 
-Approval must be issued by an authenticated GitHub Actions dispatch of an
-approved, protected-main approval workflow. It must not be inferred from a PR
-comment, issue comment, unverified `approval_reference`, caller-supplied login,
-CI success, admin rights, or merge to `main`. The approval workflow has no
-`id-token: write`, AWS credential, production secret, or SSM permission.
+Approval is a **separate authenticated GitHub Actions dispatch** from the
+release-intent and deploy dispatches. It must be issued by the authorized
+Saurabh identity through an approved, protected-main approval workflow.
+It must not be inferred from a PR comment, issue comment, unverified
+`approval_reference`, caller-supplied login, CI success, admin rights, or merge
+to `main`. The approval workflow has no `id-token: write`, AWS credential,
+production secret, or SSM permission.
 
 ## Exact approval record
 
@@ -75,15 +78,16 @@ requester fail closed. GitHub artifacts are treated as immutable while present;
 if deleted, they cannot authorize deployment.
 
 The approval workflow must derive the requester from the release-intent run's
-GitHub actor ID; the requester is never trusted from an input alone. A second
-approval from Saurabh is required if the independent registered approver is
-someone else. Both approval runs bind the same exact record and release-intent
-run. The deploy verifier checks distinct actor IDs and the approved registry.
+GitHub actor ID; the requester is never trusted from an input alone. The deploy
+verifier checks the Gate D approver's authenticated login and numeric ID against
+the central Executive Release Authority. It allows the requester and approver
+to be the same person only when both are the authorized Saurabh identity. The
+approval remains a distinct GitHub run bound to that release intent.
 
 ## Deployment enforcement
 
 The production workflow must be manually dispatched from protected `main` for
-an exact release ID, release manifest digest, approval run ID(s), and rollback
+an exact release ID, release manifest digest, approval run ID, and rollback
 pair. A central reusable workflow verifies the approval evidence in a job with
 `contents: read` and `actions: read` only. It must finish successfully before
 a separate deployment job can request `id-token: write` or obtain any AWS
@@ -114,8 +118,8 @@ Gate D approval for a particular deployment.
 ## Required rejection tests before activation
 
 The verifier and workflow must deterministically reject: absent approval;
-invalid GitHub run/artifact or API outage; failed or rerun approval; unapproved
-or self-issued actor; forged comment or free-text reference; stale or expired
+invalid GitHub run/artifact or API outage; failed or rerun approval; unapproved actor or a self-issued approval by anyone other than the
+verified Executive Release Authority; forged comment or free-text reference; stale or expired
 approval; changed source SHA, Docker digest, database hash or object version,
 policy version, target, release ID or rollback pair; changed protected-main
 head; duplicate release ID; replayed approval; modified or missing artifact;
@@ -127,11 +131,11 @@ single-use marker, then a controlled non-production or mocked execution path.
 ## Governance decisions required
 
 1. Approve this RoadSense-only alternative to native environment reviewers.
-2. Name the independent approver by GitHub login **and numeric ID**, and decide
-   who may request a release when Saurabh is the approving authority.
+2. Confirm the Gate D authority login and numeric GitHub ID, including the
+   established Saurabh self-authorization exception.
 3. Approve the exact release-intent, approval-artifact, verifier, and single-use
    marker implementation after independent security review and negative tests.
 4. Approve the immutable central workflow release and narrowly scoped OIDC/SSM
    role separately, with no production execution during setup.
-5. For each release, record Gate C first and then separate explicit Gate D
-   approvals for the exact tuple. Production remains closed until all gates pass.
+5. For each release, record Gate C first and then a separate explicit Gate D
+   approval event for the exact tuple. Production remains closed until all gates pass.
