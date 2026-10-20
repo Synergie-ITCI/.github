@@ -1,0 +1,60 @@
+name: RoadSense Release Intent
+
+on:
+  workflow_call:
+    inputs:
+      expected-json:
+        description: Exact release tuple, including immutable image and database artifact identities.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  issue-intent:
+    if: github.repository == 'Synergie-ITCI/roadsense-production-dashboard' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Resolve the immutable executing central revision
+        id: central
+        env:
+          JOB_CONTEXT: ${{ toJSON(job) }}
+        run: |
+          set -euo pipefail
+          test "$(jq -r '.workflow_repository // empty' <<< "$JOB_CONTEXT")" = 'Synergie-ITCI/.github'
+          central_sha="$(jq -r '.workflow_sha // empty' <<< "$JOB_CONTEXT")"
+          [[ "$central_sha" =~ ^[0-9a-f]{40}$ ]]
+          echo "sha=$central_sha" >> "$GITHUB_OUTPUT"
+      - name: Checkout the executing central workflow revision
+        uses: actions/checkout@v4
+        with:
+          repository: Synergie-ITCI/.github
+          ref: ${{ steps.central.outputs.sha }}
+          path: central
+          persist-credentials: false
+      - name: Issue bound release intent
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_JSON: ${{ inputs.expected-json }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$EXPECTED_JSON" > expected.json
+          python3 central/tools/roadsense_gate_d_issue.py intent expected.json intent.json
+          {
+            echo '## RoadSense release intent'
+            echo 'Review these exact values before a separate Gate D approval:'
+            echo '```json'
+            python3 -m json.tool intent.json
+            echo '```'
+            echo "Intent record SHA-256: $(sha256sum intent.json | cut -d ' ' -f1)"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve immutable release intent
+        uses: actions/upload-artifact@v4
+        with:
+          name: roadsense-release-intent
+          path: intent.json
+          if-no-files-found: error
+          retention-days: 1

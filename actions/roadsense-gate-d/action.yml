@@ -4,9 +4,13 @@ inputs:
   expected-json:
     description: Exact release tuple from the protected deployment request.
     required: true
-  approval-json:
-    description: Approval record from the identified GitHub Actions artifact.
+  approval-run-id:
+    description: Completed authenticated approval workflow run ID.
     required: true
+  require-used:
+    description: Reverify the consumed marker in the deployment job before OIDC.
+    required: false
+    default: 'false'
 runs:
   using: composite
   steps:
@@ -14,7 +18,8 @@ runs:
       shell: bash
       env:
         EXPECTED_JSON: ${{ inputs.expected-json }}
-        APPROVAL_JSON: ${{ inputs.approval-json }}
+        APPROVAL_RUN_ID: ${{ inputs.approval-run-id }}
+        REQUIRE_USED: ${{ inputs.require-used }}
         GH_TOKEN: ${{ github.token }}
         GATE_D_DEPLOY_ACTOR: ${{ github.actor }}
         GATE_D_DEPLOY_ACTOR_ID: ${{ github.actor_id }}
@@ -24,6 +29,13 @@ runs:
         work_dir="$(mktemp -d)"
         trap 'rm -rf "$work_dir"' EXIT
         printf '%s' "$EXPECTED_JSON" > "$work_dir/expected.json"
-        printf '%s' "$APPROVAL_JSON" > "$work_dir/approval.json"
+        if [[ "$REQUIRE_USED" == 'true' ]]; then
+          mode='--require-used'
+        elif [[ "$REQUIRE_USED" == 'false' ]]; then
+          mode='--mark-used'
+        else
+          echo 'Invalid Gate D ledger mode' >&2
+          exit 1
+        fi
         python3 "${{ github.action_path }}/../../tools/roadsense_gate_d.py" \
-          "$work_dir/expected.json" "$work_dir/approval.json" --mark-used
+          "$work_dir/expected.json" "$APPROVAL_RUN_ID" "$mode"

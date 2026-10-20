@@ -1,7 +1,7 @@
 # Proposed RoadSense production Gate D approval
 
-**Status: proposed; not approved or active.** This document is a narrowly scoped
-policy proposal for `Synergie-ITCI/roadsense-production-dashboard`. It does not
+**Status: policy approved at `4bd9ba96` and merged as `7c8b4d47`; runtime not active.** This document is a narrowly scoped
+policy for `Synergie-ITCI/roadsense-production-dashboard`. It does not
 authorize a production deployment or change the existing central PR-QA, branch
 rules, publication holds, or Gate C.
 
@@ -113,11 +113,10 @@ deploy checks verify the public HTTPS endpoint, authenticated access without
 logging credentials, publication holds, health, exact active image/database
 identity, and shared-host routes. Failure invokes pairwise rollback.
 
-This workflow must not be added to the production caller, released as an
-immutable central tag, granted AWS trust, or used for deployment until the
-central policy PR and implementation have passed governed QA, independent
-security review by the sole authorised owner Saurabh, and his explicit
-policy approval. A code review alone is not a
+The policy was approved, but the runtime implementation still requires governed
+QA, security review by the sole authorised owner Saurabh, an immutable protected
+central release, scoped AWS trust approval, and non-production integration before
+activation. A code review alone is not a
 Gate D approval for a particular deployment.
 
 ## Required rejection tests before activation
@@ -136,12 +135,12 @@ single-use marker, then a controlled non-production or mocked execution path.
 
 ## Implementation preparation in this PR
 
-`tools/roadsense_gate_d.py` and `actions/roadsense-gate-d/action.yml` are
-review-only candidates. The action fetches GitHub run, artifact, protected-main,
+`tools/roadsense_gate_d.py` and `actions/roadsense-gate-d/action.yml` remain
+review-only until the runtime PR is merged, released and integrated. The action fetches GitHub run, artifact, protected-main,
 and deployment-marker evidence itself; it verifies the full release tuple and
 records single use in the separate approval ledger before returning success. It requests no OIDC token and
-invokes no AWS or SSM command. The deployment caller does not yet exist. When
-implemented after policy approval, it must call this action in a serialized
+invokes no AWS or SSM command. The production caller is prepared on the RoadSense
+review branch and is not active. When activated after governed approval, it must call this action in a serialized
 job with only `contents: read`, `actions: read`, and `deployments: write`; only
 a downstream job with `needs` on that job may request `id-token: write`. The
 central action must be pinned to an approved immutable release tag. No caller
