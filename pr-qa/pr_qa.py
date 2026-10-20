@@ -3797,7 +3797,8 @@ def roadsense_gate_d_caller_details(ctx: PRContext, path: str, text: str) -> boo
         expected_if += " && github.actor == 'SaurabhVermaIN' && github.actor_id == '52234089'"
     if str(job["if"]) != expected_if:
         return False
-    expected_uses = f"Synergie-ITCI/.github/.github/workflows/{central_file}@roadsense-gate-d-v1"
+    release = "roadsense-gate-d-v3" if job_id == "deploy" else "roadsense-gate-d-v1"
+    expected_uses = f"Synergie-ITCI/.github/.github/workflows/{central_file}@{release}"
     if job["uses"] != expected_uses:
         return False
     expected_with = {target: "${{ inputs." + source + " }}" for source, target in inputs.items()}
