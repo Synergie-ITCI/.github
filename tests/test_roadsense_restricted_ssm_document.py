@@ -37,6 +37,9 @@ class RoadSenseRestrictedSsmDocumentTests(unittest.TestCase):
         self.assertEqual(base64.b64decode(encoded.group(1), validate=True), source)
         self.assertIn(f"'{EXPECTED_SHA}'", command)
         self.assertIn('RELEASE_JSON_B64="$SSM_ReleaseJsonBase64" bash "$script"', command)
+        self.assertIn('AWS_SHARED_CREDENTIALS_FILE=/dev/null AWS_CONFIG_FILE=/dev/null', command)
+        self.assertIn('AWS_EC2_METADATA_DISABLED=false HOME="$clean_home"', command)
+        self.assertIn('-u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN', command)
         self.assertNotIn("{{", command)
 
     def test_workflow_and_policy_use_only_fixed_document(self):

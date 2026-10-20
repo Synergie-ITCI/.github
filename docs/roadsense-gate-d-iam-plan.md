@@ -29,6 +29,14 @@ callers cannot provide shell commands. The central workflow checks the exact
 application script hash before obtaining OIDC credentials and requests document
 version `1`. Replace the previously applied `AWS-RunShellScript` IAM resource
 with only this document ARN after governance approval and document creation.
+The SSM hybrid agent supplies `AWS_SHARED_CREDENTIALS_FILE` for its account
+`918870682888` role. A read-only diagnostic confirmed that the unmodified
+SSM shell uses that role, which cannot read the image, while a clean AWS
+credential chain on the same host resolves through IMDS to
+`AmazonLightsailInstanceRole` in account `507960112182`. The fixed document
+clears inherited AWS credential selectors and uses empty config files and a
+fresh home directory before running the reviewed script. Verify this exact
+identity and denied unrelated S3 access again in non-production integration.
 The host assumes
 `arn:aws:iam::507960112182:role/AmazonLightsailInstanceRole`; its identity
 policy and the cross-account bucket policy must permit only `s3:GetObjectVersion`
