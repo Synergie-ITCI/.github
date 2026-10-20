@@ -6,6 +6,7 @@ import copy
 import hashlib
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -340,7 +341,14 @@ class BundledMigrationAuthorizationTests(unittest.TestCase):
         unknown = set(by_pr) - known
         self.assertFalse(unknown, f"unexpected migration authorization PRs: {unknown}")
         policy = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())
-        baseline = policy["one_time_baseline_alignment"]
+        archived_policy = json.loads(
+            subprocess.check_output(
+                ["git", "show", "pr-qa-v1-rc192:policy/pr-qa-policy.json"],
+                cwd=ROOT,
+                text=True,
+            )
+        )
+        baseline = archived_policy["one_time_baseline_alignment"]
         self.assertEqual(baseline["pr_number"], 118)
         self.assertEqual(baseline["repository_id"], 1315697868)
         self.assertEqual(

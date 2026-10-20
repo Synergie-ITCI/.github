@@ -150,51 +150,22 @@
   },
   "one_time_baseline_alignment": {
     "enabled": true,
-    "repository": "Synergie-ITCI/programme-management-platform",
-    "repository_id": 1315697868,
-    "pr_number": 118,
-    "expected_head_sha": "bec5d1c7b2e1bc0afb8bb7db5ffd4b3240cea722",
-    "expected_base_sha": "9743125067113b73209984a99e01982f7e7d9779",
-    "head_ref": "development",
-    "base_ref": "staging",
-    "allowed_effective_additions": 91693,
-    "allowed_changed_files": 470,
-    "minimum_changed_files": 470,
-    "purpose": "Authorize the existing integrated FieldZilla development-to-staging promotion PR #118 while preserving exact-head technical gates.",
-    "issued_at": "2026-09-15T09:22:25Z",
-    "expires_after": "2026-09-16T09:22:25Z",
-    "authorization_id": "8c35fada-9d78-4bbb-a9e7-e9f7c5aa0fc2",
-    "required_pr_body_marker": "FIELDZILLA-PR118-BASELINE-AUTHORIZED",
-    "relaxations": [
-      "changed_file_count",
-      "diff_size",
-      "exact_gitleaks_fingerprint_allowlist",
-      "historical_commit_volume",
-      "historical_migration_count",
-      "historical_protected_resources"
-    ],
-    "gitleaks_allowlist": [
-      {
-        "rule_id": "generic-api-key",
-        "path": "apps/mobile/ios/Podfile.lock",
-        "line": 2182,
-        "line_sha256": "487a316d262ee58fd9e5dcfd6244c47de79033d8b125e0968e9d1db3018b89b0",
-        "fingerprint": "ee31b9427731c9da732ac697414fe6c0b7043f22:apps/mobile/ios/Podfile.lock:generic-api-key:2182",
-        "justification": "CocoaPods package name React-cxxstableapi and checksum, not a credential.",
-        "scope": "PR #118 exact head bec5d1c7b2e1bc0afb8bb7db5ffd4b3240cea722 only.",
-        "expires_after": "2026-09-16T09:22:25Z"
-      },
-      {
-        "rule_id": "generic-api-key",
-        "path": "apps/mobile/ios/Podfile.lock",
-        "line": 2253,
-        "line_sha256": "b4189c887b980d0e2bf873fd159be426cfdae5cf148acbbfee07d0901795eacb",
-        "fingerprint": "ee31b9427731c9da732ac697414fe6c0b7043f22:apps/mobile/ios/Podfile.lock:generic-api-key:2253",
-        "justification": "CocoaPods package name RNKeychain and checksum, not a credential.",
-        "scope": "PR #118 exact head bec5d1c7b2e1bc0afb8bb7db5ffd4b3240cea722 only.",
-        "expires_after": "2026-09-16T09:22:25Z"
-      }
-    ]
+    "repository": "Synergie-ITCI/roadsense-production-dashboard",
+    "repository_id": 1426678649,
+    "pr_number": 2,
+    "expected_head_sha": "3bb6fd264bfe7540fb2137e9a5880311b505aacf",
+    "expected_base_sha": "65e66675ef0db34fa3d38ebd3692589a9da7e03b",
+    "head_ref": "feature/roadsense-safety-release",
+    "base_ref": "development",
+    "allowed_effective_additions": 5155,
+    "allowed_changed_files": 28,
+    "minimum_changed_files": 28,
+    "purpose": "Authorize only RoadSense PR #2's preserved integrated baseline to exceed the 5000-addition limit by 155 lines while retaining every other central QA and publication safeguard.",
+    "issued_at": "2026-10-20T14:12:00Z",
+    "expires_after": "2026-10-21T14:12:00Z",
+    "authorization_id": "eb233fe1-cfe9-430e-af85-014aa890c32d",
+    "required_pr_body_marker": "ROADSENSE-PR2-EXACT-HEAD-BASELINE-eb233fe1",
+    "relaxations": ["diff_size"]
   },
   "minimum_thresholds": {
     "max_file_bytes": 5242880,
