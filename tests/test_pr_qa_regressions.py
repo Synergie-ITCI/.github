@@ -4831,6 +4831,38 @@ exit 0
     def canonical_caller_template(self) -> str:
         return (ROOT / "examples" / "caller-workflow.yml").read_text(encoding="utf-8")
 
+    def test_pmp_missing_edited_event_is_rejected(self) -> None:
+        engine = load_engine_module()
+        caller = self.canonical_caller_template().replace("      - edited\n", "")
+        self.assertTrue(any("edited" in finding for finding in engine.pr_qa_caller_execution_findings(caller)))
+
+    def test_telepathy_missing_concurrency_is_rejected(self) -> None:
+        engine = load_engine_module()
+        caller = self.canonical_caller_template()
+        caller = caller.replace(
+            "concurrency:\n  group: pr-qa-${{ github.repository }}-${{ github.event.pull_request.number }}\n  cancel-in-progress: true\n\n",
+            "",
+        )
+        self.assertTrue(any("PR-scoped concurrency" in finding for finding in engine.pr_qa_caller_execution_findings(caller)))
+
+    def test_corrected_execution_caller_is_accepted(self) -> None:
+        engine = load_engine_module()
+        self.assertEqual(engine.pr_qa_caller_execution_findings(self.canonical_caller_template()), [])
+
+    def test_changed_pmp_caller_fails_existing_repository_integrity_gate(self) -> None:
+        repo, _ = self.init_repo("pmp-caller-trigger")
+        self.write(repo / ".github" / "workflows" / "pr-qa.yml", self.canonical_caller_template())
+        self.commit(repo, "test: establish PR-QA caller")
+        base = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.write(repo / ".github" / "workflows" / "pr-qa.yml", self.canonical_caller_template().replace("      - edited\n", ""))
+        self.commit(repo, "test: change PR-QA caller")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertNotEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Repository Integrity"], "FAIL")
+        self.assertIn("pull_request types missing edited", report)
+
     def canonical_pr_template(self) -> str:
         return (ROOT / "examples" / "pull_request_template.md").read_text(encoding="utf-8")
 

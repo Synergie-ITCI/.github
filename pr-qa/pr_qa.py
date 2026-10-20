@@ -1758,6 +1758,15 @@ def gate_repository_integrity(ctx: PRContext, git_context: dict[str, Any]) -> li
     relaxed: list[str] = []
     if ctx.diff_error:
         findings.append(ctx.diff_error)
+    caller_path = ".github/workflows/pr-qa.yml"
+    if repository_profile(ctx) != "framework" and caller_path in ctx.changed_files and not baseline_active(ctx):
+        base_caller = read_base_file(ctx.repo, git_context, caller_path)
+        caller = ctx.repo / caller_path
+        if "Synergie-ITCI/.github/.github/workflows/pr-qa.yml@" in base_caller and caller.is_file():
+            try:
+                findings.extend(pr_qa_caller_execution_findings(caller.read_text(encoding="utf-8")))
+            except (OSError, UnicodeError):
+                findings.append(".github/workflows/pr-qa.yml: caller must be readable UTF-8 text.")
     allowed_hidden = set(ctx.policy.get("allowed_hidden_files", []))
     generated_components = set(ctx.policy.get("generated_path_components", []))
     generated_patterns = ctx.policy.get("generated_artifact_patterns", [])
@@ -1861,6 +1870,40 @@ def gate_repository_integrity(ctx: PRContext, git_context: dict[str, Any]) -> li
     if relaxed:
         return [warning("Repository Integrity", None, "Baseline-only repository integrity relaxations applied; secret, binary safety, and path traversal checks remain active.", relaxed[:60])]
     return [passed("Repository Integrity", None, "No symlink, submodule, LFS, Unicode, hidden-file, generated-artifact, binary, or path traversal issues detected.")]
+
+
+def pr_qa_caller_execution_findings(text: str) -> list[str]:
+    """Validate execution fields of a changed consumer PR-QA caller."""
+    parsed = parse_workflow_yaml(text)
+    findings: list[str] = []
+    events = workflow_on_section(parsed)
+    if not isinstance(events, dict) or set(events) != {"pull_request"}:
+        findings.append(".github/workflows/pr-qa.yml: only the pull_request trigger is approved for the PR-QA caller.")
+    pull_request = events.get("pull_request") if isinstance(events, dict) else None
+    raw_types = pull_request.get("types") if isinstance(pull_request, dict) else None
+    if isinstance(raw_types, str) and raw_types.startswith("[") and raw_types.endswith("]"):
+        raw_types = [part.strip() for part in raw_types[1:-1].split(",")]
+    types = set(raw_types) if isinstance(raw_types, list) else set()
+    required = {"opened", "synchronize", "reopened", "ready_for_review", "edited"}
+    if not required.issubset(types):
+        findings.append(f".github/workflows/pr-qa.yml: pull_request types missing {', '.join(sorted(required - types))}.")
+    concurrency = parsed.get("concurrency")
+    if (
+        not isinstance(concurrency, dict)
+        or "github.event.pull_request.number" not in str(concurrency.get("group", ""))
+        or concurrency.get("cancel-in-progress") is not True
+    ):
+        findings.append(".github/workflows/pr-qa.yml: require PR-scoped concurrency with cancel-in-progress: true.")
+    jobs = parsed.get("jobs")
+    job = jobs.get("pr-qa") if isinstance(jobs, dict) else None
+    if not isinstance(job, dict) or not re.fullmatch(
+        r"Synergie-ITCI/\.github/\.github/workflows/pr-qa\.yml@(?:main|pr-qa-v1-rc[0-9]+)",
+        str(job.get("uses", "")),
+    ):
+        findings.append(".github/workflows/pr-qa.yml: jobs.pr-qa must use an approved central PR-QA ref.")
+    if not isinstance(job, dict) or str(job.get("if", "")).strip() != "github.event.pull_request.draft == false":
+        findings.append(".github/workflows/pr-qa.yml: jobs.pr-qa must skip draft PRs.")
+    return findings
 
 
 def baseline_index_modes(ctx: PRContext) -> dict[str, str]:
