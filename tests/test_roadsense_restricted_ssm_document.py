@@ -3,7 +3,10 @@
 import base64
 import hashlib
 import json
+import os
 import re
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -37,9 +40,16 @@ class RoadSenseRestrictedSsmDocumentTests(unittest.TestCase):
         self.assertEqual(base64.b64decode(encoded.group(1), validate=True), source)
         self.assertIn(f"'{EXPECTED_SHA}'", command)
         self.assertIn('RELEASE_JSON_B64="$SSM_ReleaseJsonBase64" bash "$script"', command)
-        self.assertIn('AWS_SHARED_CREDENTIALS_FILE=/dev/null AWS_CONFIG_FILE=/dev/null', command)
-        self.assertIn('AWS_EC2_METADATA_DISABLED=false HOME="$clean_home"', command)
+        self.assertIn('[[ -n "${AWS_SHARED_CREDENTIALS_FILE:-}" && -r "$AWS_SHARED_CREDENTIALS_FILE" ]]', command)
+        self.assertIn('AWS_SHARED_CREDENTIALS_FILE="$AWS_SHARED_CREDENTIALS_FILE" AWS_CONFIG_FILE=/dev/null', command)
+        self.assertIn('AWS_EC2_METADATA_DISABLED=true HOME="$clean_home"', command)
+        self.assertNotIn('AWS_SHARED_CREDENTIALS_FILE=/dev/null', command)
         self.assertIn('-u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN', command)
+        self.assertIn(
+            'arn:aws:sts::918870682888:assumed-role/SynergieSSMHybridManagedInstanceCore/mi-0dade13fd68d1b435',
+            command,
+        )
+        self.assertLess(command.index('aws sts get-caller-identity'), command.index('RELEASE_JSON_B64='))
         self.assertNotIn("{{", command)
 
     def test_workflow_and_policy_use_only_fixed_document(self):
@@ -55,6 +65,55 @@ class RoadSenseRestrictedSsmDocumentTests(unittest.TestCase):
             "arn:aws:ssm:ap-south-1:918870682888:document/RoadSense-GateD-Production-Command-v1",
             "arn:aws:ssm:ap-south-1:918870682888:managed-instance/mi-0dade13fd68d1b435",
         })
+
+    def test_hybrid_bucket_grant_and_probe_are_read_only_and_node_bound(self):
+        grant = json.loads((ROOT / "iam/roadsense-hybrid-image-read-statement.json").read_text())
+        self.assertEqual(grant["Action"], "s3:GetObjectVersion")
+        self.assertEqual(
+            grant["Principal"]["AWS"],
+            "arn:aws:iam::918870682888:role/SynergieSSMHybridManagedInstanceCore",
+        )
+        self.assertEqual(
+            grant["Condition"]["StringEquals"]["aws:userid"],
+            "AROA5L4HV5UECXEPEC3FY:mi-0dade13fd68d1b435",
+        )
+        self.assertEqual(
+            grant["Resource"],
+            "arn:aws:s3:::synergie-production-app-backups-918870682888-ap-south-1/"
+            "applications/roadsense/images/*/roadsense-image.tar",
+        )
+        probe = json.loads((ROOT / "iam/roadsense-artifact-probe-v1.json").read_text())
+        self.assertEqual(set(probe["parameters"]), {"ArchiveSha256", "ImageVersion"})
+        self.assertEqual(probe["mainSteps"][0]["action"], "aws:runShellScript")
+        (command,) = probe["mainSteps"][0]["inputs"]["runCommand"]
+        self.assertIn("ROAD_SENSE_PROBE_UNRELATED_READ=DENIED", command)
+        self.assertIn('test "$version" = "$SSM_ImageVersion"', command)
+        self.assertNotIn("docker ", command)
+        self.assertNotIn("put-object", command)
+        self.assertNotIn("{{", command)
+
+    def test_wrong_hybrid_identity_stops_before_release_script(self):
+        document = json.loads(DOCUMENT.read_text())
+        (command,) = document["mainSteps"][0]["inputs"]["runCommand"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            credentials = root / "credentials"
+            credentials.write_text("[default]\naws_access_key_id=placeholder\naws_secret_access_key=placeholder\n")
+            fake_aws = root / "aws"
+            fake_aws.write_text("#!/bin/sh\nprintf '%s\\n' 'arn:aws:sts::918870682888:assumed-role/OtherRole/other-node'\n")
+            fake_aws.chmod(0o700)
+            fake_docker = root / "docker"
+            fake_docker.write_text("#!/bin/sh\ntouch '" + str(root / "docker-ran") + "'\n")
+            fake_docker.chmod(0o700)
+            env = os.environ.copy()
+            env.update({
+                "PATH": f"{root}:{env['PATH']}",
+                "AWS_SHARED_CREDENTIALS_FILE": str(credentials),
+                "SSM_ReleaseJsonBase64": base64.b64encode(b"{}" ).decode(),
+            })
+            result = subprocess.run(["bash", "-c", command], env=env, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse((root / "docker-ran").exists())
 
 
 if __name__ == "__main__":

@@ -30,29 +30,22 @@ application script hash before obtaining OIDC credentials and requests document
 version `1`. Replace the previously applied `AWS-RunShellScript` IAM resource
 with only this document ARN after governance approval and document creation.
 The SSM hybrid agent supplies `AWS_SHARED_CREDENTIALS_FILE` for its account
-`918870682888` role. A read-only diagnostic confirmed that the unmodified
-SSM shell uses that role, which cannot read the image, while a clean AWS
-credential chain on the same host resolves through IMDS to
-`AmazonLightsailInstanceRole` in account `507960112182`. The fixed document
-clears inherited AWS credential selectors and uses empty config files and a
-fresh home directory before running the reviewed script. Verify this exact
-identity and denied unrelated S3 access again in non-production integration.
-The host assumes
-`arn:aws:iam::507960112182:role/AmazonLightsailInstanceRole`; its identity
-policy and the cross-account bucket policy must permit only `s3:GetObjectVersion`
-for `applications/roadsense/images/*/roadsense-image.tar`. The S3 object version
-and SHA-256 are verified again on the host before `docker load`.
-Because `AmazonLightsailInstanceRole` is a shared role name, both proposed
-cross-account statements additionally bind the observed STS `aws:userid` to
-`AROAXMRGIGQ3LHEHJV6LS:i-00f9214399e0091f5`, the current RoadSense host
-role session. Recheck that identity immediately before any IAM change.
+`918870682888` role. The fixed document preserves only that credential file,
+clears other AWS credential selectors, disables IMDS fallback, and requires the
+exact assumed-role ARN for managed node `mi-0dade13fd68d1b435` before any
+Docker operation. The account `918870682888` bucket policy grants only
+`s3:GetObjectVersion` for RoadSense image archives to this role, conditioned
+on `aws:userid` = `AROA5L4HV5UECXEPEC3FY:mi-0dade13fd68d1b435`.
+The host requests the exact approved S3 version and checks the archive SHA-256
+before `docker load`.
+No IAM change in account `507960112182` is required for this delivery path.
 
-The trust, role, and cross-account bucket-policy templates are in
-`iam/roadsense-*.json`. The existing bucket policy retains its original three
-statements, including `DenyInsecureTransport`, plus the reviewed host grant.
-The host-side identity policy is in separate account `507960112182` and still
-requires that account's authorised administrator. No AWS policy is edited by
-this PR.
+The trust and role-policy templates are in `iam/roadsense-*.json`. The approved
+additive hybrid bucket statement is in
+`iam/roadsense-hybrid-image-read-statement.json`. It is already live alongside
+the existing bucket statements; no trust or deployment-role permission was
+changed. The earlier host-account policy and handoff remain as historical
+fallback material and are not part of this deployment design.
 
 Do not grant either role to the intent or approval workflows. The central
 authorize job must have no `id-token: write`; the deployment job must verify

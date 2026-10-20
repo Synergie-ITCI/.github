@@ -1,5 +1,10 @@
 # RoadSense host-account image-read handoff
 
+Historical fallback only. The verified hybrid SSM credential path now reads
+the versioned image through a scoped bucket grant in account `918870682888`.
+The current deployment design does not require the account `507960112182`
+policy attachment below. Do not apply it as part of PR #368.
+
 Account `507960112182` needs an existing authorised IAM administrator. The
 `devops-audit` identity in account `918870682888` can reach the host through
 hybrid SSM but cannot administer this separate account. The host role itself

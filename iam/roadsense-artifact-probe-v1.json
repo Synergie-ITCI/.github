@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "2.2",
+  "description": "Read-only RoadSense versioned image probe; fixed reviewed commands and bounded inputs.",
+  "parameters": {
+    "ArchiveSha256": {
+      "type": "String",
+      "interpolationType": "ENV_VAR",
+      "allowedPattern": "^[0-9a-f]{64}$",
+      "minChars": 64,
+      "maxChars": 64
+    },
+    "ImageVersion": {
+      "type": "String",
+      "interpolationType": "ENV_VAR",
+      "allowedPattern": "^[A-Za-z0-9+/=._-]{1,128}$",
+      "minChars": 1,
+      "maxChars": 128
+    }
+  },
+  "mainSteps": [
+    {
+      "action": "aws:runShellScript",
+      "name": "verifyVersionedImageRead",
+      "precondition": {
+        "StringEquals": [
+          "platformType",
+          "Linux"
+        ]
+      },
+      "inputs": {
+        "timeoutSeconds": "1200",
+        "runCommand": [
+          "set -euo pipefail\numask 077\n[[ \"$SSM_ArchiveSha256\" =~ ^[0-9a-f]{64}$ ]]\n[[ \"$SSM_ImageVersion\" =~ ^[A-Za-z0-9+/=._-]{1,128}$ ]]\nexpected_arn='arn:aws:sts::918870682888:assumed-role/SynergieSSMHybridManagedInstanceCore/mi-0dade13fd68d1b435'\ntest \"$(aws sts get-caller-identity --query Arn --output text)\" = \"$expected_arn\"\nbucket='synergie-production-app-backups-918870682888-ap-south-1'\nkey=\"applications/roadsense/images/${SSM_ArchiveSha256}/roadsense-image.tar\"\nhead=\"$(aws s3api head-object --bucket \"$bucket\" --key \"$key\" --version-id \"$SSM_ImageVersion\" --query '{Length:ContentLength,Sha:Metadata.sha256,Encryption:ServerSideEncryption}' --output json)\"\ntest \"$(jq -r '.Sha' <<< \"$head\")\" = \"$SSM_ArchiveSha256\"\ntest \"$(jq -r '.Encryption' <<< \"$head\")\" = 'AES256'\nsize=\"$(jq -r '.Length' <<< \"$head\")\"\n[[ \"$size\" =~ ^[0-9]+$ ]]\navailable=\"$(df -B1 /tmp | awk 'NR==2 {print $4}')\"\n[[ \"$available\" =~ ^[0-9]+$ ]]\n(( available > size * 2 ))\ntmp_dir=\"$(mktemp -d /tmp/roadsense-artifact-probe.XXXXXX)\"\ntrap 'rm -rf \"$tmp_dir\"' EXIT\nversion=\"$(aws s3api get-object --bucket \"$bucket\" --key \"$key\" --version-id \"$SSM_ImageVersion\" \"$tmp_dir/roadsense-image.tar\" --query VersionId --output text)\"\ntest \"$version\" = \"$SSM_ImageVersion\"\nprintf '%s  %s\\n' \"$SSM_ArchiveSha256\" \"$tmp_dir/roadsense-image.tar\" | sha256sum -c - >/dev/null\nif aws s3api head-object --bucket \"$bucket\" --key 'applications/roadsense/release-candidates/aaac711b0df078d12714bbd03cff72df7ae49418b8434be1a2864f1536575fa1/road_safety_pilot.sqlite' --version-id 'fa2rByaK4AljcFIOosf0ftI5602evy7c' >/dev/null 2>&1; then\n  echo 'UNRELATED_VERSIONED_READ_UNEXPECTEDLY_ALLOWED' >&2\n  exit 1\nfi\necho \"ROAD_SENSE_PROBE_ARCHIVE_SHA256=$SSM_ArchiveSha256\"\necho \"ROAD_SENSE_PROBE_IMAGE_S3_VERSION=$version\"\necho 'ROAD_SENSE_PROBE_UNRELATED_READ=DENIED'\n"
+        ]
+      }
+    }
+  ]
+}
