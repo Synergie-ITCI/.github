@@ -26,8 +26,9 @@ def caller(path):
     condition = "github.ref == 'refs/heads/main'"
     if approver_only:
         condition += " && github.actor == 'SaurabhVermaIN' && github.actor_id == '52234089'"
+    release = "roadsense-gate-d-v3" if job_id == "deploy" else "roadsense-gate-d-v1"
     source += ["", "jobs:", f"  {job_id}:", f"    if: {condition}",
-               f"    uses: Synergie-ITCI/.github/.github/workflows/{central_file}@roadsense-gate-d-v1",
+               f"    uses: Synergie-ITCI/.github/.github/workflows/{central_file}@{release}",
                "    with:"]
     source += [f"      {target}: ${{{{ inputs.{name} }}}}" for name, target in inputs.items()]
     return "\n".join(source) + "\n"
@@ -55,7 +56,9 @@ class CallerClassifierTests(unittest.TestCase):
         path = ".github/workflows/roadsense-controlled-release.yml"
         clean = caller(path)
         for bad in (
-            clean.replace("@roadsense-gate-d-v1", "@main"),
+            clean.replace("@roadsense-gate-d-v3", "@main"),
+            clean.replace("@roadsense-gate-d-v3", "@roadsense-gate-d-v1"),
+            clean.replace("@roadsense-gate-d-v3", "@roadsense-gate-d-v2"),
             clean.replace("workflow_dispatch:", "push:"),
             clean.replace("  id-token: write", "  id-token: read"),
             clean.replace("github.ref == 'refs/heads/main'", "github.ref == 'refs/heads/development'"),
