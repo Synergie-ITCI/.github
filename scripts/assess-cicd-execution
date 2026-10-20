@@ -1,0 +1,316 @@
+#!/usr/bin/env python3
+"""Read-only, advisory CI/CD execution assessment for one local repository."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+from datetime import date
+from pathlib import Path
+from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pr-qa"))
+from pr_qa import parse_workflow_yaml, workflow_on_section  # type: ignore  # noqa: E402
+
+
+STANDARDS = (
+    ("pr_execution", "PR triggers and concurrency"),
+    ("qa_reuse", "QA execution efficiency"),
+    ("preflight", "Early preflight"),
+    ("dependency_audit", "Dependency audit consistency"),
+    ("release_sequence", "Release sequencing"),
+    ("pr_size", "PR-size management"),
+    ("security_review", "Security-review efficiency"),
+)
+AUDITS = {
+    "package-lock.json": "npm audit",
+    "pnpm-lock.yaml": "pnpm audit",
+    "yarn.lock": "yarn audit",
+    "composer.lock": "composer audit",
+    "poetry.lock": "pip-audit",
+    "Pipfile.lock": "pip-audit",
+    "go.sum": "govulncheck",
+}
+
+
+def git(repo: Path, *args: str) -> str:
+    try:
+        result = subprocess.run(["git", *args], cwd=repo, text=True, capture_output=True, check=False)
+    except OSError:
+        return ""
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def line_of(text: str, needle: str) -> int:
+    return next((index for index, line in enumerate(text.splitlines(), 1) if needle in line), 0)
+
+
+def finding(key: str, status: str, summary: str, why: str = "", correction: str = "",
+            evidence: list[dict[str, Any]] | None = None, kind: str = "efficiency") -> dict[str, Any]:
+    return {"key": key, "name": dict(STANDARDS)[key], "status": status, "kind": kind,
+            "summary": summary, "why": why, "correction": correction, "evidence": evidence or []}
+
+
+def evidence(path: str, text: str, needle: str) -> list[dict[str, Any]]:
+    line = line_of(text, needle)
+    return [{"file": path, "line": line}] if line else []
+
+
+def job_blocks(text: str) -> dict[str, str]:
+    jobs = re.search(r"(?m)^jobs:\s*$", text)
+    if not jobs:
+        return {}
+    section = text[jobs.end():]
+    headers = list(re.finditer(r"(?m)^  ([A-Za-z0-9_-]+):\s*$", section))
+    return {match.group(1): section[match.end():headers[index + 1].start() if index + 1 < len(headers) else len(section)]
+            for index, match in enumerate(headers)}
+
+
+def workflow_files(repo: Path) -> tuple[list[tuple[str, str, dict[str, Any]]], bool]:
+    directory = repo / ".github" / "workflows"
+    if not directory.exists():
+        return [], True
+    if not directory.is_dir():
+        return [], False
+    workflows = []
+    for path in sorted(directory.iterdir()):
+        if path.suffix not in {".yml", ".yaml"}:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            return [], False
+        try:
+            parsed = parse_workflow_yaml(text)
+        except (ValueError, TypeError):
+            parsed = {}
+        workflows.append((str(path.relative_to(repo)), text, parsed))
+    return workflows, True
+
+
+def assess(repo: Path) -> dict[str, Any]:
+    repo = repo.resolve()
+    top = git(repo, "rev-parse", "--show-toplevel")
+    if top:
+        repo = Path(top)
+    sha = git(repo, "rev-parse", "HEAD")
+    tracked = git(repo, "ls-files").splitlines() if sha else []
+    remote = git(repo, "remote", "get-url", "origin")
+    match = re.search(r"(?:github\.com[:/])([^/]+/[^/]+)$", remote.removesuffix(".git"))
+    owner = match.group(1) if match else repo.name
+    result: dict[str, Any] = {"repository": owner, "path": str(repo), "head_sha": sha or None,
+                              "working_tree_dirty": bool(git(repo, "status", "--porcelain")) if sha else None,
+                              "standards": []}
+    if not repo.is_dir() or not sha:
+        result["standards"] = [finding(key, "NOT VERIFIED", "Repository data unavailable.") for key, _ in STANDARDS]
+        return result
+    workflows, readable = workflow_files(repo)
+    if not readable:
+        result["standards"] = [finding(key, "NOT VERIFIED", "Workflow data unreadable.") for key, _ in STANDARDS]
+        return result
+    standards = result["standards"]
+    callers = []
+    deploy = []
+    all_workflow_text = "\n".join(text for _, text, _ in workflows).lower()
+    for path, text, parsed in workflows:
+        events = workflow_on_section(parsed)
+        pull_request_event = (
+            isinstance(events, dict) and "pull_request" in events
+            or isinstance(events, str) and events.strip() in {"pull_request", "[pull_request]"}
+            or isinstance(events, list) and "pull_request" in events
+        )
+        central = any(re.search(r"(?m)^    uses:\s*Synergie-ITCI/\.github/\.github/workflows/pr-qa\.yml@\S+", block)
+                      for block in job_blocks(text).values())
+        if central and pull_request_event:
+            callers.append((path, text, parsed))
+        if re.search(r"deploy|release|promotion", Path(path).name, re.I) and not central:
+            deploy.append((path, text, parsed))
+
+    if not callers:
+        standards.append(finding("pr_execution", "NOT VERIFIED", "No central PR-QA caller found; branch governance scope is unknown."))
+    elif len(callers) > 1:
+        standards.append(finding("pr_execution", "ADVISORY DEVIATION", "Multiple central PR-QA callers may repeat validation.",
+                                 "The same PR can start more than one central validation run.", "Confirm ownership and keep one required caller per governed PR target.",
+                                 [item for path, text, _ in callers for item in evidence(path, text, "Synergie-ITCI/.github/.github/workflows/pr-qa.yml@")]))
+    else:
+        path, text, parsed = callers[0]
+        caller_names = [name for name, block in job_blocks(text).items()
+                        if re.search(r"(?m)^    uses:\s*Synergie-ITCI/\.github/\.github/workflows/pr-qa\.yml@\S+", block)]
+        events = workflow_on_section(parsed)
+        if isinstance(events, str) and events.strip() == "[pull_request]":
+            events = ["pull_request"]
+        pr = events.get("pull_request") if isinstance(events, dict) else None
+        if not (isinstance(events, dict) and "pull_request" in events) and events not in ("pull_request", ["pull_request"]):
+            standards.append(finding("pr_execution", "NOT VERIFIED", "PR trigger configuration is missing or ambiguous.",
+                                     evidence=evidence(path, text, "on:")))
+        else:
+            raw_types = pr.get("types") if isinstance(pr, dict) else None
+            if isinstance(raw_types, str) and raw_types.startswith("[") and raw_types.endswith("]"):
+                raw_types = [part.strip() for part in raw_types[1:-1].split(",")]
+            types = set(raw_types) if isinstance(raw_types, list) else set()
+            concurrency = parsed.get("concurrency")
+            scoped = isinstance(concurrency, dict) and "github.event.pull_request.number" in str(concurrency.get("group", ""))
+            cancel = isinstance(concurrency, dict) and concurrency.get("cancel-in-progress") is True
+            if caller_names != ["pr-qa"]:
+                standards.append(finding("pr_execution", "ADVISORY DEVIATION", "Central caller job identity differs from `pr-qa`.",
+                                         "Renaming the caller job may change the required-check identity.",
+                                         "Confirm the repository ruleset before changing the job name.",
+                                         evidence(path, text, "Synergie-ITCI/.github/.github/workflows/pr-qa.yml@")))
+            elif "edited" in types:
+                standards.append(finding("pr_execution", "ADVISORY DEVIATION", "Explicit `edited` runs full PR-QA on PR metadata edits.",
+                                         "This may repeat validation without a source change; metadata-sensitive authorization may still require it.",
+                                         "Confirm metadata freshness requirements before removing this trigger.", evidence(path, text, "edited")))
+            elif not scoped or not cancel:
+                standards.append(finding("pr_execution", "ADVISORY DEVIATION", "PR-scoped cancellation is not configured.",
+                                         "Superseded PR runs may consume CI capacity.", "Add PR-number concurrency and cancellation if runs are safely replaceable.",
+                                         evidence(path, text, "concurrency:") or evidence(path, text, "on:")))
+            else:
+                standards.append(finding("pr_execution", "COMPLIANT", "No demonstrated redundant trigger; PR-scoped cancellation is configured.",
+                                         "GitHub default PR triggers and intentional draft validation are acceptable.",
+                                         evidence=evidence(path, text, "cancel-in-progress:")))
+
+    standards.append(finding("qa_reuse", "NOT VERIFIED", "Exact-SHA validation reuse cannot be established from workflow configuration.",
+                             "Run history, implementation identity, dependency graph and executed conditional checks are required."))
+
+    preflight = next((path for path in tracked if re.search(r"(^|/)(local[_-]ci[_-]preflight|preflight)(\.[A-Za-z0-9]+)?$", path, re.I)), None)
+    if preflight:
+        standards.append(finding("preflight", "COMPLIANT", "Repository preflight command is available.",
+                                 "Availability does not prove developers run it or that it covers every stack.",
+                                 evidence=[{"file": preflight, "line": 1}]))
+    else:
+        standards.append(finding("preflight", "NOT VERIFIED", "No repository-local preflight command identified.",
+                                 "Central static preflight may still run in PR-QA; local ordering is unknown."))
+
+    locks = [path for path in tracked if Path(path).name in AUDITS]
+    if not locks:
+        manifests = [path for path in tracked if Path(path).name in {"package.json", "composer.json", "pyproject.toml", "go.mod"}
+                     or (Path(path).name.startswith("requirements") and Path(path).suffix == ".txt")]
+        if manifests:
+            standards.append(finding("dependency_audit", "NOT VERIFIED", "Dependency manifest found without a supported lockfile.",
+                                     "Deterministic audit inputs and platform audit execution need review.",
+                                     evidence=[{"file": manifests[0], "line": 1}]))
+        else:
+            standards.append(finding("dependency_audit", "NOT APPLICABLE", "No supported dependency manifest or lockfile found."))
+    else:
+        commands = {AUDITS[Path(path).name] for path in locks}
+        found = [command for command in commands if command in all_workflow_text]
+        if found:
+            command = found[0]
+            source = next(((path, text) for path, text, _ in workflows if command in text.lower()), None)
+            standards.append(finding("dependency_audit", "COMPLIANT", f"Platform audit command configured: `{command}`.",
+                                     "Execution and deterministic dependency resolution require runtime evidence.",
+                                     evidence=evidence(*source, command) if source else []))
+        else:
+            standards.append(finding("dependency_audit", "NOT VERIFIED", "Lockfile found; platform audit execution was not proved by workflow files.",
+                                     "Central adapters or scripts may supply the audit.", evidence=[{"file": locks[0], "line": 1}]))
+
+    if not deploy:
+        standards.append(finding("release_sequence", "NOT APPLICABLE", "No repository deployment/release workflow identified."))
+    else:
+        sequenced = None
+        for path, text, _ in deploy:
+            jobs = job_blocks(text)
+            preflight_ids = {name for name in jobs if re.search(r"preflight|release.gate|approval", str(name), re.I)}
+            for name, block in jobs.items():
+                if not re.search(r"deploy|build|release", str(name), re.I) or name in preflight_ids:
+                    continue
+                needs = re.search(r"(?m)^    needs:\s*(.*)$", block)
+                if needs and any(re.search(rf"\b{re.escape(preflight)}\b", block[needs.start():needs.start() + 250])
+                                 for preflight in preflight_ids):
+                    sequenced = (path, text)
+                    break
+            if sequenced:
+                break
+        if sequenced:
+            path, text = sequenced
+            standards.append(finding("release_sequence", "COMPLIANT", "Release workflow declares a preflight/approval dependency.",
+                                     "Exact approved source, plan and build order still require runtime confirmation.",
+                                     evidence=evidence(path, text, "needs:")))
+        else:
+            standards.append(finding("release_sequence", "NOT VERIFIED", "Final approval before expensive build was not proved.",
+                                     "Review exact-source and plan eligibility before deployment build.",
+                                     evidence=[{"file": deploy[0][0], "line": 1}]))
+
+    if preflight:
+        try:
+            preflight_text = (repo / preflight).read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            preflight_text = ""
+        marker = next((term for term in ("max_additions", "max_addition", "5000", "diff --numstat") if term in preflight_text), "")
+        if marker:
+            standards.append(finding("pr_size", "COMPLIANT", "Local preflight includes a PR-size check.",
+                                     "Central size limits remain authoritative.", evidence=evidence(preflight, preflight_text, marker)))
+        else:
+            standards.append(finding("pr_size", "NOT VERIFIED", "Early PR-size warning was not found in local preflight.",
+                                     "Keep central limits; consider an early local warning.", evidence=[{"file": preflight, "line": 1}]))
+    else:
+        standards.append(finding("pr_size", "NOT VERIFIED", "No early PR-size warning identified; central limits remain authoritative."))
+
+    exceptions = [path for path in tracked if path.startswith("policy/exceptions/") and Path(path).suffix in {".json", ".md"}]
+    if not exceptions:
+        standards.append(finding("security_review", "NOT APPLICABLE", "No repository security-exception evidence found."))
+    else:
+        expired = []
+        for path in exceptions:
+            try:
+                text = (repo / path).read_text(encoding="utf-8")
+            except (OSError, UnicodeError):
+                continue
+            match = re.search(r"(?:expires(?:_at|_after)?|expiry)\s*[\"':= ]+([0-9]{4}-[0-9]{2}-[0-9]{2})", text, re.I)
+            if match:
+                try:
+                    if date.fromisoformat(match.group(1)) < date.today():
+                        expired.append({"file": path, "line": line_of(text, match.group(0))})
+                except ValueError:
+                    pass
+        if expired:
+            standards.append(finding("security_review", "ADVISORY DEVIATION", "Security-exception evidence includes an expired date.",
+                                     "Expired approval is a security review issue; this advisory does not authorize or block a deployment.",
+                                     "Obtain fresh owner approval bound to the exact dependency graph; keep existing security gates authoritative.",
+                                     expired, kind="security"))
+        else:
+            standards.append(finding("security_review", "NOT VERIFIED", "Exception files exist; exact graph identity and current owner approval were not proved.",
+                                     "Check lockfile SHA, advisory identity, owner and expiry in the existing approval contract.",
+                                     evidence=[{"file": exceptions[0], "line": 1}], kind="security"))
+    return result
+
+
+def markdown(report: dict[str, Any]) -> str:
+    lines = [f"# CI/CD execution assessment: {report['repository']}", "",
+             f"HEAD: `{report['head_sha'] or 'NOT VERIFIED'}`; worktree dirty: `{report['working_tree_dirty']}`", "",
+             "Advisory only. Static configuration does not prove runtime efficiency or authorization.", "",
+             "| Standard | Status | Evidence |", "| --- | --- | --- |"]
+    for item in report["standards"]:
+        locations = ", ".join(f"`{entry['file']}:{entry['line']}`" for entry in item["evidence"]) or "—"
+        lines.append(f"| {item['name']} | {item['status']} | {locations} |")
+    for item in report["standards"]:
+        lines += ["", f"## {item['name']}", "", f"**{item['status']}** — {item['summary']}"]
+        if item["why"]:
+            lines.append(f"Why: {item['why']}")
+        if item["correction"]:
+            lines.append(f"Smallest correction: {item['correction']}")
+    return "\n".join(lines) + "\n"
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--repo", type=Path, default=Path.cwd(), help="Local repository to inspect; never modified")
+    parser.add_argument("--markdown-out", type=Path)
+    parser.add_argument("--json-out", type=Path)
+    args = parser.parse_args()
+    report = assess(args.repo)
+    rendered = markdown(report)
+    if args.markdown_out:
+        args.markdown_out.write_text(rendered, encoding="utf-8")
+    else:
+        print(rendered, end="")
+    if args.json_out:
+        args.json_out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

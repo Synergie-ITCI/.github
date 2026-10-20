@@ -4,6 +4,11 @@
 
 Use this guide to onboard one Synergie repository to the central PR QA framework.
 
+For a read-only, advisory execution-efficiency assessment before changing CI/CD, run
+`python /path/to/.github/scripts/assess-cicd-execution --repo /path/to/repository --json-out /tmp/cicd-assessment.json`.
+The command prints Markdown, records exact file/line evidence, and does not change
+the repository or any required check. `NOT VERIFIED` means further evidence is needed.
+
 Do not change application code, deployment workflows, CODEOWNERS, Branch Protection, repository permissions, or infrastructure as part of onboarding.
 
 ## Authoritative Tool
