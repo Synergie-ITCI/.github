@@ -21,7 +21,7 @@ release = SourceFileLoader(
 def ruleset(*, organization: bool = False) -> dict:
     conditions = {"ref_name": {"include": ["refs/tags/pr-qa-v1-rc192"], "exclude": []}}
     if organization:
-        conditions["repository_name"] = {"include": [".github"], "exclude": []}
+        conditions["repository_name"] = {"include": [".github"], "exclude": [], "protected": False}
     return {
         "id": 42,
         "target": "tag",
@@ -76,6 +76,16 @@ class PublishReleaseTests(unittest.TestCase):
                              expected.encode("utf-8"))
 
     def test_ruleset_security_failures(self) -> None:
+        for repository_name in (
+            {"include": [".github"], "exclude": [], "protected": True},
+            {"include": ["other"], "exclude": [], "protected": False},
+            {"include": [".github"], "exclude": []},
+        ):
+            with self.subTest(repository_name=repository_name):
+                org = ruleset(organization=True)
+                org["conditions"]["repository_name"] = repository_name
+                with self.assertRaisesRegex(ValueError, "scoped only to the central repository"):
+                    release.validate_ruleset("pr-qa-v1-rc192", 42, org, ruleset())
         for field, value in (
             ("id", 43), ("target", "branch"), ("enforcement", "disabled"),
             ("bypass_actors", [{"actor_id": 1}]),

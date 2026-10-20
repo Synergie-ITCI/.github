@@ -55,7 +55,9 @@ def validate_ruleset(release: str, ruleset_id: int, org: dict, repo: dict) -> st
         raise ValueError("Ruleset is not tag protection")
     if org.get("enforcement") != "active" or repo.get("enforcement") != "active":
         raise ValueError("Ruleset is not active")
-    if org.get("conditions", {}).get("repository_name") != {"include": [".github"], "exclude": []}:
+    if org.get("conditions", {}).get("repository_name") != {
+        "include": [".github"], "exclude": [], "protected": False,
+    }:
         raise ValueError("Ruleset is not scoped only to the central repository")
     expected_ref = {"include": [ref], "exclude": []}
     if any(rule.get("conditions", {}).get("ref_name") != expected_ref for rule in (org, repo)):
