@@ -29,6 +29,10 @@ risk decision for the exact document and trust scope. The host assumes
 policy and the cross-account bucket policy must permit only `s3:GetObjectVersion`
 for `applications/roadsense/images/*/roadsense-image.tar`. The S3 object version
 and SHA-256 are verified again on the host before `docker load`.
+Because `AmazonLightsailInstanceRole` is a shared role name, both proposed
+cross-account statements additionally bind the observed STS `aws:userid` to
+`AROAXMRGIGQ3LHEHJV6LS:i-00f9214399e0091f5`, the current RoadSense host
+role session. Recheck that identity immediately before any IAM change.
 
 Review-only trust, role, and cross-account bucket-policy statement templates are
 in `iam/roadsense-*.json`. The existing bucket policy has three statements,
