@@ -39,3 +39,6 @@ binding, candidate health checks, publication hold checks and atomic rollback.
 The deployment role's narrower document permission and the amended central
 workflow are review material in PR #368; neither is active yet. No production
 deployment has occurred.
+Activation requires a protected immutable `roadsense-gate-d-v2` release from
+the approved merge, an exact caller pin, and the reviewed deploy-role trust and
+document-policy replacements. The build role remains pinned to v1.

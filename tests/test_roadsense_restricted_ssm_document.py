@@ -55,6 +55,7 @@ class RoadSenseRestrictedSsmDocumentTests(unittest.TestCase):
     def test_workflow_and_policy_use_only_fixed_document(self):
         workflow = (ROOT / ".github/workflows/roadsense-controlled-release.yml").read_text()
         policy = json.loads((ROOT / "iam/roadsense-deploy-policy.json").read_text())
+        trust = json.loads((ROOT / "iam/roadsense-deploy-trust.json").read_text())
         self.assertIn(f"'{EXPECTED_SHA}'", workflow)
         self.assertIn("--document-version 1", workflow)
         self.assertIn("--document-name RoadSense-GateD-Production-Command-v1", workflow)
@@ -65,6 +66,15 @@ class RoadSenseRestrictedSsmDocumentTests(unittest.TestCase):
             "arn:aws:ssm:ap-south-1:918870682888:document/RoadSense-GateD-Production-Command-v1",
             "arn:aws:ssm:ap-south-1:918870682888:managed-instance/mi-0dade13fd68d1b435",
         })
+        claims = trust["Statement"][0]["Condition"]["StringEquals"]
+        self.assertEqual(
+            claims["token.actions.githubusercontent.com:job_workflow_ref"],
+            "Synergie-ITCI/.github/.github/workflows/roadsense-controlled-release.yml@refs/tags/roadsense-gate-d-v2",
+        )
+        self.assertEqual(
+            claims["token.actions.githubusercontent.com:sub"],
+            "repo:Synergie-ITCI@209829096/roadsense-production-dashboard@1426678649:ref:refs/heads/main",
+        )
 
     def test_hybrid_bucket_grant_and_probe_are_read_only_and_node_bound(self):
         grant = json.loads((ROOT / "iam/roadsense-hybrid-image-read-statement.json").read_text())

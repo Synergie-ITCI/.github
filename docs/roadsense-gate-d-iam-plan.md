@@ -19,7 +19,7 @@ workflow claims.
 | Role | Required `job_workflow_ref` | Allowed operations |
 | --- | --- | --- |
 | `SynergieRoadSenseArtifactBuildRole` | `Synergie-ITCI/.github/.github/workflows/roadsense-build-release.yml@refs/tags/roadsense-gate-d-v1` | Read the one approved corrected SQLite S3 object version; write and head RoadSense image archives only under `applications/roadsense/images/` in the existing private versioned backup bucket. |
-| `SynergieRoadSenseProductionGateDRole` | `Synergie-ITCI/.github/.github/workflows/roadsense-controlled-release.yml@refs/tags/roadsense-gate-d-v1` | Head versioned RoadSense image archives; describe the exact SSM managed node; `ssm:SendCommand` only to `mi-0dade13fd68d1b435` with the reviewed SSM document; read only its command result. No S3 write or IAM rights. |
+| `SynergieRoadSenseProductionGateDRole` | `Synergie-ITCI/.github/.github/workflows/roadsense-controlled-release.yml@refs/tags/roadsense-gate-d-v2` after its governed immutable release | Head versioned RoadSense image archives; describe the exact SSM managed node; `ssm:SendCommand` only to `mi-0dade13fd68d1b435` with the reviewed SSM document; read only its command result. No S3 write or IAM rights. |
 
 The proposed `RoadSense-GateD-Production-Command-v1` Command document embeds
 the reviewed remote script at SHA-256
