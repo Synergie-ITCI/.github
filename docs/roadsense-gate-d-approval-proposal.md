@@ -116,7 +116,8 @@ identity, and shared-host routes. Failure invokes pairwise rollback.
 This workflow must not be added to the production caller, released as an
 immutable central tag, granted AWS trust, or used for deployment until the
 central policy PR and implementation have passed governed QA, independent
-security review, and explicit owner approval. A code review alone is not a
+security review by the sole authorised owner Saurabh, and his explicit
+policy approval. A code review alone is not a
 Gate D approval for a particular deployment.
 
 ## Required rejection tests before activation
@@ -158,7 +159,9 @@ artifact digest behavior and IAM trust is still required before activation.
 2. Confirm the Gate D authority login and numeric GitHub ID, including the
    established Saurabh self-authorization exception.
 3. Approve the exact release-intent, approval-artifact, verifier, and single-use
-   marker implementation after independent security review and negative tests.
+   marker implementation after Saurabh's security review and negative tests.
+   Saurabh-authored governance PRs retain the central author exception; no
+   second human reviewer is required.
 4. Approve the immutable central workflow release and narrowly scoped OIDC/SSM
    role separately, with no production execution during setup.
 5. For each release, record Gate C first and then a separate explicit Gate D
