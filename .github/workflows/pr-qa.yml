@@ -35,6 +35,7 @@ jobs:
       terraform: ${{ steps.detect.outputs.terraform }}
       docker: ${{ steps.detect.outputs.docker }}
       framework_release: ${{ steps.active-framework.outputs.release }}
+      framework_commit: ${{ steps.active-framework.outputs.commit }}
     steps:
       - name: Checkout pull request
         uses: actions/checkout@v4
@@ -135,6 +136,28 @@ jobs:
           mkdir -p .pr-qa-framework
           rsync -a --exclude='.git' --exclude='.pr-qa-framework' ./ .pr-qa-framework/
 
+      - name: Checkout central PR QA release resolver
+        if: github.repository != 'Synergie-ITCI/.github'
+        uses: actions/checkout@v4
+        with:
+          repository: Synergie-ITCI/.github
+          ref: ${{ job.workflow_sha || github.workflow_sha }}
+          path: .pr-qa-release-resolver
+          persist-credentials: false
+
+      - name: Verify detector framework identity
+        if: github.repository != 'Synergie-ITCI/.github'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DETECTED_RELEASE: ${{ needs.detect.outputs.framework_release }}
+          DETECTED_COMMIT: ${{ needs.detect.outputs.framework_commit }}
+        run: |
+          if ! python3 .pr-qa-release-resolver/pr-qa/release_pin.py \
+            --verify-bound "$DETECTED_RELEASE" --commit "$DETECTED_COMMIT"; then
+            echo 'Framework identity could not be verified; rerun the complete workflow.' >&2
+            exit 1
+          fi
+
       - name: Checkout immutable central PR QA framework
         if: github.repository != 'Synergie-ITCI/.github'
         uses: actions/checkout@v4
@@ -143,6 +166,16 @@ jobs:
           ref: ${{ needs.detect.outputs.framework_release }}
           path: .pr-qa-framework
           persist-credentials: false
+
+      - name: Confirm checked-out framework commit
+        if: github.repository != 'Synergie-ITCI/.github'
+        env:
+          DETECTED_COMMIT: ${{ needs.detect.outputs.framework_commit }}
+        run: |
+          if [ "$(git -C .pr-qa-framework rev-parse HEAD)" != "$DETECTED_COMMIT" ]; then
+            echo 'Framework checkout differs from detector identity; rerun the complete workflow.' >&2
+            exit 1
+          fi
 
       - name: Install mandatory Gitleaks
         run: |

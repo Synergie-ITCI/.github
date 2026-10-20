@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import textwrap
 import unittest
+import sys
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
 from unittest.mock import patch
@@ -16,6 +17,36 @@ preflight = SourceFileLoader("release_preflight", str(SCRIPT)).load_module()
 
 
 class ReleasePreflightTests(unittest.TestCase):
+    def test_publisher_bound_preflight_skips_release_enumeration_and_checks_local_tag(self):
+        sys.path.insert(0, str(ROOT / "pr-qa"))
+        import release_pin
+        commit = "a" * 40
+        args = ["release-preflight", "--base", "main", "--verified-release", "pr-qa-v1-rc194",
+                "--verified-commit", commit]
+        local = subprocess.CompletedProcess([], 0, commit + "\n", "")
+        with patch.object(sys, "argv", args), patch.object(preflight, "repo_root", return_value=ROOT), \
+             patch.object(preflight, "active_release") as enumerate_releases, \
+             patch.object(release_pin, "verify_bound_release") as verify_bound, \
+             patch.object(preflight, "git", return_value=local), \
+             patch.object(preflight, "resolve_origin_base", return_value="b" * 40), \
+             patch.object(preflight, "worktree_state", return_value="CLEAN"), \
+             patch.object(preflight, "extract_release", return_value=True), \
+             patch.object(preflight, "run_pr_qa", return_value=True), \
+             patch.object(preflight, "run_consumer_compatibility", return_value=True), \
+             patch.object(preflight, "print_report"):
+            self.assertEqual(preflight.main(), 0)
+            enumerate_releases.assert_not_called()
+            verify_bound.assert_called_once()
+        stale = subprocess.CompletedProcess([], 0, "c" * 40 + "\n", "")
+        with patch.object(sys, "argv", args), patch.object(preflight, "repo_root", return_value=ROOT), \
+             patch.object(release_pin, "verify_bound_release"), \
+             patch.object(preflight, "git", return_value=stale), \
+             patch.object(preflight, "resolve_origin_base", return_value="b" * 40), \
+             patch.object(preflight, "worktree_state", return_value="CLEAN"), \
+             patch.object(preflight, "run_consumer_compatibility", return_value=True), \
+             patch.object(preflight, "print_report"):
+            self.assertEqual(preflight.main(), 1)
+
     def test_central_preflight_uses_live_governed_release(self):
         origin = subprocess.CompletedProcess([], 0, preflight.CENTRAL_ORIGIN + "\n", "")
         active = subprocess.CompletedProcess([], 0, "Resolved active release pr-qa-v1-rc191 at " + "a" * 40 + "\n", "")

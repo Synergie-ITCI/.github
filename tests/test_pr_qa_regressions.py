@@ -6334,7 +6334,7 @@ jobs:
         self.assertIn("issues: write", workflow)
         self.assertIn("issues: write", self_workflow)
         self.assertIn("issues: write", caller)
-        self.assertEqual(workflow.count("GH_TOKEN: ${{ github.token }}"), 7)
+        self.assertEqual(workflow.count("GH_TOKEN: ${{ github.token }}"), 8)
         # The starter onboarding caller consumes the centrally maintained workflow
         # and initially covers all PR boundaries.
         self.assertIn("@main", caller)

@@ -169,7 +169,11 @@ def print_report(release: str, base: str, dirty: str, qa: str, compatibility: st
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run central PR-QA before release promotion.")
     parser.add_argument("--base", default="development", help="promotion base branch")
+    parser.add_argument("--verified-release", help="release already resolved in this publication operation")
+    parser.add_argument("--verified-commit", help="exact commit of the verified release")
     args = parser.parse_args()
+    if bool(args.verified_release) != bool(args.verified_commit):
+        parser.error("--verified-release and --verified-commit must be provided together")
 
     root = repo_root()
     blockers: list[str] = []
@@ -182,7 +186,20 @@ def main() -> int:
         print_report(release, args.base, dirty, qa, compatibility, ["not inside a git repository"])
         return 1
 
-    release = active_release(root) or ""
+    if args.verified_release and args.verified_commit:
+        try:
+            sys.path.insert(0, str(root / "pr-qa"))
+            from release_pin import verify_bound_release  # pylint: disable=import-outside-toplevel
+            manifest = json.loads((root / "policy/framework-releases.json").read_text())
+            verify_bound_release(args.verified_release, args.verified_commit, manifest)
+            local_commit = git(["rev-parse", "--verify", f"{args.verified_release}^{{commit}}"], root)
+            if local_commit.returncode or local_commit.stdout.strip() != args.verified_commit:
+                raise ValueError("Local immutable tag differs from verified release commit")
+            release = args.verified_release
+        except (ImportError, OSError, ValueError, json.JSONDecodeError) as exc:
+            blockers.append(f"verified release identity unavailable: {exc}")
+    else:
+        release = active_release(root) or ""
     if not release:
         blockers.append("active PR-QA release pin could not be derived")
 

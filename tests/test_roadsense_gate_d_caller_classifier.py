@@ -1,6 +1,9 @@
 """The deployment-risk exception accepts only the reviewed RoadSense caller shape."""
 
 import importlib.util
+import copy
+import base64
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -37,6 +40,9 @@ def caller(path):
 class CallerClassifierTests(unittest.TestCase):
     def setUp(self):
         self.ctx = SimpleNamespace(event={"repository": {"full_name": "Synergie-ITCI/roadsense-production-dashboard"}})
+        self.approval_patch = patch.object(engine, "approved_roadsense_gate_d_release", return_value=True)
+        self.approved = self.approval_patch.start()
+        self.addCleanup(self.approval_patch.stop)
 
     def test_all_four_exact_callers_are_reviewable(self):
         for path in engine.ROADSENSE_GATE_D_CALLERS:
@@ -51,6 +57,14 @@ class CallerClassifierTests(unittest.TestCase):
         parsed.pop("on", None)
         with patch.object(engine, "parse_workflow_yaml", return_value=parsed):
             self.assertTrue(engine.roadsense_gate_d_caller_details(self.ctx, path, text))
+
+    def test_future_protected_compatible_deploy_version_needs_no_classifier_change(self):
+        path = ".github/workflows/roadsense-controlled-release.yml"
+        self.assertTrue(engine.roadsense_gate_d_caller_details(
+            self.ctx, path, caller(path).replace("@roadsense-gate-d-v3", "@roadsense-gate-d-v4")))
+        self.approved.return_value = False
+        self.assertFalse(engine.roadsense_gate_d_caller_details(
+            self.ctx, path, caller(path).replace("@roadsense-gate-d-v3", "@roadsense-gate-d-v4")))
 
     def test_changed_pin_trigger_permission_and_actor_are_rejected(self):
         path = ".github/workflows/roadsense-controlled-release.yml"
@@ -74,6 +88,52 @@ class CallerClassifierTests(unittest.TestCase):
         self.ctx.event["repository"]["full_name"] = "Synergie-ITCI/other"
         path = ".github/workflows/roadsense-controlled-release.yml"
         self.assertFalse(engine.roadsense_gate_d_caller_details(self.ctx, path, caller(path)))
+
+    def test_release_identity_requires_governed_commit_and_exact_protection(self):
+        self.approval_patch.stop()
+        release = "roadsense-gate-d-v4"
+        workflow = "roadsense-controlled-release.yml"
+        commit = "a" * 40
+        tag_object = "b" * 40
+        main = "c" * 40
+        rules = {"id": 42, "target": "tag", "enforcement": "active",
+                 "updated_at": "2026-10-20T00:00:00Z", "bypass_actors": [],
+                 "conditions": {"ref_name": {"include": [f"refs/tags/{release}"], "exclude": []},
+                                "repository_name": {"include": [".github"], "exclude": [], "protected": False}},
+                 "rules": [{"type": "update"}, {"type": "deletion"}]}
+        repo_rules = copy.deepcopy(rules)
+        repo_rules["conditions"].pop("repository_name")
+        prefix = "repos/Synergie-ITCI/.github"
+        policy = {"repository": "Synergie-ITCI/.github", "gate_d_workflow_releases": {
+            release: {"commit": commit, "tag_object": tag_object, "ruleset_id": 42,
+                      "ruleset_updated_at": rules["updated_at"], "bypass_actors": [],
+                      "workflows": [workflow]}}}
+        responses = {
+            f"{prefix}/git/ref/heads/main": {"object": {"sha": main}},
+            f"{prefix}/contents/policy/framework-releases.json?ref={main}": {
+                "type": "file", "encoding": "base64", "content": base64.b64encode(json.dumps(policy).encode()).decode()},
+            f"{prefix}/git/ref/tags/{release}": {"ref": f"refs/tags/{release}",
+                                                    "object": {"type": "tag", "sha": tag_object}},
+            f"{prefix}/git/tags/{tag_object}": {"tag": release, "object": {"type": "commit", "sha": commit}},
+            f"{prefix}/compare/{commit}...{main}": {"status": "ahead"},
+            f"{prefix}/commits/{commit}/pulls": [{"merged_at": "2026-10-20T00:00:00Z",
+                                                   "merge_commit_sha": commit,
+                                                   "base": {"ref": "main", "repo": {"full_name": "Synergie-ITCI/.github"}}}],
+            f"{prefix}/rulesets/42": repo_rules,
+        }
+        def verify(data):
+            return engine.approved_roadsense_gate_d_release(release, workflow, lambda path: data[path])
+        self.assertTrue(verify(responses))
+        self.assertFalse(engine.approved_roadsense_gate_d_release(
+            release, "unauthorized.yml", lambda path: responses[path]))
+        for path, change in (
+            (f"{prefix}/compare/{commit}...{main}", {"status": "diverged"}),
+            (f"{prefix}/rulesets/42", {**repo_rules, "enforcement": "disabled"}),
+            (f"{prefix}/rulesets/42", {**repo_rules, "updated_at": "2026-10-21T00:00:00Z"}),
+        ):
+            with self.subTest(path=path):
+                bad = {**responses, path: change}
+                self.assertFalse(verify(bad))
 
 
 if __name__ == "__main__":

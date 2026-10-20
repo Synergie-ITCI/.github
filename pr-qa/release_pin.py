@@ -50,9 +50,36 @@ def validate_workflow(workflow: str, manifest: dict) -> tuple[str, dict]:
         raise ValueError("Release requires reviewed no-bypass ruleset evidence")
     if "framework-ref" in workflow:
         raise ValueError("Framework overrides are forbidden")
+    jobs = parsed.get("jobs", {})
+    if jobs.get("detect", {}).get("outputs", {}).get("framework_commit") != "${{ steps.active-framework.outputs.commit }}":
+        raise ValueError("Detector must carry the exact resolved framework commit")
+    qa_steps = jobs.get("qa", {}).get("steps", [])
+    names = [step.get("name") for step in qa_steps]
+    required_order = ["Checkout central PR QA release resolver", "Verify detector framework identity",
+                      "Checkout immutable central PR QA framework", "Confirm checked-out framework commit"]
+    try:
+        positions = [names.index(name) for name in required_order]
+    except ValueError as exc:
+        raise ValueError("QA must verify the detector framework identity before use") from exc
+    if positions != sorted(positions):
+        raise ValueError("QA framework verification must precede framework use")
+    verifier = qa_steps[positions[1]]
+    if (
+        verifier.get("if") != "github.repository != 'Synergie-ITCI/.github'"
+        or verifier.get("env", {}).get("DETECTED_RELEASE") != "${{ needs.detect.outputs.framework_release }}"
+        or verifier.get("env", {}).get("DETECTED_COMMIT") != "${{ needs.detect.outputs.framework_commit }}"
+        or '.pr-qa-release-resolver/pr-qa/release_pin.py' not in verifier.get("run", "")
+        or '--verify-bound "$DETECTED_RELEASE" --commit "$DETECTED_COMMIT"' not in verifier.get("run", "")
+    ):
+        raise ValueError("QA must verify the exact detector release and commit")
+    confirmation = qa_steps[positions[3]]
+    if (confirmation.get("if") != "github.repository != 'Synergie-ITCI/.github'"
+            or confirmation.get("env", {}).get("DETECTED_COMMIT") != "${{ needs.detect.outputs.framework_commit }}"
+            or 'git -C .pr-qa-framework rev-parse HEAD' not in confirmation.get("run", "")):
+        raise ValueError("QA must confirm the checked-out framework commit")
     resolver_checkout_count = 0
     framework_checkout_refs: list[object] = []
-    for job in parsed.get("jobs", {}).values():
+    for job in jobs.values():
         if PIN in job.get("env", {}):
             raise ValueError("Job framework override is forbidden")
         for step in job.get("steps", []):
@@ -75,8 +102,8 @@ def validate_workflow(workflow: str, manifest: dict) -> tuple[str, dict]:
                         framework_checkout_refs.append(settings.get("ref"))
                     else:
                         raise ValueError("Unexpected framework checkout path")
-    if resolver_checkout_count != 1:
-        raise ValueError("Release resolver must be checked out exactly once")
+    if resolver_checkout_count != 2:
+        raise ValueError("Release resolver must be checked out once in each job")
     if framework_checkout_refs != ["${{ steps.active-framework.outputs.release }}", "${{ needs.detect.outputs.framework_release }}"]:
         raise ValueError("Framework checkouts must use the resolved active immutable release")
     return release, entry
@@ -460,6 +487,35 @@ def resolve_active_release(
     raise ValueError("No verified active PR-QA release is available")
 
 
+def verify_bound_release(
+    release: str,
+    commit: str,
+    manifest: dict | None = None,
+    lookup=github_json,
+    list_refs=github_list,
+) -> None:
+    """Verify a detector's immutable release identity without selecting a newer release."""
+    if not RELEASE_RE.fullmatch(release) or not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise ValueError("Rerun framework identity is missing or malformed; rerun the complete workflow")
+    ref = lookup(f"git/ref/tags/{release}")
+    if ref.get("ref") != f"refs/tags/{release}":
+        raise ValueError("Rerun framework tag identity changed; rerun the complete workflow")
+    try:
+        entry = evidence_from_annotated_tag(release, ref, lookup)
+    except ValueError as exc:
+        raise ValueError("Rerun framework evidence is invalid; rerun the complete workflow") from exc
+    if entry is None:
+        legacy = (manifest or {}).get("releases", {}).get(release)
+        if not isinstance(legacy, dict):
+            raise ValueError("Rerun framework evidence is unavailable; rerun the complete workflow")
+        entry = {**legacy, "_source": RELEASE_SOURCE_LEGACY_REGISTRY}
+    if entry.get("commit") != commit:
+        raise ValueError("Rerun framework commit differs from detector output; rerun the complete workflow")
+    verify_live_release(release, entry, lookup, manifest)
+    if entry.get("_source") == RELEASE_SOURCE_ANNOTATED_TAG:
+        verify_release_provenance(release, entry, lookup, list_refs)
+
+
 def write_github_output(release: str, entry: dict) -> None:
     output = os.environ.get("GITHUB_OUTPUT")
     if output:
@@ -471,11 +527,18 @@ def write_github_output(release: str, entry: dict) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--resolve-active", action="store_true")
+    parser.add_argument("--verify-bound", metavar="RELEASE")
+    parser.add_argument("--commit")
     args = parser.parse_args()
     workflow = (ROOT / ".github/workflows/pr-qa.yml").read_text()
     manifest = json.loads((ROOT / "policy/framework-releases.json").read_text())
     validate_workflow(workflow, manifest)
-    if args.resolve_active:
+    if args.verify_bound:
+        if not args.commit:
+            parser.error("--verify-bound requires --commit")
+        verify_bound_release(args.verify_bound, args.commit, manifest)
+        print(f"Verified bound release {args.verify_bound} at {args.commit}")
+    elif args.resolve_active:
         release, entry = resolve_active_release(manifest)
         write_github_output(release, entry)
         print(f"Resolved active release {release} at {entry['commit']}")

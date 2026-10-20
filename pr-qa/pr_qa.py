@@ -18,6 +18,7 @@ import urllib.request
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable
 
@@ -3797,12 +3798,87 @@ def roadsense_gate_d_caller_details(ctx: PRContext, path: str, text: str) -> boo
         expected_if += " && github.actor == 'SaurabhVermaIN' && github.actor_id == '52234089'"
     if str(job["if"]) != expected_if:
         return False
-    release = "roadsense-gate-d-v3" if job_id == "deploy" else "roadsense-gate-d-v1"
+    uses = str(job["uses"])
+    prefix = f"Synergie-ITCI/.github/.github/workflows/{central_file}@"
+    if not uses.startswith(prefix):
+        return False
+    release = uses.removeprefix(prefix)
+    match = re.fullmatch(r"roadsense-gate-d-v([1-9][0-9]*)", release)
+    if not match or (job_id == "deploy" and int(match.group(1)) < 3):
+        return False
+    if not approved_roadsense_gate_d_release(release, central_file):
+        return False
     expected_uses = f"Synergie-ITCI/.github/.github/workflows/{central_file}@{release}"
     if job["uses"] != expected_uses:
         return False
     expected_with = {target: "${{ inputs." + source + " }}" for source, target in inputs.items()}
     return job["with"] == expected_with
+
+
+@lru_cache(maxsize=16)
+def approved_roadsense_gate_d_release(
+    release: str, workflow: str, lookup: Callable[[str], Any] | None = None,
+) -> bool:
+    """Use approved main policy and live immutable-tag evidence for one workflow."""
+    def api(path: str) -> Any:
+        if lookup is not None:
+            return lookup(path)
+        result = subprocess.run(["gh", "api", path], capture_output=True, text=True, check=False)
+        if result.returncode:
+            raise ValueError("Gate D release evidence unavailable")
+        return json.loads(result.stdout)
+
+    try:
+        repo = "repos/Synergie-ITCI/.github"
+        main = api(f"{repo}/git/ref/heads/main").get("object", {}).get("sha", "")
+        if not re.fullmatch(r"[0-9a-f]{40}", main):
+            return False
+        content = api(f"{repo}/contents/policy/framework-releases.json?ref={main}")
+        if content.get("type") != "file" or content.get("encoding") != "base64":
+            return False
+        policy = json.loads(base64.b64decode(content["content"], validate=False))
+        if policy.get("repository") != "Synergie-ITCI/.github":
+            return False
+        entry = policy.get("gate_d_workflow_releases", {}).get(release)
+        if not isinstance(entry, dict) or workflow not in entry.get("workflows", []):
+            return False
+        if (entry.get("bypass_actors") != [] or type(entry.get("ruleset_id")) is not int
+                or not re.fullmatch(r"[0-9a-f]{40}", str(entry.get("commit", "")))
+                or not re.fullmatch(r"[0-9a-f]{40}", str(entry.get("tag_object", "")))):
+            return False
+        ref_name = f"refs/tags/{release}"
+        ref = api(f"{repo}/git/ref/tags/{release}")
+        if (ref.get("ref") != ref_name or ref.get("object", {}).get("type") != "tag"
+                or ref.get("object", {}).get("sha") != entry["tag_object"]):
+            return False
+        tag = api(f"{repo}/git/tags/{ref['object']['sha']}")
+        commit = tag.get("object", {}).get("sha", "")
+        if (tag.get("tag") != release or tag.get("object", {}).get("type") != "commit"
+                or commit != entry["commit"]):
+            return False
+        if api(f"{repo}/compare/{commit}...{main}").get("status") not in {"ahead", "identical"}:
+            return False
+        pulls = api(f"{repo}/commits/{commit}/pulls")
+        if not any(pr.get("merged_at") and pr.get("merge_commit_sha") == commit
+                   and pr.get("base", {}).get("ref") == "main"
+                   and pr.get("base", {}).get("repo", {}).get("full_name") == "Synergie-ITCI/.github"
+                   for pr in pulls):
+            return False
+        scoped = api(f"{repo}/rulesets/{entry['ruleset_id']}")
+        expected_ref = {"include": [ref_name], "exclude": []}
+        reviewed_time = datetime.fromisoformat(entry["ruleset_updated_at"].replace("Z", "+00:00"))
+        live_time = datetime.fromisoformat(scoped["updated_at"].replace("Z", "+00:00"))
+        return (reviewed_time.tzinfo is not None and live_time.tzinfo is not None
+                and reviewed_time == live_time
+                and scoped.get("id") == entry["ruleset_id"]
+                and scoped.get("target") == "tag" and scoped.get("enforcement") == "active"
+                and scoped.get("conditions", {}).get("ref_name") == expected_ref
+                and ("bypass_actors" not in scoped or scoped["bypass_actors"] == [])
+                and {"update", "deletion"}.issubset(
+                    {rule.get("type") for rule in scoped.get("rules", [])}))
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError, OSError):
+        return False
+    return False
 
 
 CENTRAL_ACTION_USES_RE = re.compile(r"^Synergie-ITCI/\.github/actions/([^@\s]+)@([^@\s]+)$")
