@@ -26,6 +26,8 @@ class RoadSenseRestrictedSsmDocumentTests(unittest.TestCase):
         self.assertEqual(set(document["parameters"]), {"ReleaseJsonBase64"})
         parameter = document["parameters"]["ReleaseJsonBase64"]
         self.assertEqual(parameter["interpolationType"], "ENV_VAR")
+        self.assertEqual(parameter["allowedPattern"], "^[A-Za-z0-9+/=]+$")
+        self.assertEqual((parameter["minChars"], parameter["maxChars"]), (100, 8192))
         self.assertIsNone(re.fullmatch(parameter["allowedPattern"], "$(touch /tmp/unsafe)"))
         self.assertIsNone(re.fullmatch(parameter["allowedPattern"], "echo unsafe;"))
         self.assertIsNotNone(re.fullmatch(parameter["allowedPattern"], base64.b64encode(b"x" * 100).decode()))
@@ -69,7 +71,7 @@ class RoadSenseRestrictedSsmDocumentTests(unittest.TestCase):
         claims = trust["Statement"][0]["Condition"]["StringEquals"]
         self.assertEqual(
             claims["token.actions.githubusercontent.com:job_workflow_ref"],
-            "Synergie-ITCI/.github/.github/workflows/roadsense-controlled-release.yml@refs/tags/roadsense-gate-d-v2",
+            "Synergie-ITCI/.github/.github/workflows/roadsense-controlled-release.yml@refs/tags/roadsense-gate-d-v3",
         )
         self.assertEqual(
             claims["token.actions.githubusercontent.com:sub"],
