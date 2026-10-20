@@ -110,6 +110,7 @@ def validate(
     record: dict[str, Any], expected: dict[str, Any], intent: dict[str, Any],
     approval: dict[str, Any], artifact: dict[str, Any], artifact_zip: bytes,
     main_sha: str, deployments: list[dict[str, Any]], now: dt.datetime,
+    deploy_actor: tuple[str, int],
 ) -> None:
     require(set(record) == FIELDS, "record schema mismatch")
     require(record["repository"] == REPO and type(record["repository_id"]) is int and record["repository_id"] == REPO_ID, "record repository mismatch")
@@ -139,6 +140,7 @@ def validate(
     require(timestamp(intent["created_at"]) <= timestamp(approval["created_at"]) <= issued, "approval order mismatch")
     requester, approver = identity(intent, "actor"), identity(approval, "actor")
     require(requester == (record["requester_login"], record["requester_id"]), "requester identity mismatch")
+    require(deploy_actor == requester, "deployment actor differs from approved requester")
     require(approver == (record["approver_login"], record["approver_id"]), "approver identity mismatch")
     require(approver == AUTHORITY, "Gate D approver unauthorized")
     require(requester != approver or requester == AUTHORITY, "self approval unauthorized")
@@ -246,7 +248,11 @@ def main() -> int:
         expected = strict_expected(open(args.expected_json, "rb").read())
         record = strict_json(open(args.approval_json, "rb").read())
         evidence = live_evidence(record)
-        validate(record, expected, *evidence, dt.datetime.now(dt.UTC))
+        actor_login = os.environ.get("GATE_D_DEPLOY_ACTOR", "")
+        actor_id_text = os.environ.get("GATE_D_DEPLOY_ACTOR_ID", "")
+        require(actor_login and actor_id_text.isdecimal(), "deployment actor context unavailable")
+        require(os.environ.get("GATE_D_RUN_ATTEMPT") == "1", "deployment rerun is not authorized")
+        validate(record, expected, *evidence, dt.datetime.now(dt.UTC), (actor_login, int(actor_id_text)))
         if args.mark_used:
             mark_used(record)
     except (Rejected, OSError, subprocess.TimeoutExpired) as exc:

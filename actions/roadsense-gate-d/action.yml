@@ -16,6 +16,9 @@ runs:
         EXPECTED_JSON: ${{ inputs.expected-json }}
         APPROVAL_JSON: ${{ inputs.approval-json }}
         GH_TOKEN: ${{ github.token }}
+        GATE_D_DEPLOY_ACTOR: ${{ github.actor }}
+        GATE_D_DEPLOY_ACTOR_ID: ${{ github.actor_id }}
+        GATE_D_RUN_ATTEMPT: ${{ github.run_attempt }}
       run: |
         set -euo pipefail
         work_dir="$(mktemp -d)"

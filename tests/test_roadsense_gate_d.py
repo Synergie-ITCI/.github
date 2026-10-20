@@ -66,10 +66,10 @@ class GateDTests(unittest.TestCase):
         args = list(copy.deepcopy(fixture()))
         mutate(args[index], args)
         with self.assertRaises(gate.Rejected):
-            gate.validate(*args, NOW)
+            gate.validate(*args, NOW, gate.AUTHORITY)
 
     def test_authorized_saurabh_self_approval(self):
-        gate.validate(*fixture(), NOW)
+        gate.validate(*fixture(), NOW, gate.AUTHORITY)
 
     def test_approval_for_other_requester(self):
         args = list(fixture())
@@ -77,7 +77,11 @@ class GateDTests(unittest.TestCase):
         args[2] = run(10, gate.INTENT_PATH, ("Developer", 123))
         args[5] = zipped(args[0])
         args[4]["digest"] = "sha256:" + hashlib.sha256(args[5]).hexdigest()
-        gate.validate(*args, NOW)
+        gate.validate(*args, NOW, ("Developer", 123))
+
+    def test_different_deployment_actor_rejected(self):
+        with self.assertRaises(gate.Rejected):
+            gate.validate(*fixture(), NOW, ("OtherUser", 777))
 
     def test_missing_approval(self):
         self.assert_rejected(0, lambda record, _: record.clear())

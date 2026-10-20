@@ -79,6 +79,8 @@ if deleted, they cannot authorize deployment.
 
 The approval workflow must derive the requester from the release-intent run's
 GitHub actor ID; the requester is never trusted from an input alone. The deploy
+verifier also binds the current authenticated dispatch actor and requires a
+first-attempt run to match that original requester. The deploy
 verifier checks the Gate D approver's authenticated login and numeric ID against
 the central Executive Release Authority. It allows the requester and approver
 to be the same person only when both are the authorized Saurabh identity. The
@@ -146,7 +148,7 @@ may use this candidate branch or an unreviewed `main` reference.
 
 The current tests use mocked GitHub evidence and cover positive exact binding,
 missing and forged artifacts, stale approval, replay markers, every tuple
-mismatch, wrong actor/workflow/branch, reruns and malformed JSON. A live,
+mismatch, wrong approver or deployment actor/workflow/branch, reruns and malformed JSON. A live,
 non-production integration test of the eventual caller, approval issuance,
 artifact digest behavior and IAM trust is still required before activation.
 
