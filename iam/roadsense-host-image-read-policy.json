@@ -1,0 +1,11 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadVersionedRoadSenseImageOnly",
+      "Effect": "Allow",
+      "Action": "s3:GetObjectVersion",
+      "Resource": "arn:aws:s3:::synergie-production-app-backups-918870682888-ap-south-1/applications/roadsense/images/*/roadsense-image.tar"
+    }
+  ]
+}

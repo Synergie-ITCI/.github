@@ -30,6 +30,13 @@ policy and the cross-account bucket policy must permit only `s3:GetObjectVersion
 for `applications/roadsense/images/*/roadsense-image.tar`. The S3 object version
 and SHA-256 are verified again on the host before `docker load`.
 
+Review-only trust, role, and cross-account bucket-policy statement templates are
+in `iam/roadsense-*.json`. The existing bucket policy has three statements,
+including `DenyInsecureTransport`; the proposed host statement must be added
+without replacing those statements. The host-side identity policy is in the
+separate AWS account `507960112182` and requires that account's authorised
+administrator. No current AWS policy was edited by this PR.
+
 Do not grant either role to the intent or approval workflows. The central
 authorize job must have no `id-token: write`; the deployment job must verify
 the consumed approval again before OIDC. Validate emitted token claims and
