@@ -1,0 +1,26 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadRoadSenseImageMetadataOnly",
+      "Effect": "Allow",
+      "Action": "s3:GetObjectVersion",
+      "Resource": "arn:aws:s3:::synergie-production-app-backups-918870682888-ap-south-1/applications/roadsense/images/*/roadsense-image.tar"
+    },
+    {
+      "Sid": "SendCommandOnlyToRoadSenseManagedNode",
+      "Effect": "Allow",
+      "Action": "ssm:SendCommand",
+      "Resource": [
+        "arn:aws:ssm:ap-south-1::document/AWS-RunShellScript",
+        "arn:aws:ssm:ap-south-1:918870682888:managed-instance/mi-0dade13fd68d1b435"
+      ]
+    },
+    {
+      "Sid": "ReadSSMResultAndTargetState",
+      "Effect": "Allow",
+      "Action": ["ssm:GetCommandInvocation", "ssm:DescribeInstanceInformation"],
+      "Resource": "*"
+    }
+  ]
+}
