@@ -1,0 +1,63 @@
+name: RoadSense Gate D Approval
+
+on:
+  workflow_call:
+    inputs:
+      intent-run-id:
+        description: Successful release-intent workflow run ID.
+        required: true
+        type: string
+      intent-sha256:
+        description: Exact SHA-256 shown in the reviewed release-intent run summary.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  issue-approval:
+    if: github.repository == 'Synergie-ITCI/roadsense-production-dashboard' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && github.actor == 'SaurabhVermaIN' && github.actor_id == '52234089'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Resolve the immutable executing central revision
+        id: central
+        env:
+          JOB_CONTEXT: ${{ toJSON(job) }}
+        run: |
+          set -euo pipefail
+          test "$(jq -r '.workflow_repository // empty' <<< "$JOB_CONTEXT")" = 'Synergie-ITCI/.github'
+          central_sha="$(jq -r '.workflow_sha // empty' <<< "$JOB_CONTEXT")"
+          [[ "$central_sha" =~ ^[0-9a-f]{40}$ ]]
+          echo "sha=$central_sha" >> "$GITHUB_OUTPUT"
+      - name: Checkout the executing central workflow revision
+        uses: actions/checkout@v4
+        with:
+          repository: Synergie-ITCI/.github
+          ref: ${{ steps.central.outputs.sha }}
+          path: central
+          persist-credentials: false
+      - name: Issue exact authenticated approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INTENT_RUN_ID: ${{ inputs.intent-run-id }}
+          INTENT_SHA256: ${{ inputs.intent-sha256 }}
+        run: |
+          set -euo pipefail
+          python3 central/tools/roadsense_gate_d_issue.py approve "$INTENT_RUN_ID" "$INTENT_SHA256" approval.json
+          {
+            echo '## RoadSense Gate D approval'
+            echo 'This approval expires 60 minutes after issuance and is single use.'
+            echo '```json'
+            python3 -m json.tool approval.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve immutable approval record
+        uses: actions/upload-artifact@v4
+        with:
+          name: roadsense-gate-d-approval
+          path: approval.json
+          if-no-files-found: error
+          retention-days: 1

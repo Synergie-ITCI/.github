@@ -29,10 +29,10 @@ def run(run_id, path, actor):
     }
 
 
-def zipped(record):
+def zipped(record, filename="approval.json"):
     stream = io.BytesIO()
     with zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("approval.json", json.dumps(record, sort_keys=True).encode())
+        archive.writestr(filename, json.dumps(record, sort_keys=True).encode())
     return stream.getvalue()
 
 
@@ -43,6 +43,7 @@ def fixture():
         "approver_login": "SaurabhVermaIN", "approver_id": 52234089,
         "intent_run_id": 10, "approval_run_id": 11, "release_id": "roadsense-20261020-01",
         "source_sha": SHA, "image_digest": "sha256:" + "b" * 64,
+        "image_archive_sha256": "f" * 64, "image_s3_version": "imgv1xyz",
         "database_sha256": "c" * 64, "database_s3_version": "v1xyz",
         "policy_version": "2026-10-16-release-candidate-hold-v1",
         "environment": gate.ENVIRONMENT, "ssm_target": gate.SSM_TARGET,
@@ -58,7 +59,14 @@ def fixture():
         "expired": False, "size_in_bytes": len(blob),
         "digest": "sha256:" + hashlib.sha256(blob).hexdigest(),
     }
-    return record, {key: record[key] for key in gate.TUPLE}, intent, approval, artifact, blob, SHA, []
+    intent_record = {key: record[key] for key in gate.INTENT_FIELDS}
+    intent_blob = zipped(intent_record, "intent.json")
+    intent_artifact = {
+        "id": 13, "name": gate.INTENT_ARTIFACT_NAME, "workflow_run": {"id": 10},
+        "expired": False, "size_in_bytes": len(intent_blob),
+        "digest": "sha256:" + hashlib.sha256(intent_blob).hexdigest(),
+    }
+    return record, {key: record[key] for key in gate.TUPLE}, intent, approval, artifact, blob, intent_artifact, intent_blob, SHA, []
 
 
 class GateDTests(unittest.TestCase):
@@ -77,6 +85,9 @@ class GateDTests(unittest.TestCase):
         args[2] = run(10, gate.INTENT_PATH, ("Developer", 123))
         args[5] = zipped(args[0])
         args[4]["digest"] = "sha256:" + hashlib.sha256(args[5]).hexdigest()
+        intent_record = {key: args[0][key] for key in gate.INTENT_FIELDS}
+        args[7] = zipped(intent_record, "intent.json")
+        args[6]["digest"] = "sha256:" + hashlib.sha256(args[7]).hexdigest()
         gate.validate(*args, NOW, ("Developer", 123))
 
     def test_different_deployment_actor_rejected(self):
@@ -89,14 +100,46 @@ class GateDTests(unittest.TestCase):
     def test_forged_artifact(self):
         self.assert_rejected(5, lambda blob, args: args.__setitem__(5, blob + b"forged"))
 
+    def test_forged_intent_artifact(self):
+        self.assert_rejected(7, lambda blob, args: args.__setitem__(7, blob + b"forged"))
+
+    def test_intent_tuple_mismatch(self):
+        args = list(copy.deepcopy(fixture()))
+        intent_record = {key: args[0][key] for key in gate.INTENT_FIELDS}
+        intent_record["image_digest"] = "sha256:" + "9" * 64
+        args[7] = zipped(intent_record, "intent.json")
+        args[6]["digest"] = "sha256:" + hashlib.sha256(args[7]).hexdigest()
+        with self.assertRaises(gate.Rejected):
+            gate.validate(*args, NOW, gate.AUTHORITY)
+
     def test_stale_approval(self):
         self.assert_rejected(0, lambda record, _: record.__setitem__("expires_at", "2026-10-20T11:59:00Z"))
 
     def test_replayed_approval(self):
-        self.assert_rejected(7, lambda deployments, _: deployments.append({"environment": gate.MARKER_ENVIRONMENT, "payload": {"approval_run_id": 11}}))
+        self.assert_rejected(9, lambda deployments, _: deployments.append({"environment": gate.MARKER_ENVIRONMENT, "payload": {"approval_run_id": 11}}))
+
+    def test_consumed_approval_reverified_before_oidc(self):
+        args = list(fixture())
+        record = args[0]
+        payload = {key: record[key] for key in (
+            "release_id", "approval_run_id", "source_sha", "image_digest",
+            "database_sha256", "policy_version",
+        )}
+        marker = {"environment": gate.MARKER_ENVIRONMENT, "ref": SHA, "payload": payload}
+        args[9].append(marker)
+        gate.validate(*args, NOW, gate.AUTHORITY, True)
+        with self.assertRaises(gate.Rejected):
+            gate.validate(*args, NOW, gate.AUTHORITY)
+        marker["payload"]["image_digest"] = "sha256:" + "9" * 64
+        with self.assertRaises(gate.Rejected):
+            gate.validate(*args, NOW, gate.AUTHORITY, True)
+
+    def test_pre_oidc_recheck_requires_consumed_marker(self):
+        with self.assertRaises(gate.Rejected):
+            gate.validate(*fixture(), NOW, gate.AUTHORITY, True)
 
     def test_reused_release_id(self):
-        self.assert_rejected(7, lambda deployments, _: deployments.append({"environment": gate.MARKER_ENVIRONMENT, "payload": {"release_id": "roadsense-20261020-01"}}))
+        self.assert_rejected(9, lambda deployments, _: deployments.append({"environment": gate.MARKER_ENVIRONMENT, "payload": {"release_id": "roadsense-20261020-01"}}))
 
     def test_every_release_binding_mismatch(self):
         for key in gate.TUPLE:
@@ -125,7 +168,7 @@ class GateDTests(unittest.TestCase):
         self.assert_rejected(3, lambda approval, _: approval["triggering_actor"].update(id=999))
 
     def test_main_moved(self):
-        self.assert_rejected(6, lambda sha, args: args.__setitem__(6, "f" * 40))
+        self.assert_rejected(8, lambda sha, args: args.__setitem__(8, "f" * 40))
 
     def test_duplicate_json_key_rejected(self):
         with self.assertRaises(gate.Rejected):

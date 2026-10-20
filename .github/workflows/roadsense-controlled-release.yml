@@ -1,0 +1,160 @@
+name: RoadSense Controlled Gate D Release
+
+on:
+  workflow_call:
+    inputs:
+      expected-json:
+        description: Exact approved release tuple from the protected main caller.
+        required: true
+        type: string
+      approval-run-id:
+        description: Completed authenticated Gate D approval run ID.
+        required: true
+        type: string
+
+concurrency:
+  group: roadsense-controlled-production-gate-d
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    if: github.repository == 'Synergie-ITCI/roadsense-production-dashboard' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      deployments: write
+    outputs:
+      approved: ${{ steps.bound.outputs.approved }}
+      source_sha: ${{ steps.bound.outputs.source_sha }}
+    steps:
+      - name: Resolve the immutable executing central revision
+        id: central
+        env:
+          JOB_CONTEXT: ${{ toJSON(job) }}
+        run: |
+          set -euo pipefail
+          test "$(jq -r '.workflow_repository // empty' <<< "$JOB_CONTEXT")" = 'Synergie-ITCI/.github'
+          central_sha="$(jq -r '.workflow_sha // empty' <<< "$JOB_CONTEXT")"
+          [[ "$central_sha" =~ ^[0-9a-f]{40}$ ]]
+          echo "sha=$central_sha" >> "$GITHUB_OUTPUT"
+      - name: Checkout the executing central revision
+        uses: actions/checkout@v4
+        with:
+          repository: Synergie-ITCI/.github
+          ref: ${{ steps.central.outputs.sha }}
+          path: central
+          persist-credentials: false
+      - name: Verify and consume the exact approval before any OIDC credential
+        uses: ./central/actions/roadsense-gate-d
+        with:
+          expected-json: ${{ inputs.expected-json }}
+          approval-run-id: ${{ inputs.approval-run-id }}
+      - name: Export verified source identity
+        id: bound
+        env:
+          EXPECTED_JSON: ${{ inputs.expected-json }}
+        run: |
+          set -euo pipefail
+          source_sha="$(jq -er '.source_sha' <<< "$EXPECTED_JSON")"
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo 'approved=true' >> "$GITHUB_OUTPUT"
+
+  deploy:
+    needs: authorize
+    if: needs.authorize.outputs.approved == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - name: Recheck protected main and exact approval before credentials
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.authorize.outputs.source_sha }}
+          EXPECTED_JSON: ${{ inputs.expected-json }}
+        run: |
+          set -euo pipefail
+          test "$(gh api repos/Synergie-ITCI/roadsense-production-dashboard/branches/main --jq '.commit.sha')" = "$SOURCE_SHA"
+          test "$(jq -er '.source_sha' <<< "$EXPECTED_JSON")" = "$SOURCE_SHA"
+          test "${GITHUB_RUN_ATTEMPT}" = '1'
+      - name: Checkout exact protected application source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.authorize.outputs.source_sha }}
+          persist-credentials: false
+      - name: Validate checked-in RoadSense remote script
+        run: |
+          set -euo pipefail
+          bash -n .github/scripts/roadsense-production-remote.sh
+          test -x .github/scripts/roadsense-production-remote.sh
+      - name: Resolve exact central revision for pre-OIDC recheck
+        id: central
+        env:
+          JOB_CONTEXT: ${{ toJSON(job) }}
+        run: |
+          set -euo pipefail
+          test "$(jq -r '.workflow_repository // empty' <<< "$JOB_CONTEXT")" = 'Synergie-ITCI/.github'
+          central_sha="$(jq -r '.workflow_sha // empty' <<< "$JOB_CONTEXT")"
+          [[ "$central_sha" =~ ^[0-9a-f]{40}$ ]]
+          echo "sha=$central_sha" >> "$GITHUB_OUTPUT"
+      - name: Checkout the executing central revision for pre-OIDC recheck
+        uses: actions/checkout@v4
+        with:
+          repository: Synergie-ITCI/.github
+          ref: ${{ steps.central.outputs.sha }}
+          path: central
+          persist-credentials: false
+      - name: Reverify exact consumed Gate D approval before OIDC
+        uses: ./central/actions/roadsense-gate-d
+        with:
+          expected-json: ${{ inputs.expected-json }}
+          approval-run-id: ${{ inputs.approval-run-id }}
+          require-used: 'true'
+      - name: Obtain scoped short-lived production credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::918870682888:role/SynergieRoadSenseProductionGateDRole
+          aws-region: ap-south-1
+          role-session-name: roadsense-gate-d-${{ github.run_id }}
+      - name: Verify exact image artifact and SSM target
+        env:
+          EXPECTED_JSON: ${{ inputs.expected-json }}
+        run: |
+          set -euo pipefail
+          test "$(aws sts get-caller-identity --query Account --output text)" = '918870682888'
+          target="$(aws ssm describe-instance-information --filters Key=InstanceIds,Values=mi-0dade13fd68d1b435 --query 'InstanceInformationList[0].PingStatus' --output text)"
+          test "$target" = 'Online'
+          archive_sha="$(jq -er '.image_archive_sha256' <<< "$EXPECTED_JSON")"
+          image_version="$(jq -er '.image_s3_version' <<< "$EXPECTED_JSON")"
+          key="applications/roadsense/images/${archive_sha}/roadsense-image.tar"
+          aws s3api head-object \
+            --bucket synergie-production-app-backups-918870682888-ap-south-1 \
+            --key "$key" --version-id "$image_version" \
+            --query '{sha:Metadata.sha256,encryption:ServerSideEncryption}' --output json > image-head.json
+          test "$(jq -r '.sha' image-head.json)" = "$archive_sha"
+          test "$(jq -r '.encryption' image-head.json)" = 'AES256'
+      - name: Send exact release to the verified host through SSM
+        env:
+          EXPECTED_JSON: ${{ inputs.expected-json }}
+        run: |
+          set -euo pipefail
+          script_b64="$(base64 -w0 .github/scripts/roadsense-production-remote.sh)"
+          release_b64="$(printf '%s' "$EXPECTED_JSON" | base64 -w0)"
+          command="$(jq -nr --arg script "$script_b64" --arg release "$release_b64" \
+            '"script=$(mktemp /tmp/roadsense-gate-d.XXXXXX.sh); printf %s " + ($script|@sh) + " | base64 -d > \"$script\"; chmod 700 \"$script\"; RELEASE_JSON_B64=" + ($release|@sh) + " \"$script\"; rc=$?; rm -f \"$script\"; exit $rc"')"
+          jq -n --arg cmd "$command" '{commands:[$cmd]}' > ssm-parameters.json
+          command_id="$(aws ssm send-command \
+            --instance-ids mi-0dade13fd68d1b435 \
+            --document-name AWS-RunShellScript \
+            --comment "RoadSense Gate D $GITHUB_RUN_ID" \
+            --parameters file://ssm-parameters.json \
+            --query 'Command.CommandId' --output text)"
+          echo "SSM_COMMAND_ID=$command_id"
+          aws ssm wait command-executed --command-id "$command_id" --instance-id mi-0dade13fd68d1b435 || true
+          status="$(aws ssm get-command-invocation --command-id "$command_id" --instance-id mi-0dade13fd68d1b435 --query Status --output text)"
+          test "$status" = 'Success'

@@ -27,6 +27,7 @@ SSM_TARGET = "mi-0dade13fd68d1b435"
 INTENT_PATH = ".github/workflows/roadsense-release-intent.yml"
 APPROVAL_PATH = ".github/workflows/roadsense-gate-d-approve.yml"
 ARTIFACT_NAME = "roadsense-gate-d-approval"
+INTENT_ARTIFACT_NAME = "roadsense-release-intent"
 MARKER_TASK = "roadsense-gate-d-approval"
 MARKER_ENVIRONMENT = "roadsense-gate-d-ledger"
 HEX40 = re.compile(r"[0-9a-f]{40}\Z")
@@ -38,15 +39,20 @@ VERSION = re.compile(r"[A-Za-z0-9+/=._-]{1,128}\Z")
 FIELDS = {
     "repository", "repository_id", "requester_login", "requester_id",
     "approver_login", "approver_id", "intent_run_id", "approval_run_id",
-    "release_id", "source_sha", "image_digest", "database_sha256",
+    "release_id", "source_sha", "image_digest", "image_archive_sha256",
+    "image_s3_version", "database_sha256",
     "database_s3_version", "policy_version", "environment", "ssm_target",
     "rollback_image_digest", "rollback_database_sha256", "issued_at", "expires_at",
 }
 TUPLE = (
-    "release_id", "source_sha", "image_digest", "database_sha256",
+    "release_id", "source_sha", "image_digest", "image_archive_sha256",
+    "image_s3_version", "database_sha256",
     "database_s3_version", "policy_version", "environment", "ssm_target",
     "rollback_image_digest", "rollback_database_sha256",
 )
+INTENT_FIELDS = set(TUPLE) | {
+    "repository", "repository_id", "requester_login", "requester_id", "intent_run_id",
+}
 
 
 class Rejected(Exception):
@@ -58,7 +64,7 @@ def require(condition: bool, reason: str) -> None:
         raise Rejected(reason)
 
 
-def strict_json(raw: bytes) -> dict[str, Any]:
+def strict_json(raw: bytes, fields: set[str] = FIELDS) -> dict[str, Any]:
     require(len(raw) <= 16384, "record too large")
 
     def unique(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -72,7 +78,7 @@ def strict_json(raw: bytes) -> dict[str, Any]:
         data = json.loads(raw.decode("utf-8"), object_pairs_hook=unique)
     except (ValueError, UnicodeError) as exc:
         raise Rejected("invalid JSON") from exc
-    require(isinstance(data, dict) and set(data) == FIELDS, "record schema mismatch")
+    require(isinstance(data, dict) and set(data) == fields, "record schema mismatch")
     return data
 
 
@@ -109,24 +115,15 @@ def run_valid(run: dict[str, Any], path: str, sha: str, now: dt.datetime) -> Non
 def validate(
     record: dict[str, Any], expected: dict[str, Any], intent: dict[str, Any],
     approval: dict[str, Any], artifact: dict[str, Any], artifact_zip: bytes,
+    intent_artifact: dict[str, Any], intent_zip: bytes,
     main_sha: str, deployments: list[dict[str, Any]], now: dt.datetime,
-    deploy_actor: tuple[str, int],
+    deploy_actor: tuple[str, int], require_used: bool = False,
 ) -> None:
     require(set(record) == FIELDS, "record schema mismatch")
     require(record["repository"] == REPO and type(record["repository_id"]) is int and record["repository_id"] == REPO_ID, "record repository mismatch")
     require(set(expected) == set(TUPLE), "expected release tuple schema mismatch")
-    for key in TUPLE:
-        require(isinstance(record[key], str) and isinstance(expected[key], str), f"release tuple type mismatch: {key}")
-    require(HEX40.fullmatch(record["source_sha"]) is not None, "source SHA invalid")
-    require(DIGEST.fullmatch(record["image_digest"] or "") is not None, "image digest invalid")
-    require(HEX64.fullmatch(record["database_sha256"] or "") is not None, "database hash invalid")
-    require(DIGEST.fullmatch(record["rollback_image_digest"] or "") is not None, "rollback image digest invalid")
-    require(HEX64.fullmatch(record["rollback_database_sha256"] or "") is not None, "rollback database hash invalid")
-    require(VERSION.fullmatch(record["database_s3_version"] or "") is not None, "database version invalid")
-    require(POLICY.fullmatch(record["policy_version"] or "") is not None, "policy version invalid")
-    require(RELEASE_ID.fullmatch(record["release_id"] or "") is not None, "release ID invalid")
-    require(record["environment"] == ENVIRONMENT and record["ssm_target"] == SSM_TARGET, "production target mismatch")
-    require(record["source_sha"] == main_sha, "protected main moved")
+    validate_release_tuple(record, main_sha)
+    validate_release_tuple(expected, main_sha)
     for key in TUPLE:
         require(record[key] == expected[key], f"release tuple mismatch: {key}")
     issued, expires = timestamp(record["issued_at"]), timestamp(record["expires_at"])
@@ -144,20 +141,58 @@ def validate(
     require(approver == (record["approver_login"], record["approver_id"]), "approver identity mismatch")
     require(approver == AUTHORITY, "Gate D approver unauthorized")
     require(requester != approver or requester == AUTHORITY, "self approval unauthorized")
-    require(artifact.get("name") == ARTIFACT_NAME and isinstance(artifact.get("workflow_run"), dict) and artifact["workflow_run"].get("id") == approval["id"], "approval artifact origin mismatch")
-    require(artifact.get("expired") is False and type(artifact.get("size_in_bytes")) is int and artifact["size_in_bytes"] <= 65536, "approval artifact unavailable")
-    require(DIGEST.fullmatch(artifact.get("digest") or "") is not None, "approval artifact digest unavailable")
-    require(hashlib.sha256(artifact_zip).hexdigest() == artifact["digest"][7:], "approval artifact digest mismatch")
-    try:
-        with zipfile.ZipFile(io.BytesIO(artifact_zip)) as archive:
-            names = archive.namelist()
-            require(names == ["approval.json"], "approval artifact files mismatch")
-            info = archive.getinfo("approval.json")
-            require(info.file_size <= 16384 and not info.is_dir(), "approval record size invalid")
-            stored = strict_json(archive.read(info))
-    except (zipfile.BadZipFile, OSError, RuntimeError) as exc:
-        raise Rejected("approval artifact invalid") from exc
+    intent_record = read_artifact_json(intent_artifact, intent_zip, INTENT_ARTIFACT_NAME, intent["id"], INTENT_FIELDS)
+    require(intent_record["repository"] == REPO and intent_record["repository_id"] == REPO_ID, "intent repository mismatch")
+    require(intent_record["intent_run_id"] == intent["id"], "intent run binding mismatch")
+    require((intent_record["requester_login"], intent_record["requester_id"]) == requester, "intent requester mismatch")
+    for key in TUPLE:
+        require(intent_record[key] == record[key], f"intent release tuple mismatch: {key}")
+    stored = read_artifact_json(artifact, artifact_zip, ARTIFACT_NAME, approval["id"], FIELDS)
     require(stored == record, "approval artifact record mismatch")
+    check_replay(record, deployments, require_used)
+
+
+def validate_release_tuple(values: dict[str, Any], main_sha: str) -> None:
+    require(set(TUPLE).issubset(values), "release tuple missing field")
+    for key in TUPLE:
+        require(isinstance(values[key], str), f"release tuple type mismatch: {key}")
+    require(HEX40.fullmatch(values["source_sha"]) is not None, "source SHA invalid")
+    require(DIGEST.fullmatch(values["image_digest"]) is not None, "image digest invalid")
+    require(HEX64.fullmatch(values["image_archive_sha256"]) is not None, "image archive hash invalid")
+    require(VERSION.fullmatch(values["image_s3_version"]) is not None, "image S3 version invalid")
+    require(HEX64.fullmatch(values["database_sha256"]) is not None, "database hash invalid")
+    require(DIGEST.fullmatch(values["rollback_image_digest"]) is not None, "rollback image digest invalid")
+    require(HEX64.fullmatch(values["rollback_database_sha256"]) is not None, "rollback database hash invalid")
+    require(VERSION.fullmatch(values["database_s3_version"]) is not None, "database version invalid")
+    require(POLICY.fullmatch(values["policy_version"]) is not None, "policy version invalid")
+    require(RELEASE_ID.fullmatch(values["release_id"]) is not None, "release ID invalid")
+    require(values["environment"] == ENVIRONMENT and values["ssm_target"] == SSM_TARGET, "production target mismatch")
+    require(values["source_sha"] == main_sha, "protected main moved")
+
+
+def read_artifact_json(
+    artifact: dict[str, Any], blob: bytes, name: str, run_id: int,
+    fields: set[str],
+) -> dict[str, Any]:
+    require(artifact.get("name") == name and isinstance(artifact.get("workflow_run"), dict) and artifact["workflow_run"].get("id") == run_id, "artifact origin mismatch")
+    require(artifact.get("expired") is False and type(artifact.get("size_in_bytes")) is int and artifact["size_in_bytes"] <= 65536, "artifact unavailable")
+    require(DIGEST.fullmatch(artifact.get("digest") or "") is not None, "artifact digest unavailable")
+    require(hashlib.sha256(blob).hexdigest() == artifact["digest"][7:], "artifact digest mismatch")
+    try:
+        with zipfile.ZipFile(io.BytesIO(blob)) as archive:
+            names = archive.namelist()
+            filename = "approval.json" if name == ARTIFACT_NAME else "intent.json"
+            require(names == [filename], "artifact files mismatch")
+            info = archive.getinfo(filename)
+            require(info.file_size <= 16384 and not info.is_dir(), "artifact record size invalid")
+            stored = strict_json(archive.read(info), fields)
+    except (zipfile.BadZipFile, OSError, RuntimeError) as exc:
+        raise Rejected("artifact invalid") from exc
+    return stored
+
+
+def check_replay(record: dict[str, Any], deployments: list[dict[str, Any]], require_used: bool = False) -> None:
+    matches = []
     for deployment in deployments:
         require(deployment.get("environment") == MARKER_ENVIRONMENT, "deployment ledger mismatch")
         payload = deployment.get("payload")
@@ -167,7 +202,15 @@ def validate(
             except ValueError:
                 payload = None
         if isinstance(payload, dict) and (payload.get("release_id") == record["release_id"] or payload.get("approval_run_id") == record["approval_run_id"]):
-            raise Rejected("approval or release already used")
+            matches.append((deployment, payload))
+    if require_used:
+        require(len(matches) == 1, "consumed approval marker missing or ambiguous")
+        deployment, payload = matches[0]
+        require(deployment.get("ref") == record["source_sha"], "consumed approval ref mismatch")
+        for key in ("release_id", "approval_run_id", "source_sha", "image_digest", "database_sha256", "policy_version"):
+            require(payload.get(key) == record[key], f"consumed approval marker mismatch: {key}")
+    else:
+        require(not matches, "approval or release already used")
 
 
 def gh_json(path: str) -> Any:
@@ -185,21 +228,32 @@ def gh_binary(path: str) -> bytes:
     return result.stdout
 
 
-def live_evidence(record: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], bytes, str, list[dict[str, Any]]]:
+def get_artifact(run_id: int, name: str) -> tuple[dict[str, Any], bytes]:
+    require(type(run_id) is int and run_id > 0, "artifact run ID invalid")
+    listing = gh_json(f"actions/runs/{run_id}/artifacts?per_page=100")
+    artifacts = listing.get("artifacts", [])
+    require(isinstance(artifacts, list) and len(artifacts) < 100, "artifact listing unavailable or truncated")
+    matches = [item for item in artifacts if item.get("name") == name]
+    require(len(matches) == 1, "artifact absent or ambiguous")
+    artifact = matches[0]
+    require(type(artifact.get("id")) is int, "artifact ID invalid")
+    return artifact, gh_binary(f"actions/artifacts/{artifact['id']}/zip")
+
+
+def load_approval_record(approval_run_id: int) -> dict[str, Any]:
+    artifact, blob = get_artifact(approval_run_id, ARTIFACT_NAME)
+    return read_artifact_json(artifact, blob, ARTIFACT_NAME, approval_run_id, FIELDS)
+
+
+def live_evidence(record: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], bytes, dict[str, Any], bytes, str, list[dict[str, Any]]]:
     main = gh_json("branches/main")
     intent = gh_json(f"actions/runs/{record['intent_run_id']}")
     approval = gh_json(f"actions/runs/{record['approval_run_id']}")
-    listing = gh_json(f"actions/runs/{record['approval_run_id']}/artifacts?per_page=100")
-    artifacts = listing.get("artifacts", [])
-    require(isinstance(artifacts, list), "approval artifact listing invalid")
-    matches = [item for item in artifacts if item.get("name") == ARTIFACT_NAME]
-    require(len(matches) == 1, "approval artifact absent or ambiguous")
-    artifact = matches[0]
-    require(type(artifact.get("id")) is int, "approval artifact ID invalid")
-    blob = gh_binary(f"actions/artifacts/{artifact['id']}/zip")
+    artifact, blob = get_artifact(record["approval_run_id"], ARTIFACT_NAME)
+    intent_artifact, intent_blob = get_artifact(record["intent_run_id"], INTENT_ARTIFACT_NAME)
     deployments = gh_json(f"deployments?environment={MARKER_ENVIRONMENT}&per_page=100")
     require(isinstance(deployments, list) and len(deployments) < 100, "deployment marker history unavailable or truncated")
-    return intent, approval, artifact, blob, main.get("commit", {}).get("sha"), deployments
+    return intent, approval, artifact, blob, intent_artifact, intent_blob, main.get("commit", {}).get("sha"), deployments
 
 
 def mark_used(record: dict[str, Any]) -> None:
@@ -241,18 +295,20 @@ def mark_used(record: dict[str, Any]) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("expected_json", help="Exact release tuple from the protected deployment request")
-    parser.add_argument("approval_json", help="Approval record downloaded from the identified artifact")
+    parser.add_argument("approval_run_id", type=int, help="Completed authenticated approval workflow run ID")
     parser.add_argument("--mark-used", action="store_true", help="Record single use after verification; never grants production access")
+    parser.add_argument("--require-used", action="store_true", help="Reverify the exact consumed approval immediately before OIDC")
     args = parser.parse_args()
     try:
         expected = strict_expected(open(args.expected_json, "rb").read())
-        record = strict_json(open(args.approval_json, "rb").read())
+        record = load_approval_record(args.approval_run_id)
         evidence = live_evidence(record)
         actor_login = os.environ.get("GATE_D_DEPLOY_ACTOR", "")
         actor_id_text = os.environ.get("GATE_D_DEPLOY_ACTOR_ID", "")
         require(actor_login and actor_id_text.isdecimal(), "deployment actor context unavailable")
         require(os.environ.get("GATE_D_RUN_ATTEMPT") == "1", "deployment rerun is not authorized")
-        validate(record, expected, *evidence, dt.datetime.now(dt.UTC), (actor_login, int(actor_id_text)))
+        require(not (args.mark_used and args.require_used), "conflicting ledger mode")
+        validate(record, expected, *evidence, dt.datetime.now(dt.UTC), (actor_login, int(actor_id_text)), args.require_used)
         if args.mark_used:
             mark_used(record)
     except (Rejected, OSError, subprocess.TimeoutExpired) as exc:
