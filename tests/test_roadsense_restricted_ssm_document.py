@@ -72,7 +72,7 @@ class RoadSenseRestrictedSsmDocumentTests(unittest.TestCase):
         claims = trust["Statement"][0]["Condition"]["StringEquals"]
         self.assertEqual(
             claims["token.actions.githubusercontent.com:job_workflow_ref"],
-            "Synergie-ITCI/.github/.github/workflows/roadsense-controlled-release.yml@refs/tags/roadsense-gate-d-v4",
+            "Synergie-ITCI/.github/.github/workflows/roadsense-controlled-release.yml@refs/tags/roadsense-gate-d-v5",
         )
         self.assertEqual(
             claims["token.actions.githubusercontent.com:sub"],
