@@ -17,6 +17,27 @@ preflight = SourceFileLoader("release_preflight", str(SCRIPT)).load_module()
 
 
 class ReleasePreflightTests(unittest.TestCase):
+    def test_technical_preflight_does_not_fabricate_pr_review_evidence(self):
+        captured = {}
+
+        def run_engine(command, **kwargs):
+            event = Path(command[command.index("--event-path") + 1])
+            captured["event"] = __import__("json").loads(event.read_text(encoding="utf-8"))
+            captured["command"] = command
+            return subprocess.CompletedProcess(command, 0)
+
+        sha = "a" * 40
+        with patch.object(preflight, "git", side_effect=[
+            subprocess.CompletedProcess([], 0, sha + "\n", ""),
+            subprocess.CompletedProcess([], 0, "main\n", ""),
+        ]), patch.object(preflight.subprocess, "run", side_effect=run_engine):
+            self.assertTrue(preflight.run_pr_qa(ROOT, ROOT, "main", "b" * 40))
+
+        self.assertNotIn("pull_request", captured["event"])
+        self.assertEqual(captured["event"]["release_preflight"]["head_sha"], sha)
+        self.assertEqual(captured["command"][captured["command"].index("--base-ref") + 1], "main")
+        self.assertEqual(captured["command"][captured["command"].index("--head-ref") + 1], "main")
+
     def test_publisher_bound_preflight_skips_release_enumeration_and_checks_local_tag(self):
         sys.path.insert(0, str(ROOT / "pr-qa"))
         import release_pin

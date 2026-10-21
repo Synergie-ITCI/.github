@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import subprocess
 import sys
@@ -104,14 +103,11 @@ def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str) -> bool:
         event.write_text(
             json.dumps(
                 {
-                    "pull_request": {
-                        "number": 0,
-                        "base": {"ref": base, "sha": base_sha},
-                        "head": {"ref": head_ref, "sha": head_sha},
-                        "user": {"login": os.environ.get("GITHUB_ACTOR", "developer")},
-                        "labels": [],
-                        "body": "",
-                    }
+                    "release_preflight": {
+                        "technical_validation_only": True,
+                        "base_sha": base_sha,
+                        "head_sha": head_sha,
+                    },
                 }
             ),
             encoding="utf-8",
@@ -124,6 +120,10 @@ def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str) -> bool:
                 str(root),
                 "--event-path",
                 str(event),
+                "--base-ref",
+                base,
+                "--head-ref",
+                head_ref,
                 "--out",
                 str(tmp_path / "pr-quality-report.md"),
                 "--json-out",
