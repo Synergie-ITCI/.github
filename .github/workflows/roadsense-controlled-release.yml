@@ -100,6 +100,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      deployments: read
       id-token: write
     steps:
       - name: Recheck protected main and exact approval before credentials
