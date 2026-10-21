@@ -1,0 +1,34 @@
+name: RoadSense Production Role Identity Probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+
+jobs:
+  trusted-identity:
+    if: github.ref == 'refs/heads/main'
+    uses: Synergie-ITCI/.github/.github/workflows/roadsense-controlled-release.yml@roadsense-gate-d-v4
+    with:
+      expected-json: identity-probe-only
+      approval-run-id: identity-probe-only
+      identity-probe: true
+
+  reject-untrusted-workflow:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Attempt the same role from an untrusted workflow identity
+        id: assume
+        continue-on-error: true
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::918870682888:role/SynergieRoadSenseProductionGateDRole
+          aws-region: ap-south-1
+          role-session-name: roadsense-negative-probe-${{ github.run_id }}
+          disable-retry: true
+          inline-session-policy: '{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Action":"*","Resource":"*"}]}'
+      - name: Require trust rejection
+        run: test '${{ steps.assume.outcome }}' = 'failure'

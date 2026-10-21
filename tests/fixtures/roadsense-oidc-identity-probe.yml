@@ -4,6 +4,9 @@ on:
   workflow_dispatch:
 
 permissions:
+  contents: read
+  actions: read
+  deployments: write
   id-token: write
 
 jobs:
@@ -19,6 +22,8 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      id-token: write
     steps:
       - name: Attempt the same role from an untrusted workflow identity
         id: assume
