@@ -1,0 +1,188 @@
+name: sample-app Production Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Read-only inspect, approved deployment, or approved partial-rollout recovery
+        required: true
+        type: choice
+        options: [inspect, deploy, resume]
+      deploy_ref:
+        description: Exact approved main commit (required for deploy)
+        required: false
+        type: string
+      rollback_ref:
+        description: Exact current production commit (required for deploy)
+        required: false
+        type: string
+      expected_db_revision:
+        description: Current Alembic revision (required for deploy)
+        required: false
+        type: string
+      target_db_revision:
+        description: Intended Alembic revision (required for deploy)
+        required: false
+        type: string
+      approval_reference:
+        description: Owner approval for temporary runner SSH access (and deployment if selected)
+        required: false
+        type: string
+      resume_run_id:
+        description: Original deployment run ID (required only for resume)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: sample-app-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate exact request
+        env:
+          OPERATION: ${{ inputs.operation }}
+          DEPLOY_REF: ${{ inputs.deploy_ref }}
+          ROLLBACK_REF: ${{ inputs.rollback_ref }}
+          EXPECTED_DB_REVISION: ${{ inputs.expected_db_revision }}
+          TARGET_DB_REVISION: ${{ inputs.target_db_revision }}
+          APPROVAL_REFERENCE: ${{ inputs.approval_reference }}
+          RESUME_RUN_ID: ${{ inputs.resume_run_id }}
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = refs/heads/main
+          test "${GITHUB_ACTOR}" = SaurabhVermaIN
+          test -n "${APPROVAL_REFERENCE}"
+          if [ "${OPERATION}" = deploy ] || [ "${OPERATION}" = resume ]; then
+            [[ "${DEPLOY_REF}" =~ ^[0-9a-f]{40}$ ]]
+            [[ "${ROLLBACK_REF}" =~ ^[0-9a-f]{40}$ ]]
+            [[ "${EXPECTED_DB_REVISION}" =~ ^[0-9a-f]{12}$ ]]
+            [[ "${TARGET_DB_REVISION}" =~ ^[0-9a-f]{12}$ ]]
+            if [ "${OPERATION}" = deploy ]; then
+              test "${DEPLOY_REF}" = "$(git rev-parse HEAD)"
+              test -z "${RESUME_RUN_ID}"
+            else
+              [[ "${RESUME_RUN_ID}" =~ ^[0-9]+$ ]]
+              git merge-base --is-ancestor "${DEPLOY_REF}" HEAD
+            fi
+            migration_file="$(grep -l -E "^revision: str = \"${TARGET_DB_REVISION}\"$" SampleApp/alembic/versions/*.py)"
+            test -f "${migration_file}"
+            grep -q -E "^down_revision: .*\"${EXPECTED_DB_REVISION}\"$" "${migration_file}"
+          else
+            test "${OPERATION}" = inspect
+          fi
+      - name: Configure existing SSH identity and pinned host key
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test "${EC2_HOST}" = 198.51.100.10
+          install -m 600 /dev/null "${RUNNER_TEMP}/sample-app-key"
+          printf '%s\n' "${SSH_PRIVATE_KEY}" > "${RUNNER_TEMP}/sample-app-key"
+          ssh-keygen -y -f "${RUNNER_TEMP}/sample-app-key" >/dev/null
+          printf '%s ssh-ed25519 %s\n' "${EC2_HOST}" \
+            'AAAAC3NzaC1lZDI1NTE5AAAAIBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB' \
+            > "${RUNNER_TEMP}/sample-app-known-hosts"
+      - name: Configure narrowly scoped Lightsail runner access
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/SampleLightsailDeployRole
+          aws-region: ap-south-1
+      - name: Open temporary SSH for this runner
+        id: ssh_access
+        run: |
+          set -euo pipefail
+          runner_ip="$(curl --fail --silent --show-error --max-time 10 https://checkip.amazonaws.com/ | tr -d '[:space:]')"
+          python3 - "${runner_ip}" <<'PY'
+          import ipaddress
+          import sys
+          assert ipaddress.ip_address(sys.argv[1]).version == 4
+          PY
+          runner_cidr="${runner_ip}/32"
+          echo "runner_cidr=${runner_cidr}" >> "${GITHUB_OUTPUT}"
+          aws lightsail get-instance-port-states --instance-name sample-lightsail \
+            --query portStates --output json > "${RUNNER_TEMP}/sample-app-ports-before.json"
+          jq -e '.[] | select(.fromPort == 22 and .toPort == 22 and .protocol == "tcp") | .cidrs[]? | select(. == "192.0.2.10/32")' \
+            "${RUNNER_TEMP}/sample-app-ports-before.json" >/dev/null
+          if jq -e --arg cidr "${runner_cidr}" \
+            '.[] | select(.fromPort == 22 and .toPort == 22 and .protocol == "tcp") | .cidrs[]? | select(. == $cidr)' \
+            "${RUNNER_TEMP}/sample-app-ports-before.json" >/dev/null; then
+            test "${runner_cidr}" = "192.0.2.10/32" || {
+              echo 'Unexpected pre-existing runner SSH rule; operator inspection required' >&2
+              exit 1
+            }
+            echo 'added=false' >> "${GITHUB_OUTPUT}"
+          else
+            aws lightsail open-instance-public-ports --instance-name sample-lightsail \
+              --port-info "fromPort=22,toPort=22,protocol=tcp,cidrs=${runner_cidr}" >/dev/null
+            echo 'added=true' >> "${GITHUB_OUTPUT}"
+          fi
+          aws lightsail get-instance-port-states --instance-name sample-lightsail \
+            --query portStates --output json > "${RUNNER_TEMP}/sample-app-ports-after.json"
+          for cidr in 192.0.2.10/32 "${runner_cidr}"; do
+            jq -e --arg cidr "${cidr}" \
+              '.[] | select(.fromPort == 22 and .toPort == 22 and .protocol == "tcp") | .cidrs[]? | select(. == $cidr)' \
+              "${RUNNER_TEMP}/sample-app-ports-after.json" >/dev/null
+          done
+      - name: Inspect production or deploy approved commit
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          OPERATION: ${{ inputs.operation }}
+          DEPLOY_REF: ${{ inputs.deploy_ref }}
+          ROLLBACK_REF: ${{ inputs.rollback_ref }}
+          EXPECTED_DB_REVISION: ${{ inputs.expected_db_revision }}
+          TARGET_DB_REVISION: ${{ inputs.target_db_revision }}
+          RESUME_RUN_ID: ${{ inputs.resume_run_id }}
+        run: |
+          set -euo pipefail
+          test -n "${EC2_USER}"
+          ssh_opts=(-i "${RUNNER_TEMP}/sample-app-key" -o IdentitiesOnly=yes \
+            -o UserKnownHostsFile="${RUNNER_TEMP}/sample-app-known-hosts" \
+            -o StrictHostKeyChecking=yes -o ConnectTimeout=10)
+          if [ "${OPERATION}" = deploy ]; then
+            git branch --force sample-app-release "${DEPLOY_REF}"
+            git bundle create "${RUNNER_TEMP}/sample-app-release.bundle" sample-app-release
+            scp "${ssh_opts[@]}" "${RUNNER_TEMP}/sample-app-release.bundle" \
+              "${EC2_USER}@${EC2_HOST}:/tmp/sample-app-release-${GITHUB_RUN_ID}.bundle"
+          fi
+          # Inputs are validated above and intentionally expanded into remote arguments.
+          # shellcheck disable=SC2029
+          ssh "${ssh_opts[@]}" "${EC2_USER}@${EC2_HOST}" \
+            "bash -se -- '${OPERATION}' '${DEPLOY_REF}' '${ROLLBACK_REF}' '${EXPECTED_DB_REVISION}' '${TARGET_DB_REVISION}' '${GITHUB_RUN_ID}' '${RESUME_RUN_ID}'" \
+            < operations/production-deploy/lightsail-deploy
+      - name: Close temporary SSH for this runner
+        if: ${{ always() && steps.ssh_access.outputs.added == 'true' }}
+        env:
+          RUNNER_CIDR: ${{ steps.ssh_access.outputs.runner_cidr }}
+        run: |
+          set -euo pipefail
+          aws lightsail close-instance-public-ports --instance-name sample-lightsail \
+            --port-info "fromPort=22,toPort=22,protocol=tcp,cidrs=${RUNNER_CIDR}" >/dev/null
+          aws lightsail get-instance-port-states --instance-name sample-lightsail \
+            --query portStates --output json > "${RUNNER_TEMP}/sample-app-ports-closed.json"
+          if jq -e --arg cidr "${RUNNER_CIDR}" \
+            '.[] | select(.fromPort == 22 and .toPort == 22 and .protocol == "tcp") | .cidrs[]? | select(. == $cidr)' \
+            "${RUNNER_TEMP}/sample-app-ports-closed.json" >/dev/null; then
+            echo 'Temporary SSH rule remains open' >&2
+            exit 1
+          fi
+          echo TEMPORARY_SSH_RULE=CLOSED
+      - name: Verify public health
+        if: ${{ inputs.operation == 'deploy' || inputs.operation == 'resume' }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 20 \
+            https://example.invalid/healthy >/dev/null
+          echo PUBLIC_HEALTH=PASS

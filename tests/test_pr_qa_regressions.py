@@ -17,6 +17,7 @@ from unittest import mock
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -6082,6 +6083,48 @@ jobs:
                 self.assertEqual(code, 0, report)
                 self.assertEqual(report_json["summary"]["gate_statuses"]["Deployment Risk"], "WARNING")
                 self.assertIn("CONTROLLED_PRODUCTION_GATE_D", report)
+
+    def test_lightsail_gate_d_requires_runtime_and_recovery_evidence(self) -> None:
+        engine = load_engine_module()
+        fixture = ROOT / "tests" / "fixtures" / "lightsail_gate_d"
+        repo = self.tmp / "lightsail"
+        script = repo / "operations" / "production-deploy" / "lightsail-deploy"
+        script.parent.mkdir(parents=True)
+        script.write_text((fixture / "host-script").read_text(encoding="utf-8"), encoding="utf-8")
+        workflow = (fixture / "production-deploy.yml").read_text(encoding="utf-8")
+        ctx = SimpleNamespace(repo=repo)
+        path = ".github/workflows/production-deploy.yml"
+
+        def accepted(text: str) -> bool:
+            return bool(engine.controlled_lightsail_gate_d_workflow_details(ctx, path, text))
+
+        self.assertTrue(accepted(workflow))
+        for name, before, after in (
+            ("owner authorization", 'test -n "${APPROVAL_REFERENCE}"', ":"),
+            ("exact source", 'test "${DEPLOY_REF}" = "$(git rev-parse HEAD)"', ":"),
+            ("target identity", "--instance-name sample-lightsail", "--instance-name another-host"),
+            ("host key", "StrictHostKeyChecking=yes", "StrictHostKeyChecking=no"),
+            ("port closure", "close-instance-public-ports", "get-instance-port-states"),
+            ("public health", "          curl --fail --silent", "          curl --silent"),
+        ):
+            with self.subTest(name=name):
+                self.assertFalse(accepted(workflow.replace(before, after, 1)))
+        original = script.read_text(encoding="utf-8")
+        for name, marker in (
+            ("backup verification", "sha256sum -c"),
+            ("running image", "docker inspect -f '{{.Image}}'"),
+            ("database revision", "DATABASE_REVISION_AFTER="),
+        ):
+            with self.subTest(name=name):
+                script.write_text(original.replace(marker, "removed", 1), encoding="utf-8")
+                self.assertFalse(accepted(workflow))
+        script.write_text(original, encoding="utf-8")
+        self.assertTrue(accepted(workflow))
+
+    def test_central_pr_qa_can_be_required_as_an_immutable_workflow(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "pr-qa.yml").read_text(encoding="utf-8")
+        self.assertIn("  workflow_call:", workflow)
+        self.assertIn("  pull_request:\n    branches: [__synergie_required_workflow_only__]", workflow)
 
     def test_controlled_gate_d_rejects_unapproved_runtime_certifier_actions(self) -> None:
         cases = {

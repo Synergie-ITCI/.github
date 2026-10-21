@@ -14,6 +14,23 @@ Preferred AWS deployment path:
 
 Public SSH is not required for this deployment pattern.
 
+For a Lightsail host that is not an EC2/SSM managed node, the existing Gate D
+may use an OIDC-scoped Lightsail port operation and a pinned SSH host identity.
+The workflow must be manual and owner restricted, validate the exact approved
+`main` commit and rollback commit, restrict SSH to one runner `/32`, close that
+rule even after failure, and execute a reviewed host script. The host script
+must verify target and repository identity, current commit and database
+revision, backup and recovery evidence, then check the running artifact and
+local health. The workflow must also verify public health. Static PR-QA shape
+recognition is advisory evidence for human review; the dispatch and post-run
+runtime evidence remain required for deployment success.
+
+For repositories that need the owner-review exception while replacing an old
+blanket GitHub review count, require the immutable central PR-QA workflow from
+an organization ruleset before removing the old count. Keep the existing
+consumer caller and its required check; the ruleset workflow provides an
+independent, pinned review decision during the transition.
+
 ## Identity and Access
 
 - Use GitHub OIDC and short-lived AWS credentials.

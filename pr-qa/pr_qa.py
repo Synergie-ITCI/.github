@@ -3736,6 +3736,11 @@ def classify_safe_deployment_workflows(ctx: PRContext, changed: list[str]) -> tu
             details.extend(gate_d)
             safe_paths.add(path)
             continue
+        lightsail_gate_d = controlled_lightsail_gate_d_workflow_details(ctx, path, text)
+        if lightsail_gate_d:
+            details.extend(lightsail_gate_d)
+            safe_paths.add(path)
+            continue
         staging = staging_only_workflow_details(path, text)
         if staging:
             details.extend(staging)
@@ -4315,6 +4320,130 @@ def controlled_gate_d_workflow_details(path: str, text: str, *, ctx: PRContext |
         return []
     return [
         f"{path}: CONTROLLED_PRODUCTION_GATE_D manual workflow_dispatch, exact deploy_ref, rollback_ref, actor restriction, OIDC, immutable Runtime Certifier, guarded deployment, and controlled remote execution verified."
+    ]
+
+
+def controlled_lightsail_gate_d_workflow_details(ctx: PRContext, path: str, text: str) -> list[str]:
+    """Recognize a bounded Lightsail Gate D with a reviewed on-host verifier.
+
+    Static recognition is deliberately conservative. It does not authorize a
+    dispatch: the owner approval, exact-head QA, and runtime checks remain
+    separate requirements.
+    """
+    parsed = parse_workflow_yaml(text)
+    if not (
+        workflow_dispatch_only(parsed, text)
+        and workflow_has_actor_restriction(text)
+        and workflow_has_approval_evidence(parsed, text)
+        and workflow_uses_oidc(parsed, text)
+        and not workflow_pushes_to_main_or_master(parsed, text)
+        and not workflow_has_embedded_or_static_deployment_credentials(text)
+    ):
+        return []
+    inputs = workflow_inputs(parsed)
+    if not {"operation", "deploy_ref", "rollback_ref", "expected_db_revision", "target_db_revision", "approval_reference"} <= set(inputs):
+        return []
+    operations = inputs["operation"].get("options", []) if isinstance(inputs["operation"], dict) else []
+    if isinstance(operations, str):
+        operations = [item.strip() for item in operations.strip("[]").split(",")]
+    if set(operations) != {"inspect", "deploy", "resume"}:
+        return []
+    jobs = parsed.get("jobs", {})
+    if not isinstance(jobs, dict) or len(jobs) != 1:
+        return []
+    job = next(iter(jobs.values()))
+    steps = job.get("steps", []) if isinstance(job, dict) else []
+    if not isinstance(steps, list) or len(steps) != 8:
+        return []
+    checkout, validate, identity, credentials, open_port, remote, close_port, health = steps
+    if not all(isinstance(step, dict) for step in steps):
+        return []
+    if str(checkout.get("uses", "")) != "actions/checkout@v4":
+        return []
+    if str(credentials.get("uses", "")) != "aws-actions/configure-aws-credentials@v4":
+        return []
+    if any(step.get("uses") for step in (validate, identity, open_port, remote, close_port, health)):
+        return []
+    def commands(step: dict[str, Any]) -> str:
+        return "\n".join(
+            line for line in str(step.get("run", "")).splitlines()
+            if not line.lstrip().startswith("#")
+        )
+
+    validation = commands(validate)
+    identity_run = commands(identity)
+    opening = commands(open_port)
+    execution = commands(remote)
+    closing = commands(close_port)
+    health_run = commands(health)
+    required_validation = (
+        'test "${GITHUB_REF}" = refs/heads/main',
+        'test "${GITHUB_ACTOR}" = ',
+        'test -n "${APPROVAL_REFERENCE}"',
+        '[[ "${DEPLOY_REF}" =~ ^[0-9a-f]{40}$ ]]',
+        '[[ "${ROLLBACK_REF}" =~ ^[0-9a-f]{40}$ ]]',
+        'test "${DEPLOY_REF}" = "$(git rev-parse HEAD)"',
+        'git merge-base --is-ancestor "${DEPLOY_REF}" HEAD',
+    )
+    if not all(marker in validation for marker in required_validation):
+        return []
+    if "secrets.SSH_PRIVATE_KEY" not in str(identity.get("env", "")):
+        return []
+    if not all(marker in identity_run for marker in (
+        "ssh-keygen -y", "ssh-ed25519", "known-hosts"
+    )):
+        return []
+    if not all(marker in execution for marker in (
+        "StrictHostKeyChecking=yes", "IdentitiesOnly=yes", "UserKnownHostsFile=",
+        "git bundle create", "scp ", "ssh ", "< operations/production-deploy/"
+    )):
+        return []
+    if not all(marker in opening for marker in (
+        "checkip.amazonaws.com", "ipaddress.ip_address", 'runner_cidr="${runner_ip}/32"',
+        "get-instance-port-states", "open-instance-public-ports", "runner_cidr=",
+    )):
+        return []
+    if not all(marker in closing for marker in (
+        "close-instance-public-ports", "get-instance-port-states", "RUNNER_CIDR", "exit 1"
+    )):
+        return []
+    if "always()" not in str(close_port.get("if", "")) or "ssh_access.outputs.added" not in str(close_port.get("if", "")):
+        return []
+    if str(open_port.get("id", "")) != "ssh_access" or "steps.ssh_access.outputs.runner_cidr" not in str(close_port.get("env", "")):
+        return []
+    if "curl --fail" not in health_run or not all(
+        marker in str(health.get("if", "")) for marker in ("inputs.operation == 'deploy'", "inputs.operation == 'resume'")
+    ):
+        return []
+    instance_names = re.findall(r"--instance-name\s+([A-Za-z0-9-]+)", opening + "\n" + closing)
+    if len(instance_names) < 4 or len(set(instance_names)) != 1:
+        return []
+    match = re.search(r"< (operations/production-deploy/[A-Za-z0-9_-]+)\s*$", execution, re.MULTILINE)
+    if not match:
+        return []
+    script_path = ctx.repo / match.group(1)
+    if not script_path.is_file() or script_path.is_symlink():
+        return []
+    script = "\n".join(
+        line for line in read_text(script_path).splitlines()
+        if not line.lstrip().startswith("#")
+    )
+    required_script = (
+        "set -euo pipefail", "case \"$(hostname)\"", instance_names[0],
+        "remote get-url origin", 'test "${current_ref}" = "${rollback_ref}"',
+        'test "${current_db_revision}" = "${expected_db_revision}"',
+        "git bundle verify", 'test "$(git rev-parse FETCH_HEAD)" = "${deploy_ref}"',
+        "pg_dump", "pg_restore -l", "sha256sum -c", "database-revision-before",
+        'test "${current_ref}" = "${deploy_ref}"',
+        'test "${current_db_revision}" = "${target_db_revision}"',
+        "docker compose up -d --no-build", "docker inspect -f '{{.State.Running}}'",
+        "docker inspect -f '{{.Image}}'", "curl --fail",
+        "DEPLOYED_COMMIT=", "DATABASE_REVISION_AFTER=", "LOCAL_HEALTH=PASS",
+    )
+    if not all(marker in script for marker in required_script):
+        return []
+    return [
+        f"{path}: CONTROLLED_LIGHTSAIL_GATE_D manual exact-ref release, owner authorization, OIDC-scoped temporary SSH, pinned host, verified backup, running revision, health, and recovery checks verified."
     ]
 
 
