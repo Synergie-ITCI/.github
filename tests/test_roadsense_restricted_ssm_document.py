@@ -88,6 +88,7 @@ class RoadSenseRestrictedSsmDocumentTests(unittest.TestCase):
         self.assertIn("aws-actions/configure-aws-credentials@v4", probe)
         self.assertIn('"Effect":"Deny","Action":"*","Resource":"*"', probe)
         self.assertIn("aws sts get-caller-identity", probe)
+        self.assertIn("grep -Eq 'AccessDenied|UnauthorizedOperation'", probe)
         self.assertNotIn("send-command", probe)
         self.assertNotIn("AWS-RunShellScript", probe)
         self.assertNotIn("approval-run-id:", probe)
