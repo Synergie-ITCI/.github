@@ -3744,7 +3744,10 @@ def classify_safe_deployment_workflows(ctx: PRContext, changed: list[str]) -> tu
 
 
 ROADSENSE_OIDC_PROBE_PATH = ".github/workflows/roadsense-oidc-identity-probe.yml"
-ROADSENSE_OIDC_PROBE_SHA256 = "5199f0f9745d13080613c057f21ca751767e30439dc4ae5be2f9a651588188a1"
+ROADSENSE_OIDC_PROBE_SHA256 = {
+    "5199f0f9745d13080613c057f21ca751767e30439dc4ae5be2f9a651588188a1",
+    "4893ad050cd1ea01118141a83b6b5fdf7e50948f13b0e408888341e6422d28a3",
+}
 
 
 def roadsense_oidc_identity_probe_details(ctx: PRContext, path: str, text: str) -> bool:
@@ -3752,7 +3755,7 @@ def roadsense_oidc_identity_probe_details(ctx: PRContext, path: str, text: str) 
     return (
         resolve_repository_name(ctx) == "Synergie-ITCI/roadsense-production-dashboard"
         and path == ROADSENSE_OIDC_PROBE_PATH
-        and hashlib.sha256(text.encode("utf-8")).hexdigest() == ROADSENSE_OIDC_PROBE_SHA256
+        and hashlib.sha256(text.encode("utf-8")).hexdigest() in ROADSENSE_OIDC_PROBE_SHA256
         and approved_roadsense_gate_d_release("roadsense-gate-d-v4", "roadsense-controlled-release.yml")
     )
 

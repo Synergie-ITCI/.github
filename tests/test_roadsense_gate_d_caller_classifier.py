@@ -53,8 +53,11 @@ class CallerClassifierTests(unittest.TestCase):
     def test_identity_probe_exception_requires_exact_bytes_repository_and_release(self):
         path = engine.ROADSENSE_OIDC_PROBE_PATH
         source = (ROOT / "tests/fixtures/roadsense-oidc-identity-probe.yml").read_text()
-        self.assertEqual(hashlib.sha256(source.encode()).hexdigest(), engine.ROADSENSE_OIDC_PROBE_SHA256)
+        self.assertIn(hashlib.sha256(source.encode()).hexdigest(), engine.ROADSENSE_OIDC_PROBE_SHA256)
         self.assertTrue(engine.roadsense_oidc_identity_probe_details(self.ctx, path, source))
+        original = (ROOT / "tests/fixtures/roadsense-oidc-identity-probe-original.yml").read_text()
+        self.assertIn(hashlib.sha256(original.encode()).hexdigest(), engine.ROADSENSE_OIDC_PROBE_SHA256)
+        self.assertTrue(engine.roadsense_oidc_identity_probe_details(self.ctx, path, original))
         for altered in (
             source.replace("roadsense-gate-d-v4", "roadsense-gate-d-v3"),
             source.replace('"Effect":"Deny"', '"Effect":"Allow"'),
