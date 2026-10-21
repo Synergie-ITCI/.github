@@ -91,6 +91,9 @@ class RoadSenseRestrictedSsmDocumentTests(unittest.TestCase):
         self.assertNotIn("send-command", probe)
         self.assertNotIn("AWS-RunShellScript", probe)
         self.assertNotIn("approval-run-id:", probe)
+        deploy = workflow.split("\n  deploy:\n", 1)[1]
+        self.assertIn("needs: authorize", deploy)
+        self.assertIn("if: needs.authorize.outputs.approved == 'true'", deploy)
 
     def test_hybrid_bucket_grant_and_probe_are_read_only_and_node_bound(self):
         grant = json.loads((ROOT / "iam/roadsense-hybrid-image-read-statement.json").read_text())
