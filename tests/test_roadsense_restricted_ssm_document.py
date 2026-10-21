@@ -52,6 +52,7 @@ class RoadSenseRestrictedSsmDocumentTests(unittest.TestCase):
             command,
         )
         self.assertLess(command.index('aws sts get-caller-identity'), command.index('RELEASE_JSON_B64='))
+        self.assertIn('aws sts get-caller-identity --query Arn --output text)" = ' + '\\' + '\n', command)
         self.assertNotIn("{{", command)
 
     def test_workflow_and_policy_use_only_fixed_document(self):
@@ -59,7 +60,7 @@ class RoadSenseRestrictedSsmDocumentTests(unittest.TestCase):
         policy = json.loads((ROOT / "iam/roadsense-deploy-policy.json").read_text())
         trust = json.loads((ROOT / "iam/roadsense-deploy-trust.json").read_text())
         self.assertIn(f"'{EXPECTED_SHA}'", workflow)
-        self.assertIn("--document-version 1", workflow)
+        self.assertIn("--document-version 2", workflow)
         self.assertIn("--document-name RoadSense-GateD-Production-Command-v1", workflow)
         self.assertNotIn("AWS-RunShellScript", workflow)
         self.assertNotIn("AWS-RunShellScript", json.dumps(policy))
@@ -71,12 +72,29 @@ class RoadSenseRestrictedSsmDocumentTests(unittest.TestCase):
         claims = trust["Statement"][0]["Condition"]["StringEquals"]
         self.assertEqual(
             claims["token.actions.githubusercontent.com:job_workflow_ref"],
-            "Synergie-ITCI/.github/.github/workflows/roadsense-controlled-release.yml@refs/tags/roadsense-gate-d-v3",
+            "Synergie-ITCI/.github/.github/workflows/roadsense-controlled-release.yml@refs/tags/roadsense-gate-d-v4",
         )
         self.assertEqual(
             claims["token.actions.githubusercontent.com:sub"],
             "repo:Synergie-ITCI@209829096/roadsense-production-dashboard@1426678649:ref:refs/heads/main",
         )
+
+    def test_identity_probe_is_separate_and_has_no_deploy_permissions(self):
+        workflow = (ROOT / ".github/workflows/roadsense-controlled-release.yml").read_text()
+        self.assertIn("&& !inputs.identity-probe", workflow)
+        probe = workflow.split("\n  identity-probe:\n", 1)[1].split("\n  deploy:\n", 1)[0]
+        self.assertIn("&& inputs.identity-probe", probe)
+        self.assertIn("id-token: write", probe)
+        self.assertIn("aws-actions/configure-aws-credentials@v4", probe)
+        self.assertIn('"Effect":"Deny","Action":"*","Resource":"*"', probe)
+        self.assertIn("aws sts get-caller-identity", probe)
+        self.assertIn("grep -Eq 'AccessDenied|UnauthorizedOperation'", probe)
+        self.assertNotIn("send-command", probe)
+        self.assertNotIn("AWS-RunShellScript", probe)
+        self.assertNotIn("approval-run-id:", probe)
+        deploy = workflow.split("\n  deploy:\n", 1)[1]
+        self.assertIn("needs: authorize", deploy)
+        self.assertIn("if: needs.authorize.outputs.approved == 'true'", deploy)
 
     def test_hybrid_bucket_grant_and_probe_are_read_only_and_node_bound(self):
         grant = json.loads((ROOT / "iam/roadsense-hybrid-image-read-statement.json").read_text())
@@ -126,6 +144,42 @@ class RoadSenseRestrictedSsmDocumentTests(unittest.TestCase):
             result = subprocess.run(["bash", "-c", command], env=env, capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse((root / "docker-ran").exists())
+
+    def test_correct_hybrid_identity_invokes_only_the_fixed_remote_script(self):
+        document = json.loads(DOCUMENT.read_text())
+        (command,) = document["mainSteps"][0]["inputs"]["runCommand"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            credentials = root / "credentials"
+            credentials.write_text("")
+            fake_aws = root / "aws"
+            fake_aws.write_text(
+                "#!/bin/sh\n"
+                "test \"$1 $2\" = 'sts get-caller-identity' || exit 2\n"
+                "printf '%s\\n' 'arn:aws:sts::918870682888:assumed-role/"
+                "SynergieSSMHybridManagedInstanceCore/mi-0dade13fd68d1b435'\n"
+            )
+            fake_aws.chmod(0o700)
+            fake_bash = root / "bash"
+            fake_bash.write_text(
+                "#!/bin/sh\n"
+                "sha256sum \"$1\" | cut -d' ' -f1 > \"$MOCK_REMOTE_SHA_FILE\"\n"
+                "printf '%s' \"$RELEASE_JSON_B64\" > \"$MOCK_RELEASE_FILE\"\n"
+            )
+            fake_bash.chmod(0o700)
+            release = base64.b64encode(b'{"release_id":"isolated","padding":"' + b"x" * 100 + b'"}').decode()
+            env = os.environ.copy()
+            env.update({
+                "PATH": f"{root}:{env['PATH']}",
+                "AWS_SHARED_CREDENTIALS_FILE": str(credentials),
+                "SSM_ReleaseJsonBase64": release,
+                "MOCK_REMOTE_SHA_FILE": str(root / "remote-sha"),
+                "MOCK_RELEASE_FILE": str(root / "release"),
+            })
+            result = subprocess.run(["/bin/bash", "-c", command], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((root / "remote-sha").read_text().strip(), EXPECTED_SHA)
+            self.assertEqual((root / "release").read_text(), release)
 
 
 if __name__ == "__main__":

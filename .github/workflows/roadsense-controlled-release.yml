@@ -11,6 +11,11 @@ on:
         description: Completed authenticated Gate D approval run ID.
         required: true
         type: string
+      identity-probe:
+        description: Verify the trusted OIDC identity without a release or deployment.
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: roadsense-controlled-production-gate-d
@@ -18,7 +23,7 @@ concurrency:
 
 jobs:
   authorize:
-    if: github.repository == 'Synergie-ITCI/roadsense-production-dashboard' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    if: github.repository == 'Synergie-ITCI/roadsense-production-dashboard' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && !inputs.identity-probe
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -61,6 +66,31 @@ jobs:
           [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
           echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
           echo 'approved=true' >> "$GITHUB_OUTPUT"
+
+  identity-probe:
+    if: github.repository == 'Synergie-ITCI/roadsense-production-dashboard' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.identity-probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+    steps:
+      - name: Assume exact production role with a deny-all session policy
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::918870682888:role/SynergieRoadSenseProductionGateDRole
+          aws-region: ap-south-1
+          role-session-name: roadsense-identity-probe-${{ github.run_id }}
+          inline-session-policy: '{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Action":"*","Resource":"*"}]}'
+      - name: Verify identity and denied SSM access
+        run: |
+          set -euo pipefail
+          test "$(aws sts get-caller-identity --query Arn --output text)" = \
+            "arn:aws:sts::918870682888:assumed-role/SynergieRoadSenseProductionGateDRole/roadsense-identity-probe-${GITHUB_RUN_ID}"
+          if aws ssm describe-instance-information --max-results 5 >"$RUNNER_TEMP/ssm-probe-out" 2>"$RUNNER_TEMP/ssm-probe-error"; then
+            echo 'Identity probe unexpectedly gained SSM access' >&2
+            exit 1
+          fi
+          grep -Eq 'AccessDenied|UnauthorizedOperation' "$RUNNER_TEMP/ssm-probe-error"
 
   deploy:
     needs: authorize
@@ -150,7 +180,7 @@ jobs:
           command_id="$(aws ssm send-command \
             --instance-ids mi-0dade13fd68d1b435 \
             --document-name RoadSense-GateD-Production-Command-v1 \
-            --document-version 1 \
+            --document-version 2 \
             --comment "RoadSense Gate D $GITHUB_RUN_ID" \
             --parameters file://ssm-parameters.json \
             --query 'Command.CommandId' --output text)"
