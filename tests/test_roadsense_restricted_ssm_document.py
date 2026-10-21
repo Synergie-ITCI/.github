@@ -144,6 +144,42 @@ class RoadSenseRestrictedSsmDocumentTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse((root / "docker-ran").exists())
 
+    def test_correct_hybrid_identity_invokes_only_the_fixed_remote_script(self):
+        document = json.loads(DOCUMENT.read_text())
+        (command,) = document["mainSteps"][0]["inputs"]["runCommand"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            credentials = root / "credentials"
+            credentials.write_text("")
+            fake_aws = root / "aws"
+            fake_aws.write_text(
+                "#!/bin/sh\n"
+                "test \"$1 $2\" = 'sts get-caller-identity' || exit 2\n"
+                "printf '%s\\n' 'arn:aws:sts::918870682888:assumed-role/"
+                "SynergieSSMHybridManagedInstanceCore/mi-0dade13fd68d1b435'\n"
+            )
+            fake_aws.chmod(0o700)
+            fake_bash = root / "bash"
+            fake_bash.write_text(
+                "#!/bin/sh\n"
+                "sha256sum \"$1\" | cut -d' ' -f1 > \"$MOCK_REMOTE_SHA_FILE\"\n"
+                "printf '%s' \"$RELEASE_JSON_B64\" > \"$MOCK_RELEASE_FILE\"\n"
+            )
+            fake_bash.chmod(0o700)
+            release = base64.b64encode(b'{"release_id":"isolated","padding":"' + b"x" * 100 + b'"}').decode()
+            env = os.environ.copy()
+            env.update({
+                "PATH": f"{root}:{env['PATH']}",
+                "AWS_SHARED_CREDENTIALS_FILE": str(credentials),
+                "SSM_ReleaseJsonBase64": release,
+                "MOCK_REMOTE_SHA_FILE": str(root / "remote-sha"),
+                "MOCK_RELEASE_FILE": str(root / "release"),
+            })
+            result = subprocess.run(["/bin/bash", "-c", command], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((root / "remote-sha").read_text().strip(), EXPECTED_SHA)
+            self.assertEqual((root / "release").read_text(), release)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -73,7 +73,6 @@ jobs:
     timeout-minutes: 10
     permissions:
       id-token: write
-      contents: read
     steps:
       - name: Assume exact production role with a deny-all session policy
         uses: aws-actions/configure-aws-credentials@v4
