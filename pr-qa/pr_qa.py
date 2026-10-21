@@ -3717,6 +3717,10 @@ def classify_safe_deployment_workflows(ctx: PRContext, changed: list[str]) -> tu
         if not workflow_path.is_file():
             continue
         text = read_text(workflow_path)
+        if roadsense_oidc_identity_probe_details(ctx, path, text):
+            details.append(f"{path}: ROADSENSE_OIDC_PROBE exact reviewed non-deploying caller and protected release verified.")
+            safe_paths.add(path)
+            continue
         if roadsense_gate_d_caller_details(ctx, path, text):
             details.append(f"{path}: ROADSENSE_GATE_D_CALLER exact protected-main central release pin and permission contract verified.")
             safe_paths.add(path)
@@ -3737,6 +3741,20 @@ def classify_safe_deployment_workflows(ctx: PRContext, changed: list[str]) -> tu
             details.extend(staging)
             safe_paths.add(path)
     return details, safe_paths
+
+
+ROADSENSE_OIDC_PROBE_PATH = ".github/workflows/roadsense-oidc-identity-probe.yml"
+ROADSENSE_OIDC_PROBE_SHA256 = "5199f0f9745d13080613c057f21ca751767e30439dc4ae5be2f9a651588188a1"
+
+
+def roadsense_oidc_identity_probe_details(ctx: PRContext, path: str, text: str) -> bool:
+    """Allow only the reviewed, non-deploying v4 OIDC caller byte-for-byte."""
+    return (
+        resolve_repository_name(ctx) == "Synergie-ITCI/roadsense-production-dashboard"
+        and path == ROADSENSE_OIDC_PROBE_PATH
+        and hashlib.sha256(text.encode("utf-8")).hexdigest() == ROADSENSE_OIDC_PROBE_SHA256
+        and approved_roadsense_gate_d_release("roadsense-gate-d-v4", "roadsense-controlled-release.yml")
+    )
 
 
 ROADSENSE_GATE_D_CALLERS = {
