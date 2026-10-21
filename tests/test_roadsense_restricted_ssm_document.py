@@ -95,6 +95,9 @@ class RoadSenseRestrictedSsmDocumentTests(unittest.TestCase):
         deploy = workflow.split("\n  deploy:\n", 1)[1]
         self.assertIn("needs: authorize", deploy)
         self.assertIn("if: needs.authorize.outputs.approved == 'true'", deploy)
+        permissions = deploy.split("\n    permissions:\n", 1)[1].split("\n    steps:\n", 1)[0]
+        self.assertIn("      deployments: read\n", permissions)
+        self.assertNotIn("      deployments: write\n", permissions)
 
     def test_hybrid_bucket_grant_and_probe_are_read_only_and_node_bound(self):
         grant = json.loads((ROOT / "iam/roadsense-hybrid-image-read-statement.json").read_text())
