@@ -2,6 +2,10 @@ name: Synergie PR QA
 
 on:
   workflow_call:
+  # Organization rulesets ignore event filters when requiring this workflow.
+  # The unmatched branch avoids a second run on central repository PRs.
+  pull_request:
+    branches: [__synergie_required_workflow_only__]
 
 permissions:
   contents: read

@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+operation="${1:?operation required}"
+deploy_ref="${2:-}"
+rollback_ref="${3:-}"
+expected_db_revision="${4:-}"
+target_db_revision="${5:-}"
+run_id="${6:?run ID required}"
+resume_run_id="${7:-}"
+repo="${HOME}/sample-app"
+
+case "$(hostname)" in sample-lightsail|sample-private-host) ;; *) echo "Unexpected host" >&2; exit 1 ;; esac
+test -d "${repo}/.git"
+test -f "${repo}/.env.docker"
+test -f "${repo}/docker-compose.yml"
+case "$(git -C "${repo}" remote get-url origin)" in
+  *Synergie-ITCI/sample-app*) ;;
+  *) echo "Unexpected repository origin" >&2; exit 1 ;;
+esac
+cd "${repo}"
+current_ref="$(git rev-parse HEAD)"
+echo "PRODUCTION_COMMIT_BEFORE=${current_ref}"
+
+db_revision() {
+  docker compose exec -T api python - <<'PY'
+import os
+import psycopg2
+
+with psycopg2.connect(
+    host=os.environ["DB_HOST"], port=os.environ["DB_PORT"],
+    dbname=os.environ["DB_NAME"], user=os.environ["DB_USER"],
+    password=os.environ["DB_PASSWORD"],
+) as connection:
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT version_num FROM alembic_version")
+        revisions = [row[0] for row in cursor.fetchall()]
+if len(revisions) != 1:
+    raise SystemExit("expected exactly one Alembic revision")
+print(revisions[0])
+PY
+}
+
+current_db_revision="$(db_revision)"
+echo "DATABASE_REVISION_BEFORE=${current_db_revision}"
+if [ "${operation}" = inspect ]; then
+  docker compose ps
+  exit 0
+fi
+[[ "${operation}" = deploy || "${operation}" = resume ]]
+[[ "${deploy_ref}" =~ ^[0-9a-f]{40}$ ]]
+[[ "${rollback_ref}" =~ ^[0-9a-f]{40}$ ]]
+[[ "${expected_db_revision}" =~ ^[0-9a-f]{12}$ ]]
+[[ "${target_db_revision}" =~ ^[0-9a-f]{12}$ ]]
+[[ "${run_id}" =~ ^[0-9]+$ ]]
+if [ "${operation}" = resume ]; then
+  [[ "${resume_run_id}" =~ ^[0-9]+$ ]]
+  test "${current_ref}" = "${deploy_ref}"
+  test "${current_db_revision}" = "${target_db_revision}"
+  git diff --quiet
+  git diff --cached --quiet
+  backup_dir="${HOME}/sample-app-release-backups/${resume_run_id}-${deploy_ref}"
+  test -s "${backup_dir}/before.dump"
+  (cd "${backup_dir}" && sha256sum -c before.dump.sha256)
+  pg_restore -l "${backup_dir}/before.dump" >/dev/null
+  test "$(cat "${backup_dir}/rollback-ref")" = "${rollback_ref}"
+  test "$(cat "${backup_dir}/database-revision-before")" = "${expected_db_revision}"
+  echo "RESUME_BACKUP_VERIFIED=${backup_dir}/before.dump"
+else
+test "${current_ref}" = "${rollback_ref}"
+test "${current_db_revision}" = "${expected_db_revision}"
+git diff --quiet
+git diff --cached --quiet
+bundle="/tmp/sample-app-release-${run_id}.bundle"
+test -s "${bundle}"
+git bundle verify "${bundle}" >/dev/null
+git fetch "${bundle}" refs/heads/sample-app-release
+test "$(git rev-parse FETCH_HEAD)" = "${deploy_ref}"
+command -v pg_dump >/dev/null
+command -v pg_restore >/dev/null
+backup_dir="${HOME}/sample-app-release-backups/${run_id}-${deploy_ref}"
+test ! -e "${backup_dir}"
+install -d -m 700 "${backup_dir}"
+db_env="$(mktemp)"
+trap 'rm -f "${db_env}" "${bundle}"' EXIT
+docker compose exec -T api python - > "${db_env}" <<'PY'
+import os
+import sys
+
+keys = ("DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD")
+values = [os.environ[key] for key in keys]
+if any("\0" in value for value in values):
+    raise SystemExit("invalid database configuration")
+sys.stdout.buffer.write(b"\0".join(value.encode() for value in values) + b"\0")
+PY
+mapfile -d '' -t db < "${db_env}"
+test "${#db[@]}" -eq 5
+PGPASSWORD="${db[4]}" pg_dump -h "${db[0]}" -p "${db[1]}" \
+  -U "${db[3]}" -d "${db[2]}" -Fc -f "${backup_dir}/before.dump"
+test -s "${backup_dir}/before.dump"
+pg_restore -l "${backup_dir}/before.dump" >/dev/null
+sha256sum "${backup_dir}/before.dump" > "${backup_dir}/before.dump.sha256"
+printf '%s\n' "${rollback_ref}" > "${backup_dir}/rollback-ref"
+printf '%s\n' "${current_db_revision}" > "${backup_dir}/database-revision-before"
+echo "BACKUP_PATH=${backup_dir}/before.dump"
+echo "BACKUP_SHA256=$(cut -d ' ' -f 1 "${backup_dir}/before.dump.sha256")"
+
+git reset --hard "${deploy_ref}"
+docker compose build api celery_worker celery_beat
+docker compose run --rm --no-deps api alembic -c SampleApp/alembic.ini upgrade "${target_db_revision}" </dev/null
+fi
+docker compose up -d --no-build api celery_worker celery_beat </dev/null
+test "$(git rev-parse HEAD)" = "${deploy_ref}"
+test "$(db_revision)" = "${target_db_revision}"
+for service in api celery_worker celery_beat; do
+  container="$(docker compose ps -q "${service}")"
+  test -n "${container}"
+  test "$(docker inspect -f '{{.State.Running}}' "${container}")" = true
+  test "$(docker inspect -f '{{.Image}}' "${container}")" = \
+    "$(docker image inspect -f '{{.Id}}' "sample-app-${service}:latest")"
+done
+curl --fail --silent --show-error --max-time 20 http://127.0.0.1:8000/healthy >/dev/null
+echo "DEPLOYED_COMMIT=${deploy_ref}"
+echo "DATABASE_REVISION_AFTER=${target_db_revision}"
+echo "LOCAL_HEALTH=PASS"
