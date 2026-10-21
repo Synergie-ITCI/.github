@@ -1104,7 +1104,7 @@ exit 0
 
         self.assertEqual(code, 0, report)
         self.assertEqual(report_json["summary"]["gate_statuses"]["Review Policy"], "PASS")
-        self.assertTrue(any("SaurabhVermaIN is exempt from independent human review for Gate C" in result["message"] for result in report_json["results"]))
+        self.assertTrue(any("SaurabhVermaIN is exempt from independent human review for a main-target PR" in result["message"] for result in report_json["results"]))
 
     def test_saurabh_authored_pr_remains_blocked_when_qa_fails(self) -> None:
         repo, base = self.init_repo("saurabh-qa-fail")
@@ -4118,6 +4118,39 @@ exit 0
                 self.assertNotEqual(code, 0)
                 self.assertEqual(report_json["summary"]["gate_statuses"]["Review Policy"], "FAIL")
                 self.assertIn("Executive Release Authority approval is required", report)
+
+    def test_bdpp_owner_authored_direct_main_pr_needs_no_other_reviewer(self) -> None:
+        repo, base = self.init_repo("bdpp-owner-direct-main")
+        self.write(repo / "README.md", "# BDPP\n\nOwner recovery correction.\n")
+        self.commit(repo, "docs: record owner recovery")
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo, base, base_ref="main", head_ref="fix/bdpp-production-resume-20261021",
+            pr_author="SaurabhVermaIN", repository="Synergie-ITCI/BDPP",
+            review_policy={"mergeable": True, "reviews": []},
+        )
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Review Policy"], "PASS")
+
+    def test_bdpp_developer_direct_main_pr_requires_current_head_owner_review(self) -> None:
+        repo, base = self.init_repo("bdpp-developer-direct-main")
+        self.write(repo / "README.md", "# BDPP\n\nDeveloper release correction.\n")
+        self.commit(repo, "docs: record developer release")
+        common = {"base_ref": "main", "head_ref": "fix/bdpp-developer-release", "head_sha": "HEAD",
+                  "pr_author": "raveeshyadav1991", "repository": "Synergie-ITCI/BDPP"}
+        cases = [
+            ([], "FAIL"),
+            ([{"user": {"login": "ravisynergie"}, "state": "APPROVED", "commit_id": "HEAD"}], "FAIL"),
+            ([{"user": {"login": "SaurabhVermaIN"}, "state": "APPROVED", "commit_id": "old-head"}], "FAIL"),
+            ([{"user": {"login": "SaurabhVermaIN"}, "state": "APPROVED", "commit_id": "HEAD"}], "PASS"),
+        ]
+        for reviews, expected in cases:
+            with self.subTest(reviews=reviews):
+                code, report, report_json, _ = self.run_engine_with_artifacts(
+                    repo, base, **common,
+                    review_policy={"source": "github_api", "mergeable": True, "reviews": reviews},
+                )
+                self.assertEqual(report_json["summary"]["gate_statuses"]["Review Policy"], expected)
+                self.assertEqual(code == 0, expected == "PASS", report)
 
     def test_non_saurabh_authored_pr_allows_green_with_independent_review(self) -> None:
         repo, base = self.init_repo("developer-reviewed-green")

@@ -46,6 +46,11 @@ The authorization is for the exact release being promoted.
 
 Saurabh may authorize a release he authored; GitHub native self-review limitations must not create a governance deadlock.
 
+The central Review Policy check applies this owner exception and the developer
+approval requirement to every PR targeting `main`, including a separately
+governed direct-to-main correction. This does not authorize a noncanonical
+promotion or relax its other checks.
+
 Main represents the approved release baseline.
 
 ### Gate D — Production
