@@ -52,6 +52,7 @@ class RoadSenseRestrictedSsmDocumentTests(unittest.TestCase):
             command,
         )
         self.assertLess(command.index('aws sts get-caller-identity'), command.index('RELEASE_JSON_B64='))
+        self.assertIn('aws sts get-caller-identity --query Arn --output text)" = ' + '\\' + '\n', command)
         self.assertNotIn("{{", command)
 
     def test_workflow_and_policy_use_only_fixed_document(self):
@@ -59,7 +60,7 @@ class RoadSenseRestrictedSsmDocumentTests(unittest.TestCase):
         policy = json.loads((ROOT / "iam/roadsense-deploy-policy.json").read_text())
         trust = json.loads((ROOT / "iam/roadsense-deploy-trust.json").read_text())
         self.assertIn(f"'{EXPECTED_SHA}'", workflow)
-        self.assertIn("--document-version 1", workflow)
+        self.assertIn("--document-version 2", workflow)
         self.assertIn("--document-name RoadSense-GateD-Production-Command-v1", workflow)
         self.assertNotIn("AWS-RunShellScript", workflow)
         self.assertNotIn("AWS-RunShellScript", json.dumps(policy))
@@ -71,12 +72,25 @@ class RoadSenseRestrictedSsmDocumentTests(unittest.TestCase):
         claims = trust["Statement"][0]["Condition"]["StringEquals"]
         self.assertEqual(
             claims["token.actions.githubusercontent.com:job_workflow_ref"],
-            "Synergie-ITCI/.github/.github/workflows/roadsense-controlled-release.yml@refs/tags/roadsense-gate-d-v3",
+            "Synergie-ITCI/.github/.github/workflows/roadsense-controlled-release.yml@refs/tags/roadsense-gate-d-v4",
         )
         self.assertEqual(
             claims["token.actions.githubusercontent.com:sub"],
             "repo:Synergie-ITCI@209829096/roadsense-production-dashboard@1426678649:ref:refs/heads/main",
         )
+
+    def test_identity_probe_is_separate_and_has_no_deploy_permissions(self):
+        workflow = (ROOT / ".github/workflows/roadsense-controlled-release.yml").read_text()
+        self.assertIn("&& !inputs.identity-probe", workflow)
+        probe = workflow.split("\n  identity-probe:\n", 1)[1].split("\n  deploy:\n", 1)[0]
+        self.assertIn("&& inputs.identity-probe", probe)
+        self.assertIn("id-token: write", probe)
+        self.assertIn("aws-actions/configure-aws-credentials@v4", probe)
+        self.assertIn('"Effect":"Deny","Action":"*","Resource":"*"', probe)
+        self.assertIn("aws sts get-caller-identity", probe)
+        self.assertNotIn("send-command", probe)
+        self.assertNotIn("AWS-RunShellScript", probe)
+        self.assertNotIn("approval-run-id:", probe)
 
     def test_hybrid_bucket_grant_and_probe_are_read_only_and_node_bound(self):
         grant = json.loads((ROOT / "iam/roadsense-hybrid-image-read-statement.json").read_text())
