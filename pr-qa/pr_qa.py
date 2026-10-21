@@ -4909,14 +4909,14 @@ def gate_review_policy(ctx: PRContext, input_path: str = "") -> list[CheckResult
     owner_login = str(policy.get("owner_review_exception", {}).get("github_login", "SaurabhVermaIN"))
     pr_author = extract_pr_author(ctx.event)
     evidence = load_review_policy_evidence(ctx, input_path)
-    gate_c = is_gate_c_staging_to_main(ctx)
+    targets_main = (ctx.base_ref or "").lower() == "main"
 
     mergeable = evidence.get("mergeable")
     merge_conflict = evidence.get("merge_conflict")
     if merge_conflict is True or mergeable is False:
         return [failed("Review Policy", None, "Pull request has merge conflicts or is not mergeable.", [f"author={pr_author or 'unknown'}"], score=12)]
 
-    if not gate_c:
+    if not targets_main:
         return [
             passed(
                 "Review Policy",
@@ -4931,16 +4931,20 @@ def gate_review_policy(ctx: PRContext, input_path: str = "") -> list[CheckResult
             passed(
                 "Review Policy",
                 None,
-                f"Verified GitHub identity {owner_login} is exempt from independent human review for Gate C; automated gates remain mandatory.",
+                f"Verified GitHub identity {owner_login} is exempt from independent human review for a main-target PR; automated gates remain mandatory.",
             )
         ]
 
-    if owner_latest_review_approved(evidence.get("reviews", []), owner_login):
+    head_sha = str(((ctx.event.get("pull_request", {}) or {}).get("head", {}) or {}).get("sha", ""))
+    if owner_latest_review_approved(
+        evidence.get("reviews", []), owner_login,
+        head_sha=(head_sha or "UNAVAILABLE") if evidence.get("source") == "github_api" else "",
+    ):
         return [
             passed(
                 "Review Policy",
                 None,
-                "Executive Release Authority review requirement is satisfied for Gate C.",
+                "Executive Release Authority review requirement is satisfied for this main-target PR.",
                 [f"approver={owner_login}"],
             )
         ]
@@ -4960,7 +4964,7 @@ def gate_review_policy(ctx: PRContext, input_path: str = "") -> list[CheckResult
         failed(
             "Review Policy",
             None,
-            "Executive Release Authority approval is required for Gate C staging to main.",
+            "Executive Release Authority approval is required for PRs targeting main.",
             [f"author={pr_author or 'unknown'}", f"required_approver={owner_login}"],
             score=12,
         )
@@ -5520,8 +5524,9 @@ def independent_approved_reviewers(reviews: Any, pr_author: str) -> list[str]:
     return sorted(login for login, state in latest_by_user.items() if login != pr_author and state == "APPROVED")
 
 
-def owner_latest_review_approved(reviews: Any, owner_login: str) -> bool:
+def owner_latest_review_approved(reviews: Any, owner_login: str, *, head_sha: str = "") -> bool:
     latest_state = ""
+    latest_commit = ""
     if not isinstance(reviews, list):
         return False
     for review in reviews:
@@ -5531,7 +5536,8 @@ def owner_latest_review_approved(reviews: Any, owner_login: str) -> bool:
         if login != owner_login:
             continue
         latest_state = str(review.get("state", "")).upper()
-    return latest_state == "APPROVED"
+        latest_commit = str(review.get("commit_id", ""))
+    return latest_state == "APPROVED" and (not head_sha or latest_commit == head_sha)
 
 
 def field_has_value(body: str, field: str) -> bool:
