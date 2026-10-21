@@ -3,6 +3,7 @@
 import importlib.util
 import copy
 import base64
+import hashlib
 import json
 import sys
 import unittest
@@ -48,6 +49,24 @@ class CallerClassifierTests(unittest.TestCase):
         for path in engine.ROADSENSE_GATE_D_CALLERS:
             with self.subTest(path=path):
                 self.assertTrue(engine.roadsense_gate_d_caller_details(self.ctx, path, caller(path)))
+
+    def test_identity_probe_exception_requires_exact_bytes_repository_and_release(self):
+        path = engine.ROADSENSE_OIDC_PROBE_PATH
+        source = (ROOT / "tests/fixtures/roadsense-oidc-identity-probe.yml").read_text()
+        self.assertEqual(hashlib.sha256(source.encode()).hexdigest(), engine.ROADSENSE_OIDC_PROBE_SHA256)
+        self.assertTrue(engine.roadsense_oidc_identity_probe_details(self.ctx, path, source))
+        for altered in (
+            source.replace("roadsense-gate-d-v4", "roadsense-gate-d-v3"),
+            source.replace('"Effect":"Deny"', '"Effect":"Allow"'),
+            source + "\n# unexpected change\n",
+        ):
+            self.assertFalse(engine.roadsense_oidc_identity_probe_details(self.ctx, path, altered))
+        self.assertFalse(engine.roadsense_oidc_identity_probe_details(self.ctx, "other.yml", source))
+        self.ctx.event["repository"]["full_name"] = "Synergie-ITCI/other"
+        self.assertFalse(engine.roadsense_oidc_identity_probe_details(self.ctx, path, source))
+        self.ctx.event["repository"]["full_name"] = "Synergie-ITCI/roadsense-production-dashboard"
+        self.approved.return_value = False
+        self.assertFalse(engine.roadsense_oidc_identity_probe_details(self.ctx, path, source))
 
     def test_pyyaml_boolean_on_key_is_accepted(self):
         path = ".github/workflows/roadsense-controlled-release.yml"
