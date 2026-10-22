@@ -22,6 +22,9 @@ env:
 jobs:
   detect:
     name: Detect repository technologies
+    # GitHub requires an explicit job condition when this source workflow is
+    # selected by an organization ruleset for another repository's PR.
+    if: github.event_name == 'workflow_call' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
