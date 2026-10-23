@@ -286,6 +286,21 @@
     ".env.sample",
     ".env.template"
   ],
+  "verified_webserver_protections": {
+    "Synergie-ITCI/datamatics": {
+      "application/.htaccess": "7ea258b9d2ee9d9d1add5d857c40c531282057e83b875775f60845e38d79235e",
+      "assets/uploads/.htaccess": "e5e0cc52689e84a9804461a54f6d5e898edadad616d454f3b7e5dd3892ae5ae9"
+    }
+  },
+  "unresolved_historical_secret_exposures": [
+    {
+      "repository": "Synergie-ITCI/datamatics",
+      "commit": "561cf40c595a7ba4c6c72a648dfbf25ad26f64d2",
+      "path": "database/datamatics.sql",
+      "owner": "security/repository owner",
+      "reason": "Deleted SQL dump contains JWT-shaped values; token validity, provenance, and any other credential exposure require documented security disposition."
+    }
+  ],
   "stack_integrity_exceptions": {
     "react_native": {
       "hidden_text_files": [

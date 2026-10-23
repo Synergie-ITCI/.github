@@ -1874,6 +1874,8 @@ exit 0
         self.assertEqual(report_json["summary"]["gate_statuses"]["Secrets"], "PASS")
         self.assertIn("Inherited branch-promotion commit messages predate current convention", report)
         self.assertIn("Inherited branch-promotion merge commits predate current promotion policy", report)
+        self.assertIn("Inherited source commits have nonconforming subjects", report)
+        self.assertIn("subject=Legacy feature import", report)
         self.assertTrue(
             any(
                 result["gate"] == "Secrets"
@@ -1910,6 +1912,57 @@ exit 0
         self.assertNotEqual(code, 0)
         self.assertEqual(report_json["summary"]["gate_statuses"]["Secrets"], "FAIL")
         self.assertIn("Gitleaks detected secrets", report)
+
+    def test_secret_report_groups_repeated_findings_without_suppressing_gate(self) -> None:
+        repo, base = self.init_repo("grouped-secret-diagnostics")
+        self.write(repo / "app.txt", "application change\n")
+        self.commit(repo, "feat: add application change")
+        self.install_fake_gitleaks_report([
+            {
+                "RuleID": "jwt",
+                "File": "database/deleted.sql",
+                "StartLine": index,
+                "Fingerprint": f"old-commit:database/deleted.sql:jwt:{index}",
+            }
+            for index in range(1, 101)
+        ])
+
+        _, report, result, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertEqual(result["summary"]["gate_statuses"]["Secrets"], "FAIL")
+        self.assertIn("Unreviewed Gitleaks findings: 100", report)
+        self.assertIn("PATH_ABSENT_AT_HEAD database/deleted.sql rule=jwt occurrences=100", report)
+        self.assertIn("fingerprint=old-commit:database/deleted.sql:jwt:1", report)
+        self.assertNotIn("deleted.sql:100", report)
+
+    def test_unresolved_historical_exposure_blocks_only_reachable_candidate_history(self) -> None:
+        engine = load_engine_module()
+        repo, base = self.init_repo("historical-exposure")
+        self.write(repo / "database" / "deleted.sql", "synthetic regression fixture\n")
+        self.commit(repo, "test: add synthetic historical dump")
+        exposure_sha = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.git(repo, "rm", "-q", "database/deleted.sql")
+        self.git(repo, "commit", "-q", "-m", "test: remove synthetic historical dump")
+        entry = {
+            "repository": "Synergie-ITCI/datamatics",
+            "commit": exposure_sha,
+            "path": "database/deleted.sql",
+            "owner": "security/repository owner",
+            "reason": "document disposition",
+        }
+        ctx = SimpleNamespace(
+            repo=repo,
+            event={"repository": {"full_name": "Synergie-ITCI/datamatics"}},
+            policy={"unresolved_historical_secret_exposures": [entry]},
+        )
+
+        findings = engine.unresolved_historical_secret_exposures(ctx, {"base_sha": base})
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].status, "FAIL")
+        self.assertIn("HISTORICAL_UNRESOLVED", findings[0].details[0])
+        self.assertEqual(engine.unresolved_historical_secret_exposures(ctx, {"base_sha": exposure_sha}), [])
+        ctx.event["repository"]["full_name"] = "Synergie-ITCI/other-app"
+        self.assertEqual(engine.unresolved_historical_secret_exposures(ctx, {"base_sha": base}), [])
 
     def test_immutable_nested_framework_test_fixture_secret_is_classified(self) -> None:
         repo, base = self.init_repo("framework-self-test-fixture")
@@ -4294,6 +4347,60 @@ exit 0
         code, report = self.run_engine(repo, base, static_only=True)
         self.assertNotEqual(code, 0)
         self.assertIn("unexpected hidden file or directory `.unknownrc`", report)
+
+    def test_datamatics_reviewed_htaccess_protections_pass_only_at_verified_paths(self) -> None:
+        repo, base = self.init_repo("datamatics-reviewed-htaccess")
+        self.write(repo / "application" / ".htaccess", (
+            "<IfModule authz_core_module>\n"
+            "    Require all denied\n"
+            "</IfModule>\n"
+            "<IfModule !authz_core_module>\n"
+            "    Deny from all\n"
+            "</IfModule>\n"
+        ))
+        self.write(repo / "assets" / "uploads" / ".htaccess", (
+            "# Uploaded files are data, never code: block script execution and directory listing.\n"
+            "Options -Indexes -ExecCGI\n"
+            '<FilesMatch "\\.(?i:php\\d?|phtml|phar|pl|py|cgi|sh|asp|aspx|jsp|htaccess)$">\n'
+            "    Require all denied\n"
+            "</FilesMatch>\n"
+            "<IfModule mod_php.c>\n"
+            "    php_flag engine off\n"
+            "</IfModule>\n"
+            "<IfModule mod_php7.c>\n"
+            "    php_flag engine off\n"
+            "</IfModule>\n"
+        ))
+        self.commit(repo, "fix: restore reviewed web server protections")
+
+        _, report, result, _ = self.run_engine_with_artifacts(
+            repo, base, static_only=True, repository="Synergie-ITCI/datamatics",
+        )
+        self.assertNotIn("unexpected hidden file or directory `.htaccess`", report)
+        self.assertNotEqual(result["summary"]["gate_statuses"]["Repository Integrity"], "FAIL")
+
+        self.write(repo / "assets" / "uploads" / ".htaccess", "Options +Indexes +ExecCGI\n")
+        self.commit(repo, "test: add unsafe Apache directives")
+        _, report, _, _ = self.run_engine_with_artifacts(
+            repo, base, static_only=True, repository="Synergie-ITCI/datamatics",
+        )
+        self.assertIn("unexpected hidden file or directory `.htaccess`", report)
+
+    def test_reviewed_htaccess_is_not_global_or_location_agnostic(self) -> None:
+        repo, base = self.init_repo("unrelated-reviewed-htaccess")
+        self.write(repo / "application" / ".htaccess", (
+            "<IfModule authz_core_module>\n"
+            "    Require all denied\n"
+            "</IfModule>\n"
+            "<IfModule !authz_core_module>\n"
+            "    Deny from all\n"
+            "</IfModule>\n"
+        ))
+        self.commit(repo, "test: add same Apache file in unrelated repository")
+        _, report, _, _ = self.run_engine_with_artifacts(
+            repo, base, static_only=True, repository="Synergie-ITCI/other-app",
+        )
+        self.assertIn("unexpected hidden file or directory `.htaccess`", report)
 
     def test_react_native_bootstrap_files_are_narrowly_allowed(self) -> None:
         repo, base = self.init_repo("react-native-bootstrap")
