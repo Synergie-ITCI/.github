@@ -1299,11 +1299,10 @@ def branch_alignment_requested(ctx: PRContext) -> bool:
 def baseline_authorization(ctx: PRContext, git_context: dict[str, Any]) -> tuple[bool, list[str], dict[str, Any]]:
     from baseline_authorization import validate_authorization
 
-    raw_policy = ctx.policy.get("one_time_baseline_alignment")
-    policy = raw_policy if isinstance(raw_policy, dict) else {}
+    policy = baseline_policy(ctx)
     if not baseline_requested(ctx):
         return False, ["Baseline alignment mode was not requested."], policy
-    details = validate_authorization(ctx, git_context, raw_policy, risk_size_accounting(ctx))
+    details = validate_authorization(ctx, git_context, policy, risk_size_accounting(ctx))
     if not details:
         details.extend(baseline_source_overlay_authorization(
             ctx, git_context, policy, resolve_head_sha(ctx.repo, git_context), str(git_context.get("base_sha") or "")
