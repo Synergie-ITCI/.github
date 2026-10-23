@@ -920,6 +920,27 @@
         "changed_file_count",
         "diff_size"
       ]
+    },
+    {
+      "enabled": true,
+      "repository": "Synergie-ITCI/roadsense-production-dashboard",
+      "repository_id": 1426678649,
+      "pr_number": 41,
+      "expected_head_sha": "be646aa6a34995f8b8e8889ac6f6bd88afee0640",
+      "expected_base_sha": "0a4ea31daa8b840e2318ccc936f26434eb7dc056",
+      "head_ref": "feature/bengaluru-coverage-recovery",
+      "base_ref": "development",
+      "allowed_effective_additions": 5573,
+      "allowed_changed_files": 30,
+      "minimum_changed_files": 30,
+      "purpose": "One-time exact-head review of RoadSense Bengaluru PR #41: retain readable generated public SQL while allowing its 573 additions above the 5000-line limit; all other QA, publication, and release controls remain enforced.",
+      "issued_at": "2026-10-23T10:02:59Z",
+      "expires_after": "2026-10-24T09:02:59Z",
+      "authorization_id": "15579265-a3f5-4105-a6b9-20a4a4d9e9a8",
+      "required_pr_body_marker": "ROADSENSE-PR41-EXACT-HEAD-SIZE-15579265",
+      "relaxations": [
+        "diff_size"
+      ]
     }
   ]
 }
