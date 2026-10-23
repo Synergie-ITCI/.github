@@ -880,14 +880,138 @@
       ]
     },
     "inherited_synthetic_fixtures": {
-      "reason": "Exact reviewed synthetic GitHub-token fixture fingerprints inherited unchanged from the active immutable release. New or modified findings and every other failure remain blocking.",
+      "reason": "Previously reviewed synthetic regression-fixture fingerprints inherited unchanged from the active immutable release. The active scanner may report any nonempty subset; new or modified findings and every other failure remain blocking.",
       "synthetic_fixture_findings": [
-        {"path": "tests/test_pr_qa_regressions.py", "label": "GitHub token", "line_sha256": "0cd495ab39da81b14d89d937cf8a961d968efec6392ba224c5fe1c06a7ade71f"},
-        {"path": "tests/test_pr_qa_regressions.py", "label": "GitHub token", "line_sha256": "18f3a70e674251f001cf17bbd7da85dce1b54c90e62b03ff3345bfd692f7f7fc"},
-        {"path": "tests/test_pr_qa_regressions.py", "label": "GitHub token", "line_sha256": "2c2a164bd4998656a6d3092bb5b353878605623f316bf5d7757eca51f92d7b32"},
-        {"path": "tests/test_pr_qa_regressions.py", "label": "GitHub token", "line_sha256": "2c72cf07a731cb2fa66c9c9d8753896209c9b05b0323a6679283ae3f6d00c2a0"},
-        {"path": "tests/test_pr_qa_regressions.py", "label": "GitHub token", "line_sha256": "51676bc49572272a6808d507a9938be3c8780332604259072e705214e40bb12d"},
-        {"path": "tests/test_pr_qa_regressions.py", "label": "GitHub token", "line_sha256": "9242958c91a8ba257c78cb263467a97121dacc5e970f76280701b15b56cf3487"}
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "GitHub token",
+          "line_sha256": "0cd495ab39da81b14d89d937cf8a961d968efec6392ba224c5fe1c06a7ade71f"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "GitHub token",
+          "line_sha256": "18f3a70e674251f001cf17bbd7da85dce1b54c90e62b03ff3345bfd692f7f7fc"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "GitHub token",
+          "line_sha256": "2c2a164bd4998656a6d3092bb5b353878605623f316bf5d7757eca51f92d7b32"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "GitHub token",
+          "line_sha256": "2c72cf07a731cb2fa66c9c9d8753896209c9b05b0323a6679283ae3f6d00c2a0"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "GitHub token",
+          "line_sha256": "51676bc49572272a6808d507a9938be3c8780332604259072e705214e40bb12d"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "GitHub token",
+          "line_sha256": "9242958c91a8ba257c78cb263467a97121dacc5e970f76280701b15b56cf3487"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "GitHub token",
+          "line_sha256": "9701f8dfe3c8a970ee9c02d08ff0e7043baedee6329833e21ddd52685e6cea64"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "GitHub token",
+          "line_sha256": "a2ba854aad3b52c2491402f50c7c8f7aba24a9388496dee2b95c924caef34a36"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "GitHub token",
+          "line_sha256": "a636584b09fd77032487563538bf9704df16f14275b2609b7c5e6e4b6bb3101c"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "GitHub token",
+          "line_sha256": "d8ffa141832066d173080f53665536ff75f94b3a7644350b8eaa5d3ffdfb3770"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "base64-encoded GitHub token",
+          "line_sha256": "3cc9a02bf9ef7528382c136f1cb504ef4d6a1ece8211fc48b2cb9a87adbc1e2f"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "base64-encoded GitHub token",
+          "line_sha256": "ee81380ed856b1b357e9a9132eb1b884be35a0857e45215833dcb7d6c677fe3d"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "generic credential assignment",
+          "line_sha256": "02d7734547f07b83e0966058e695ee4361ac696447489f2a8c51867253e91975"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "generic credential assignment",
+          "line_sha256": "0e46aba5163747ce41ba68c664f8cc13002bcfacab640c4bfabd62e4b998a51f"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "generic credential assignment",
+          "line_sha256": "10ac94c900382134c291879330d01ba6e94b07def0d658329801cc009d0904e9"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "generic credential assignment",
+          "line_sha256": "1d985cdd3935e5ff13985db179d7017c6bb63d8831f0a163d31844a2d5738453"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "generic credential assignment",
+          "line_sha256": "2579092a57b3ae07d021a4d312ad63b4161bac120848d3e8fb3ee8afc7b6b3bb"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "generic credential assignment",
+          "line_sha256": "2c72cf07a731cb2fa66c9c9d8753896209c9b05b0323a6679283ae3f6d00c2a0"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "generic credential assignment",
+          "line_sha256": "4df388db36901b22c062c406289b3183f505f12b7e28403771e17796ee9b9181"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "generic credential assignment",
+          "line_sha256": "62dc2af9478fb8f4f08992c1e2566ab28e6ee3eed2565db436bc44d5ef42a72d"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "generic credential assignment",
+          "line_sha256": "658172d140e0525d34fe39728f8caf5966d854b783d34702c8b99d0458f667a4"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "generic credential assignment",
+          "line_sha256": "6fbd655d9878cafbd044e0574ecd96e5e67c1d739cbea9b69c9ecab5aaed5227"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "generic credential assignment",
+          "line_sha256": "83715f61019f9adee2476d95b997e9c851be06f779132d818e437572fbb2e49d"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "generic credential assignment",
+          "line_sha256": "89bf46cf18b1f02355582111416d54d611757c0c690a716957c89c3a82257e7b"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "generic credential assignment",
+          "line_sha256": "a2ba854aad3b52c2491402f50c7c8f7aba24a9388496dee2b95c924caef34a36"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "generic credential assignment",
+          "line_sha256": "b984a4b242ebfdfb47a03e568074a0c64b14fc4b138d8f8f466be12bdee85c98"
+        }
       ]
     }
   },
