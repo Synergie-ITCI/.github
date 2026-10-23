@@ -105,9 +105,10 @@ def matching_run(runs: list[dict], release: str, commit: str, actor: str, starte
 
 
 def wait_for_provenance_run(release: str, commit: str, actor: str, started: datetime,
-                            fetch=api, pause=time.sleep, attempts: int = 30) -> dict:
+                            fetch=api, pause=time.sleep, attempts: int = 30,
+                            branch: str = "main") -> dict:
     for attempt in range(attempts):
-        runs = fetch(f"repos/{REPOSITORY}/actions/workflows/{WORKFLOW}/runs?event=workflow_dispatch&branch=main&per_page=30")["workflow_runs"]
+        runs = fetch(f"repos/{REPOSITORY}/actions/workflows/{WORKFLOW}/runs?event=workflow_dispatch&branch={branch}&per_page=30")["workflow_runs"]
         match = matching_run(runs, release, commit, actor, started)
         if match:
             run = fetch(f"repos/{REPOSITORY}/actions/runs/{match['id']}")
@@ -120,14 +121,45 @@ def wait_for_provenance_run(release: str, commit: str, actor: str, started: date
     raise ValueError("Provenance did not complete; dispatch outcome is uncertain; do not dispatch again")
 
 
-def dispatch_provenance(release: str, commit: str) -> None:
-    result = command("gh", "workflow", "run", WORKFLOW, "-R", REPOSITORY, "--ref", "main",
+def dispatch_provenance(release: str, commit: str, branch: str = "main") -> None:
+    result = command("gh", "workflow", "run", WORKFLOW, "-R", REPOSITORY, "--ref", branch,
                      "-f", f"release={release}", "-f", f"commit={commit}", check=False)
     if result.returncode:
         raise ValueError("Provenance dispatch outcome is uncertain; do not dispatch again")
 
 
-def verify_source(release: str, commit: str) -> str:
+def verify_source_on_main(commit: str) -> None:
+    """Keep an exact selected source valid while later protected merges advance main."""
+    remote = api(f"repos/{REPOSITORY}/git/ref/heads/main")["object"]["sha"]
+    command("git", "fetch", "--no-tags", "origin", "refs/heads/main:refs/remotes/origin/main")
+    if command("git", "rev-parse", "refs/remotes/origin/main").stdout.strip() != remote:
+        raise ValueError("Protected main changed during source verification")
+    history = command("git", "rev-list", "--first-parent", remote).stdout.splitlines()
+    if commit not in history:
+        raise ValueError("Selected source is not on protected main first-parent history")
+    rules = api(f"repos/{REPOSITORY}/rules/branches/main")
+    contexts = {check["context"] for rule in rules if rule.get("type") == "required_status_checks"
+                for check in (rule.get("parameters") or {}).get("required_status_checks", [])}
+    if (not any(rule.get("type") == "pull_request" for rule in rules)
+            or "pr-qa / Pull Request Quality Assurance" not in contexts):
+        raise ValueError("Protected main review or required PR-QA check changed")
+
+
+def provenance_branch(release: str, commit: str) -> str:
+    """Pin dispatch to the exact source even if protected main advances."""
+    branch = f"pr-qa-release-source/{release}"
+    ref = f"refs/heads/{branch}"
+    existing = command("git", "ls-remote", "origin", ref).stdout.strip()
+    if existing:
+        raise ValueError("Release source branch already exists; inspect prior dispatch before retrying")
+    command("git", "push", "origin", f"{commit}:{ref}")
+    published = command("git", "ls-remote", "origin", ref).stdout.split()
+    if not published or published[0] != commit:
+        raise ValueError("Release source branch identity is uncertain; do not dispatch")
+    return branch
+
+
+def verify_source(release: str, commit: str, *, check_main: bool = True) -> str:
     if not RELEASE.fullmatch(release) or not SHA.fullmatch(commit):
         raise ValueError("Expected exact RC tag and 40-character source SHA")
     if command("git", "remote", "get-url", "origin").stdout.strip() != ORIGIN:
@@ -136,8 +168,8 @@ def verify_source(release: str, commit: str) -> str:
         raise ValueError("Release checkout is not clean")
     if command("git", "rev-parse", "HEAD").stdout.strip() != commit:
         raise ValueError("Release checkout is not at the approved source SHA")
-    if api(f"repos/{REPOSITORY}/git/ref/heads/main")["object"]["sha"] != commit:
-        raise ValueError("Protected main moved from the approved source SHA")
+    if check_main:
+        verify_source_on_main(commit)
     actor = str(api("user")["login"])
     if actor not in ALLOWED_RELEASE_ACTORS:
         raise ValueError("Authenticated actor is not an approved release owner")
@@ -185,11 +217,12 @@ def main() -> int:
         return 0
 
     started = datetime.now(timezone.utc).replace(microsecond=0)
-    dispatch_provenance(args.release, args.commit)
+    branch = provenance_branch(args.release, args.commit)
+    dispatch_provenance(args.release, args.commit, branch)
     print("One provenance dispatch submitted; waiting for its exact run", flush=True)
-    run = wait_for_provenance_run(args.release, args.commit, actor, started)
+    run = wait_for_provenance_run(args.release, args.commit, actor, started, branch=branch)
 
-    verify_source(args.release, args.commit)
+    verify_source(args.release, args.commit, check_main=False)
     if verify_protection(args.release, args.ruleset_id) != updated_at:
         raise ValueError("Ruleset changed after provenance; no tag created")
     entry = {"commit": args.commit, "release_workflow_run_id": run["id"]}
@@ -208,8 +241,7 @@ def main() -> int:
     tag_content = command("git", "cat-file", "-p", f"refs/tags/{args.release}").stdout
     if tag_content.split("\n\n", 1)[-1] != message:
         raise ValueError("Local tag annotation differs from approved evidence")
-    if api(f"repos/{REPOSITORY}/git/ref/heads/main")["object"]["sha"] != args.commit:
-        raise ValueError("Protected main moved before tag publication")
+    verify_source_on_main(args.commit)
     if verify_protection(args.release, args.ruleset_id) != updated_at:
         raise ValueError("Ruleset changed before tag publication")
     if remote_tag_object(args.release):

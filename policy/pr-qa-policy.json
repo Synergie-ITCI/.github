@@ -1055,56 +1055,30 @@
       "allowed_effective_additions": 5573,
       "allowed_changed_files": 30,
       "minimum_changed_files": 30,
-      "purpose": "One-time exact-head review of RoadSense Bengaluru PR #41: retain readable generated public SQL while allowing its 573 additions above the 5000-line limit; all other QA, publication, and release controls remain enforced.",
+      "purpose": "Exact reviewed RoadSense Bengaluru patch from PR #41; permit only identical staging and main promotion diffs within the bounded owner-approved scope, while all other QA and release gates remain enforced.",
       "issued_at": "2026-10-23T10:02:59Z",
       "expires_after": "2026-10-24T09:02:59Z",
       "authorization_id": "15579265-a3f5-4105-a6b9-20a4a4d9e9a8",
       "required_pr_body_marker": "ROADSENSE-PR41-EXACT-HEAD-SIZE-15579265",
       "relaxations": [
         "diff_size"
-      ]
-    },
-    {
-      "enabled": true,
-      "repository": "Synergie-ITCI/roadsense-production-dashboard",
-      "repository_id": 1426678649,
-      "pr_number": 42,
-      "expected_head_sha": "6d6fdb5971fd2119a2ad969532669dbcf3d2df3b",
-      "expected_base_sha": "00e170aafe4dd5b92863721f673925c92b73308f",
-      "head_ref": "promotion/bengaluru-coverage-recovery-staging",
-      "base_ref": "staging",
-      "allowed_effective_additions": 5573,
-      "allowed_changed_files": 30,
-      "minimum_changed_files": 30,
-      "purpose": "One-time exact-head review of RoadSense Bengaluru staging PR #42: promote the 31 path-identical reviewed PR #41 files while allowing only their 573 additions above the 5000-line limit; all other QA, publication, and release controls remain enforced.",
-      "issued_at": "2026-10-23T11:06:08Z",
-      "expires_after": "2026-10-24T10:06:08Z",
-      "authorization_id": "cc6e012f-a470-4f35-b422-df6d2de45d31",
-      "required_pr_body_marker": "ROADSENSE-PR42-EXACT-HEAD-SIZE-CC6E012F",
-      "relaxations": [
-        "diff_size"
-      ]
-    },
-    {
-      "enabled": true,
-      "repository": "Synergie-ITCI/roadsense-production-dashboard",
-      "repository_id": 1426678649,
-      "pr_number": 43,
-      "expected_head_sha": "df9e2bcd65fd8f714c96dc90c11eb62367efb371",
-      "expected_base_sha": "12333690478c34406443b03cae529823e4b8ab9c",
-      "head_ref": "promotion/bengaluru-coverage-recovery-main",
-      "base_ref": "main",
-      "allowed_effective_additions": 5573,
-      "allowed_changed_files": 30,
-      "minimum_changed_files": 30,
-      "purpose": "One-time exact-head review of RoadSense Bengaluru main PR #43: promote the 31 path-identical QA-passing staging files while allowing only their 573 additions above the 5000-line limit; all other QA, Gate C, publication, and deployment controls remain enforced.",
-      "issued_at": "2026-10-23T12:15:36Z",
-      "expires_after": "2026-10-24T11:15:36Z",
-      "authorization_id": "7415858b-b617-4b4a-835d-528f2301da32",
-      "required_pr_body_marker": "ROADSENSE-PR43-EXACT-HEAD-SIZE-7415858B",
-      "relaxations": [
-        "diff_size"
-      ]
+      ],
+      "promotion_scope": {
+        "reviewed_patch_sha256": "6923f57b1db7462416a9f343f8a3cb22c0fe480d1bff1d9fc9b19e2d07c932d9",
+        "issued_at": "2026-10-23T13:00:00Z",
+        "expires_after": "2026-11-22T13:00:00Z",
+        "required_pr_body_marker": "ROADSENSE-PROMOTION-15579265",
+        "branches": [
+          {
+            "head_ref": "promotion/bengaluru-coverage-recovery-staging",
+            "base_ref": "staging"
+          },
+          {
+            "head_ref": "promotion/bengaluru-coverage-recovery-main",
+            "base_ref": "main"
+          }
+        ]
+      }
     }
   ]
 }

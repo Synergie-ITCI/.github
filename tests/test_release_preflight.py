@@ -32,10 +32,14 @@ class ReleasePreflightTests(unittest.TestCase):
                second: [{"number": 11, "merged_at": "2026-10-23T02:00:00Z", "merge_commit_sha": second,
                          "base": {"ref": "main"}, "head": {"sha": second_head}}]}
         parents = {first: f"{first} {release}", second: f"{second} {first}"}
+        remote_main = [second]
+        first_parent_history = [second, first, release]
 
         def fake_git(args, _root):
             if args == ["rev-parse", "HEAD"]:
                 value = second
+            elif args == ["rev-list", "--first-parent", remote_main[0]]:
+                value = "\n".join(first_parent_history)
             elif args == ["merge-base", "pr-qa-v1-rc204", second]:
                 value = release
             elif args == ["rev-parse", "pr-qa-v1-rc204^{commit}"]:
@@ -55,7 +59,7 @@ class ReleasePreflightTests(unittest.TestCase):
         def fake_api(args, _root):
             path = args[-1]
             if path.endswith("/git/ref/heads/main"):
-                value = {"object": {"sha": second}}
+                value = {"object": {"sha": remote_main[0]}}
             elif path.endswith("/rules/branches/main"):
                 value = rules
             elif path.endswith(f"/commits/{first}/pulls"):
@@ -72,6 +76,13 @@ class ReleasePreflightTests(unittest.TestCase):
 
         with patch.object(preflight, "git", side_effect=fake_git), patch.object(preflight, "run", side_effect=fake_api):
             self.assertEqual(preflight.verify_central_lineage(ROOT, "pr-qa-v1-rc204", second), [first, second])
+            remote_main[0] = "f" * 40
+            first_parent_history.insert(0, remote_main[0])
+            self.assertEqual(preflight.verify_central_lineage(ROOT, "pr-qa-v1-rc204", second), [first, second])
+            first_parent_history.remove(second)
+            with self.assertRaisesRegex(ValueError, "not on protected main first-parent"):
+                preflight.verify_central_lineage(ROOT, "pr-qa-v1-rc204", second)
+            first_parent_history.insert(1, second)
             parents[second] = f"{second} {first} {release}"
             with self.assertRaisesRegex(ValueError, "merge parent differs"):
                 preflight.verify_central_lineage(ROOT, "pr-qa-v1-rc204", second)
