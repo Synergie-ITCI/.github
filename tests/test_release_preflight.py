@@ -19,6 +19,69 @@ preflight = SourceFileLoader("release_preflight", str(SCRIPT)).load_module()
 
 
 class ReleasePreflightTests(unittest.TestCase):
+    def test_rc202_disposition_is_bound_to_exact_findings_and_merged_tree(self):
+        policy = json.loads((ROOT / "policy/pr-qa-policy.json").read_text(encoding="utf-8"))
+        reviewed = policy["release_preflight_dispositions"]["pr-qa-v1-rc202"]
+        merge = reviewed["approved_merge"]
+        source_sha = "e" * 40
+        pr_head = "f" * 40
+        inherited_text = (ROOT / "tests/test_pr_qa_regressions.py").read_text(encoding="utf-8")
+        framework_token = "](?:" + "\\|".join(part + "_path" for part in ("upload", "cache", "log", "storage", "tmp")) + ")["
+        literal_details = [
+            f"DEVELOPER_DECLARATION: `{value}` introduces a writable/runtime path that has not been classified."
+            for value in (framework_token, framework_token, "cache" + "_path", "cache",
+                          "Unable to write cache file:", "Cache file written:")
+        ]
+        report = {"results": [
+            {"gate": "Repository Hygiene", "status": "FAIL", "blocking": True,
+             "message": "Accidental merge commits detected.", "details": [merge["sha"]]},
+            {"gate": "Secrets", "status": "FAIL", "blocking": True,
+             "details": [f'{item["path"]}: {item["label"]}. line_sha256={item["line_sha256"]}'
+                         for item in reviewed["synthetic_fixture_findings"]]},
+            {"gate": "Persistent Data Safety", "status": "FAIL", "blocking": True,
+             "details": literal_details},
+        ]}
+        pr = {"merged_at": "2026-10-23T07:00:00Z", "merge_commit_sha": source_sha,
+              "head": {"sha": pr_head}, "base": {"ref": "main"}}
+
+        def fake_git(args, _root):
+            if args[:3] == ["remote", "get-url", "origin"]:
+                value = preflight.CENTRAL_ORIGIN
+            elif args[:2] == ["show", "pr-qa-v1-rc201:tests/test_pr_qa_regressions.py"]:
+                value = inherited_text
+            elif args[:3] == ["rev-list", "--parents", "-n"]:
+                value = " ".join((merge["sha"], merge["base_sha"], merge["head_sha"]))
+            elif args[:2] == ["merge-base", "--is-ancestor"]:
+                value = ""
+            elif args[:3] == ["rev-list", "--first-parent", "--merges"]:
+                value = merge["sha"]
+            elif args in (["rev-parse", "HEAD"], ["rev-parse", "refs/remotes/origin/main"]):
+                value = source_sha
+            elif args in (["rev-parse", f"{pr_head}^{{tree}}"], ["rev-parse", "HEAD^{tree}"]):
+                value = "a" * 40
+            else:
+                return subprocess.CompletedProcess(args, 1, "", "unexpected git query")
+            return subprocess.CompletedProcess(args, 0, value + "\n", "")
+
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "report.json"
+            with patch.object(preflight, "git", side_effect=fake_git), \
+                 patch.object(preflight, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps(pr), "")):
+                path.write_text(json.dumps(report), encoding="utf-8")
+                self.assertTrue(preflight.reviewed_rc202_disposition(ROOT, path, "main", "pr-qa-v1-rc201"))
+                self.assertFalse(preflight.reviewed_rc202_disposition(ROOT, path, "main", "pr-qa-v1-rc200"))
+                report["results"][2]["details"].append("DEVELOPER_DECLARATION: `uploads` is undeclared")
+                path.write_text(json.dumps(report), encoding="utf-8")
+                self.assertFalse(preflight.reviewed_rc202_disposition(ROOT, path, "main", "pr-qa-v1-rc201"))
+                report["results"][2]["details"].pop()
+                report["results"][1]["details"].append("config.php: API key. line_sha256=" + "b" * 64)
+                path.write_text(json.dumps(report), encoding="utf-8")
+                self.assertFalse(preflight.reviewed_rc202_disposition(ROOT, path, "main", "pr-qa-v1-rc201"))
+                report["results"][1]["details"].pop()
+                path.write_text(json.dumps(report), encoding="utf-8")
+                with patch.object(preflight, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps({**pr, "merged_at": None}), "")):
+                    self.assertFalse(preflight.reviewed_rc202_disposition(ROOT, path, "main", "pr-qa-v1-rc201"))
+
     def test_rc201_disposition_requires_exact_reviewed_findings_and_merge(self):
         policy = json.loads((ROOT / "policy/pr-qa-policy.json").read_text(encoding="utf-8"))
         reviewed = policy["release_preflight_dispositions"]["pr-qa-v1-rc201"]

@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+from collections import Counter
 from pathlib import Path
 
 
@@ -155,6 +156,87 @@ def reviewed_rc201_disposition(root: Path, report_path: Path, base: str, release
         return False
 
 
+def reviewed_rc202_disposition(root: Path, report_path: Path, base: str, release: str) -> bool:
+    """Accept only rc201-inherited findings for the exact reviewed rc202 PR merge."""
+    if base != "main" or release != "pr-qa-v1-rc201":
+        return False
+    origin = git(["remote", "get-url", "origin"], root)
+    if origin.returncode or origin.stdout.strip() != CENTRAL_ORIGIN:
+        return False
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        policy = json.loads((root / "policy" / "pr-qa-policy.json").read_text(encoding="utf-8"))
+        disposition = policy["release_preflight_dispositions"]["pr-qa-v1-rc202"]
+        if disposition["predecessor_release"] != release or disposition["approved_correction_pr"] != 384:
+            return False
+        merge = disposition["approved_merge"]
+        failures = [item for item in report["results"] if item.get("blocking") and item.get("status") == "FAIL"]
+        if len(failures) != 3 or {item.get("gate") for item in failures} != {
+            "Repository Hygiene", "Secrets", "Persistent Data Safety"
+        }:
+            return False
+        by_gate = {item["gate"]: item for item in failures}
+        if (by_gate["Repository Hygiene"].get("message") != "Accidental merge commits detected."
+                or by_gate["Repository Hygiene"].get("details") != [merge["sha"]]):
+            return False
+        expected_literals = disposition["classifier_literal_finding_sha256"]
+        if (len(expected_literals) != 6
+                or Counter(hashlib.sha256(detail.encode()).hexdigest()
+                           for detail in by_gate["Persistent Data Safety"].get("details", []))
+                != Counter(expected_literals)):
+            return False
+
+        expected_fixtures = disposition["synthetic_fixture_findings"]
+        expected = {(item["path"], item["label"], item["line_sha256"]) for item in expected_fixtures}
+        if len(expected) != len(expected_fixtures) or len(expected) != 6:
+            return False
+        actual = set()
+        for detail in by_gate["Secrets"].get("details", []):
+            match = re.fullmatch(r"([^:]+): (.+)\. line_sha256=([0-9a-f]{64})", detail)
+            if not match:
+                return False
+            path, label, fingerprint = match.groups()
+            if path != "tests/test_pr_qa_regressions.py":
+                return False
+            source = root / path
+            inherited = git(["show", f"{release}:{path}"], root)
+            if (not source.is_file() or source.is_symlink() or inherited.returncode
+                    or not any(hashlib.sha256(line.strip().encode()).hexdigest() == fingerprint
+                               for line in source.read_text(encoding="utf-8").splitlines())
+                    or not any(hashlib.sha256(line.strip().encode()).hexdigest() == fingerprint
+                               for line in inherited.stdout.splitlines())):
+                return False
+            actual.add((path, label, fingerprint))
+        if len(by_gate["Secrets"].get("details", [])) != len(expected) or actual != expected:
+            return False
+
+        parents = git(["rev-list", "--parents", "-n", "1", merge["sha"]], root)
+        if parents.returncode or parents.stdout.split() != [merge["sha"], merge["base_sha"], merge["head_sha"]]:
+            return False
+        if git(["merge-base", "--is-ancestor", merge["sha"], release], root).returncode:
+            return False
+        first_parent = git(["rev-list", "--first-parent", "--merges", f"{merge['base_sha']}..HEAD"], root)
+        if first_parent.returncode or first_parent.stdout.split() != [merge["sha"]]:
+            return False
+        head = git(["rev-parse", "HEAD"], root)
+        main = git(["rev-parse", "refs/remotes/origin/main"], root)
+        if head.returncode or main.returncode or head.stdout != main.stdout:
+            return False
+        pr = run(["gh", "api", "repos/Synergie-ITCI/.github/pulls/384"], root)
+        if pr.returncode:
+            return False
+        metadata = json.loads(pr.stdout)
+        if (not metadata.get("merged_at") or metadata.get("merge_commit_sha") != head.stdout.strip()
+                or metadata.get("base", {}).get("ref") != "main"):
+            return False
+        reviewed_tree = git(["rev-parse", f"{metadata['head']['sha']}^{{tree}}"], root)
+        candidate_tree = git(["rev-parse", "HEAD^{tree}"], root)
+        return bool(not reviewed_tree.returncode and not candidate_tree.returncode
+                    and reviewed_tree.stdout == candidate_tree.stdout)
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return False
+
+
 def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str, release: str = "") -> bool:
     head_sha = git(["rev-parse", "HEAD"], root).stdout.strip()
     head_ref = git(["branch", "--show-current"], root).stdout.strip() or "HEAD"
@@ -197,6 +279,9 @@ def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str, release: st
             return True
         if reviewed_rc201_disposition(root, report_path, base, release):
             print("Active PR-QA findings matched the reviewed rc201 merge and exact synthetic fixture fingerprints.")
+            return True
+        if reviewed_rc202_disposition(root, report_path, base, release):
+            print("Active PR-QA findings matched the exact reviewed rc202 correction and inherited fingerprints.")
             return True
         return False
 
