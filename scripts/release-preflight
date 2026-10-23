@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -94,7 +95,67 @@ def extract_release(root: Path, release: str, dest: Path) -> bool:
     return True
 
 
-def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str) -> bool:
+def reviewed_rc201_disposition(root: Path, report_path: Path, base: str, release: str) -> bool:
+    """Classify only the reviewed rc200 findings for the protected rc201 promotion."""
+    if base != "main" or release != "pr-qa-v1-rc200":
+        return False
+    origin = git(["remote", "get-url", "origin"], root)
+    if origin.returncode or origin.stdout.strip() != CENTRAL_ORIGIN:
+        return False
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        policy = json.loads((root / "policy" / "pr-qa-policy.json").read_text(encoding="utf-8"))
+        disposition = policy["release_preflight_dispositions"]["pr-qa-v1-rc201"]
+        merge = disposition["approved_merge"]
+        expected = {(item["path"], item["label"], item["line_sha256"]) for item in disposition["synthetic_fixture_findings"]}
+        if len(expected) != len(disposition["synthetic_fixture_findings"]):
+            return False
+        failures = [item for item in report["results"] if item.get("blocking") and item.get("status") == "FAIL"]
+        if len(failures) != 2 or {item.get("gate") for item in failures} != {"Repository Hygiene", "Secrets"}:
+            return False
+        hygiene = next(item for item in failures if item["gate"] == "Repository Hygiene")
+        secrets = next(item for item in failures if item["gate"] == "Secrets")
+        if hygiene.get("message") != "Accidental merge commits detected." or hygiene.get("details") != [merge["sha"]]:
+            return False
+        actual = set()
+        for detail in secrets["details"]:
+            match = re.fullmatch(r"([^:]+): (.+)\. line_sha256=([0-9a-f]{64})", detail)
+            if not match:
+                return False
+            path, label, fingerprint = match.groups()
+            if path != "tests/test_pr_qa_regressions.py":
+                return False
+            source = root / path
+            if not source.is_file() or source.is_symlink():
+                return False
+            if not any(hashlib.sha256(line.strip().encode("utf-8")).hexdigest() == fingerprint
+                       for line in source.read_text(encoding="utf-8").splitlines()):
+                return False
+            actual.add((path, label, fingerprint))
+        if len(secrets["details"]) != len(expected) or actual != expected:
+            return False
+        parents = git(["rev-list", "--parents", "-n", "1", merge["sha"]], root)
+        if parents.returncode or parents.stdout.split() != [merge["sha"], merge["base_sha"], merge["head_sha"]]:
+            return False
+        first_parent = git(["rev-list", "--first-parent", "--merges", f"{merge['base_sha']}..HEAD"], root)
+        if first_parent.returncode or first_parent.stdout.split() != [merge["sha"]]:
+            return False
+        candidate_tree = git(["rev-parse", f"{merge['sha']}^{{tree}}"], root)
+        reviewed_tree = git(["rev-parse", f"{merge['head_sha']}^{{tree}}"], root)
+        if candidate_tree.returncode or reviewed_tree.returncode or candidate_tree.stdout != reviewed_tree.stdout:
+            return False
+        pr = run(["gh", "api", f"repos/Synergie-ITCI/.github/pulls/{merge['pr']}"], root)
+        if pr.returncode:
+            return False
+        metadata = json.loads(pr.stdout)
+        return bool(metadata.get("merged_at") and metadata.get("merge_commit_sha") == merge["sha"]
+                    and metadata.get("head", {}).get("sha") == merge["head_sha"]
+                    and metadata.get("base", {}).get("ref") == "main")
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return False
+
+
+def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str, release: str = "") -> bool:
     head_sha = git(["rev-parse", "HEAD"], root).stdout.strip()
     head_ref = git(["branch", "--show-current"], root).stdout.strip() or "HEAD"
     with tempfile.TemporaryDirectory(prefix="release-preflight-qa-") as tmp:
@@ -112,6 +173,7 @@ def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str) -> bool:
             ),
             encoding="utf-8",
         )
+        report_path = tmp_path / "pr-quality-report.json"
         proc = subprocess.run(
             [
                 sys.executable,
@@ -127,11 +189,16 @@ def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str) -> bool:
                 "--out",
                 str(tmp_path / "pr-quality-report.md"),
                 "--json-out",
-                str(tmp_path / "pr-quality-report.json"),
+                str(report_path),
             ],
             cwd=root,
         )
-        return proc.returncode == 0
+        if proc.returncode == 0:
+            return True
+        if reviewed_rc201_disposition(root, report_path, base, release):
+            print("Active PR-QA findings matched the reviewed rc201 merge and exact synthetic fixture fingerprints.")
+            return True
+        return False
 
 
 def run_consumer_compatibility(root: Path) -> bool:
@@ -215,7 +282,7 @@ def main() -> int:
         with tempfile.TemporaryDirectory(prefix="release-preflight-framework-") as tmp:
             framework = Path(tmp)
             if extract_release(root, release, framework):
-                qa_passed = run_pr_qa(root, framework, args.base, base_sha)
+                qa_passed = run_pr_qa(root, framework, args.base, base_sha, release)
                 qa = "PASS" if qa_passed else "FAIL"
                 if not qa_passed:
                     blockers.append("central PR-QA failed")

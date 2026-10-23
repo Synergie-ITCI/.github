@@ -1,4 +1,6 @@
 import os
+import json
+import hashlib
 import shutil
 import stat
 import subprocess
@@ -17,6 +19,56 @@ preflight = SourceFileLoader("release_preflight", str(SCRIPT)).load_module()
 
 
 class ReleasePreflightTests(unittest.TestCase):
+    def test_rc201_disposition_requires_exact_reviewed_findings_and_merge(self):
+        policy = json.loads((ROOT / "policy/pr-qa-policy.json").read_text(encoding="utf-8"))
+        reviewed = policy["release_preflight_dispositions"]["pr-qa-v1-rc201"]
+        merge = reviewed["approved_merge"]
+        findings = reviewed["synthetic_fixture_findings"]
+        for item in findings:
+            self.assertEqual(item["path"], "tests/test_pr_qa_regressions.py")
+            lines = (ROOT / item["path"]).read_text(encoding="utf-8").splitlines()
+            self.assertTrue(any(hashlib.sha256(line.strip().encode()).hexdigest() == item["line_sha256"] for line in lines))
+        report = {"results": [
+            {"gate": "Repository Hygiene", "status": "FAIL", "blocking": True,
+             "message": "Accidental merge commits detected.", "details": [merge["sha"]]},
+            {"gate": "Secrets", "status": "FAIL", "blocking": True,
+             "details": [f'{item["path"]}: {item["label"]}. line_sha256={item["line_sha256"]}' for item in findings]},
+        ]}
+        pr = {"merged_at": "2026-10-23T04:18:28Z", "merge_commit_sha": merge["sha"],
+              "head": {"sha": merge["head_sha"]}, "base": {"ref": "main"}}
+
+        def fake_git(args, _root):
+            if args[:3] == ["remote", "get-url", "origin"]:
+                value = preflight.CENTRAL_ORIGIN
+            elif args[:3] == ["rev-list", "--parents", "-n"]:
+                value = " ".join((merge["sha"], merge["base_sha"], merge["head_sha"]))
+            elif args[:3] == ["rev-list", "--first-parent", "--merges"]:
+                value = merge["sha"]
+            elif args[:2] == ["rev-parse", f'{merge["sha"]}^{{tree}}'] or args[:2] == ["rev-parse", f'{merge["head_sha"]}^{{tree}}']:
+                value = "a" * 40
+            else:
+                return subprocess.CompletedProcess(args, 1, "", "unexpected git query")
+            return subprocess.CompletedProcess(args, 0, value + "\n", "")
+
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "report.json"
+            with patch.object(preflight, "git", side_effect=fake_git), \
+                 patch.object(preflight, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps(pr), "")):
+                path.write_text(json.dumps(report), encoding="utf-8")
+                self.assertTrue(preflight.reviewed_rc201_disposition(ROOT, path, "main", "pr-qa-v1-rc200"))
+                self.assertFalse(preflight.reviewed_rc201_disposition(ROOT, path, "development", "pr-qa-v1-rc200"))
+                report["results"][0]["details"] = ["b" * 40]
+                path.write_text(json.dumps(report), encoding="utf-8")
+                self.assertFalse(preflight.reviewed_rc201_disposition(ROOT, path, "main", "pr-qa-v1-rc200"))
+                report["results"][0]["details"] = [merge["sha"]]
+                report["results"][1]["details"].append("src/config.py: generic credential assignment. line_sha256=" + "c" * 64)
+                path.write_text(json.dumps(report), encoding="utf-8")
+                self.assertFalse(preflight.reviewed_rc201_disposition(ROOT, path, "main", "pr-qa-v1-rc200"))
+                report["results"][1]["details"].pop()
+                path.write_text(json.dumps(report), encoding="utf-8")
+                with patch.object(preflight, "run", return_value=subprocess.CompletedProcess([], 1, "", "unauthorized")):
+                    self.assertFalse(preflight.reviewed_rc201_disposition(ROOT, path, "main", "pr-qa-v1-rc200"))
+
     def test_technical_preflight_does_not_fabricate_pr_review_evidence(self):
         captured = {}
 
