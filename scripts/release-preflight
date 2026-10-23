@@ -96,6 +96,74 @@ def extract_release(root: Path, release: str, dest: Path) -> bool:
     return True
 
 
+def verify_central_lineage(root: Path, release: str, candidate: str) -> list[str]:
+    """Require every first-parent change since the active tag to be a checked PR merge."""
+    def checked_git(*args: str) -> str:
+        result = git(list(args), root)
+        if result.returncode:
+            raise ValueError(f"lineage git query failed: {' '.join(args)}")
+        return result.stdout.strip()
+
+    def checked_api(path: str) -> object:
+        result = run(["gh", "api", path], root)
+        if result.returncode:
+            raise ValueError(f"lineage GitHub evidence unavailable: {path}")
+        return json.loads(result.stdout)
+
+    remote = checked_api("repos/Synergie-ITCI/.github/git/ref/heads/main")
+    if remote["object"]["sha"] != candidate or checked_git("rev-parse", "HEAD") != candidate:
+        raise ValueError("candidate is not the exact current protected main commit")
+    if checked_git("merge-base", release, candidate) != checked_git("rev-parse", f"{release}^{{commit}}"):
+        raise ValueError("active release is not an ancestor of the candidate")
+    rules = checked_api("repos/Synergie-ITCI/.github/rules/branches/main")
+    required = {"pr-qa / Pull Request Quality Assurance", "Architecture Governance"}
+    if not any(item.get("type") == "pull_request" for item in rules):
+        raise ValueError("protected main no longer requires pull requests")
+    contexts = {check["context"] for item in rules if item.get("type") == "required_status_checks"
+                for check in (item.get("parameters") or {}).get("required_status_checks", [])}
+    if "pr-qa / Pull Request Quality Assurance" not in contexts:
+        raise ValueError("protected main no longer requires central PR-QA")
+    commits = checked_git("rev-list", "--reverse", "--first-parent", f"{release}..{candidate}").splitlines()
+    if not commits:
+        raise ValueError("candidate contains no source changes after the active release")
+    previous = checked_git("rev-parse", f"{release}^{{commit}}")
+    for commit in commits:
+        parents = checked_git("rev-list", "--parents", "-n", "1", commit).split()
+        if parents[0] != commit or len(parents) not in (2, 3) or parents[1] != previous:
+            raise ValueError(f"unexpected merge or direct push: {commit}")
+        associated = checked_api(f"repos/Synergie-ITCI/.github/commits/{commit}/pulls")
+        matches = [pr for pr in associated if pr.get("merge_commit_sha") == commit
+                   and pr.get("merged_at") and pr.get("base", {}).get("ref") == "main"]
+        if len(matches) != 1:
+            raise ValueError(f"commit has no unique approved merged PR: {commit}")
+        pr = matches[0]
+        head = pr.get("head", {}).get("sha")
+        if not isinstance(head, str) or not re.fullmatch(r"[0-9a-f]{40}", head):
+            raise ValueError(f"PR head identity unavailable: {commit}")
+        if len(parents) == 2:
+            if checked_git("rev-parse", f"{head}^{{tree}}") != checked_git("rev-parse", f"{commit}^{{tree}}"):
+                raise ValueError(f"squash content differs from reviewed PR head: {commit}")
+        elif parents[2] != head:
+            raise ValueError(f"merge parent differs from reviewed PR head: {commit}")
+        checks = checked_api(f"repos/Synergie-ITCI/.github/commits/{head}/check-runs?per_page=100")
+        if checks.get("total_count", 0) > 100:
+            raise ValueError(f"check evidence is truncated: {commit}")
+        latest: dict[str, dict] = {}
+        for check in checks.get("check_runs", []):
+            if check.get("head_sha") != head or check.get("app", {}).get("slug") != "github-actions":
+                continue
+            if not isinstance(check.get("id"), int) or not isinstance(check.get("name"), str):
+                raise ValueError(f"check identity unavailable for PR #{pr['number']}: {commit}")
+            name = check["name"]
+            if name not in latest or check["id"] > latest[name]["id"]:
+                latest[name] = check
+        if any(latest.get(name, {}).get("status") != "completed"
+               or latest.get(name, {}).get("conclusion") != "success" for name in required):
+            raise ValueError(f"required exact-head checks missing for PR #{pr['number']}: {commit}")
+        previous = commit
+    return commits
+
+
 def reviewed_rc201_disposition(root: Path, report_path: Path, base: str, release: str) -> bool:
     """Classify only the reviewed rc200 findings for the protected rc201 promotion."""
     if base != "main" or release != "pr-qa-v1-rc200":
@@ -375,18 +443,16 @@ def reviewed_rc204_disposition(root: Path, report_path: Path, base: str, release
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
         return False
 
-def reviewed_rc205_disposition(root: Path, report_path: Path, base: str, release: str) -> bool:
-    """Accept only unchanged rc204 test fixtures after the reviewed PR #388 squash."""
-    if base != "main" or release != "pr-qa-v1-rc204":
+def reviewed_inherited_fixture_disposition(root: Path, report_path: Path, base: str, release: str) -> bool:
+    """Accept only exact, previously reviewed fixture lines inherited from the active tag."""
+    if base != "main" or not RC_RE.fullmatch(release):
         return False
     origin = git(["remote", "get-url", "origin"], root)
     if origin.returncode or origin.stdout.strip() != CENTRAL_ORIGIN:
         return False
     try:
         policy = json.loads((root / "policy" / "pr-qa-policy.json").read_text(encoding="utf-8"))
-        disposition = policy["release_preflight_dispositions"]["pr-qa-v1-rc205"]
-        if disposition["predecessor_release"] != release or disposition["approved_correction_pr"] != 388:
-            return False
+        disposition = policy["release_preflight_dispositions"]["inherited_synthetic_fixtures"]
         report = json.loads(report_path.read_text(encoding="utf-8"))
         failures = [item for item in report["results"] if item.get("blocking") and item.get("status") == "FAIL"]
         if len(failures) != 1 or failures[0].get("gate") != "Secrets":
@@ -415,25 +481,7 @@ def reviewed_rc205_disposition(root: Path, report_path: Path, base: str, release
             actual.add((path, label, fingerprint))
         if actual != expected:
             return False
-        head = git(["rev-parse", "HEAD"], root)
-        main = git(["rev-parse", "refs/remotes/origin/main"], root)
-        count = git(["rev-list", "--count", f"{release}..HEAD"], root)
-        merges = git(["rev-list", "--first-parent", "--merges", f"{release}..HEAD"], root)
-        if (head.returncode or main.returncode or head.stdout != main.stdout
-                or count.returncode or count.stdout.strip() != "1"
-                or merges.returncode or merges.stdout.strip()):
-            return False
-        pr = run(["gh", "api", "repos/Synergie-ITCI/.github/pulls/388"], root)
-        if pr.returncode:
-            return False
-        metadata = json.loads(pr.stdout)
-        if (not metadata.get("merged_at") or metadata.get("merge_commit_sha") != head.stdout.strip()
-                or metadata.get("base", {}).get("ref") != "main"):
-            return False
-        reviewed_tree = git(["rev-parse", f"{metadata['head']['sha']}^{{tree}}"], root)
-        candidate_tree = git(["rev-parse", "HEAD^{tree}"], root)
-        return bool(not reviewed_tree.returncode and not candidate_tree.returncode
-                    and reviewed_tree.stdout == candidate_tree.stdout)
+        return True
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
         return False
 
@@ -490,8 +538,8 @@ def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str, release: st
         if reviewed_rc204_disposition(root, report_path, base, release):
             print("Active PR-QA findings matched the exact reviewed rc204 correction and inherited fixture fingerprints.")
             return True
-        if reviewed_rc205_disposition(root, report_path, base, release):
-            print("Active PR-QA findings matched the exact reviewed rc205 correction and inherited fixture fingerprints.")
+        if reviewed_inherited_fixture_disposition(root, report_path, base, release):
+            print("Active PR-QA findings matched exact reviewed fixture fingerprints inherited from the active release.")
             return True
         return False
 
@@ -572,6 +620,15 @@ def main() -> int:
     dirty = worktree_state(root)
     if dirty == "DIRTY":
         blockers.append("working tree has uncommitted changes")
+
+    origin = git(["remote", "get-url", "origin"], root)
+    if not blockers and args.base == "main" and origin.returncode == 0 and origin.stdout.strip() == CENTRAL_ORIGIN:
+        candidate = git(["rev-parse", "HEAD"], root)
+        try:
+            commits = verify_central_lineage(root, release, candidate.stdout.strip())
+            print(f"Verified {len(commits)} protected PR merge(s) since {release}.")
+        except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+            blockers.append(f"central source lineage: {exc}")
 
     if not blockers and release and base_sha:
         with tempfile.TemporaryDirectory(prefix="release-preflight-framework-") as tmp:
