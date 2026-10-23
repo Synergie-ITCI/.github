@@ -639,6 +639,14 @@ def gather_git_context(repo: Path, event: dict[str, Any], base_ref: str, head_re
     pull_request = event.get("pull_request", {}) or {}
     base_sha = pull_request.get("base", {}).get("sha") or base_ref
     head_sha = pull_request.get("head", {}).get("sha") or "HEAD"
+    preflight = event.get("release_preflight")
+    if (not pull_request and os.environ.get("GITHUB_ACTIONS") != "true"
+            and isinstance(preflight, dict)
+            and preflight.get("technical_validation_only") is True
+            and re.fullmatch(r"[0-9a-f]{40}", str(preflight.get("base_sha", "")))
+            and preflight.get("head_sha") == run_git(repo, ["rev-parse", "HEAD"]).strip()):
+        base_sha = preflight["base_sha"]
+        head_sha = preflight["head_sha"]
     resolved_head_ref = pull_request.get("head", {}).get("ref") or head_ref or os.environ.get("GITHUB_HEAD_REF") or current_branch(repo)
     resolved_base_ref = pull_request.get("base", {}).get("ref") or base_ref or os.environ.get("GITHUB_BASE_REF")
     canonical_base_sha = resolve_current_canonical_promotion_base_sha(repo, resolved_base_ref, resolved_head_ref)
@@ -1251,13 +1259,22 @@ def baseline_policy(ctx: PRContext) -> dict[str, Any]:
     number = pull_request.get("number") if isinstance(pull_request, dict) else None
     additional = ctx.policy.get("one_time_baseline_alignments", [])
     if isinstance(additional, list):
-        matches = [
+        exact = [
             item for item in additional
             if isinstance(item, dict)
             and item.get("repository") == repository
             and type(number) is int
             and item.get("pr_number") == number
         ]
+        promotions = [
+            item for item in additional
+            if isinstance(item, dict)
+            and item.get("repository") == repository
+            and isinstance(item.get("promotion_scope"), dict)
+            and {"head_ref": ctx.head_ref, "base_ref": ctx.base_ref}
+            in item["promotion_scope"].get("branches", [])
+        ]
+        matches = exact or promotions
         if len(matches) > 1:
             return {"enabled": False}  # Duplicate exact-PR authorizations fail schema validation.
         if matches:
@@ -1275,7 +1292,11 @@ def baseline_requested(ctx: PRContext) -> bool:
     if requested in {"1", "true", "yes", "on"}:
         return True
     pull_request = ctx.event.get("pull_request", {}) or {}
-    marker = str(baseline_policy(ctx).get("required_pr_body_marker", "") or "")
+    selected = baseline_policy(ctx)
+    promotion = selected.get("promotion_scope", {}) if (
+        ctx.head_ref != selected.get("head_ref") or ctx.base_ref != selected.get("base_ref")
+    ) else {}
+    marker = str(promotion.get("required_pr_body_marker") or selected.get("required_pr_body_marker", "") or "")
     if marker and marker in str(pull_request.get("body") or ctx.pr_body or ""):
         return True
     labels = pull_request.get("labels", []) or []
@@ -1756,9 +1777,19 @@ def gate_baseline_alignment(ctx: PRContext, git_context: dict[str, Any]) -> list
     ]
     if mode == "baseline":
         evidence.extend(f"{key}={policy[key]}" for key in (
-            "authorization_id", "pr_number", "issued_at", "expires_after",
-            "allowed_effective_additions", "allowed_changed_files",
+            "authorization_id", "allowed_effective_additions", "allowed_changed_files",
         ))
+        promotion = policy.get("promotion_scope") if (
+            ctx.head_ref != policy.get("head_ref") or ctx.base_ref != policy.get("base_ref")
+        ) else None
+        if promotion:
+            evidence.extend([
+                f"reviewed_patch_sha256={promotion['reviewed_patch_sha256']}",
+                f"issued_at={promotion['issued_at']}",
+                f"expires_after={promotion['expires_after']}",
+            ])
+        else:
+            evidence.extend(f"{key}={policy[key]}" for key in ("pr_number", "issued_at", "expires_after"))
     evidence.extend(f"relaxed={item}" for item in sorted(baseline_relaxations(ctx)))
     return [passed("Baseline Alignment", None, f"{mode_label} authorized by central one-time policy.", evidence)]
 

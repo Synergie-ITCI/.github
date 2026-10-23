@@ -6,6 +6,7 @@ This module never persists credentials or logs API response content.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -126,19 +127,33 @@ def validate_authorization(ctx, git_context, policy, size) -> list[str]:
         return errors
     if policy["enabled"] is not True:
         return ["Central policy does not enable baseline alignment mode."]
+    promotion = policy.get("promotion_scope") if (
+        ctx.head_ref != policy["head_ref"] or ctx.base_ref != policy["base_ref"]
+    ) else None
+    if promotion is not None and not any(
+        pair == {"head_ref": ctx.head_ref, "base_ref": ctx.base_ref}
+        for pair in promotion["branches"]
+    ):
+        return ["Promotion source and target branches are not authorized"]
+    if promotion is None and ctx.head_ref != policy["head_ref"]:
+        return [f"source branch `{ctx.head_ref}` is not authorized"]
+    if promotion is None and ctx.base_ref != policy["base_ref"]:
+        return [f"target branch `{ctx.base_ref}` is not authorized"]
+    window = promotion or policy
     now = datetime.now(timezone.utc)
     try:
-        issued = datetime.fromisoformat(policy["issued_at"].replace("Z", "+00:00"))
-        expiry = datetime.fromisoformat(policy["expires_after"].replace("Z", "+00:00"))
+        issued = datetime.fromisoformat(window["issued_at"].replace("Z", "+00:00"))
+        expiry = datetime.fromisoformat(window["expires_after"].replace("Z", "+00:00"))
         if issued.utcoffset() is None or expiry.utcoffset() is None:
             raise ValueError("timezone required")
+        maximum = timedelta(days=30) if promotion else timedelta(hours=24)
         if not (issued <= now < expiry) or not (
-            timedelta(0) < expiry - issued <= timedelta(hours=24)
+            timedelta(0) < expiry - issued <= maximum
         ):
             raise ValueError("invalid authorization window")
     except (ValueError, OverflowError):
         return [
-            "baseline authorization expired, future-issued, or outside its maximum 24-hour window"
+            "baseline authorization expired, future-issued, or outside its maximum window"
         ]
     if (
         len(ctx.changed_files) > policy["allowed_changed_files"]
@@ -164,7 +179,8 @@ def validate_authorization(ctx, git_context, policy, size) -> list[str]:
         return [f"repository `{repository}` is not authorized"]
     if policy.get("repository_id") is not None and int(repository_id) != policy["repository_id"]:
         return ["Trusted GitHub repository ID differs from authorization"]
-    if int(ref.group(1)) != policy["pr_number"]:
+    current_pr = int(ref.group(1))
+    if promotion is None and current_pr != policy["pr_number"]:
         return ["Current GitHub PR number differs from authorization"]
     event_pr = ctx.event.get("pull_request") or {}
     event_repo = ctx.event.get("repository") or {}
@@ -172,14 +188,10 @@ def validate_authorization(ctx, git_context, policy, size) -> list[str]:
         return ["Malformed GitHub event context"]
     if (
         type(event_pr.get("number")) is not int
-        or event_pr.get("number") != policy["pr_number"]
+        or event_pr.get("number") != current_pr
         or event_repo.get("full_name", repository) != repository
     ):
         return ["Event repository or PR number differs from trusted GitHub context"]
-    if ctx.head_ref != policy["head_ref"]:
-        return [f"source branch `{ctx.head_ref}` is not authorized"]
-    if ctx.base_ref != policy["base_ref"]:
-        return [f"target branch `{ctx.base_ref}` is not authorized"]
     head = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=ctx.repo,
@@ -187,29 +199,32 @@ def validate_authorization(ctx, git_context, policy, size) -> list[str]:
         text=True,
         check=False,
     )
-    if head.returncode or head.stdout.strip() != policy["expected_head_sha"]:
+    checked_head = head.stdout.strip()
+    if head.returncode or not re.fullmatch(r"[0-9a-f]{40}", checked_head):
+        return ["Checked-out source SHA is unavailable"]
+    if promotion is None and checked_head != policy["expected_head_sha"]:
         return ["Checked-out source SHA differs from authorization"]
-    if git_context.get("head_sha") not in ("HEAD", policy["expected_head_sha"]):
+    if git_context.get("head_sha") not in ("HEAD", checked_head):
         return ["Event source SHA differs from authorization"]
     if (
-        policy.get("expected_base_sha")
+        promotion is None and policy.get("expected_base_sha")
         and git_context.get("base_sha") != policy["expected_base_sha"]
     ):
         return ["destination SHA differs from authorization"]
     if len(ctx.changed_files) < policy.get("minimum_changed_files", 0):
         return ["Baseline changed-file count is below its authorized minimum"]
     try:
-        live = read_live_pr(repository, policy["pr_number"], token)
+        live = read_live_pr(repository, current_pr, token)
         live_head, live_base = live["head"], live["base"]
         matches = (
             type(live["number"]) is int
-            and live["number"] == policy["pr_number"]
+            and live["number"] == current_pr
             and live["state"] == "open"
             and live["merged"] is False
             and live["draft"] is False
-            and live_head["sha"] == policy["expected_head_sha"]
-            and live_head["ref"] == policy["head_ref"]
-            and live_base["ref"] == policy["base_ref"]
+            and live_head["sha"] == checked_head
+            and live_head["ref"] == ctx.head_ref
+            and live_base["ref"] == ctx.base_ref
             and live_base["sha"] == git_context.get("base_sha")
             and live_base["repo"]["full_name"] == repository
             and type(live_base["repo"]["id"]) is int
@@ -218,7 +233,7 @@ def validate_authorization(ctx, git_context, policy, size) -> list[str]:
             and type(live_head["repo"]["id"]) is int
             and live_head["repo"]["id"] == int(repository_id)
             and (
-                not policy.get("expected_base_sha")
+                promotion is not None or not policy.get("expected_base_sha")
                 or live_base["sha"] == policy["expected_base_sha"]
             )
         )
@@ -226,7 +241,23 @@ def validate_authorization(ctx, git_context, policy, size) -> list[str]:
         return ["Live GitHub PR verification unavailable or malformed"]
     if not matches:
         return ["Live GitHub PR is not the exact authorized open, unmerged PR"]
-    marker = policy.get("required_pr_body_marker")
+    marker = window.get("required_pr_body_marker")
     if marker and (marker not in ctx.pr_body or marker not in (live.get("body") or "")):
         return ["PR body is missing required baseline marker"]
+    if promotion is not None:
+        base_sha = git_context.get("base_sha")
+        if not isinstance(base_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", base_sha):
+            return ["Promotion base SHA is unavailable"]
+        diff = subprocess.run(
+            ["git", "diff", "--raw", "-z", "--no-renames", "--abbrev=40", f"{base_sha}...HEAD"],
+            cwd=ctx.repo, capture_output=True, check=False,
+        )
+        if diff.returncode or hashlib.sha256(diff.stdout).hexdigest() != promotion["reviewed_patch_sha256"]:
+            return ["Promotion patch differs from the exact reviewed content"]
+        paths = subprocess.run(
+            ["git", "diff", "--name-only", "--diff-filter=ACMRTUXB", f"{base_sha}...HEAD"],
+            cwd=ctx.repo, capture_output=True, text=True, check=False,
+        )
+        if paths.returncode or sorted(paths.stdout.splitlines()) != sorted(ctx.changed_files):
+            return ["Promotion changed paths differ from the evaluated PR diff"]
     return []

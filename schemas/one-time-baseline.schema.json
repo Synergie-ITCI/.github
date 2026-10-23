@@ -67,6 +67,28 @@
       "type": "integer",
       "minimum": 0
     },
+    "promotion_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reviewed_patch_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "issued_at": {"type": "string", "minLength": 1},
+        "expires_after": {"type": "string", "minLength": 1},
+        "required_pr_body_marker": {"type": "string", "minLength": 1},
+        "branches": {
+          "type": "array", "uniqueItems": true,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "properties": {
+              "head_ref": {"type": "string", "minLength": 1},
+              "base_ref": {"type": "string", "enum": ["staging", "main"]}
+            },
+            "required": ["head_ref", "base_ref"]
+          }
+        }
+      },
+      "required": ["reviewed_patch_sha256", "issued_at", "expires_after", "required_pr_body_marker", "branches"]
+    },
     "relaxations": {
       "type": "array",
       "uniqueItems": true,

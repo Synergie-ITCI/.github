@@ -34,6 +34,60 @@ def ruleset(*, organization: bool = False) -> dict:
 
 
 class PublishReleaseTests(unittest.TestCase):
+    def test_provenance_dispatch_pins_older_source_without_touching_main(self) -> None:
+        selected = "a" * 40
+        branch = "pr-qa-release-source/pr-qa-v1-rc192"
+        calls = []
+
+        def command(*args, **_kwargs):
+            calls.append(args)
+            if args[:3] == ("git", "ls-remote", "origin"):
+                return subprocess.CompletedProcess(args, 0, "" if len(calls) == 1 else f"{selected}\trefs/heads/{branch}\n", "")
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        with patch.object(release, "command", side_effect=command):
+            self.assertEqual(release.provenance_branch("pr-qa-v1-rc192", selected), branch)
+        self.assertIn(("git", "push", "origin", f"{selected}:refs/heads/{branch}"), calls)
+        with patch.object(release, "command", return_value=subprocess.CompletedProcess([], 0, f"{selected}\trefs/heads/{branch}\n", "")):
+            with self.assertRaisesRegex(ValueError, "already exists"):
+                release.provenance_branch("pr-qa-v1-rc192", selected)
+
+    def test_selected_source_survives_unrelated_protected_main_merge(self) -> None:
+        selected, newer = "a" * 40, "b" * 40
+        rules = [{"type": "pull_request"}, {"type": "required_status_checks", "parameters": {
+            "required_status_checks": [
+                {"context": "pr-qa / Pull Request Quality Assurance"},
+            ]}}]
+
+        def api(path):
+            if path.endswith("/git/ref/heads/main"):
+                return {"object": {"sha": newer}}
+            if path.endswith("/rules/branches/main"):
+                return rules
+            self.fail(f"unexpected API query: {path}")
+
+        def command(*args, **_kwargs):
+            if args[:2] == ("git", "fetch"):
+                return subprocess.CompletedProcess(args, 0, "", "")
+            if args == ("git", "rev-parse", "refs/remotes/origin/main"):
+                return subprocess.CompletedProcess(args, 0, newer + "\n", "")
+            if args == ("git", "rev-list", "--first-parent", newer):
+                return subprocess.CompletedProcess(args, 0, f"{newer}\n{selected}\n", "")
+            self.fail(f"unexpected command: {args}")
+
+        with patch.object(release, "api", side_effect=api), patch.object(release, "command", side_effect=command):
+            release.verify_source_on_main(selected)
+            with patch.object(release, "command", side_effect=lambda *args, **kwargs: (
+                subprocess.CompletedProcess(args, 0, newer + "\n", "")
+                if args == ("git", "rev-list", "--first-parent", newer)
+                else command(*args, **kwargs)
+            )):
+                with self.assertRaisesRegex(ValueError, "not on protected main first-parent"):
+                    release.verify_source_on_main(selected)
+            rules.pop()
+            with self.assertRaisesRegex(ValueError, "required PR-QA check changed"):
+                release.verify_source_on_main(selected)
+
     def test_exact_ruleset_and_annotation(self) -> None:
         self.assertEqual(
             release.validate_ruleset("pr-qa-v1-rc192", 42, ruleset(organization=True), ruleset()),
@@ -151,12 +205,18 @@ class PublishReleaseTests(unittest.TestCase):
             {**valid, "status": "completed", "conclusion": "success"},
         ])
         pauses = []
+        paths = []
+        def fetch(path):
+            paths.append(path)
+            return next(responses)
         result = release.wait_for_provenance_run(
             "pr-qa-v1-rc192", "a" * 40, "SaurabhVermaIN", started,
-            fetch=lambda _path: next(responses), pause=pauses.append, attempts=3,
+            fetch=fetch, pause=pauses.append, attempts=3,
+            branch="pr-qa-release-source/pr-qa-v1-rc192",
         )
         self.assertEqual(result["id"], 123)
         self.assertEqual(pauses, [60])
+        self.assertIn("branch=pr-qa-release-source/pr-qa-v1-rc192", paths[0])
         for conclusion in ("failure", "cancelled"):
             with self.subTest(conclusion=conclusion), self.assertRaises(ValueError):
                 responses = iter([{"workflow_runs": [valid]},

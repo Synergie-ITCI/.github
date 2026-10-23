@@ -47,6 +47,34 @@ event claiming the PR is open cannot override live closed/merged state. Historic
 offline callers cannot exercise this privileged mode without trusted GitHub
 execution context; ordinary offline validation is unchanged.
 
+### Exact-content promotion scope
+
+A reviewed size exception may include `promotion_scope` in the same central
+authorization entry. It names exact source/target branch pairs, a SHA-256 of
+Git's NUL-delimited raw change records (`git diff --raw -z --no-renames
+--abbrev=40 BASE...HEAD`), a required PR-body marker, and a separately bounded expiry of
+at most 30 days. The normal source PR remains bound to its exact head and
+24-hour window. Each promotion still needs a live, open, same-repository PR;
+the checked-out source, event, live PR, destination SHA, changed paths, size
+caps and marker must agree. A changed patch, expanded path set, expired scope,
+or another branch pair fails closed. This mechanism relaxes only the named
+size threshold; it does not approve a merge or deployment, or relax secrets,
+history, required checks, Gate C or Gate D. Its central policy entry and owner
+authorization need review once for the exact content; identical later
+promotions do not need a second central exception.
+
+The publication helper accepts an exact approved central source SHA on the
+first-parent history of protected `main`, even if later unrelated protected
+merges have advanced `main`. Preflight verifies every merge from the active
+immutable release through the selected source and runs candidate QA against
+that release. The helper rechecks protected branch controls, first-parent
+membership and exact tag protection immediately before pushing the annotated
+tag. The existing helper creates a source branch at the exact selected SHA and
+dispatches provenance from that branch, so the
+workflow-run SHA still equals the approved candidate. An existing source branch
+stops the helper for prior-dispatch inspection. Later commits are not silently
+included. A changed source SHA still needs its own exact-source authorization.
+
 ## Reproduction and verification
 
 In rc99, the same in-memory authorization was accepted after changing event PR

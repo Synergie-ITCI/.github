@@ -111,8 +111,11 @@ def verify_central_lineage(root: Path, release: str, candidate: str) -> list[str
         return json.loads(result.stdout)
 
     remote = checked_api("repos/Synergie-ITCI/.github/git/ref/heads/main")
-    if remote["object"]["sha"] != candidate or checked_git("rev-parse", "HEAD") != candidate:
-        raise ValueError("candidate is not the exact current protected main commit")
+    main_sha = remote["object"]["sha"]
+    if checked_git("rev-parse", "HEAD") != candidate:
+        raise ValueError("checkout differs from the exact selected source commit")
+    if candidate not in checked_git("rev-list", "--first-parent", main_sha).splitlines():
+        raise ValueError("selected source is not on protected main first-parent history")
     if checked_git("merge-base", release, candidate) != checked_git("rev-parse", f"{release}^{{commit}}"):
         raise ValueError("active release is not an ancestor of the candidate")
     rules = checked_api("repos/Synergie-ITCI/.github/rules/branches/main")
@@ -627,6 +630,7 @@ def main() -> int:
         try:
             commits = verify_central_lineage(root, release, candidate.stdout.strip())
             print(f"Verified {len(commits)} protected PR merge(s) since {release}.")
+            base_sha = git(["rev-parse", f"{release}^{{commit}}"], root).stdout.strip()
         except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
             blockers.append(f"central source lineage: {exc}")
 
