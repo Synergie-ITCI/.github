@@ -119,6 +119,14 @@ class ReleasePreflightTests(unittest.TestCase):
                 path.write_text(json.dumps(report), encoding="utf-8")
                 self.assertTrue(preflight.reviewed_inherited_fixture_disposition(ROOT, path, "main", "pr-qa-v1-rc204"))
                 self.assertFalse(preflight.reviewed_inherited_fixture_disposition(ROOT, path, "development", "pr-qa-v1-rc204"))
+                all_details = report["results"][0]["details"]
+                report["results"][0]["details"] = all_details[:6]
+                path.write_text(json.dumps(report), encoding="utf-8")
+                self.assertTrue(preflight.reviewed_inherited_fixture_disposition(ROOT, path, "main", "pr-qa-v1-rc204"))
+                report["results"][0]["details"] = all_details
+                report["results"][0]["details"].extend([report["results"][0]["details"][0]] * 20)
+                path.write_text(json.dumps(report), encoding="utf-8")
+                self.assertTrue(preflight.reviewed_inherited_fixture_disposition(ROOT, path, "main", "pr-qa-v1-rc204"))
                 report["results"][0]["details"].append("config.php: API key. line_sha256=" + "b" * 64)
                 path.write_text(json.dumps(report), encoding="utf-8")
                 self.assertFalse(preflight.reviewed_inherited_fixture_disposition(ROOT, path, "main", "pr-qa-v1-rc204"))

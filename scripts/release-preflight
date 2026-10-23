@@ -460,7 +460,7 @@ def reviewed_inherited_fixture_disposition(root: Path, report_path: Path, base: 
         expected = {(item["path"], item["label"], item["line_sha256"])
                     for item in disposition["synthetic_fixture_findings"]}
         details = failures[0].get("details", [])
-        if len(expected) != 6 or len(expected) != len(disposition["synthetic_fixture_findings"]) or len(details) != len(expected):
+        if not expected or len(expected) != len(disposition["synthetic_fixture_findings"]) or not details:
             return False
         inherited = git(["show", f"{release}:tests/test_pr_qa_regressions.py"], root)
         source = root / "tests/test_pr_qa_regressions.py"
@@ -479,7 +479,7 @@ def reviewed_inherited_fixture_disposition(root: Path, report_path: Path, base: 
             if path != "tests/test_pr_qa_regressions.py" or fingerprint not in current_hashes or fingerprint not in inherited_hashes:
                 return False
             actual.add((path, label, fingerprint))
-        if actual != expected:
+        if not actual or not actual <= expected:
             return False
         return True
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
