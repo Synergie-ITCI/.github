@@ -607,5 +607,29 @@
     "require_gitleaks": true,
     "scan_encoded_values": true,
     "minimum_base64_length": 24
-  }
+  },
+  "one_time_baseline_alignments": [
+    {
+      "enabled": true,
+      "repository": "Synergie-ITCI/datamatics",
+      "repository_id": 1132519015,
+      "pr_number": 17,
+      "expected_head_sha": "2b574876a70d476129933c72a550dfb27c5cc756",
+      "expected_base_sha": "29ef659ac268c69eb5c7145c397f0c932403a4b5",
+      "head_ref": "codex/datamatics-pr12-clean-promotion",
+      "base_ref": "main",
+      "allowed_effective_additions": 115624,
+      "allowed_changed_files": 337,
+      "minimum_changed_files": 337,
+      "purpose": "One-time exact-head review of the preserved PR #12 CodeIgniter application import through Datamatics PR #17; only file-count and diff-size thresholds are relaxed.",
+      "issued_at": "2026-10-23T07:13:07Z",
+      "expires_after": "2026-10-24T07:13:07Z",
+      "authorization_id": "89bf8203-91c5-4da4-8856-81be3350e8b3",
+      "required_pr_body_marker": "DATAMATICS-PR17-EXACT-HEAD-SIZE-89bf8203",
+      "relaxations": [
+        "changed_file_count",
+        "diff_size"
+      ]
+    }
+  ]
 }

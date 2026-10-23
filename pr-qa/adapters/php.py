@@ -137,11 +137,13 @@ class PhpAdapter(TechnologyAdapter):
             if not command_exists("composer"):
                 results.append(failed("Dependencies", self.name, f"{prefix}`composer` is not available, dependency audit cannot run.", score=18))
                 continue
-            outcome = ctx.run(["composer", "audit", "--format=json"], cwd=root)
+            # Audit the committed lockfile. Composer's default installed-package
+            # mode exits nonzero for valid projects with an empty dependency set.
+            outcome = ctx.run(["composer", "audit", "--locked", "--format=json"], cwd=root)
             if outcome.ok:
                 results.append(passed("Dependencies", self.name, f"{prefix}Composer audit passed."))
             else:
-                results.append(failed("Dependencies", self.name, f"{prefix}Composer audit found vulnerabilities.", [outcome.concise_output()], score=18))
+                results.append(failed("Dependencies", self.name, f"{prefix}Composer audit found vulnerabilities or could not complete.", [outcome.concise_output()], score=18))
         return results
 
     def licences(self, ctx: PRContext, roots: list[Path]) -> list[CheckResult]:

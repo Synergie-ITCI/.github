@@ -4074,6 +4074,69 @@ exit 0
         self.assertEqual(report_json["summary"]["gate_statuses"]["Dependencies"], "FAIL")
         self.assertIn("Composer audit found vulnerabilities", report)
 
+    def test_composer_audit_uses_lockfile_for_empty_dependency_set(self) -> None:
+        sys.path.insert(0, str(ROOT / "pr-qa"))
+        try:
+            from adapters.base import PASS, PRContext
+            from adapters.php import PhpAdapter
+        finally:
+            sys.path.pop(0)
+
+        repo = self.tmp / "empty-composer-dependencies"
+        self.write(repo / "composer.lock", json.dumps({"packages": [], "packages-dev": []}))
+        fake_composer = self.bin / "composer"
+        fake_composer.write_text(
+            "#!/usr/bin/env bash\n"
+            "if [ \"$1\" = audit ] && [ \"$2\" = --locked ]; then\n"
+            "  printf '%s\\n' '{\"advisories\":{}}'\n"
+            "  exit 0\n"
+            "fi\n"
+            "exit 2\n",
+            encoding="utf-8",
+        )
+        fake_composer.chmod(0o755)
+        ctx = PRContext(repo=repo, config={}, policy={}, changed_files=[])
+        with mock.patch.dict(os.environ, {"PATH": str(self.bin) + os.pathsep + os.environ.get("PATH", "")}):
+            results = PhpAdapter().dependencies(ctx, [repo])
+        self.assertEqual(results[0].status, PASS)
+        self.assertIn("composer audit --locked --format=json", ctx.command_log[0]["command"])
+
+    def test_additional_baseline_selects_only_exact_repository_and_pr(self) -> None:
+        engine = load_engine_module()
+        primary = {"repository": "Synergie-ITCI/roadsense-production-dashboard", "pr_number": 2}
+        datamatics = {"repository": "Synergie-ITCI/datamatics", "pr_number": 17,
+                      "relaxations": ["changed_file_count", "diff_size"]}
+        policy = {"one_time_baseline_alignment": primary,
+                  "one_time_baseline_alignments": [datamatics]}
+
+        def context(repository: str, number: int):
+            return engine.PRContext(
+                repo=self.tmp, config={}, policy=policy, changed_files=[],
+                event={"repository": {"full_name": repository},
+                       "pull_request": {"number": number}},
+            )
+
+        self.assertEqual(engine.baseline_policy(context("Synergie-ITCI/datamatics", 17)), datamatics)
+        self.assertEqual(engine.baseline_policy(context("Synergie-ITCI/datamatics", 18)), primary)
+        self.assertEqual(engine.baseline_policy(context("Synergie-ITCI/roadsense-production-dashboard", 2)), primary)
+        policy["one_time_baseline_alignments"].append(dict(datamatics))
+        self.assertEqual(engine.baseline_policy(context("Synergie-ITCI/datamatics", 17)), {"enabled": False})
+
+    def test_exact_large_change_relaxes_only_two_size_limits(self) -> None:
+        engine = load_engine_module()
+        ctx = engine.PRContext(
+            repo=self.tmp, config={}, policy={},
+            changed_files=[f"app/file-{index:03d}.php" for index in range(201)],
+            additions=5001,
+        )
+        self.assertEqual(len(engine.risk_threshold_findings(ctx)), 2)
+        cache = engine.context_cache(ctx)
+        cache["baseline_authorized"] = True
+        cache["baseline_policy"] = {"relaxations": ["changed_file_count", "diff_size"]}
+        self.assertEqual(engine.risk_threshold_findings(ctx), [])
+        self.assertFalse(engine.baseline_allows(ctx, "exact_approved_tree_secret_scan"))
+        self.assertFalse(engine.baseline_allows(ctx, "historical_migration_count"))
+
     def test_authorized_baseline_with_migration_syntax_failure_still_fails(self) -> None:
         repo, base = self.init_repo("baseline-migration-failure")
         self.write(repo / "composer.json", json.dumps({"require": {}}))
