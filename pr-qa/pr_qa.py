@@ -1776,6 +1776,8 @@ def gate_repository_integrity(ctx: PRContext, git_context: dict[str, Any]) -> li
             for hidden in hidden_parts:
                 if is_baseline_safe_environment_file(ctx, rel):
                     relaxed.append(f"{rel}: baseline-approved environment template/test fixture classification.")
+                elif verified_webserver_protection(ctx, rel):
+                    relaxed.append(f"{rel}: exact reviewed web-server protection for this repository and path.")
                 elif (
                     hidden not in allowed_hidden
                     and not is_react_native_hidden_text_exception(ctx, rel)
@@ -1952,6 +1954,23 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
         results.append(passed("Repository Hygiene", None, "Commit messages match convention."))
     else:
         results.append(warning("Repository Hygiene", None, "Commit messages were not available for validation."))
+
+    if long_lived_staging_to_main_promotion(ctx) and git_context.get("base_sha"):
+        source_commits = git_lines(
+            ctx.repo,
+            ["log", "--no-merges", "--format=%h%x09%an%x09%s", git_context["pr_commit_range"]],
+        )
+        invalid_source_commits = []
+        for entry in source_commits:
+            parts = entry.split("\t", 2)
+            if len(parts) == 3 and not any(re.match(pattern, parts[2]) for pattern in commit_patterns):
+                invalid_source_commits.append(f"{parts[0]} author={parts[1]} subject={parts[2]}")
+        if invalid_source_commits:
+            results.append(warning(
+                "Repository Hygiene", None,
+                "Inherited source commits have nonconforming subjects; repository owner should attribute and correct developer-owned history through the governed branch path.",
+                invalid_source_commits[:20] + ([f"{len(invalid_source_commits) - 20} more source commits omitted."] if len(invalid_source_commits) > 20 else []),
+            ))
 
     merge_marker_hits = grep_text_files(ctx.repo, ctx.changed_files, r"^(<<<<<<<|=======|>>>>>>>)")
     if merge_marker_hits:
@@ -2289,6 +2308,7 @@ def gate_git_validation(ctx: PRContext, git_context: dict[str, Any]) -> list[Che
 
 def gate_secrets(ctx: PRContext, git_context: dict[str, Any], report_path: str) -> list[CheckResult]:
     results: list[CheckResult] = [run_gitleaks(ctx, git_context, report_path)]
+    results.extend(unresolved_historical_secret_exposures(ctx, git_context))
     findings, fixture_findings, inherited_findings = fallback_secret_scan(ctx, git_context)
     if findings:
         results.append(failed("Secrets", None, "High-confidence secret indicators found in changed files.", findings[:60], score=40))
@@ -2302,6 +2322,29 @@ def gate_secrets(ctx: PRContext, git_context: dict[str, Any], report_path: str) 
         else:
             results.append(passed("Secrets", None, "Approved framework regression fixtures remain detectable and isolated.", fixture_findings[:60]))
     return results
+
+
+def unresolved_historical_secret_exposures(ctx: PRContext, git_context: dict[str, Any]) -> list[CheckResult]:
+    """Keep reviewed, unresolved history alerts blocking without repeating huge scans."""
+    repository = resolve_repository_name(ctx)
+    base = str(git_context.get("base_sha") or "")
+    findings = []
+    for entry in ctx.policy.get("unresolved_historical_secret_exposures", []) or []:
+        if not isinstance(entry, dict) or entry.get("repository") != repository:
+            continue
+        commit = str(entry.get("commit") or "")
+        path = str(entry.get("path") or "")
+        if not re.fullmatch(r"[0-9a-f]{40}", commit) or not path or not commit_is_ancestor(ctx.repo, commit, "HEAD"):
+            continue
+        if base and commit_is_ancestor(ctx.repo, commit, base):
+            continue
+        findings.append(
+            f"HISTORICAL_UNRESOLVED {commit[:12]}:{path}; owner={entry.get('owner', 'security owner')}; "
+            f"required correction: {entry.get('reason', 'document security disposition')}"
+        )
+    if findings:
+        return [failed("Secrets", None, "Unresolved historical credential exposure is reachable from this candidate.", findings[:20], score=40)]
+    return []
 
 
 def run_gitleaks(ctx: PRContext, git_context: dict[str, Any], report_path: str) -> CheckResult:
@@ -2353,9 +2396,12 @@ def run_gitleaks(ctx: PRContext, git_context: dict[str, Any], report_path: str) 
             "Gitleaks executed and returned only centrally allowlisted baseline fixture fingerprints; future findings remain blocking.",
             allowance_details[:60],
         )
-    details = [outcome.concise_output()]
+    details = [
+        f"Unreviewed Gitleaks findings: {len(unexpected)}; owner: security/repository owner for disposition. "
+        "The redacted gitleaks.json artifact retains individual references."
+    ]
     if unexpected:
-        details.extend(unexpected[:60])
+        details.extend(compact_gitleaks_diagnostics(ctx, unexpected))
     return failed("Secrets", None, "Gitleaks detected secrets.", details, score=40)
 
 
@@ -2532,6 +2578,30 @@ def gitleaks_finding_summary(item: dict[str, Any]) -> str:
         f"{item.get('File', 'unknown')}:{item.get('StartLine', '?')} "
         f"{item.get('RuleID', 'unknown')} fingerprint={item.get('Fingerprint', 'unknown')}"
     )
+
+
+def compact_gitleaks_diagnostics(ctx: PRContext, findings: list[str]) -> list[str]:
+    """Keep the PR report bounded while retaining redacted item evidence in the artifact."""
+    groups: dict[tuple[str, str], dict[str, Any]] = {}
+    for finding in findings:
+        match = re.match(r"^(.*):([^:]*) (.*?) fingerprint=", finding)
+        path, line, rule = match.groups() if match else ("unknown", "?", "unknown")
+        fingerprint = finding.rsplit(" fingerprint=", 1)[-1][:180]
+        group = groups.setdefault((path, rule), {"count": 0, "samples": []})
+        group["count"] += 1
+        if len(group["samples"]) < 2:
+            group["samples"].append(f"{path}:{line} fingerprint={fingerprint}")
+    ordered = sorted(groups.items(), key=lambda entry: (-entry[1]["count"], entry[0]))
+    details = []
+    for (path, rule), group in ordered[:10]:
+        state = "PATH_PRESENT_AT_HEAD" if (ctx.repo / path).is_file() else "PATH_ABSENT_AT_HEAD"
+        details.append(
+            f"{state} {path} rule={rule} occurrences={group['count']} "
+            f"sample-refs={','.join(group['samples'])}; origin and disposition require review."
+        )
+    if len(ordered) > 10:
+        details.append(f"{len(ordered) - 10} more path/rule groups are in the redacted artifact.")
+    return details
 
 
 def fallback_secret_scan(ctx: PRContext, git_context: dict[str, Any]) -> tuple[list[str], list[str], list[str]]:
@@ -2802,6 +2872,21 @@ def is_approved_governance_asset(ctx: PRContext, rel: str) -> bool:
     patterns = list(ctx.policy.get("approved_governance_assets", []) or [])
     patterns.extend(repository_profile_settings(ctx).get("approved_governance_assets", []) or [])
     return match_any(rel, patterns)
+
+
+def verified_webserver_protection(ctx: PRContext, rel: str) -> bool:
+    """Accept only reviewed protection bytes at their reviewed repository paths."""
+    expected = (
+        (ctx.policy.get("verified_webserver_protections", {}) or {})
+        .get(resolve_repository_name(ctx), {})
+        .get(rel, "")
+    )
+    if not re.fullmatch(r"[0-9a-f]{64}", str(expected)):
+        return False
+    path = ctx.repo / rel
+    if not path.is_file() or path.is_symlink() or path.stat().st_size > 8192:
+        return False
+    return hashlib.sha256(path.read_bytes()).hexdigest() == expected
 
 
 def is_approved_regression_fixture(ctx: PRContext, rel: str) -> bool:
