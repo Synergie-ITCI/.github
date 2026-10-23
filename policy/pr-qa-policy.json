@@ -879,10 +879,8 @@
         }
       ]
     },
-    "pr-qa-v1-rc205": {
-      "reason": "One-off rc205 release preflight disposition for six unchanged synthetic GitHub-token fixtures inherited from rc204 after protected PR #388. New secrets and every other failure remain blocking.",
-      "predecessor_release": "pr-qa-v1-rc204",
-      "approved_correction_pr": 388,
+    "inherited_synthetic_fixtures": {
+      "reason": "Exact reviewed synthetic GitHub-token fixture fingerprints inherited unchanged from the active immutable release. New or modified findings and every other failure remain blocking.",
       "synthetic_fixture_findings": [
         {"path": "tests/test_pr_qa_regressions.py", "label": "GitHub token", "line_sha256": "0cd495ab39da81b14d89d937cf8a961d968efec6392ba224c5fe1c06a7ade71f"},
         {"path": "tests/test_pr_qa_regressions.py", "label": "GitHub token", "line_sha256": "18f3a70e674251f001cf17bbd7da85dce1b54c90e62b03ff3345bfd692f7f7fc"},

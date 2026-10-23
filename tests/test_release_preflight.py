@@ -19,55 +19,117 @@ preflight = SourceFileLoader("release_preflight", str(SCRIPT)).load_module()
 
 
 class ReleasePreflightTests(unittest.TestCase):
-    def test_rc205_disposition_accepts_only_exact_inherited_fixtures_after_reviewed_squash(self):
+    def test_lineage_accepts_multiple_checked_pr_merges_and_rejects_unreviewed_changes(self):
+        release, first, second, first_head, second_head = (letter * 40 for letter in "abcde")
+        rules = [{"type": "pull_request"}, {"type": "required_status_checks", "parameters": {
+            "required_status_checks": [{"context": "pr-qa / Pull Request Quality Assurance"}]}}]
+        checks = lambda head: {"total_count": 2, "check_runs": [
+            {"id": number, "name": name, "head_sha": head, "status": "completed",
+             "conclusion": "success", "app": {"slug": "github-actions"}}
+            for number, name in enumerate(("pr-qa / Pull Request Quality Assurance", "Architecture Governance"), 1)]}
+        prs = {first: [{"number": 10, "merged_at": "2026-10-23T01:00:00Z", "merge_commit_sha": first,
+                        "base": {"ref": "main"}, "head": {"sha": first_head}}],
+               second: [{"number": 11, "merged_at": "2026-10-23T02:00:00Z", "merge_commit_sha": second,
+                         "base": {"ref": "main"}, "head": {"sha": second_head}}]}
+        parents = {first: f"{first} {release}", second: f"{second} {first}"}
+
+        def fake_git(args, _root):
+            if args == ["rev-parse", "HEAD"]:
+                value = second
+            elif args == ["merge-base", "pr-qa-v1-rc204", second]:
+                value = release
+            elif args == ["rev-parse", "pr-qa-v1-rc204^{commit}"]:
+                value = release
+            elif args == ["rev-list", "--reverse", "--first-parent", f"pr-qa-v1-rc204..{second}"]:
+                value = f"{first}\n{second}"
+            elif args[:3] == ["rev-list", "--parents", "-n"]:
+                value = parents[args[-1]]
+            elif args[:2] == ["rev-parse", f"{first_head}^{{tree}}"] or args[:2] == ["rev-parse", f"{first}^{{tree}}"]:
+                value = "f" * 40
+            elif args[:2] == ["rev-parse", f"{second_head}^{{tree}}"] or args[:2] == ["rev-parse", f"{second}^{{tree}}"]:
+                value = "e" * 40
+            else:
+                return subprocess.CompletedProcess(args, 1, "", "unexpected git query")
+            return subprocess.CompletedProcess(args, 0, value + "\n", "")
+
+        def fake_api(args, _root):
+            path = args[-1]
+            if path.endswith("/git/ref/heads/main"):
+                value = {"object": {"sha": second}}
+            elif path.endswith("/rules/branches/main"):
+                value = rules
+            elif path.endswith(f"/commits/{first}/pulls"):
+                value = prs[first]
+            elif path.endswith(f"/commits/{second}/pulls"):
+                value = prs[second]
+            elif path.endswith(f"/commits/{first_head}/check-runs?per_page=100"):
+                value = checks(first_head)
+            elif path.endswith(f"/commits/{second_head}/check-runs?per_page=100"):
+                value = checks(second_head)
+            else:
+                return subprocess.CompletedProcess(args, 1, "", "unexpected API query")
+            return subprocess.CompletedProcess(args, 0, json.dumps(value), "")
+
+        with patch.object(preflight, "git", side_effect=fake_git), patch.object(preflight, "run", side_effect=fake_api):
+            self.assertEqual(preflight.verify_central_lineage(ROOT, "pr-qa-v1-rc204", second), [first, second])
+            parents[second] = f"{second} {first} {release}"
+            with self.assertRaisesRegex(ValueError, "merge parent differs"):
+                preflight.verify_central_lineage(ROOT, "pr-qa-v1-rc204", second)
+            parents[second] = f"{second} {first}"
+            prs[second] = []
+            with self.assertRaisesRegex(ValueError, "no unique approved merged PR"):
+                preflight.verify_central_lineage(ROOT, "pr-qa-v1-rc204", second)
+            prs[second] = [{"number": 11, "merged_at": "2026-10-23T02:00:00Z", "merge_commit_sha": second,
+                            "base": {"ref": "main"}, "head": {"sha": second_head}}]
+            checks_without_architecture = checks(second_head)
+            checks_without_architecture["check_runs"].pop()
+            original_checks = checks
+            checks = lambda head: checks_without_architecture if head == second_head else original_checks(head)
+            with self.assertRaisesRegex(ValueError, "required exact-head checks missing"):
+                preflight.verify_central_lineage(ROOT, "pr-qa-v1-rc204", second)
+            checks = lambda head: ({"total_count": 3, "check_runs": [
+                *original_checks(head)["check_runs"],
+                {"id": 3, "name": "Architecture Governance", "head_sha": head,
+                 "status": "completed", "conclusion": "failure", "app": {"slug": "github-actions"}},
+            ]} if head == second_head else original_checks(head))
+            with self.assertRaisesRegex(ValueError, "required exact-head checks missing"):
+                preflight.verify_central_lineage(ROOT, "pr-qa-v1-rc204", second)
+
+    def test_inherited_fixture_disposition_accepts_only_exact_prior_fingerprints(self):
         policy = json.loads((ROOT / "policy/pr-qa-policy.json").read_text(encoding="utf-8"))
-        reviewed = policy["release_preflight_dispositions"]["pr-qa-v1-rc205"]
-        source_sha = "e" * 40
-        pr_head = "f" * 40
+        reviewed = policy["release_preflight_dispositions"]["inherited_synthetic_fixtures"]
         inherited_text = (ROOT / "tests/test_pr_qa_regressions.py").read_text(encoding="utf-8")
         report = {"results": [{
             "gate": "Secrets", "status": "FAIL", "blocking": True,
             "details": [f'{item["path"]}: {item["label"]}. line_sha256={item["line_sha256"]}'
                         for item in reviewed["synthetic_fixture_findings"]],
         }]}
-        pr = {"merged_at": "2026-10-23T09:00:00Z", "merge_commit_sha": source_sha,
-              "head": {"sha": pr_head}, "base": {"ref": "main"}}
-
         def fake_git(args, _root):
             if args[:3] == ["remote", "get-url", "origin"]:
                 value = preflight.CENTRAL_ORIGIN
             elif args == ["show", "pr-qa-v1-rc204:tests/test_pr_qa_regressions.py"]:
                 value = inherited_text
-            elif args in (["rev-parse", "HEAD"], ["rev-parse", "refs/remotes/origin/main"]):
-                value = source_sha
-            elif args[:2] == ["rev-list", "--count"]:
-                value = "1"
-            elif args[:3] == ["rev-list", "--first-parent", "--merges"]:
-                value = ""
-            elif args in (["rev-parse", f"{pr_head}^{{tree}}"], ["rev-parse", "HEAD^{tree}"]):
-                value = "a" * 40
             else:
                 return subprocess.CompletedProcess(args, 1, "", "unexpected git query")
             return subprocess.CompletedProcess(args, 0, value + "\n", "")
 
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "report.json"
-            with patch.object(preflight, "git", side_effect=fake_git), \
-                 patch.object(preflight, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps(pr), "")):
+            with patch.object(preflight, "git", side_effect=fake_git):
                 path.write_text(json.dumps(report), encoding="utf-8")
-                self.assertTrue(preflight.reviewed_rc205_disposition(ROOT, path, "main", "pr-qa-v1-rc204"))
-                self.assertFalse(preflight.reviewed_rc205_disposition(ROOT, path, "main", "pr-qa-v1-rc203"))
+                self.assertTrue(preflight.reviewed_inherited_fixture_disposition(ROOT, path, "main", "pr-qa-v1-rc204"))
+                self.assertFalse(preflight.reviewed_inherited_fixture_disposition(ROOT, path, "development", "pr-qa-v1-rc204"))
                 report["results"][0]["details"].append("config.php: API key. line_sha256=" + "b" * 64)
                 path.write_text(json.dumps(report), encoding="utf-8")
-                self.assertFalse(preflight.reviewed_rc205_disposition(ROOT, path, "main", "pr-qa-v1-rc204"))
+                self.assertFalse(preflight.reviewed_inherited_fixture_disposition(ROOT, path, "main", "pr-qa-v1-rc204"))
                 report["results"][0]["details"].pop()
                 report["results"].append({"gate": "Repository Hygiene", "status": "FAIL", "blocking": True})
                 path.write_text(json.dumps(report), encoding="utf-8")
-                self.assertFalse(preflight.reviewed_rc205_disposition(ROOT, path, "main", "pr-qa-v1-rc204"))
+                self.assertFalse(preflight.reviewed_inherited_fixture_disposition(ROOT, path, "main", "pr-qa-v1-rc204"))
                 report["results"].pop()
+                report["results"][0]["details"][0] = "tests/test_pr_qa_regressions.py: GitHub token. line_sha256=" + "b" * 64
                 path.write_text(json.dumps(report), encoding="utf-8")
-                with patch.object(preflight, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps({**pr, "merged_at": None}), "")):
-                    self.assertFalse(preflight.reviewed_rc205_disposition(ROOT, path, "main", "pr-qa-v1-rc204"))
+                self.assertFalse(preflight.reviewed_inherited_fixture_disposition(ROOT, path, "main", "pr-qa-v1-rc204"))
 
     def test_rc204_disposition_accepts_only_exact_inherited_fixtures_after_reviewed_squash(self):
         policy = json.loads((ROOT / "policy/pr-qa-policy.json").read_text(encoding="utf-8"))
