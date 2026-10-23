@@ -137,8 +137,23 @@ class PhpAdapter(TechnologyAdapter):
             if not command_exists("composer"):
                 results.append(failed("Dependencies", self.name, f"{prefix}`composer` is not available, dependency audit cannot run.", score=18))
                 continue
+            lock = read_json(root / "composer.lock")
+            package = read_json(root / "composer.json")
+            locked_sets = (lock.get("packages"), lock.get("packages-dev"))
+            requirements = (package.get("require", {}), package.get("require-dev", {}))
+            if (
+                bool(package)
+                and all(isinstance(items, list) and not items for items in locked_sets)
+                and all(isinstance(items, dict) for items in requirements)
+                and all(
+                    name == "php" or name.startswith(("ext-", "lib-"))
+                    for items in requirements for name in items
+                )
+            ):
+                results.append(passed("Dependencies", self.name, f"{prefix}Composer lockfile has no external packages to audit."))
+                continue
             # Audit the committed lockfile. Composer's default installed-package
-            # mode exits nonzero for valid projects with an empty dependency set.
+            # mode needs --locked to evaluate packages in the lockfile.
             outcome = ctx.run(["composer", "audit", "--locked", "--format=json"], cwd=root)
             if outcome.ok:
                 results.append(passed("Dependencies", self.name, f"{prefix}Composer audit passed."))
