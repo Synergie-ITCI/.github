@@ -550,6 +550,57 @@
           "line_sha256": "b984a4b242ebfdfb47a03e568074a0c64b14fc4b138d8f8f466be12bdee85c98"
         }
       ]
+    },
+    "pr-qa-v1-rc202": {
+      "reason": "One-off rc202 release preflight disposition for the already approved rc201 merge, unchanged synthetic regression fixtures, and six reviewed framework literal false positives. All other findings remain blocking.",
+      "predecessor_release": "pr-qa-v1-rc201",
+      "approved_correction_pr": 384,
+      "approved_merge": {
+        "pr": 382,
+        "sha": "7bcbe7a5ca1dbec30544132add0eb50cab3d4254",
+        "base_sha": "38fdcba3555e8bea3d68962e5e7b17f050351a38",
+        "head_sha": "449e4859a2bd94e21c2db14473044dfc0cb9b1c5"
+      },
+      "synthetic_fixture_findings": [
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "GitHub token",
+          "line_sha256": "0cd495ab39da81b14d89d937cf8a961d968efec6392ba224c5fe1c06a7ade71f"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "GitHub token",
+          "line_sha256": "18f3a70e674251f001cf17bbd7da85dce1b54c90e62b03ff3345bfd692f7f7fc"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "GitHub token",
+          "line_sha256": "2c2a164bd4998656a6d3092bb5b353878605623f316bf5d7757eca51f92d7b32"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "GitHub token",
+          "line_sha256": "2c72cf07a731cb2fa66c9c9d8753896209c9b05b0323a6679283ae3f6d00c2a0"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "GitHub token",
+          "line_sha256": "51676bc49572272a6808d507a9938be3c8780332604259072e705214e40bb12d"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "GitHub token",
+          "line_sha256": "9242958c91a8ba257c78cb263467a97121dacc5e970f76280701b15b56cf3487"
+        }
+      ],
+      "classifier_literal_finding_sha256": [
+        "1ad7aee708526336c1899b87ac78ef9d2919aaa4f868c46cb13ebae8cbb25ea5",
+        "1ad7aee708526336c1899b87ac78ef9d2919aaa4f868c46cb13ebae8cbb25ea5",
+        "75876b4f71252f3fd6898a0a1af60cfec58fb5f287685a417b15d85823dd8ba3",
+        "851e33e25dc1ce4aa461037e9e1b12a09a8ab72516da3769bfef98ce0b7e41fa",
+        "b29612ee9fc4b6f8f8bbe7a3713fb09f059ee5d0f83654557788c4d0d1f4a281",
+        "ea117205a929b5754fa0c3dce9b9583066ab4abdef27b6d9647a56c62292efdb"
+      ]
     }
   },
   "secret_scan": {

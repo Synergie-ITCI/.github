@@ -3374,6 +3374,15 @@ WRITABLE_REFERENCE_PATTERN = re.compile(
     r"(?i)\b(?:mkdir|makedirs|file_put_contents|fopen|writefile|createwritestream|storage_path|public_path|upload_path|tmp_path|cache_path|log_path)\b"
 )
 QUOTED_PATH_PATTERN = re.compile(r"['\"]([^'\"]*(?:uploads?|storage|cache|logs?|tmp|temp)[^'\"]*)['\"]", re.IGNORECASE)
+DIRECT_WRITABLE_LITERAL_PATTERN = re.compile(
+    r"(?i)\b(?:mkdir|makedirs|file_put_contents|fopen|writefile|createwritestream)\s*\(\s*$"
+)
+WRITABLE_CONFIG_VALUE_PATTERN = re.compile(
+    r"(?i)['\"](?:upload_path|cache_path|log_path|storage_path|tmp_path)['\"]\s*(?:=>|:)\s*$"
+)
+WRITABLE_PATH_ASSIGNMENT_PATTERN = re.compile(
+    r"(?i)(?:\$\w+_path|['\"](?:upload_path|cache_path|log_path|storage_path|tmp_path)['\"]\s*\])\s*=\s*$"
+)
 
 
 @dataclass(frozen=True)
@@ -3590,9 +3599,9 @@ def introduced_writable_path_references(ctx: PRContext, git_context: dict[str, A
             if not WRITABLE_REFERENCE_PATTERN.search(added):
                 continue
             for match in QUOTED_PATH_PATTERN.finditer(added):
-                candidate = normalize_declared_path(match.group(1))
-                if candidate and not candidate.startswith(("http://", "https://")):
-                    found.append((candidate.lstrip("./"), current_file, added))
+                candidate = writable_path_literal(added, match)
+                if candidate:
+                    found.append((candidate, current_file, added))
             if current_file and match_any(current_file, WRITABLE_PATH_PATTERNS):
                 found.append((current_file, current_file, added))
     normalized: list[tuple[str, str, str]] = []
@@ -3604,6 +3613,33 @@ def introduced_writable_path_references(ctx: PRContext, git_context: dict[str, A
             seen.add(item)
             normalized.append(item)
     return normalized
+
+
+def writable_path_literal(line: str, match: re.Match[str]) -> str:
+    """Return a concrete path, excluding PHP identifiers and log messages.
+
+    A writable API on the same line is only a signal to inspect literals. It
+    does not make every quoted string on that line a filesystem path.
+    """
+    raw = match.group(1)
+    candidate = normalize_declared_path(raw)
+    if not candidate or candidate.startswith(("http://", "https://")):
+        return ""
+    if any(character.isspace() for character in raw) or ":" in raw:
+        return ""
+
+    prefix = line[:match.start()]
+    if re.search(r"\bAPPPATH\s*\.\s*$", prefix):
+        return normalize_declared_path("application/" + candidate.lstrip("./"))
+    if re.search(r"\bBASEPATH\s*\.\s*$", prefix):
+        return normalize_declared_path("system/" + candidate.lstrip("./"))
+    if "/" in candidate or "\\" in candidate:
+        return candidate.lstrip("./")
+    if (DIRECT_WRITABLE_LITERAL_PATTERN.search(prefix)
+            or WRITABLE_CONFIG_VALUE_PATTERN.search(prefix)
+            or WRITABLE_PATH_ASSIGNMENT_PATTERN.search(prefix)):
+        return candidate.lstrip("./")
+    return ""
 
 
 def skip_framework_persistent_data_fixture(ctx: PRContext, rel: str) -> bool:

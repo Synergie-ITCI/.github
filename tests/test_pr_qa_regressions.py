@@ -7744,6 +7744,70 @@ exit 0
         self.assertIn("DEVELOPER_DECLARATION", report)
         self.assertIn("assets/uploads/photo.jpg", report)
 
+    def test_persistent_data_safety_ignores_framework_identifiers_and_messages(self) -> None:
+        repo, base = self.init_repo("persistent-data-framework-identifiers")
+        self.write(
+            repo / ".github" / "synergie-governance.yml",
+            self.persistent_data_manifest(
+                """persistent_data:
+  - application_path: application/cache
+    classification: DISPOSABLE
+  - application_path: application/logs
+    classification: DISPOSABLE
+"""
+            ),
+        )
+        self.write(
+            repo / "system" / "core" / "Output.php",
+            """<?php
+$config['cache_path'] = '';
+$cache_path = APPPATH.'cache/';
+log_message('error', "Unable to write cache file: ".$cache_path);
+log_message('debug', "Cache file written: ".$cache_path);
+$this->config->item('log_path');
+$this->upload_path = '';
+""",
+        )
+        self.commit(repo, "feat: add CodeIgniter cache implementation")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Persistent Data Safety"], "PASS")
+
+    def test_persistent_data_safety_blocks_undeclared_framework_concatenated_path(self) -> None:
+        repo, base = self.init_repo("persistent-data-framework-real-path")
+        self.write(repo / "system" / "core" / "Output.php", "<?php\n$cache_path = APPPATH.'private-cache/';\n")
+        self.commit(repo, "feat: add undeclared CodeIgniter cache path")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Persistent Data Safety"], "FAIL")
+        self.assertIn("application/private-cache", report)
+
+    def test_persistent_data_safety_blocks_undeclared_bare_write_path(self) -> None:
+        repo, base = self.init_repo("persistent-data-bare-write-path")
+        self.write(repo / "app" / "Upload.php", "<?php\nmkdir('uploads');\n")
+        self.commit(repo, "feat: add undeclared upload directory")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Persistent Data Safety"], "FAIL")
+        self.assertIn("`uploads`", report)
+
+    def test_persistent_data_safety_blocks_undeclared_bare_assigned_path(self) -> None:
+        repo, base = self.init_repo("persistent-data-bare-assigned-path")
+        self.write(repo / "app" / "Cache.php", "<?php\n$cache_path = 'cache';\n")
+        self.commit(repo, "feat: assign undeclared cache directory")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Persistent Data Safety"], "FAIL")
+        self.assertIn("`cache`", report)
+
     def test_persistent_data_safety_passes_complete_persistent_declaration(self) -> None:
         repo, base = self.init_repo("persistent-data-complete")
         self.write(repo / ".github" / "synergie-governance.yml", self.persistent_data_manifest())
