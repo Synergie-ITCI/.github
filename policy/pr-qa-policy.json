@@ -754,7 +754,7 @@
       "repository": "Synergie-ITCI/datamatics",
       "repository_id": 1132519015,
       "pr_number": 17,
-      "expected_head_sha": "36e38422c951e83c371f8f8b7f0861d96b7d7022",
+      "expected_head_sha": "d8b40c0b251cfa0c17e7fdeb44730bf7759f7840",
       "expected_base_sha": "29ef659ac268c69eb5c7145c397f0c932403a4b5",
       "head_ref": "codex/datamatics-pr12-clean-promotion",
       "base_ref": "main",

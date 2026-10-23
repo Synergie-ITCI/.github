@@ -15,10 +15,28 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pr-qa"))
 import baseline_authorization as binding
+import pr_qa as qa
 from adapters.base import PRContext
 
 
 class BaselineLiveBindingTests(unittest.TestCase):
+    def test_pr_specific_policy_is_validated_instead_of_expired_legacy_policy(self):
+        selected = dict(self.policy)
+        legacy = dict(self.policy, repository="Synergie-ITCI/other", pr_number=2,
+                      expires_after="2000-01-01T00:00:00Z")
+        self.ctx.policy = {
+            "one_time_baseline_alignment": legacy,
+            "one_time_baseline_alignments": [selected],
+        }
+        with mock.patch.dict(os.environ, {"PR_QA_BASELINE_ALIGNMENT": "1"}), \
+             mock.patch.object(binding, "validate_authorization", return_value=["expected test stop"]) as validate, \
+             mock.patch.object(qa, "risk_size_accounting", return_value=self.size):
+            allowed, details, policy = qa.baseline_authorization(self.ctx, self.gc)
+        self.assertFalse(allowed)
+        self.assertEqual(details, ["expected test stop"])
+        self.assertEqual(policy, selected)
+        self.assertEqual(validate.call_args.args[2], selected)
+
     def setUp(self):
         self.sha = "a" * 40
         self.base = "b" * 40
