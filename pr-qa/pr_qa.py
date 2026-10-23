@@ -1246,6 +1246,22 @@ def add_phase_skips(results: list[CheckResult], message: str) -> None:
 
 
 def baseline_policy(ctx: PRContext) -> dict[str, Any]:
+    repository = resolve_repository_name(ctx)
+    pull_request = ctx.event.get("pull_request", {}) or {}
+    number = pull_request.get("number") if isinstance(pull_request, dict) else None
+    additional = ctx.policy.get("one_time_baseline_alignments", [])
+    if isinstance(additional, list):
+        matches = [
+            item for item in additional
+            if isinstance(item, dict)
+            and item.get("repository") == repository
+            and type(number) is int
+            and item.get("pr_number") == number
+        ]
+        if len(matches) > 1:
+            return {"enabled": False}  # Duplicate exact-PR authorizations fail schema validation.
+        if matches:
+            return matches[0]
     value = ctx.policy.get("one_time_baseline_alignment")
     return value if isinstance(value, dict) else {}
 
