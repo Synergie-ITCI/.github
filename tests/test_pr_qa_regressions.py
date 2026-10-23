@@ -4050,8 +4050,8 @@ exit 0
     def test_authorized_baseline_with_composer_advisory_still_fails(self) -> None:
         self.install_fake_composer(audit_exit=1, test_exit=0)
         repo, base = self.init_repo("baseline-composer-advisory")
-        self.write(repo / "composer.json", json.dumps({"require": {}, "scripts": {"test": "echo ok"}}))
-        self.write(repo / "composer.lock", json.dumps({"packages": [], "packages-dev": []}))
+        self.write(repo / "composer.json", json.dumps({"require": {"vendor/vulnerable": "1.0.0"}, "scripts": {"test": "echo ok"}}))
+        self.write(repo / "composer.lock", json.dumps({"packages": [{"name": "vendor/vulnerable", "version": "1.0.0"}], "packages-dev": []}))
         self.write(repo / "app" / "Demo.php", "<?php\nclass Demo {}\n")
         self.commit(repo, "legacy baseline import")
         head = self.git(repo, "rev-parse", "HEAD").stdout.strip()
@@ -4074,7 +4074,7 @@ exit 0
         self.assertEqual(report_json["summary"]["gate_statuses"]["Dependencies"], "FAIL")
         self.assertIn("Composer audit found vulnerabilities", report)
 
-    def test_composer_audit_uses_lockfile_for_empty_dependency_set(self) -> None:
+    def test_composer_audit_accepts_validated_empty_dependency_set(self) -> None:
         sys.path.insert(0, str(ROOT / "pr-qa"))
         try:
             from adapters.base import PASS, PRContext
@@ -4083,6 +4083,7 @@ exit 0
             sys.path.pop(0)
 
         repo = self.tmp / "empty-composer-dependencies"
+        self.write(repo / "composer.json", json.dumps({"require": {"php": ">=7.0"}}))
         self.write(repo / "composer.lock", json.dumps({"packages": [], "packages-dev": []}))
         fake_composer = self.bin / "composer"
         fake_composer.write_text(
@@ -4099,6 +4100,27 @@ exit 0
         with mock.patch.dict(os.environ, {"PATH": str(self.bin) + os.pathsep + os.environ.get("PATH", "")}):
             results = PhpAdapter().dependencies(ctx, [repo])
         self.assertEqual(results[0].status, PASS)
+        self.assertIn("no external packages to audit", results[0].message)
+        self.assertEqual(ctx.command_log, [])
+
+    def test_composer_audit_keeps_external_dependencies_blocking(self) -> None:
+        sys.path.insert(0, str(ROOT / "pr-qa"))
+        try:
+            from adapters.base import FAIL, PRContext
+            from adapters.php import PhpAdapter
+        finally:
+            sys.path.pop(0)
+
+        repo = self.tmp / "external-composer-dependencies"
+        self.write(repo / "composer.json", json.dumps({"require": {"vendor/package": "1.0.0"}}))
+        self.write(repo / "composer.lock", json.dumps({"packages": [{"name": "vendor/package", "version": "1.0.0"}], "packages-dev": []}))
+        fake_composer = self.bin / "composer"
+        fake_composer.write_text("#!/usr/bin/env bash\nexit 1\n", encoding="utf-8")
+        fake_composer.chmod(0o755)
+        ctx = PRContext(repo=repo, config={}, policy={}, changed_files=[])
+        with mock.patch.dict(os.environ, {"PATH": str(self.bin) + os.pathsep + os.environ.get("PATH", "")}):
+            results = PhpAdapter().dependencies(ctx, [repo])
+        self.assertEqual(results[0].status, FAIL)
         self.assertIn("composer audit --locked --format=json", ctx.command_log[0]["command"])
 
     def test_additional_baseline_selects_only_exact_repository_and_pr(self) -> None:
