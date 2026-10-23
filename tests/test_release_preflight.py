@@ -24,6 +24,7 @@ class ReleasePreflightTests(unittest.TestCase):
         reviewed = policy["release_preflight_dispositions"]["pr-qa-v1-rc203"]
         source_sha = "e" * 40
         pr_head = "f" * 40
+        prior_sha = "d" * 40
         inherited_text = (ROOT / "tests/test_pr_qa_regressions.py").read_text(encoding="utf-8")
         report = {"results": [{
             "gate": "Secrets", "status": "FAIL", "blocking": True,
@@ -32,6 +33,12 @@ class ReleasePreflightTests(unittest.TestCase):
         }]}
         pr = {"merged_at": "2026-10-23T08:00:00Z", "merge_commit_sha": source_sha,
               "head": {"sha": pr_head}, "base": {"ref": "main"}}
+        prior_pr = {"merged_at": "2026-10-23T07:37:47Z", "merge_commit_sha": prior_sha,
+                    "base": {"ref": "main"}}
+
+        def fake_api(args, _root):
+            value = prior_pr if args[-1].endswith("/385") else pr
+            return subprocess.CompletedProcess(args, 0, json.dumps(value), "")
 
         def fake_git(args, _root):
             if args[:3] == ["remote", "get-url", "origin"]:
@@ -40,8 +47,10 @@ class ReleasePreflightTests(unittest.TestCase):
                 value = inherited_text
             elif args in (["rev-parse", "HEAD"], ["rev-parse", "refs/remotes/origin/main"]):
                 value = source_sha
+            elif args == ["rev-parse", "HEAD^"]:
+                value = prior_sha
             elif args[:2] == ["rev-list", "--count"]:
-                value = "1"
+                value = "2"
             elif args[:3] == ["rev-list", "--first-parent", "--merges"]:
                 value = ""
             elif args in (["rev-parse", f"{pr_head}^{{tree}}"], ["rev-parse", "HEAD^{tree}"]):
@@ -53,7 +62,7 @@ class ReleasePreflightTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "report.json"
             with patch.object(preflight, "git", side_effect=fake_git), \
-                 patch.object(preflight, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps(pr), "")):
+                 patch.object(preflight, "run", side_effect=fake_api):
                 path.write_text(json.dumps(report), encoding="utf-8")
                 self.assertTrue(preflight.reviewed_rc203_disposition(ROOT, path, "main", "pr-qa-v1-rc202"))
                 self.assertFalse(preflight.reviewed_rc203_disposition(ROOT, path, "main", "pr-qa-v1-rc201"))
@@ -66,7 +75,9 @@ class ReleasePreflightTests(unittest.TestCase):
                 self.assertFalse(preflight.reviewed_rc203_disposition(ROOT, path, "main", "pr-qa-v1-rc202"))
                 report["results"].pop()
                 path.write_text(json.dumps(report), encoding="utf-8")
-                with patch.object(preflight, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps({**pr, "merged_at": None}), "")):
+                with patch.object(preflight, "run", side_effect=lambda args, _root: subprocess.CompletedProcess(args, 0, json.dumps(prior_pr if args[-1].endswith("/385") else {**pr, "merged_at": None}), "")):
+                    self.assertFalse(preflight.reviewed_rc203_disposition(ROOT, path, "main", "pr-qa-v1-rc202"))
+                with patch.object(preflight, "run", side_effect=lambda args, _root: subprocess.CompletedProcess(args, 0, json.dumps({**prior_pr, "merge_commit_sha": "a" * 40} if args[-1].endswith("/385") else pr), "")):
                     self.assertFalse(preflight.reviewed_rc203_disposition(ROOT, path, "main", "pr-qa-v1-rc202"))
 
     def test_rc202_disposition_is_bound_to_exact_findings_and_merged_tree(self):

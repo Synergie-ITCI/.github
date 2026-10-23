@@ -238,7 +238,7 @@ def reviewed_rc202_disposition(root: Path, report_path: Path, base: str, release
 
 
 def reviewed_rc203_disposition(root: Path, report_path: Path, base: str, release: str) -> bool:
-    """Accept only rc202-inherited synthetic fixtures after the reviewed PR #385 squash merge."""
+    """Accept only rc202-inherited synthetic fixtures after reviewed protected squash merges."""
     if base != "main" or release != "pr-qa-v1-rc202":
         return False
     origin = git(["remote", "get-url", "origin"], root)
@@ -247,7 +247,9 @@ def reviewed_rc203_disposition(root: Path, report_path: Path, base: str, release
     try:
         policy = json.loads((root / "policy" / "pr-qa-policy.json").read_text(encoding="utf-8"))
         disposition = policy["release_preflight_dispositions"]["pr-qa-v1-rc203"]
-        if disposition["predecessor_release"] != release or disposition["approved_correction_pr"] != 385:
+        if (disposition["predecessor_release"] != release
+                or disposition["predecessor_correction_pr"] != 385
+                or disposition["approved_correction_pr"] != 386):
             return False
         report = json.loads(report_path.read_text(encoding="utf-8"))
         failures = [item for item in report["results"] if item.get("blocking") and item.get("status") == "FAIL"]
@@ -255,10 +257,10 @@ def reviewed_rc203_disposition(root: Path, report_path: Path, base: str, release
             return False
         expected = {(item["path"], item["label"], item["line_sha256"])
                     for item in disposition["synthetic_fixture_findings"]}
-        if len(expected) != 6:
+        if len(expected) != len(disposition["synthetic_fixture_findings"]) or len(expected) != 26:
             return False
         details = failures[0].get("details", [])
-        if len(details) != 6:
+        if len(details) != len(expected):
             return False
         inherited = git(["show", f"{release}:tests/test_pr_qa_regressions.py"], root)
         source = root / "tests/test_pr_qa_regressions.py"
@@ -285,13 +287,21 @@ def reviewed_rc203_disposition(root: Path, report_path: Path, base: str, release
         count = git(["rev-list", "--count", f"{release}..HEAD"], root)
         merges = git(["rev-list", "--first-parent", "--merges", f"{release}..HEAD"], root)
         if (head.returncode or main.returncode or head.stdout != main.stdout
-                or count.returncode or count.stdout.strip() != "1"
+                or count.returncode or count.stdout.strip() != "2"
                 or merges.returncode or merges.stdout.strip()):
             return False
-        pr = run(["gh", "api", "repos/Synergie-ITCI/.github/pulls/385"], root)
-        if pr.returncode:
+        prior_pr = run(["gh", "api", "repos/Synergie-ITCI/.github/pulls/385"], root)
+        pr = run(["gh", "api", "repos/Synergie-ITCI/.github/pulls/386"], root)
+        if prior_pr.returncode or pr.returncode:
             return False
+        prior_metadata = json.loads(prior_pr.stdout)
         metadata = json.loads(pr.stdout)
+        parent = git(["rev-parse", "HEAD^"], root)
+        if (not prior_metadata.get("merged_at")
+                or prior_metadata.get("base", {}).get("ref") != "main"
+                or parent.returncode
+                or prior_metadata.get("merge_commit_sha") != parent.stdout.strip()):
+            return False
         if (not metadata.get("merged_at") or metadata.get("merge_commit_sha") != head.stdout.strip()
                 or metadata.get("base", {}).get("ref") != "main"):
             return False
