@@ -237,6 +237,72 @@ def reviewed_rc202_disposition(root: Path, report_path: Path, base: str, release
         return False
 
 
+def reviewed_rc203_disposition(root: Path, report_path: Path, base: str, release: str) -> bool:
+    """Accept only rc202-inherited synthetic fixtures after the reviewed PR #385 squash merge."""
+    if base != "main" or release != "pr-qa-v1-rc202":
+        return False
+    origin = git(["remote", "get-url", "origin"], root)
+    if origin.returncode or origin.stdout.strip() != CENTRAL_ORIGIN:
+        return False
+    try:
+        policy = json.loads((root / "policy" / "pr-qa-policy.json").read_text(encoding="utf-8"))
+        disposition = policy["release_preflight_dispositions"]["pr-qa-v1-rc203"]
+        if disposition["predecessor_release"] != release or disposition["approved_correction_pr"] != 385:
+            return False
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        failures = [item for item in report["results"] if item.get("blocking") and item.get("status") == "FAIL"]
+        if len(failures) != 1 or failures[0].get("gate") != "Secrets":
+            return False
+        expected = {(item["path"], item["label"], item["line_sha256"])
+                    for item in disposition["synthetic_fixture_findings"]}
+        if len(expected) != 6:
+            return False
+        details = failures[0].get("details", [])
+        if len(details) != 6:
+            return False
+        inherited = git(["show", f"{release}:tests/test_pr_qa_regressions.py"], root)
+        source = root / "tests/test_pr_qa_regressions.py"
+        if inherited.returncode or not source.is_file() or source.is_symlink():
+            return False
+        current_hashes = {hashlib.sha256(line.strip().encode()).hexdigest()
+                          for line in source.read_text(encoding="utf-8").splitlines()}
+        inherited_hashes = {hashlib.sha256(line.strip().encode()).hexdigest()
+                            for line in inherited.stdout.splitlines()}
+        actual = set()
+        for detail in details:
+            match = re.fullmatch(r"([^:]+): (.+)\. line_sha256=([0-9a-f]{64})", detail)
+            if not match:
+                return False
+            path, label, fingerprint = match.groups()
+            if path != "tests/test_pr_qa_regressions.py" or fingerprint not in current_hashes or fingerprint not in inherited_hashes:
+                return False
+            actual.add((path, label, fingerprint))
+        if actual != expected:
+            return False
+
+        head = git(["rev-parse", "HEAD"], root)
+        main = git(["rev-parse", "refs/remotes/origin/main"], root)
+        count = git(["rev-list", "--count", f"{release}..HEAD"], root)
+        merges = git(["rev-list", "--first-parent", "--merges", f"{release}..HEAD"], root)
+        if (head.returncode or main.returncode or head.stdout != main.stdout
+                or count.returncode or count.stdout.strip() != "1"
+                or merges.returncode or merges.stdout.strip()):
+            return False
+        pr = run(["gh", "api", "repos/Synergie-ITCI/.github/pulls/385"], root)
+        if pr.returncode:
+            return False
+        metadata = json.loads(pr.stdout)
+        if (not metadata.get("merged_at") or metadata.get("merge_commit_sha") != head.stdout.strip()
+                or metadata.get("base", {}).get("ref") != "main"):
+            return False
+        reviewed_tree = git(["rev-parse", f"{metadata['head']['sha']}^{{tree}}"], root)
+        candidate_tree = git(["rev-parse", "HEAD^{tree}"], root)
+        return bool(not reviewed_tree.returncode and not candidate_tree.returncode
+                    and reviewed_tree.stdout == candidate_tree.stdout)
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return False
+
+
 def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str, release: str = "") -> bool:
     head_sha = git(["rev-parse", "HEAD"], root).stdout.strip()
     head_ref = git(["branch", "--show-current"], root).stdout.strip() or "HEAD"
@@ -282,6 +348,9 @@ def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str, release: st
             return True
         if reviewed_rc202_disposition(root, report_path, base, release):
             print("Active PR-QA findings matched the exact reviewed rc202 correction and inherited fingerprints.")
+            return True
+        if reviewed_rc203_disposition(root, report_path, base, release):
+            print("Active PR-QA findings matched the exact reviewed rc203 correction and inherited fixture fingerprints.")
             return True
         return False
 

@@ -601,6 +601,43 @@
         "b29612ee9fc4b6f8f8bbe7a3713fb09f059ee5d0f83654557788c4d0d1f4a281",
         "ea117205a929b5754fa0c3dce9b9583066ab4abdef27b6d9647a56c62292efdb"
       ]
+    },
+    "pr-qa-v1-rc203": {
+      "reason": "One-off rc203 release preflight disposition for six unchanged synthetic regression fixtures inherited from rc202. Any new secret, merge, or other failure remains blocking.",
+      "predecessor_release": "pr-qa-v1-rc202",
+      "approved_correction_pr": 385,
+      "synthetic_fixture_findings": [
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "GitHub token",
+          "line_sha256": "0cd495ab39da81b14d89d937cf8a961d968efec6392ba224c5fe1c06a7ade71f"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "GitHub token",
+          "line_sha256": "18f3a70e674251f001cf17bbd7da85dce1b54c90e62b03ff3345bfd692f7f7fc"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "GitHub token",
+          "line_sha256": "2c2a164bd4998656a6d3092bb5b353878605623f316bf5d7757eca51f92d7b32"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "GitHub token",
+          "line_sha256": "2c72cf07a731cb2fa66c9c9d8753896209c9b05b0323a6679283ae3f6d00c2a0"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "GitHub token",
+          "line_sha256": "51676bc49572272a6808d507a9938be3c8780332604259072e705214e40bb12d"
+        },
+        {
+          "path": "tests/test_pr_qa_regressions.py",
+          "label": "GitHub token",
+          "line_sha256": "9242958c91a8ba257c78cb263467a97121dacc5e970f76280701b15b56cf3487"
+        }
+      ]
     }
   },
   "secret_scan": {
