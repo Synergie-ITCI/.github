@@ -11,7 +11,7 @@
         "StringEquals": {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
           "token.actions.githubusercontent.com:sub": "repo:Synergie-ITCI@209829096/roadsense-production-dashboard@1426678649:ref:refs/heads/main",
-          "token.actions.githubusercontent.com:job_workflow_ref": "Synergie-ITCI/.github/.github/workflows/roadsense-controlled-release.yml@refs/tags/roadsense-gate-d-v5"
+          "token.actions.githubusercontent.com:job_workflow_ref": "Synergie-ITCI/.github/.github/workflows/roadsense-controlled-release.yml@refs/tags/roadsense-gate-d-v6"
         }
       }
     }
