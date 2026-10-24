@@ -79,6 +79,18 @@ class RoadSenseRestrictedSsmDocumentTests(unittest.TestCase):
             "repo:Synergie-ITCI@209829096/roadsense-production-dashboard@1426678649:ref:refs/heads/main",
         )
 
+    def test_pilot_host_secret_grant_is_exact_node_and_resources(self):
+        policy = json.loads((ROOT / "iam/roadsense-pilot-host-secret-policy.json").read_text())
+        (statement,) = policy["Statement"]
+        self.assertEqual(statement["Effect"], "Allow")
+        self.assertEqual(set(statement["Action"]), {"secretsmanager:GetSecretValue", "ssm:GetParameter"})
+        self.assertEqual(set(statement["Resource"]), {
+            "arn:aws:secretsmanager:ap-south-1:918870682888:secret:/synergie/roadsense/evaluation/openai-api-key-GfBGoT",
+            "arn:aws:ssm:ap-south-1:918870682888:parameter/synergie/roadsense/pilot/admin-token",
+        })
+        self.assertEqual(statement["Condition"]["StringEquals"]["aws:userid"],
+                         "AROA5L4HV5UECXEPEC3FY:mi-0dade13fd68d1b435")
+
     def test_identity_probe_is_separate_and_has_no_deploy_permissions(self):
         workflow = (ROOT / ".github/workflows/roadsense-controlled-release.yml").read_text()
         self.assertIn("&& !inputs.identity-probe", workflow)
