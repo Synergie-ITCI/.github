@@ -14,7 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "iam/roadsense-production-remote-v1.sh"
 DOCUMENT = ROOT / "iam/roadsense-production-command-v1.json"
-EXPECTED_SHA = "459f0aa8a0eb95a9f459ad0fa042db7abfefc33a648b51d66889bde45b898e0a"
+EXPECTED_SHA = "b923dc3bdf1680f58a81573cfc78b6dd46456b077978340e92539ec9beee2e77"
 
 
 class RoadSenseRestrictedSsmDocumentTests(unittest.TestCase):
@@ -60,7 +60,7 @@ class RoadSenseRestrictedSsmDocumentTests(unittest.TestCase):
         policy = json.loads((ROOT / "iam/roadsense-deploy-policy.json").read_text())
         trust = json.loads((ROOT / "iam/roadsense-deploy-trust.json").read_text())
         self.assertIn(f"'{EXPECTED_SHA}'", workflow)
-        self.assertIn("--document-version 2", workflow)
+        self.assertIn("--document-version 3", workflow)
         self.assertIn("--document-name RoadSense-GateD-Production-Command-v1", workflow)
         self.assertNotIn("AWS-RunShellScript", workflow)
         self.assertNotIn("AWS-RunShellScript", json.dumps(policy))
@@ -72,12 +72,24 @@ class RoadSenseRestrictedSsmDocumentTests(unittest.TestCase):
         claims = trust["Statement"][0]["Condition"]["StringEquals"]
         self.assertEqual(
             claims["token.actions.githubusercontent.com:job_workflow_ref"],
-            "Synergie-ITCI/.github/.github/workflows/roadsense-controlled-release.yml@refs/tags/roadsense-gate-d-v5",
+            "Synergie-ITCI/.github/.github/workflows/roadsense-controlled-release.yml@refs/tags/roadsense-gate-d-v6",
         )
         self.assertEqual(
             claims["token.actions.githubusercontent.com:sub"],
             "repo:Synergie-ITCI@209829096/roadsense-production-dashboard@1426678649:ref:refs/heads/main",
         )
+
+    def test_pilot_host_secret_grant_is_exact_node_and_resources(self):
+        policy = json.loads((ROOT / "iam/roadsense-pilot-host-secret-policy.json").read_text())
+        (statement,) = policy["Statement"]
+        self.assertEqual(statement["Effect"], "Allow")
+        self.assertEqual(set(statement["Action"]), {"secretsmanager:GetSecretValue", "ssm:GetParameter"})
+        self.assertEqual(set(statement["Resource"]), {
+            "arn:aws:secretsmanager:ap-south-1:918870682888:secret:/synergie/roadsense/evaluation/openai-api-key-GfBGoT",
+            "arn:aws:ssm:ap-south-1:918870682888:parameter/synergie/roadsense/pilot/admin-token",
+        })
+        self.assertEqual(statement["Condition"]["StringEquals"]["aws:userid"],
+                         "AROA5L4HV5UECXEPEC3FY:mi-0dade13fd68d1b435")
 
     def test_identity_probe_is_separate_and_has_no_deploy_permissions(self):
         workflow = (ROOT / ".github/workflows/roadsense-controlled-release.yml").read_text()
