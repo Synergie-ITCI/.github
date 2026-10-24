@@ -8,6 +8,9 @@ network='scholarship-uat_default'
 service='roadsense-next'
 quota_dir='/var/lib/roadsense/semantic'
 quota_db="$quota_dir/quota.sqlite3"
+identity_dir='/var/lib/roadsense/identity'
+identity_db="$identity_dir/identity.sqlite3"
+ses_credentials="$identity_dir/ses-credentials"
 old_name=''
 candidate=''
 new_named=0
@@ -97,6 +100,23 @@ PY
 chown 10001:10001 "$quota_dir/backup-${release_id}.sqlite3"
 chmod 0600 "$quota_dir/backup-${release_id}.sqlite3"
 
+# Identity state and the SES-only credential file stay on the private host
+# mount. Preserve a versioned, restore-checked snapshot before migration.
+[[ -d "$identity_dir" && ! -L "$identity_dir" && -f "$identity_db" && ! -L "$identity_db" ]]
+[[ -f "$ses_credentials" && ! -L "$ses_credentials" ]]
+test "$(stat -c '%u:%g:%a' "$identity_dir")" = '10001:10001:700'
+test "$(stat -c '%u:%g:%a' "$identity_db")" = '10001:10001:600'
+test "$(stat -c '%u:%g:%a' "$ses_credentials")" = '10001:10001:600'
+printf '%s  %s\n' \
+  '3a126f34394c6b63562b166d08ce32e86a0ca0665f7449ac25f4017695a49734' \
+  /usr/local/sbin/roadsense-identity-backup | sha256sum -c - >/dev/null
+printf '%s  %s\n' \
+  '47c27c9db3f93fe91551d207fdacdb66e57fb88e74b5ca7bde8abb58b22bbb5d' \
+  /usr/local/sbin/roadsense-auth-refresh-ses | sha256sum -c - >/dev/null
+python3 /usr/local/sbin/roadsense-identity-backup > "$tmp_dir/identity-backup.json"
+test "$(jq -r '.restore_check' "$tmp_dir/identity-backup.json")" = 'PASS'
+python3 /usr/local/sbin/roadsense-auth-refresh-ses > "$tmp_dir/ses-refresh.log"
+
 # A short-lived named credential is kept in SSM. Only its digest and expiry
 # enter the container; the raw token never enters command arguments or logs.
 aws ssm get-parameter --region ap-south-1 --name /synergie/roadsense/pilot/admin-token \
@@ -122,6 +142,20 @@ ROADSENSE_SEMANTIC_DAILY_TOKEN_BUDGET=50000
 ROADSENSE_SEMANTIC_RETRIES=0
 EOF
 cat "$tmp_dir/admin.env" >> "$tmp_dir/runtime.env"
+cat > "$tmp_dir/auth.env" <<EOF
+ROADSENSE_AUTH_ENABLED=1
+ROADSENSE_AUTH_DB=$identity_db
+ROADSENSE_AUTH_HOSTS=roadsense.synergieinsights.in,127.0.0.1
+AWS_SHARED_CREDENTIALS_FILE=$ses_credentials
+AWS_EC2_METADATA_DISABLED=true
+EOF
+aws ssm get-parameter --region ap-south-1 --name /synergie/roadsense/auth/signing-key \
+  --with-decryption --output json |
+  python3 -c 'import json,sys
+key=json.load(sys.stdin)["Parameter"]["Value"]
+assert isinstance(key,str) and len(key)>=32 and "\n" not in key and "\r" not in key
+print("ROADSENSE_AUTH_SECRET_KEY="+key)' >> "$tmp_dir/auth.env"
+cat "$tmp_dir/auth.env" >> "$tmp_dir/runtime.env"
 aws secretsmanager get-secret-value --region ap-south-1 \
   --secret-id 'arn:aws:secretsmanager:ap-south-1:918870682888:secret:/synergie/roadsense/evaluation/openai-api-key-GfBGoT' \
   --output json |
@@ -141,8 +175,18 @@ test "$(docker image inspect "$image_digest" --format '{{.Id}}')" = "$image_dige
 test "$(docker image inspect "$image_digest" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$source_sha"
 test "$(docker image inspect "$image_digest" --format '{{index .Config.Labels "org.synergie.roadsense.database.sha256"}}')" = "$database_sha"
 
+# Migration runs against the durable identity mount before the candidate can
+# serve traffic. A migration failure leaves the current application untouched.
+docker run --rm --network none \
+  --mount "type=bind,src=$identity_dir,dst=$identity_dir" \
+  --env-file "$tmp_dir/auth.env" --entrypoint python3 "$image_digest" \
+  -m identity.manage migrate --noinput > "$tmp_dir/identity-migration.log"
+python3 /usr/local/sbin/roadsense-identity-backup > "$tmp_dir/identity-migrated-backup.json"
+test "$(jq -r '.restore_check' "$tmp_dir/identity-migrated-backup.json")" = 'PASS'
+
 docker run -d --name "$candidate" --network "$network" --restart no \
   --mount "type=bind,src=$quota_dir,dst=$quota_dir" \
+  --mount "type=bind,src=$identity_dir,dst=$identity_dir" \
   --env-file "$tmp_dir/runtime.env" "$image_digest" >/dev/null
 for _ in $(seq 1 40); do
   if [[ "$(docker inspect "$candidate" --format '{{.State.Health.Status}}')" == 'healthy' ]]; then
@@ -154,8 +198,10 @@ test "$(docker inspect "$candidate" --format '{{.State.Health.Status}}')" = 'hea
 
 docker exec -i "$candidate" python3 - "$database_sha" "$policy_version" <<'PY'
 import json, sqlite3, sys, urllib.request
+from urllib.error import HTTPError
 from pathlib import Path
 from api import RoadSafetyRepository
+from identity.ses import ses_client
 expected_db, expected_policy = sys.argv[1:]
 with urllib.request.urlopen('http://127.0.0.1:8765/api/health', timeout=8) as response:
     health = json.load(response)
@@ -168,6 +214,16 @@ assert not __import__('ask_semantic').SemanticService.api_enabled()
 assert __import__('os').environ['ROADSENSE_SEMANTIC_ENABLED'] == '0'
 assert len(__import__('os').environ['ROADSENSE_OPENAI_API_KEY']) >= 20
 assert __import__('semantic_quota').durable_store_ready('/var/lib/roadsense/semantic/quota.sqlite3')
+assert __import__('os').environ['ROADSENSE_AUTH_ENABLED'] == '1'
+assert ses_client() is not None
+with urllib.request.urlopen('http://127.0.0.1:8765/account/login/', timeout=8) as response:
+    assert response.status == 200
+try:
+    urllib.request.urlopen('http://127.0.0.1:8765/api/meta', timeout=8)
+except HTTPError as error:
+    assert error.code == 401
+else:
+    raise AssertionError('Unauthenticated analytics API was accessible')
 repo = RoadSafetyRepository(Path('/data/road_safety_pilot.sqlite'))
 with repo.connect() as conn:
     corrected = conn.execute("SELECT COUNT(*) FROM current_authoritative_observation WHERE revision_status='source_correction'").fetchone()[0]
