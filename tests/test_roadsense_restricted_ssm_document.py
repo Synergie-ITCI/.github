@@ -14,7 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "iam/roadsense-production-remote-v1.sh"
 DOCUMENT = ROOT / "iam/roadsense-production-command-v1.json"
-EXPECTED_SHA = "b923dc3bdf1680f58a81573cfc78b6dd46456b077978340e92539ec9beee2e77"
+EXPECTED_SHA = "aafdeb3d497afdfabff34f0efd9426f3ff984ed9cc8c0b03ac8dc4477d6d6f68"
 
 
 class RoadSenseRestrictedSsmDocumentTests(unittest.TestCase):
@@ -60,7 +60,7 @@ class RoadSenseRestrictedSsmDocumentTests(unittest.TestCase):
         policy = json.loads((ROOT / "iam/roadsense-deploy-policy.json").read_text())
         trust = json.loads((ROOT / "iam/roadsense-deploy-trust.json").read_text())
         self.assertIn(f"'{EXPECTED_SHA}'", workflow)
-        self.assertIn("--document-version 3", workflow)
+        self.assertIn("--document-version 4", workflow)
         self.assertIn("--document-name RoadSense-GateD-Production-Command-v1", workflow)
         self.assertNotIn("AWS-RunShellScript", workflow)
         self.assertNotIn("AWS-RunShellScript", json.dumps(policy))
@@ -72,7 +72,7 @@ class RoadSenseRestrictedSsmDocumentTests(unittest.TestCase):
         claims = trust["Statement"][0]["Condition"]["StringEquals"]
         self.assertEqual(
             claims["token.actions.githubusercontent.com:job_workflow_ref"],
-            "Synergie-ITCI/.github/.github/workflows/roadsense-controlled-release.yml@refs/tags/roadsense-gate-d-v6",
+            "Synergie-ITCI/.github/.github/workflows/roadsense-controlled-release.yml@refs/tags/roadsense-gate-d-v7",
         )
         self.assertEqual(
             claims["token.actions.githubusercontent.com:sub"],

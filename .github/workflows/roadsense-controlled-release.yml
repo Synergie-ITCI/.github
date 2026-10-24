@@ -123,7 +123,7 @@ jobs:
           set -euo pipefail
           bash -n .github/scripts/roadsense-production-remote.sh
           test -x .github/scripts/roadsense-production-remote.sh
-          printf '%s  %s\n' 'b923dc3bdf1680f58a81573cfc78b6dd46456b077978340e92539ec9beee2e77' \
+          printf '%s  %s\n' 'aafdeb3d497afdfabff34f0efd9426f3ff984ed9cc8c0b03ac8dc4477d6d6f68' \
             .github/scripts/roadsense-production-remote.sh | sha256sum -c -
       - name: Resolve exact central revision for pre-OIDC recheck
         id: central
@@ -181,7 +181,7 @@ jobs:
           command_id="$(aws ssm send-command \
             --instance-ids mi-0dade13fd68d1b435 \
             --document-name RoadSense-GateD-Production-Command-v1 \
-            --document-version 3 \
+            --document-version 4 \
             --comment "RoadSense Gate D $GITHUB_RUN_ID" \
             --parameters file://ssm-parameters.json \
             --query 'Command.CommandId' --output text)"
