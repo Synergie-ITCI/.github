@@ -145,7 +145,7 @@ cat "$tmp_dir/admin.env" >> "$tmp_dir/runtime.env"
 cat > "$tmp_dir/auth.env" <<EOF
 ROADSENSE_AUTH_ENABLED=1
 ROADSENSE_AUTH_DB=$identity_db
-ROADSENSE_AUTH_HOSTS=roadsense.synergieinsights.in,127.0.0.1
+ROADSENSE_AUTH_HOSTS=roadsense.synergieinsights.in,127.0.0.1,roadsense-next
 AWS_SHARED_CREDENTIALS_FILE=$ses_credentials
 AWS_EC2_METADATA_DISABLED=true
 EOF
