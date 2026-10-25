@@ -1118,6 +1118,27 @@
       "relaxations": [
         "diff_size"
       ]
+    },
+    {
+      "enabled": true,
+      "repository": "Synergie-ITCI/roadsense-production-dashboard",
+      "repository_id": 1426678649,
+      "pr_number": 96,
+      "expected_head_sha": "a260582568120ca6c172bef1250aa063ee707088",
+      "expected_base_sha": "a8748a29b249a737d74bd8e2984e7fd3663c29f4",
+      "head_ref": "promote/roadsense-semantic-generalisation-staging",
+      "base_ref": "staging",
+      "allowed_effective_additions": 8304,
+      "allowed_changed_files": 43,
+      "minimum_changed_files": 43,
+      "purpose": "One-time exact-head review of RoadSense staging PR #96, promoting the development-identical semantic ontology and independently labelled evaluation evidence; relax only its 3304-line diff-size excess while all other QA, data-publication and release gates remain enforced.",
+      "issued_at": "2026-10-25T16:39:06Z",
+      "expires_after": "2026-10-26T16:39:06Z",
+      "authorization_id": "742b4b35-663a-45c1-81ef-8f85dc48573e",
+      "required_pr_body_marker": "ROADSENSE-PR96-EXACT-HEAD-SIZE-742b4b35",
+      "relaxations": [
+        "diff_size"
+      ]
     }
   ]
 }
