@@ -554,6 +554,63 @@ def reviewed_rc210_lineage_disposition(root: Path, report_path: Path, base: str,
         return False
 
 
+def reviewed_rc211_lineage_disposition(root: Path, report_path: Path, base: str, release: str) -> bool:
+    """Dispose only the exact reviewed rc210-to-rc211 merge finding."""
+    if base != "main" or release != "pr-qa-v1-rc210":
+        return False
+    origin = git(["remote", "get-url", "origin"], root)
+    if origin.returncode or origin.stdout.strip() != CENTRAL_ORIGIN:
+        return False
+    try:
+        policy = json.loads((root / "policy" / "pr-qa-policy.json").read_text(encoding="utf-8"))
+        disposition = policy["release_preflight_dispositions"]["pr-qa-v1-rc211"]
+        if disposition["predecessor_release"] != release:
+            return False
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        failures = [item for item in report["results"] if item.get("blocking") and item.get("status") == "FAIL"]
+        if len(failures) != 1 or failures[0].get("gate") != "Repository Hygiene":
+            return False
+        head = git(["rev-parse", "HEAD"], root)
+        main = git(["rev-parse", "refs/remotes/origin/main"], root)
+        if head.returncode or main.returncode or head.stdout != main.stdout:
+            return False
+        candidate = head.stdout.strip()
+        reviewed_merge = disposition["reviewed_policy_merge"]
+        lineage = git(["rev-list", "--reverse", "--first-parent", "--merges", f"{release}..HEAD"], root)
+        if lineage.returncode or lineage.stdout.splitlines() != [reviewed_merge, candidate]:
+            return False
+        hygiene = failures[0]
+        if (hygiene.get("message") != "Accidental merge commits detected."
+                or hygiene.get("details") not in ([candidate], [candidate, reviewed_merge])):
+            return False
+        changed = git(["diff", "--name-only", f"{release}..HEAD"], root)
+        allowed = {"policy/pr-qa-policy.json", "scripts/release-preflight",
+                   "tests/test_roadsense_pr96_size_authorization.py", "tests/test_release_preflight.py"}
+        if changed.returncode or not set(changed.stdout.splitlines()).issubset(allowed):
+            return False
+        for number, expected_merge in ((disposition["reviewed_policy_pr"], reviewed_merge),
+                                       (disposition["preflight_correction_pr"], candidate)):
+            pr = run(["gh", "api", f"repos/Synergie-ITCI/.github/pulls/{number}"], root)
+            if pr.returncode:
+                return False
+            metadata = json.loads(pr.stdout)
+            if (not metadata.get("merged_at") or metadata.get("merge_commit_sha") != expected_merge
+                    or metadata.get("base", {}).get("ref") != "main"):
+                return False
+            if number == disposition["reviewed_policy_pr"]:
+                if metadata.get("head", {}).get("sha") != disposition["reviewed_policy_head"]:
+                    return False
+            else:
+                reviewed_tree = git(["rev-parse", f"{metadata['head']['sha']}^{{tree}}"], root)
+                candidate_tree = git(["rev-parse", "HEAD^{tree}"], root)
+                if (reviewed_tree.returncode or candidate_tree.returncode
+                        or reviewed_tree.stdout != candidate_tree.stdout):
+                    return False
+        return True
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return False
+
+
 def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str, release: str = "") -> bool:
     head_sha = git(["rev-parse", "HEAD"], root).stdout.strip()
     head_ref = git(["branch", "--show-current"], root).stdout.strip() or "HEAD"
@@ -611,6 +668,9 @@ def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str, release: st
             return True
         if reviewed_rc210_lineage_disposition(root, report_path, base, release):
             print("Active PR-QA findings matched exact rc210 reviewed merge lineage and Gate D workflow bytes.")
+            return True
+        if reviewed_rc211_lineage_disposition(root, report_path, base, release):
+            print("Active PR-QA findings matched exact rc211 reviewed merge lineage.")
             return True
         return False
 
