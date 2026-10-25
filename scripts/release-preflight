@@ -512,7 +512,7 @@ def reviewed_rc210_lineage_disposition(root: Path, report_path: Path, base: str,
             return False
         candidate = head.stdout.strip()
         reviewed_merges = disposition["reviewed_predecessor_merges"]
-        if len(reviewed_merges) != 7 or len(set(reviewed_merges)) != 7:
+        if len(reviewed_merges) != 9 or len(set(reviewed_merges)) != 9:
             return False
         lineage = git(["rev-list", "--reverse", "--first-parent", "--merges", f"{release}..HEAD"], root)
         if lineage.returncode or lineage.stdout.splitlines() != [*reviewed_merges, candidate]:
