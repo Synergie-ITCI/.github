@@ -49,6 +49,14 @@
       "ruleset_updated_at": "2026-10-25T00:20:37.236+05:30",
       "bypass_actors": [],
       "workflows": ["roadsense-controlled-release.yml"]
+    },
+    "roadsense-gate-d-v8": {
+      "commit": "cf381719c434e0b8ced9fceaa1b8dd9c3ed17847",
+      "tag_object": "b3cb33b63d30334c6454ef52c44214bff9cb4e67",
+      "ruleset_id": 25809829,
+      "ruleset_updated_at": "2026-10-25T10:13:31.713+05:30",
+      "bypass_actors": [],
+      "workflows": ["roadsense-controlled-release.yml"]
     }
   },
   "tag_protection_policies": {
