@@ -1079,6 +1079,27 @@
           }
         ]
       }
+    },
+    {
+      "enabled": true,
+      "repository": "Synergie-ITCI/roadsense-production-dashboard",
+      "repository_id": 1426678649,
+      "pr_number": 95,
+      "expected_head_sha": "940f3484e21ba7738463e3bb50ed48d5bf509b09",
+      "expected_base_sha": "753ae6e46564f37e81999b7347eb348115558df3",
+      "head_ref": "feature/roadsense-semantic-generalisation",
+      "base_ref": "development",
+      "allowed_effective_additions": 7671,
+      "allowed_changed_files": 27,
+      "minimum_changed_files": 27,
+      "purpose": "One-time exact-head review of RoadSense PR #95 semantic ontology and independently labelled evaluation evidence; relax only its 2671-line diff-size excess while all other QA, data-publication and release gates remain enforced.",
+      "issued_at": "2026-10-25T14:05:45Z",
+      "expires_after": "2026-10-26T14:05:45Z",
+      "authorization_id": "13ccd13a-43ae-4581-9560-24cf1069f714",
+      "required_pr_body_marker": "ROADSENSE-PR95-EXACT-HEAD-SIZE-13ccd13a",
+      "relaxations": [
+        "diff_size"
+      ]
     }
   ]
 }
