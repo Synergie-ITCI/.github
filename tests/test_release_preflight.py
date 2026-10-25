@@ -19,6 +19,55 @@ preflight = SourceFileLoader("release_preflight", str(SCRIPT)).load_module()
 
 
 class ReleasePreflightTests(unittest.TestCase):
+    def test_rc210_disposition_accepts_only_reviewed_lineage_and_workflow(self):
+        policy = json.loads((ROOT / "policy/pr-qa-policy.json").read_text(encoding="utf-8"))
+        reviewed = policy["release_preflight_dispositions"]["pr-qa-v1-rc210"]
+        candidate, pr_head, tree = (letter * 40 for letter in "xyz")
+        merges = reviewed["reviewed_predecessor_merges"]
+        report = {"results": [
+            {"gate": "Repository Hygiene", "status": "FAIL", "blocking": True,
+             "message": "Accidental merge commits detected.",
+             "details": [candidate, *reversed(merges[1:])]},
+            {"gate": "Deployment Risk", "status": "FAIL", "blocking": True,
+             "message": "Deployment workflow is structurally unsafe or missing required controlled-release safeguards.",
+             "details": [".github/workflows/roadsense-controlled-release.yml: production/live deployment-sensitive workflow does not match the controlled Gate D safe shape."]},
+        ]}
+        workflow = ".github/workflows/roadsense-controlled-release.yml"
+        inherited = subprocess.check_output(["git", "show", f"pr-qa-v1-rc209:{workflow}"], cwd=ROOT, text=True)
+        pr = {"merged_at": "2026-10-25T15:00:00Z", "merge_commit_sha": candidate,
+              "head": {"sha": pr_head}, "base": {"ref": "main"}}
+
+        def fake_git(args, _root):
+            if args == ["remote", "get-url", "origin"]:
+                value = preflight.CENTRAL_ORIGIN + "\n"
+            elif args in (["rev-parse", "HEAD"], ["rev-parse", "refs/remotes/origin/main"]):
+                value = candidate + "\n"
+            elif args == ["rev-list", "--reverse", "--first-parent", "--merges", "pr-qa-v1-rc209..HEAD"]:
+                value = "\n".join([*merges, candidate]) + "\n"
+            elif args == ["show", f"pr-qa-v1-rc209:{workflow}"]:
+                value = inherited
+            elif args in (["rev-parse", f"{pr_head}^{{tree}}"], ["rev-parse", "HEAD^{tree}"]):
+                value = tree + "\n"
+            else:
+                return subprocess.CompletedProcess(args, 1, "", "unexpected git query")
+            return subprocess.CompletedProcess(args, 0, value, "")
+
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "report.json"
+            with patch.object(preflight, "git", side_effect=fake_git), \
+                 patch.object(preflight, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps(pr), "")):
+                path.write_text(json.dumps(report), encoding="utf-8")
+                self.assertTrue(preflight.reviewed_rc210_lineage_disposition(ROOT, path, "main", "pr-qa-v1-rc209"))
+                self.assertFalse(preflight.reviewed_rc210_lineage_disposition(ROOT, path, "development", "pr-qa-v1-rc209"))
+                self.assertFalse(preflight.reviewed_rc210_lineage_disposition(ROOT, path, "main", "pr-qa-v1-rc208"))
+                report["results"][1]["details"].append("unreviewed workflow")
+                path.write_text(json.dumps(report), encoding="utf-8")
+                self.assertFalse(preflight.reviewed_rc210_lineage_disposition(ROOT, path, "main", "pr-qa-v1-rc209"))
+                report["results"][1]["details"].pop()
+                report["results"].append({"gate": "Secrets", "status": "FAIL", "blocking": True})
+                path.write_text(json.dumps(report), encoding="utf-8")
+                self.assertFalse(preflight.reviewed_rc210_lineage_disposition(ROOT, path, "main", "pr-qa-v1-rc209"))
+
     def test_lineage_accepts_multiple_checked_pr_merges_and_rejects_unreviewed_changes(self):
         release, first, second, first_head, second_head = (letter * 40 for letter in "abcde")
         rules = [{"type": "pull_request"}, {"type": "required_status_checks", "parameters": {

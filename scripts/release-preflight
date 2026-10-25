@@ -489,6 +489,67 @@ def reviewed_inherited_fixture_disposition(root: Path, report_path: Path, base: 
         return False
 
 
+def reviewed_rc210_lineage_disposition(root: Path, report_path: Path, base: str, release: str) -> bool:
+    """Dispose only rc209's exact reviewed merge and Gate D workflow findings."""
+    if base != "main" or release != "pr-qa-v1-rc209":
+        return False
+    origin = git(["remote", "get-url", "origin"], root)
+    if origin.returncode or origin.stdout.strip() != CENTRAL_ORIGIN:
+        return False
+    try:
+        policy = json.loads((root / "policy" / "pr-qa-policy.json").read_text(encoding="utf-8"))
+        disposition = policy["release_preflight_dispositions"]["pr-qa-v1-rc210"]
+        if disposition["predecessor_release"] != release:
+            return False
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        failures = [item for item in report["results"] if item.get("blocking") and item.get("status") == "FAIL"]
+        if len(failures) != 2 or {item.get("gate") for item in failures} != {"Repository Hygiene", "Deployment Risk"}:
+            return False
+        by_gate = {item["gate"]: item for item in failures}
+        head = git(["rev-parse", "HEAD"], root)
+        main = git(["rev-parse", "refs/remotes/origin/main"], root)
+        if head.returncode or main.returncode or head.stdout != main.stdout:
+            return False
+        candidate = head.stdout.strip()
+        reviewed_merges = disposition["reviewed_predecessor_merges"]
+        if len(reviewed_merges) != 7 or len(set(reviewed_merges)) != 7:
+            return False
+        lineage = git(["rev-list", "--reverse", "--first-parent", "--merges", f"{release}..HEAD"], root)
+        if lineage.returncode or lineage.stdout.splitlines() != [*reviewed_merges, candidate]:
+            return False
+        expected_hygiene = [candidate, *reversed(reviewed_merges[1:])]
+        hygiene = by_gate["Repository Hygiene"]
+        if (hygiene.get("message") != "Accidental merge commits detected."
+                or hygiene.get("details") != expected_hygiene):
+            return False
+        deployment = by_gate["Deployment Risk"]
+        if (deployment.get("message") != "Deployment workflow is structurally unsafe or missing required controlled-release safeguards."
+                or deployment.get("details") != [
+                    ".github/workflows/roadsense-controlled-release.yml: production/live deployment-sensitive workflow does not match the controlled Gate D safe shape."
+                ]):
+            return False
+        workflow = ".github/workflows/roadsense-controlled-release.yml"
+        inherited = git(["show", f"{release}:{workflow}"], root)
+        source = root / workflow
+        if (inherited.returncode or not source.is_file() or source.is_symlink()
+                or hashlib.sha256(inherited.stdout.encode()).hexdigest() != disposition["prior_workflow_sha256"]
+                or hashlib.sha256(source.read_bytes()).hexdigest() != disposition["reviewed_workflow_sha256"]):
+            return False
+        pr = run(["gh", "api", f"repos/Synergie-ITCI/.github/pulls/{disposition['preflight_correction_pr']}"], root)
+        if pr.returncode:
+            return False
+        metadata = json.loads(pr.stdout)
+        if (not metadata.get("merged_at") or metadata.get("merge_commit_sha") != candidate
+                or metadata.get("base", {}).get("ref") != "main"):
+            return False
+        reviewed_tree = git(["rev-parse", f"{metadata['head']['sha']}^{{tree}}"], root)
+        candidate_tree = git(["rev-parse", "HEAD^{tree}"], root)
+        return bool(not reviewed_tree.returncode and not candidate_tree.returncode
+                    and reviewed_tree.stdout == candidate_tree.stdout)
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return False
+
+
 def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str, release: str = "") -> bool:
     head_sha = git(["rev-parse", "HEAD"], root).stdout.strip()
     head_ref = git(["branch", "--show-current"], root).stdout.strip() or "HEAD"
@@ -543,6 +604,9 @@ def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str, release: st
             return True
         if reviewed_inherited_fixture_disposition(root, report_path, base, release):
             print("Active PR-QA findings matched exact reviewed fixture fingerprints inherited from the active release.")
+            return True
+        if reviewed_rc210_lineage_disposition(root, report_path, base, release):
+            print("Active PR-QA findings matched exact rc210 reviewed merge lineage and Gate D workflow bytes.")
             return True
         return False
 

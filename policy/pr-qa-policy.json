@@ -879,6 +879,22 @@
         }
       ]
     },
+    "pr-qa-v1-rc210": {
+      "reason": "Exact rc209-to-rc210 protected merge lineage and unchanged reviewed RoadSense Gate D workflow. Only the two specified release-preflight findings are disposed; all other failures remain blocking.",
+      "predecessor_release": "pr-qa-v1-rc209",
+      "reviewed_predecessor_merges": [
+        "3cb968079ce432002badaf303a10f85c00338fc5",
+        "b2dfabb5a4ac75b157f3f979714e460502478687",
+        "ddc5bdd5e396e747023fdf14baf004b661ddcaaa",
+        "237aa225df02d65d91de327da23d55789d73ba91",
+        "cf381719c434e0b8ced9fceaa1b8dd9c3ed17847",
+        "cde38869728bcd0e87bd37f871891eaaf44503f0",
+        "09fc9d76d3cc19a6d7d18e875e09f1808f743374"
+      ],
+      "preflight_correction_pr": 404,
+      "prior_workflow_sha256": "d6657f3c39e6fd96198ddc5f11fcac36d91e2690be32f657385f70c207fbddd3",
+      "reviewed_workflow_sha256": "5335a9321037ea7ba0c5caacb66765ab833cc765244a3d149f3219c21d1d70bf"
+    },
     "inherited_synthetic_fixtures": {
       "reason": "Previously reviewed synthetic regression-fixture fingerprints inherited unchanged from the active immutable release. The active scanner may report any nonempty subset; new or modified findings and every other failure remain blocking.",
       "synthetic_fixture_findings": [
