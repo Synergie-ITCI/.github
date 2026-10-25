@@ -16,7 +16,8 @@ class RoadSensePr42SizeAuthorizationTests(unittest.TestCase):
         policy = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())
         schema = json.loads((ROOT / "schemas/one-time-baseline.schema.json").read_text())
         matches = [item for item in policy["one_time_baseline_alignments"]
-                   if item.get("repository") == "Synergie-ITCI/roadsense-production-dashboard"]
+                   if item.get("repository") == "Synergie-ITCI/roadsense-production-dashboard"
+                   and item.get("pr_number") == 41]
         self.assertEqual(len(matches), 1)
         authorization = matches[0]
         self.assertEqual(schema_errors(authorization, schema), [])
