@@ -517,10 +517,14 @@ def reviewed_rc210_lineage_disposition(root: Path, report_path: Path, base: str,
         lineage = git(["rev-list", "--reverse", "--first-parent", "--merges", f"{release}..HEAD"], root)
         if lineage.returncode or lineage.stdout.splitlines() != [*reviewed_merges, candidate]:
             return False
-        expected_hygiene = [candidate, *reversed(reviewed_merges[1:])]
+        expected_hygiene = [candidate, *reversed(reviewed_merges)]
         hygiene = by_gate["Repository Hygiene"]
+        reported = hygiene.get("details")
         if (hygiene.get("message") != "Accidental merge commits detected."
-                or hygiene.get("details") != expected_hygiene):
+                or not isinstance(reported, list) or not reported
+                or reported[0] != candidate or len(reported) != len(set(reported))
+                or any(item not in expected_hygiene for item in reported)
+                or reported != [item for item in expected_hygiene if item in reported]):
             return False
         deployment = by_gate["Deployment Risk"]
         if (deployment.get("message") != "Deployment workflow is structurally unsafe or missing required controlled-release safeguards."

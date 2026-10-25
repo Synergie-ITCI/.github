@@ -60,6 +60,13 @@ class ReleasePreflightTests(unittest.TestCase):
                 self.assertTrue(preflight.reviewed_rc210_lineage_disposition(ROOT, path, "main", "pr-qa-v1-rc209"))
                 self.assertFalse(preflight.reviewed_rc210_lineage_disposition(ROOT, path, "development", "pr-qa-v1-rc209"))
                 self.assertFalse(preflight.reviewed_rc210_lineage_disposition(ROOT, path, "main", "pr-qa-v1-rc208"))
+                report["results"][0]["details"] = [candidate, *reversed(merges[2:])]
+                path.write_text(json.dumps(report), encoding="utf-8")
+                self.assertTrue(preflight.reviewed_rc210_lineage_disposition(ROOT, path, "main", "pr-qa-v1-rc209"))
+                report["results"][0]["details"].append("q" * 40)
+                path.write_text(json.dumps(report), encoding="utf-8")
+                self.assertFalse(preflight.reviewed_rc210_lineage_disposition(ROOT, path, "main", "pr-qa-v1-rc209"))
+                report["results"][0]["details"].pop()
                 report["results"][1]["details"].append("unreviewed workflow")
                 path.write_text(json.dumps(report), encoding="utf-8")
                 self.assertFalse(preflight.reviewed_rc210_lineage_disposition(ROOT, path, "main", "pr-qa-v1-rc209"))
