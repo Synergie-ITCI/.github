@@ -112,6 +112,53 @@ class ReleasePreflightTests(unittest.TestCase):
                 report["results"].append({"gate": "Secrets", "status": "FAIL", "blocking": True})
                 path.write_text(json.dumps(report), encoding="utf-8")
                 self.assertFalse(preflight.reviewed_rc213_lineage_disposition(ROOT, path, "main", "pr-qa-v1-rc212"))
+    def test_rc214_disposition_accepts_only_reviewed_merge_and_no_other_failure(self):
+        policy = json.loads((ROOT / "policy/pr-qa-policy.json").read_text(encoding="utf-8"))
+        reviewed = policy["release_preflight_dispositions"]["pr-qa-v1-rc214"]
+        candidate, correction_head, tree = (letter * 40 for letter in "xyz")
+        merge = reviewed["reviewed_policy_merge"]
+        report = {"results": [{
+            "gate": "Repository Hygiene", "status": "FAIL", "blocking": True,
+            "message": "Accidental merge commits detected.", "details": [candidate, merge],
+        }]}
+
+        def fake_git(args, _root):
+            if args == ["remote", "get-url", "origin"]:
+                value = preflight.CENTRAL_ORIGIN + "\n"
+            elif args in (["rev-parse", "HEAD"], ["rev-parse", "refs/remotes/origin/main"]):
+                value = candidate + "\n"
+            elif args == ["rev-list", "--reverse", "--first-parent", "--merges", "pr-qa-v1-rc213..HEAD"]:
+                value = merge + "\n" + candidate + "\n"
+            elif args == ["diff", "--name-only", "pr-qa-v1-rc213..HEAD"]:
+                value = "policy/pr-qa-policy.json\nscripts/release-preflight\ntests/test_release_preflight.py\n"
+            elif args in (["rev-parse", f"{correction_head}^{{tree}}"], ["rev-parse", "HEAD^{tree}"]):
+                value = tree + "\n"
+            else:
+                return subprocess.CompletedProcess(args, 1, "", "unexpected git query")
+            return subprocess.CompletedProcess(args, 0, value, "")
+
+        def fake_run(args, _root):
+            number = int(args[-1].rsplit("/", 1)[-1])
+            sha = merge if number == 413 else candidate
+            head = reviewed["reviewed_policy_head"] if number == 413 else correction_head
+            metadata = {"merged_at": "2026-10-25T17:00:00Z", "merge_commit_sha": sha,
+                        "head": {"sha": head}, "base": {"ref": "main"}}
+            return subprocess.CompletedProcess(args, 0, json.dumps(metadata), "")
+
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "report.json"
+            with patch.object(preflight, "git", side_effect=fake_git), patch.object(preflight, "run", side_effect=fake_run):
+                path.write_text(json.dumps(report), encoding="utf-8")
+                self.assertTrue(preflight.reviewed_rc214_lineage_disposition(ROOT, path, "main", "pr-qa-v1-rc213"))
+                self.assertFalse(preflight.reviewed_rc214_lineage_disposition(ROOT, path, "development", "pr-qa-v1-rc213"))
+                report["results"][0]["details"].append("q" * 40)
+                path.write_text(json.dumps(report), encoding="utf-8")
+                self.assertFalse(preflight.reviewed_rc214_lineage_disposition(ROOT, path, "main", "pr-qa-v1-rc213"))
+                report["results"][0]["details"].pop()
+                report["results"].append({"gate": "Secrets", "status": "FAIL", "blocking": True})
+                path.write_text(json.dumps(report), encoding="utf-8")
+                self.assertFalse(preflight.reviewed_rc214_lineage_disposition(ROOT, path, "main", "pr-qa-v1-rc213"))
+
 
     def test_rc212_disposition_accepts_only_reviewed_merge_and_no_other_failure(self):
         policy = json.loads((ROOT / "policy/pr-qa-policy.json").read_text(encoding="utf-8"))
