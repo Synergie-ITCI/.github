@@ -1205,6 +1205,27 @@
       "relaxations": [
         "diff_size"
       ]
+    },
+    {
+      "enabled": true,
+      "repository": "Synergie-ITCI/roadsense-production-dashboard",
+      "repository_id": 1426678649,
+      "pr_number": 105,
+      "expected_head_sha": "46069a6fc29cc51b6a707db2294666a22bbb6994",
+      "expected_base_sha": "db00435be1d981cf3908016da130df62fb38adf3",
+      "head_ref": "promote/roadsense-pr98-staging",
+      "base_ref": "staging",
+      "allowed_effective_additions": 9267,
+      "allowed_changed_files": 63,
+      "minimum_changed_files": 63,
+      "purpose": "One-time exact-head review of RoadSense staging PR #105 promoting development-identical semantic and historical filter evidence; relax only its 4267-line diff-size excess while all other QA, data-publication and release gates remain enforced.",
+      "issued_at": "2026-10-26T13:59:47Z",
+      "expires_after": "2026-10-27T13:59:47Z",
+      "authorization_id": "e5c4a08d-c8e3-4b75-8c9f-afffc35e1fe0",
+      "required_pr_body_marker": "ROADSENSE-PR105-EXACT-HEAD-SIZE-e5c4a08d",
+      "relaxations": [
+        "diff_size"
+      ]
     }
   ]
 }
