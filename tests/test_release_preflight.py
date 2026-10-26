@@ -117,10 +117,10 @@ class ReleasePreflightTests(unittest.TestCase):
         reviewed = policy["release_preflight_dispositions"]["pr-qa-v1-rc214"]
         candidate, correction_merge = (letter * 40 for letter in "ab")
         merge = reviewed["reviewed_policy_merge"]
-        lineage = [merge, correction_merge, candidate]
+        lineage = [merge, correction_merge]
         report = {"results": [{
             "gate": "Repository Hygiene", "status": "FAIL", "blocking": True,
-            "message": "Accidental merge commits detected.", "details": [candidate, merge],
+            "message": "Accidental merge commits detected.", "details": [correction_merge, merge],
         }]}
 
         def fake_git(args, _root):
@@ -131,7 +131,7 @@ class ReleasePreflightTests(unittest.TestCase):
             elif args == ["rev-list", "--reverse", "--first-parent", "--merges", "pr-qa-v1-rc213..HEAD"]:
                 value = "\n".join(lineage) + "\n"
             elif args == ["diff", "--name-only", "pr-qa-v1-rc213..HEAD"]:
-                value = "policy/pr-qa-policy.json\nscripts/release-preflight\npr-qa/pr_qa.py\ntests/test_release_preflight.py\n"
+                value = "policy/pr-qa-policy.json\nscripts/release-preflight\npr-qa/pr_qa.py\npr-qa/adapters/base.py\ntests/test_release_preflight.py\n"
             else:
                 return subprocess.CompletedProcess(args, 1, "", "unexpected git query")
             return subprocess.CompletedProcess(args, 0, value, "")

@@ -759,20 +759,22 @@ def reviewed_rc214_lineage_disposition(root: Path, report_path: Path, base: str,
                 or not re.fullmatch(r"[0-9a-f]{40}", str(correction_merge))):
             return False
         lineage = git(["rev-list", "--reverse", "--first-parent", "--merges", f"{release}..HEAD"], root)
-        expected = [reviewed_merge, correction_merge, candidate]
+        # The final checked PR commits are normally squash commits, so only
+        # the two reviewed promotion merges appear in --merges output.
+        expected = [reviewed_merge, correction_merge]
         if lineage.returncode or lineage.stdout.splitlines() != expected:
             return False
         hygiene = failures[0]
         if (hygiene.get("message") != "Accidental merge commits detected."
                 or not isinstance(hygiene.get("details"), list)
-                or candidate not in hygiene["details"]
-                or not set(hygiene["details"]).issubset(set(expected))):
+                or len(hygiene["details"]) != len(expected)
+                or set(hygiene["details"]) != set(expected)):
             return False
         changed = git(["diff", "--name-only", f"{release}..HEAD"], root)
         allowed = {"policy/pr-qa-policy.json", "scripts/release-preflight",
                    "tests/test_roadsense_pr98_size_authorization.py", "tests/test_roadsense_pr105_size_authorization.py",
                    "tests/test_release_preflight.py", "tests/test_live_baseline_authorizations.py",
-                   "pr-qa/pr_qa.py", "pr-qa/baseline_authorization.py",
+                   "pr-qa/pr_qa.py", "pr-qa/adapters/base.py", "pr-qa/baseline_authorization.py",
                    ".github/workflows/pr-qa.yml", "docs/single-pr-baseline-authorization.md"}
         if changed.returncode or not set(changed.stdout.splitlines()).issubset(allowed):
             return False
