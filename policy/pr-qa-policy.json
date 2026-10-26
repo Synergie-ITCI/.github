@@ -1234,6 +1234,27 @@
       "relaxations": [
         "diff_size"
       ]
+    },
+    {
+      "enabled": true,
+      "repository": "Synergie-ITCI/roadsense-production-dashboard",
+      "repository_id": 1426678649,
+      "pr_number": 106,
+      "expected_head_sha": "65627b17f7617b215e973e6239b0737b4b1a61b6",
+      "expected_base_sha": "df733bfe2651ae2e9a930a02177c96ebf0d6f7bc",
+      "head_ref": "promote/roadsense-pr98-main",
+      "base_ref": "main",
+      "allowed_effective_additions": 9267,
+      "allowed_changed_files": 63,
+      "minimum_changed_files": 63,
+      "purpose": "One-time exact-head review of RoadSense main PR #106 carrying the same stable patch as reviewed feature PR #98 and staged PR #105; relax only its 4267-line diff-size excess while Gate C, Gate D, all other QA and publication controls remain enforced.",
+      "issued_at": "2026-10-26T16:53:40Z",
+      "expires_after": "2026-10-27T16:53:40Z",
+      "authorization_id": "738166e5-4e4d-4c18-a1b6-b032de12016c",
+      "required_pr_body_marker": "ROADSENSE-PR106-EXACT-HEAD-SIZE-738166e5",
+      "relaxations": [
+        "diff_size"
+      ]
     }
   ]
 }
