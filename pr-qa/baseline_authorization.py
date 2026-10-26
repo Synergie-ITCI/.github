@@ -6,6 +6,7 @@ This module never persists credentials or logs API response content.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -76,6 +77,63 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         raise urllib.error.HTTPError(
             req.full_url, code, "Redirect rejected", headers, fp
         )
+
+
+def read_live_central_alignments(token: str) -> tuple[str, list[dict[str, Any]]]:
+    """Read only baseline decisions from protected central main, pinned to one SHA."""
+    if not token:
+        raise ValueError("Central baseline authorization token unavailable")
+
+    def get(path: str) -> dict[str, Any]:
+        request = urllib.request.Request(
+            f"https://api.github.com/repos/Synergie-ITCI/.github/{path}",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+                "User-Agent": "synergie-pr-qa",
+            },
+        )
+        try:
+            with urllib.request.build_opener(NoRedirect()).open(request, timeout=20) as response:
+                if response.status != 200:
+                    raise ValueError("non-success status")
+                raw = response.read(2_000_001)
+                if len(raw) > 2_000_000:
+                    raise ValueError("oversized response")
+                value = json.loads(raw)
+                if not isinstance(value, dict):
+                    raise TypeError("malformed response")
+                return value
+        except urllib.error.HTTPError as error:
+            error.close()
+            raise ValueError("Live central baseline authorization unavailable") from None
+        except (urllib.error.URLError, OSError, ValueError, TypeError):
+            raise ValueError("Live central baseline authorization unavailable") from None
+
+    ref = get("git/ref/heads/main")
+    main_object = ref.get("object")
+    main = main_object.get("sha", "") if isinstance(main_object, dict) else ""
+    if not re.fullmatch(r"[0-9a-f]{40}", main):
+        raise ValueError("Central main SHA unavailable")
+    content = get(f"contents/policy/pr-qa-policy.json?ref={main}")
+    if content.get("type") != "file" or content.get("encoding") != "base64":
+        raise ValueError("Central policy content unavailable")
+    try:
+        raw = base64.b64decode(content["content"], validate=False)
+        if len(raw) > 1_000_000:
+            raise ValueError("Central policy exceeds size limit")
+        policy = json.loads(raw)
+        if not isinstance(policy, dict):
+            raise TypeError("Central policy is not an object")
+        alignments = policy["one_time_baseline_alignments"]
+        if policy.get("version") != 1 or not isinstance(alignments, list) or not all(
+            isinstance(item, dict) for item in alignments
+        ):
+            raise TypeError("Central policy authorizations malformed")
+        return main, alignments
+    except (KeyError, TypeError, ValueError, base64.binascii.Error):
+        raise ValueError("Central policy authorizations malformed") from None
 
 
 def read_live_pr(repository: str, number: int, token: str) -> dict[str, Any]:
