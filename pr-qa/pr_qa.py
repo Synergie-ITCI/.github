@@ -1259,6 +1259,7 @@ def baseline_policy(ctx: PRContext) -> dict[str, Any]:
     number = pull_request.get("number") if isinstance(pull_request, dict) else None
     additional = ctx.policy.get("one_time_baseline_alignments", [])
     if (os.environ.get("PR_QA_LIVE_AUTHORIZATIONS") == "true"
+            and os.environ.get("GITHUB_REPOSITORY") == repository
             and repository != "Synergie-ITCI/.github"):
         from baseline_authorization import read_live_central_alignments
 

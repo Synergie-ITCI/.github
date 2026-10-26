@@ -51,6 +51,7 @@ class LiveBaselineAuthorizationTests(unittest.TestCase):
         )
         self.env = patch.dict(os.environ, {
             "PR_QA_LIVE_AUTHORIZATIONS": "true",
+            "GITHUB_REPOSITORY": self.entry["repository"],
             "GH_TOKEN": "fixture",
         })
         self.env.start()
@@ -77,6 +78,12 @@ class LiveBaselineAuthorizationTests(unittest.TestCase):
         with patch.object(binding, "read_live_central_alignments",
                           return_value=("a" * 40, [other])):
             self.assertEqual(qa.baseline_policy(self.context), {})
+
+    def test_synthetic_repository_cannot_use_live_decisions(self):
+        with patch.dict(os.environ, {"GITHUB_REPOSITORY": "Synergie-ITCI/.github"}):
+            with patch.object(binding, "read_live_central_alignments") as read:
+                self.assertEqual(qa.baseline_policy(self.context), {})
+                read.assert_not_called()
 
     def test_live_read_pins_contents_to_main_sha(self):
         main = "b" * 40
