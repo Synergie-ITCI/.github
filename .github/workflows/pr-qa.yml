@@ -196,6 +196,7 @@ jobs:
         id: static
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_QA_LIVE_AUTHORIZATIONS: "true"
           PR_QA_FRAMEWORK_RELEASE: ${{ needs.detect.outputs.framework_release }}
         run: |
           mkdir -p pr-qa-results
@@ -390,6 +391,7 @@ jobs:
         id: full
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_QA_LIVE_AUTHORIZATIONS: "true"
         run: |
           rm -rf pr-qa-results
           mkdir -p pr-qa-results

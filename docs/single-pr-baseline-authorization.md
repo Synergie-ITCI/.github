@@ -49,6 +49,18 @@ execution context; ordinary offline validation is unchanged.
 
 ### Exact-content promotion scope
 
+Consumer PR-QA loads only `one_time_baseline_alignments` entries whose sole
+relaxation is `diff_size` from the current protected central `main` policy,
+pinning the read to its exact GitHub SHA. Other authorization types remain
+bound to the immutable release.
+The framework code, schema, default 5,000-addition limit, and all other policy
+fields still come from the verified immutable release. A reviewed central
+policy PR can therefore add an application-specific authorization without a
+new framework tag. The live lookup fails closed if GitHub, the token, or the
+policy shape is unavailable. An authorization still needs the exact PR, patch,
+paths, expiry, marker, and owner review described below. Changing any other
+release-sensitive policy field continues to require an immutable release.
+
 A reviewed size exception may include `promotion_scope` in the same central
 authorization entry. It names exact source/target branch pairs, a SHA-256 of
 Git's NUL-delimited raw change records (`git diff --raw -z --no-renames

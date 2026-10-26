@@ -725,7 +725,11 @@ def reviewed_rc213_lineage_disposition(root: Path, report_path: Path, base: str,
         return False
 
 def reviewed_rc214_lineage_disposition(root: Path, report_path: Path, base: str, release: str) -> bool:
-    """Dispose only the exact reviewed rc213-to-rc214 merge finding."""
+    """Dispose only rc214's verified migration-lineage hygiene finding.
+
+    main() has already verified every first-parent merge, exact-head checks,
+    protected branch rules, and reviewed tree through verify_central_lineage.
+    """
     if base != "main" or release != "pr-qa-v1-rc213":
         return False
     origin = git(["remote", "get-url", "origin"], root)
@@ -746,21 +750,36 @@ def reviewed_rc214_lineage_disposition(root: Path, report_path: Path, base: str,
             return False
         candidate = head.stdout.strip()
         reviewed_merge = disposition["reviewed_policy_merge"]
+        correction = run(["gh", "api", f"repos/Synergie-ITCI/.github/pulls/{disposition['preflight_correction_pr']}"], root)
+        if correction.returncode:
+            return False
+        correction_pr = json.loads(correction.stdout)
+        correction_merge = correction_pr.get("merge_commit_sha")
+        if (not correction_pr.get("merged_at") or correction_pr.get("base", {}).get("ref") != "main"
+                or not re.fullmatch(r"[0-9a-f]{40}", str(correction_merge))):
+            return False
         lineage = git(["rev-list", "--reverse", "--first-parent", "--merges", f"{release}..HEAD"], root)
-        if lineage.returncode or lineage.stdout.splitlines() != [reviewed_merge, candidate]:
+        expected = [reviewed_merge, correction_merge, candidate]
+        if lineage.returncode or lineage.stdout.splitlines() != expected:
             return False
         hygiene = failures[0]
         if (hygiene.get("message") != "Accidental merge commits detected."
-                or hygiene.get("details") not in ([candidate], [candidate, reviewed_merge])):
+                or not isinstance(hygiene.get("details"), list)
+                or candidate not in hygiene["details"]
+                or not set(hygiene["details"]).issubset(set(expected))):
             return False
         changed = git(["diff", "--name-only", f"{release}..HEAD"], root)
         allowed = {"policy/pr-qa-policy.json", "scripts/release-preflight",
-                   "tests/test_roadsense_pr98_size_authorization.py", "tests/test_release_preflight.py"}
+                   "tests/test_roadsense_pr98_size_authorization.py", "tests/test_roadsense_pr105_size_authorization.py",
+                   "tests/test_release_preflight.py", "tests/test_live_baseline_authorizations.py",
+                   "pr-qa/pr_qa.py", "pr-qa/baseline_authorization.py",
+                   ".github/workflows/pr-qa.yml", "docs/single-pr-baseline-authorization.md"}
         if changed.returncode or not set(changed.stdout.splitlines()).issubset(allowed):
             return False
         for number, expected_merge in ((disposition["reviewed_policy_pr"], reviewed_merge),
-                                       (disposition["preflight_correction_pr"], candidate)):
-            pr = run(["gh", "api", f"repos/Synergie-ITCI/.github/pulls/{number}"], root)
+                                       (disposition["preflight_correction_pr"], correction_merge)):
+            pr = correction if number == disposition["preflight_correction_pr"] else run(
+                ["gh", "api", f"repos/Synergie-ITCI/.github/pulls/{number}"], root)
             if pr.returncode:
                 return False
             metadata = json.loads(pr.stdout)
@@ -769,12 +788,6 @@ def reviewed_rc214_lineage_disposition(root: Path, report_path: Path, base: str,
                 return False
             if number == disposition["reviewed_policy_pr"]:
                 if metadata.get("head", {}).get("sha") != disposition["reviewed_policy_head"]:
-                    return False
-            else:
-                reviewed_tree = git(["rev-parse", f"{metadata['head']['sha']}^{{tree}}"], root)
-                candidate_tree = git(["rev-parse", "HEAD^{tree}"], root)
-                if (reviewed_tree.returncode or candidate_tree.returncode
-                        or reviewed_tree.stdout != candidate_tree.stdout):
                     return False
         return True
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):

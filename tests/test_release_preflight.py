@@ -115,8 +115,9 @@ class ReleasePreflightTests(unittest.TestCase):
     def test_rc214_disposition_accepts_only_reviewed_merge_and_no_other_failure(self):
         policy = json.loads((ROOT / "policy/pr-qa-policy.json").read_text(encoding="utf-8"))
         reviewed = policy["release_preflight_dispositions"]["pr-qa-v1-rc214"]
-        candidate, correction_head, tree = (letter * 40 for letter in "xyz")
+        candidate, correction_merge = (letter * 40 for letter in "ab")
         merge = reviewed["reviewed_policy_merge"]
+        lineage = [merge, correction_merge, candidate]
         report = {"results": [{
             "gate": "Repository Hygiene", "status": "FAIL", "blocking": True,
             "message": "Accidental merge commits detected.", "details": [candidate, merge],
@@ -128,19 +129,17 @@ class ReleasePreflightTests(unittest.TestCase):
             elif args in (["rev-parse", "HEAD"], ["rev-parse", "refs/remotes/origin/main"]):
                 value = candidate + "\n"
             elif args == ["rev-list", "--reverse", "--first-parent", "--merges", "pr-qa-v1-rc213..HEAD"]:
-                value = merge + "\n" + candidate + "\n"
+                value = "\n".join(lineage) + "\n"
             elif args == ["diff", "--name-only", "pr-qa-v1-rc213..HEAD"]:
-                value = "policy/pr-qa-policy.json\nscripts/release-preflight\ntests/test_release_preflight.py\n"
-            elif args in (["rev-parse", f"{correction_head}^{{tree}}"], ["rev-parse", "HEAD^{tree}"]):
-                value = tree + "\n"
+                value = "policy/pr-qa-policy.json\nscripts/release-preflight\npr-qa/pr_qa.py\ntests/test_release_preflight.py\n"
             else:
                 return subprocess.CompletedProcess(args, 1, "", "unexpected git query")
             return subprocess.CompletedProcess(args, 0, value, "")
 
         def fake_run(args, _root):
             number = int(args[-1].rsplit("/", 1)[-1])
-            sha = merge if number == 413 else candidate
-            head = reviewed["reviewed_policy_head"] if number == 413 else correction_head
+            sha = merge if number == 413 else correction_merge
+            head = reviewed["reviewed_policy_head"] if number == 413 else "z" * 40
             metadata = {"merged_at": "2026-10-25T17:00:00Z", "merge_commit_sha": sha,
                         "head": {"sha": head}, "base": {"ref": "main"}}
             return subprocess.CompletedProcess(args, 0, json.dumps(metadata), "")
@@ -151,6 +150,9 @@ class ReleasePreflightTests(unittest.TestCase):
                 path.write_text(json.dumps(report), encoding="utf-8")
                 self.assertTrue(preflight.reviewed_rc214_lineage_disposition(ROOT, path, "main", "pr-qa-v1-rc213"))
                 self.assertFalse(preflight.reviewed_rc214_lineage_disposition(ROOT, path, "development", "pr-qa-v1-rc213"))
+                lineage.insert(1, "q" * 40)
+                self.assertFalse(preflight.reviewed_rc214_lineage_disposition(ROOT, path, "main", "pr-qa-v1-rc213"))
+                lineage.pop(1)
                 report["results"][0]["details"].append("q" * 40)
                 path.write_text(json.dumps(report), encoding="utf-8")
                 self.assertFalse(preflight.reviewed_rc214_lineage_disposition(ROOT, path, "main", "pr-qa-v1-rc213"))

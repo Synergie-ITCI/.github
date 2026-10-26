@@ -1258,6 +1258,28 @@ def baseline_policy(ctx: PRContext) -> dict[str, Any]:
     pull_request = ctx.event.get("pull_request", {}) or {}
     number = pull_request.get("number") if isinstance(pull_request, dict) else None
     additional = ctx.policy.get("one_time_baseline_alignments", [])
+    if (os.environ.get("PR_QA_LIVE_AUTHORIZATIONS") == "true"
+            and os.environ.get("GITHUB_REPOSITORY") == repository
+            and repository != "Synergie-ITCI/.github"):
+        from baseline_authorization import read_live_central_alignments
+
+        cache = context_cache(ctx)
+        if "live_baseline_alignments" not in cache:
+            try:
+                cache["live_baseline_alignments"] = read_live_central_alignments(
+                    os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
+                )
+            except ValueError:
+                cache["live_baseline_alignments"] = None
+        live = cache["live_baseline_alignments"]
+        if live is None:
+            return {"enabled": False}
+        # Only size decisions are live. Other security dispositions retain
+        # their immutable-release binding.
+        additional = [
+            item for item in additional
+            if not isinstance(item, dict) or item.get("relaxations") != ["diff_size"]
+        ] + [item for item in live[1] if item.get("relaxations") == ["diff_size"]]
     if isinstance(additional, list):
         exact = [
             item for item in additional
@@ -5966,9 +5988,36 @@ def framework_release_state(repo: Path) -> dict[str, Any]:
         pinned = read_release_sensitive_tag_file(repo, release, rel)
         if current is None or pinned is None:
             mismatches.append(f"{rel}: content could not be inspected in current checkout or active release.")
+        elif rel == "policy/pr-qa-policy.json":
+            if not release_sensitive_policy_matches(current, pinned):
+                mismatches.append(f"{rel}: framework policy differs from active release `{release}`.")
         elif current != pinned:
             mismatches.append(f"{rel}: current content differs from active release `{release}`.")
     return release_state(release, not mismatches, files, mismatches[:20])
+
+
+def release_sensitive_policy_matches(current: bytes, pinned: bytes) -> bool:
+    """Ignore only live, protected-main PR decisions; never ignore framework rules."""
+    try:
+        current_policy = json.loads(current)
+        pinned_policy = json.loads(pinned)
+        if not isinstance(current_policy, dict) or not isinstance(pinned_policy, dict):
+            return False
+        for policy in (current_policy, pinned_policy):
+            entries = policy.get("one_time_baseline_alignments", [])
+            if not isinstance(entries, list):
+                return False
+            retained = [
+                entry for entry in entries
+                if not isinstance(entry, dict) or entry.get("relaxations") != ["diff_size"]
+            ]
+            if retained:
+                policy["one_time_baseline_alignments"] = retained
+            else:
+                policy.pop("one_time_baseline_alignments", None)
+        return current_policy == pinned_policy
+    except (TypeError, ValueError):
+        return False
 
 
 def release_state(release: str, matches: bool, files: list[str], details: list[str]) -> dict[str, Any]:
