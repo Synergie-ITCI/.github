@@ -1176,6 +1176,27 @@
       "relaxations": [
         "diff_size"
       ]
+    },
+    {
+      "enabled": true,
+      "repository": "Synergie-ITCI/roadsense-production-dashboard",
+      "repository_id": 1426678649,
+      "pr_number": 98,
+      "expected_head_sha": "9e2a4ae08ab5e23261ce699dcb1f8f1f7c77d8d0",
+      "expected_base_sha": "1e90e0a9423ed03b8a87583fa4f94de5ed6bd231",
+      "head_ref": "feature/roadsense-semantic-cq330",
+      "base_ref": "development",
+      "allowed_effective_additions": 9267,
+      "allowed_changed_files": 63,
+      "minimum_changed_files": 63,
+      "purpose": "One-time exact-head review of RoadSense PR #98 semantic evaluation and historical filter integrity; relax only its 4267-line diff-size excess while all other QA, data-publication and release gates remain enforced.",
+      "issued_at": "2026-10-26T13:00:50Z",
+      "expires_after": "2026-10-27T13:00:50Z",
+      "authorization_id": "90daf54c-c50a-4119-8f2d-cee24862fbc5",
+      "required_pr_body_marker": "ROADSENSE-PR98-EXACT-HEAD-SIZE-90daf54c",
+      "relaxations": [
+        "diff_size"
+      ]
     }
   ]
 }
