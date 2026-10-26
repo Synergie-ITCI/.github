@@ -174,9 +174,14 @@ class PRContext:
             return outcome
         started = time.time()
         try:
+            child_env = os.environ.copy()
+            # The live decision switch belongs to the QA engine, not to
+            # application tests that may create synthetic PR contexts.
+            child_env.pop("PR_QA_LIVE_AUTHORIZATIONS", None)
             completed = subprocess.run(
                 args,
                 cwd=str(working_dir),
+                env=child_env,
                 text=True,
                 capture_output=True,
                 timeout=timeout or self.command_timeout_seconds,

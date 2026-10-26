@@ -85,6 +85,14 @@ class LiveBaselineAuthorizationTests(unittest.TestCase):
                 self.assertEqual(qa.baseline_policy(self.context), {})
                 read.assert_not_called()
 
+    def test_application_test_command_does_not_inherit_engine_switch(self):
+        outcome = self.context.run([
+            sys.executable, "-c",
+            "import os; print(os.environ.get('PR_QA_LIVE_AUTHORIZATIONS', 'absent'))",
+        ])
+        self.assertEqual(outcome.exit_code, 0)
+        self.assertEqual(outcome.stdout.strip(), "absent")
+
     def test_live_read_pins_contents_to_main_sha(self):
         main = "b" * 40
         policy = {"version": 1, "one_time_baseline_alignments": [self.entry]}
