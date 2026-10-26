@@ -879,6 +879,14 @@
         }
       ]
     },
+    "pr-qa-v1-rc214": {
+      "reason": "rc214-only disposition for the exact reviewed RoadSense PR #413 staging size-policy merge and its protected correction PR; only the reported accidental-merge finding is accepted, with all other release checks still blocking.",
+      "predecessor_release": "pr-qa-v1-rc213",
+      "reviewed_policy_pr": 413,
+      "reviewed_policy_head": "fa684c17cbb43c6374f91d39515399878498eb30",
+      "reviewed_policy_merge": "89d6e124a299362dbc3a6f3b070e33b5c843807f",
+      "preflight_correction_pr": 414
+    },
     "pr-qa-v1-rc213": {
       "reason": "rc213-only disposition for the exact reviewed RoadSense PR #411 size-policy merge and its protected correction PR; only the reported accidental-merge finding is accepted, with all other release checks still blocking.",
       "predecessor_release": "pr-qa-v1-rc212",
