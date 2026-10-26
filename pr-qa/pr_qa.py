@@ -6002,15 +6002,18 @@ def release_sensitive_policy_matches(current: bytes, pinned: bytes) -> bool:
         pinned_policy = json.loads(pinned)
         if not isinstance(current_policy, dict) or not isinstance(pinned_policy, dict):
             return False
-        if not isinstance(current_policy.get("one_time_baseline_alignments"), list):
-            return False
-        if not isinstance(pinned_policy.get("one_time_baseline_alignments"), list):
-            return False
         for policy in (current_policy, pinned_policy):
-            policy["one_time_baseline_alignments"] = [
-                entry for entry in policy["one_time_baseline_alignments"]
+            entries = policy.get("one_time_baseline_alignments", [])
+            if not isinstance(entries, list):
+                return False
+            retained = [
+                entry for entry in entries
                 if not isinstance(entry, dict) or entry.get("relaxations") != ["diff_size"]
             ]
+            if retained:
+                policy["one_time_baseline_alignments"] = retained
+            else:
+                policy.pop("one_time_baseline_alignments", None)
         return current_policy == pinned_policy
     except (TypeError, ValueError):
         return False
