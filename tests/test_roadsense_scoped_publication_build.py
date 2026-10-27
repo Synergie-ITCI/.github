@@ -29,6 +29,15 @@ class ScopedBuildTests(unittest.TestCase):
         self.assertLess(workflow.index("Validate publication policy before artifact access"),
                         workflow.index("Build exact image with bundled held database"))
 
+    def test_build_oidc_trust_pins_immutable_v9_workflow(self):
+        trust = json.loads((ROOT / "iam/roadsense-build-trust.json").read_text())
+        self.assertEqual(
+            trust["Statement"][0]["Condition"]["StringEquals"][
+                "token.actions.githubusercontent.com:job_workflow_ref"],
+            "Synergie-ITCI/.github/.github/workflows/roadsense-build-release.yml"
+            "@refs/tags/roadsense-gate-d-v9",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

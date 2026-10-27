@@ -54,9 +54,17 @@
       "commit": "cf381719c434e0b8ced9fceaa1b8dd9c3ed17847",
       "tag_object": "b3cb33b63d30334c6454ef52c44214bff9cb4e67",
       "ruleset_id": 25809829,
-      "ruleset_updated_at": "2026-10-25T10:13:31.713+05:30",
+      "ruleset_updated_at": "2026-10-28T00:47:40.788+05:30",
       "bypass_actors": [],
       "workflows": ["roadsense-controlled-release.yml"]
+    },
+    "roadsense-gate-d-v9": {
+      "commit": "011093719f2a8a50a7b5aeafa42b076fa75f38ab",
+      "tag_object": "991f8e53197c1d0d2cf31abf5f448fa1cc62a2ab",
+      "ruleset_id": 25809829,
+      "ruleset_updated_at": "2026-10-28T00:47:40.788+05:30",
+      "bypass_actors": [],
+      "workflows": ["roadsense-build-release.yml", "roadsense-controlled-release.yml"]
     }
   },
   "tag_protection_policies": {

@@ -157,6 +157,32 @@ class CallerClassifierTests(unittest.TestCase):
                 bad = {**responses, path: change}
                 self.assertFalse(verify(bad))
 
+        # The repository ruleset limit requires v8 and v9 to share one exact
+        # two-tag rule. An extra ref, removed ref, or bypass still fails closed.
+        shared = copy.deepcopy(responses)
+        shared_release = "roadsense-gate-d-v9"
+        shared_policy = copy.deepcopy(policy)
+        shared_policy["gate_d_workflow_releases"][shared_release] = {
+            **shared_policy["gate_d_workflow_releases"][release],
+            "workflows": ["roadsense-build-release.yml", workflow],
+        }
+        shared[f"{prefix}/contents/policy/framework-releases.json?ref={main}"]["content"] = (
+            base64.b64encode(json.dumps(shared_policy).encode()).decode())
+        shared[f"{prefix}/git/ref/tags/{shared_release}"] = {
+            "ref": f"refs/tags/{shared_release}", "object": {"type": "tag", "sha": tag_object}}
+        shared[f"{prefix}/git/tags/{tag_object}"]["tag"] = shared_release
+        shared[f"{prefix}/rulesets/42"]["conditions"]["ref_name"]["include"] = [
+            "refs/tags/roadsense-gate-d-v8", "refs/tags/roadsense-gate-d-v9"]
+        self.assertTrue(engine.approved_roadsense_gate_d_release(
+            shared_release, "roadsense-build-release.yml", lambda path: shared[path]))
+        for extra in (["refs/tags/roadsense-gate-d-v9"],
+                      ["refs/tags/roadsense-gate-d-v8", "refs/tags/roadsense-gate-d-v9",
+                       "refs/tags/roadsense-gate-d-v10"]):
+            altered = copy.deepcopy(shared)
+            altered[f"{prefix}/rulesets/42"]["conditions"]["ref_name"]["include"] = extra
+            self.assertFalse(engine.approved_roadsense_gate_d_release(
+                shared_release, workflow, lambda path: altered[path]))
+
 
 if __name__ == "__main__":
     unittest.main()
