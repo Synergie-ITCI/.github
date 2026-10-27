@@ -4080,17 +4080,33 @@ def approved_roadsense_gate_d_release(
                    for pr in pulls):
             return False
         scoped = api(f"{repo}/rulesets/{entry['ruleset_id']}")
-        protected_refs = (["refs/tags/roadsense-gate-d-v8", "refs/tags/roadsense-gate-d-v9"]
-                          if release in {"roadsense-gate-d-v8", "roadsense-gate-d-v9"}
-                          else [ref_name])
-        expected_ref = {"include": protected_refs, "exclude": []}
+        # A repository ruleset may protect several exact immutable tags. Its
+        # complete reviewed scope is declared on protected central main, so a
+        # later approved tag does not require a classifier code release.
+        protected_refs = []
+        for name, sibling in policy["gate_d_workflow_releases"].items():
+            if not isinstance(sibling, dict) or sibling.get("ruleset_id") != entry["ruleset_id"]:
+                continue
+            if (not re.fullmatch(r"roadsense-gate-d-v[1-9][0-9]*", name)
+                    or sibling.get("ruleset_updated_at") != entry["ruleset_updated_at"]
+                    or sibling.get("bypass_actors") != []
+                    or not re.fullmatch(r"[0-9a-f]{40}", str(sibling.get("commit", "")))
+                    or not re.fullmatch(r"[0-9a-f]{40}", str(sibling.get("tag_object", "")))):
+                return False
+            protected_refs.append(f"refs/tags/{name}")
+        ref_scope = scoped.get("conditions", {}).get("ref_name", {})
+        included = ref_scope.get("include")
+        exact_scope = (isinstance(included, list)
+                       and len(included) == len(set(included))
+                       and set(included) == set(protected_refs)
+                       and ref_scope.get("exclude") == [])
         reviewed_time = datetime.fromisoformat(entry["ruleset_updated_at"].replace("Z", "+00:00"))
         live_time = datetime.fromisoformat(scoped["updated_at"].replace("Z", "+00:00"))
         return (reviewed_time.tzinfo is not None and live_time.tzinfo is not None
                 and reviewed_time == live_time
                 and scoped.get("id") == entry["ruleset_id"]
                 and scoped.get("target") == "tag" and scoped.get("enforcement") == "active"
-                and scoped.get("conditions", {}).get("ref_name") == expected_ref
+                and exact_scope
                 and ("bypass_actors" not in scoped or scoped["bypass_actors"] == [])
                 and {"update", "deletion"}.issubset(
                     {rule.get("type") for rule in scoped.get("rules", [])}))

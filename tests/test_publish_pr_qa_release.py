@@ -34,6 +34,13 @@ def ruleset(*, organization: bool = False) -> dict:
 
 
 class PublishReleaseTests(unittest.TestCase):
+    def test_only_exact_source_provenance_defers_duplicate_compatibility(self) -> None:
+        checked = release.preflight_command("pr-qa-v1-rc215", "a" * 40, True)
+        publishing = release.preflight_command("pr-qa-v1-rc215", "a" * 40, False)
+        self.assertNotIn("--compatibility-via-provenance", checked)
+        self.assertEqual(publishing[:-1], checked)
+        self.assertEqual(publishing[-1], "--compatibility-via-provenance")
+
     def test_provenance_dispatch_pins_older_source_without_touching_main(self) -> None:
         selected = "a" * 40
         branch = "pr-qa-release-source/pr-qa-v1-rc192"
