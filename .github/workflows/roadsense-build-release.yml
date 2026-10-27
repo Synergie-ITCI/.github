@@ -43,9 +43,12 @@ jobs:
       - name: Validate publication policy before artifact access
         run: |
           set -euo pipefail
-          test "$(jq -r '.version' road_safety_explorer_app/publication_policy.json)" = '2026-10-16-release-candidate-hold-v1'
-          test "$(jq -r '.review_status' road_safety_explorer_app/publication_policy.json)" = 'awaiting_per_scope_publication_approval'
-          test "$(jq -r '.publication_decisions|length' road_safety_explorer_app/publication_policy.json)" = '0'
+          test "$(jq -r '.version' road_safety_explorer_app/publication_policy.json)" = '2026-10-27-scoped-publication-owner-approved-candidate-v1'
+          test "$(jq -r '.review_status' road_safety_explorer_app/publication_policy.json)" = 'owner_approved_pending_governed_release'
+          test "$(jq -r '.publication_decisions|length' road_safety_explorer_app/publication_policy.json)" = '231'
+          test "$(jq -r '.rules|length' road_safety_explorer_app/publication_policy.json)" = '11'
+          printf '%s  %s\n' '003023b6060daeb99534baafc82616867b7dd5df3ba0c91af97034a8a4522e25' road_safety_explorer_app/publication_policy.json | sha256sum -c -
+          printf '%s  %s\n' '3e3e61385f632a2a88a99cf146855e2f5f095eb72130345e1e7f624afe80f49e' road_safety_explorer_app/evidence/source-remediation-2018/SCOPED_PUBLICATION_REVIEW_231.csv | sha256sum -c -
       - name: Obtain scoped short-lived build credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -57,14 +60,14 @@ jobs:
           DATABASE_VERSION: ${{ inputs.database-version }}
         run: |
           set -euo pipefail
-          test "$DATABASE_VERSION" = 'fa2rByaK4AljcFIOosf0ftI5602evy7c'
+          test "$DATABASE_VERSION" = 'llxUjX.WIAcZoPCnuCoBuZ3OsAJnXiwk'
           mkdir -p road_safety_explorer_app/data
           aws s3api get-object \
             --bucket synergie-production-app-backups-918870682888-ap-south-1 \
-            --key applications/roadsense/release-candidates/aaac711b0df078d12714bbd03cff72df7ae49418b8434be1a2864f1536575fa1/road_safety_pilot.sqlite \
+            --key applications/roadsense/release-candidates/5f26e3081b65b095389eeaeeb1871e27c001928138a71e1363a976a402731512/road_safety_pilot.sqlite \
             --version-id "$DATABASE_VERSION" \
             road_safety_explorer_app/data/road_safety_pilot.sqlite >/dev/null
-          printf '%s  %s\n' 'aaac711b0df078d12714bbd03cff72df7ae49418b8434be1a2864f1536575fa1' \
+          printf '%s  %s\n' '5f26e3081b65b095389eeaeeb1871e27c001928138a71e1363a976a402731512' \
             road_safety_explorer_app/data/road_safety_pilot.sqlite | sha256sum -c -
       - name: Test corrected database and Ask Data safeguards
         env:
@@ -81,12 +84,12 @@ jobs:
           set -euo pipefail
           docker build \
             --build-arg ROAD_SENSE_SOURCE_SHA="$SOURCE_SHA" \
-            --build-arg ROAD_SENSE_DATABASE_SHA=aaac711b0df078d12714bbd03cff72df7ae49418b8434be1a2864f1536575fa1 \
+            --build-arg ROAD_SENSE_DATABASE_SHA=5f26e3081b65b095389eeaeeb1871e27c001928138a71e1363a976a402731512 \
             -t "roadsense-candidate:$SOURCE_SHA" road_safety_explorer_app
           image_id="$(docker image inspect "roadsense-candidate:$SOURCE_SHA" --format '{{.Id}}')"
           [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
           test "$(docker image inspect "roadsense-candidate:$SOURCE_SHA" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$SOURCE_SHA"
-          test "$(docker image inspect "roadsense-candidate:$SOURCE_SHA" --format '{{index .Config.Labels "org.synergie.roadsense.database.sha256"}}')" = 'aaac711b0df078d12714bbd03cff72df7ae49418b8434be1a2864f1536575fa1'
+          test "$(docker image inspect "roadsense-candidate:$SOURCE_SHA" --format '{{index .Config.Labels "org.synergie.roadsense.database.sha256"}}')" = '5f26e3081b65b095389eeaeeb1871e27c001928138a71e1363a976a402731512'
           docker save "roadsense-candidate:$SOURCE_SHA" -o roadsense-image.tar
           archive_sha="$(sha256sum roadsense-image.tar | cut -d ' ' -f1)"
           printf '%s\n' "$image_id" > image-id.txt
@@ -101,7 +104,7 @@ jobs:
             --key "$key" --body roadsense-image.tar \
             --server-side-encryption AES256 \
             --metadata "sha256=$archive_sha" \
-            --tagging 'application=roadsense&publication=held&purpose=release-image' \
+            --tagging 'application=roadsense&publication=scoped-approved-pending-release&purpose=release-image' \
             --query VersionId --output text > image-s3-version.txt
           test -s image-s3-version.txt
           test "$(aws s3api head-object --bucket synergie-production-app-backups-918870682888-ap-south-1 --key "$key" --version-id "$(cat image-s3-version.txt)" --query 'Metadata.sha256' --output text)" = "$archive_sha"
@@ -116,9 +119,9 @@ jobs:
             --arg image_digest "$(cat image-id.txt)" \
             --arg image_archive_sha256 "$(cat image-archive-sha256.txt)" \
             --arg image_s3_version "$(cat image-s3-version.txt)" \
-            --arg database_sha256 'aaac711b0df078d12714bbd03cff72df7ae49418b8434be1a2864f1536575fa1' \
+            --arg database_sha256 '5f26e3081b65b095389eeaeeb1871e27c001928138a71e1363a976a402731512' \
             --arg database_s3_version "$DATABASE_VERSION" \
-            --arg policy_version '2026-10-16-release-candidate-hold-v1' \
+            --arg policy_version '2026-10-27-scoped-publication-owner-approved-candidate-v1' \
             '{source_sha:$source_sha,image_digest:$image_digest,image_archive_sha256:$image_archive_sha256,image_s3_version:$image_s3_version,database_sha256:$database_sha256,database_s3_version:$database_s3_version,policy_version:$policy_version}' > release-image-identity.json
           cat release-image-identity.json >> "$GITHUB_STEP_SUMMARY"
       - name: Upload release identity artifact

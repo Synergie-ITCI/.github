@@ -2,13 +2,13 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "ReadOnlyApprovedHeldDatabaseVersion",
+      "Sid": "ReadOnlyApprovedScopedDatabaseVersion",
       "Effect": "Allow",
       "Action": "s3:GetObjectVersion",
-      "Resource": "arn:aws:s3:::synergie-production-app-backups-918870682888-ap-south-1/applications/roadsense/release-candidates/aaac711b0df078d12714bbd03cff72df7ae49418b8434be1a2864f1536575fa1/road_safety_pilot.sqlite",
+      "Resource": "arn:aws:s3:::synergie-production-app-backups-918870682888-ap-south-1/applications/roadsense/release-candidates/5f26e3081b65b095389eeaeeb1871e27c001928138a71e1363a976a402731512/road_safety_pilot.sqlite",
       "Condition": {
         "StringEquals": {
-          "s3:VersionId": "fa2rByaK4AljcFIOosf0ftI5602evy7c"
+          "s3:VersionId": "llxUjX.WIAcZoPCnuCoBuZ3OsAJnXiwk"
         }
       }
     },

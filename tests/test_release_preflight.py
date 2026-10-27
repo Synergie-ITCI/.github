@@ -224,6 +224,9 @@ class ReleasePreflightTests(unittest.TestCase):
         ]}
         workflow = ".github/workflows/roadsense-controlled-release.yml"
         inherited = subprocess.check_output(["git", "show", f"pr-qa-v1-rc209:{workflow}"], cwd=ROOT, text=True)
+        # This historical disposition must stop applying when the controlled
+        # release workflow changes for Gate D v9.
+        historical_workflow = hashlib.sha256((ROOT / workflow).read_bytes()).hexdigest() == reviewed["reviewed_workflow_sha256"]
         pr = {"merged_at": "2026-10-25T15:00:00Z", "merge_commit_sha": candidate,
               "head": {"sha": pr_head}, "base": {"ref": "main"}}
 
@@ -247,12 +250,12 @@ class ReleasePreflightTests(unittest.TestCase):
             with patch.object(preflight, "git", side_effect=fake_git), \
                  patch.object(preflight, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps(pr), "")):
                 path.write_text(json.dumps(report), encoding="utf-8")
-                self.assertTrue(preflight.reviewed_rc210_lineage_disposition(ROOT, path, "main", "pr-qa-v1-rc209"))
+                self.assertEqual(preflight.reviewed_rc210_lineage_disposition(ROOT, path, "main", "pr-qa-v1-rc209"), historical_workflow)
                 self.assertFalse(preflight.reviewed_rc210_lineage_disposition(ROOT, path, "development", "pr-qa-v1-rc209"))
                 self.assertFalse(preflight.reviewed_rc210_lineage_disposition(ROOT, path, "main", "pr-qa-v1-rc208"))
                 report["results"][0]["details"] = [candidate, *reversed(merges[2:])]
                 path.write_text(json.dumps(report), encoding="utf-8")
-                self.assertTrue(preflight.reviewed_rc210_lineage_disposition(ROOT, path, "main", "pr-qa-v1-rc209"))
+                self.assertEqual(preflight.reviewed_rc210_lineage_disposition(ROOT, path, "main", "pr-qa-v1-rc209"), historical_workflow)
                 report["results"][0]["details"].append("q" * 40)
                 path.write_text(json.dumps(report), encoding="utf-8")
                 self.assertFalse(preflight.reviewed_rc210_lineage_disposition(ROOT, path, "main", "pr-qa-v1-rc209"))
