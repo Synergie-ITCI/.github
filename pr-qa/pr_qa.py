@@ -4080,7 +4080,10 @@ def approved_roadsense_gate_d_release(
                    for pr in pulls):
             return False
         scoped = api(f"{repo}/rulesets/{entry['ruleset_id']}")
-        expected_ref = {"include": [ref_name], "exclude": []}
+        protected_refs = (["refs/tags/roadsense-gate-d-v8", "refs/tags/roadsense-gate-d-v9"]
+                          if release in {"roadsense-gate-d-v8", "roadsense-gate-d-v9"}
+                          else [ref_name])
+        expected_ref = {"include": protected_refs, "exclude": []}
         reviewed_time = datetime.fromisoformat(entry["ruleset_updated_at"].replace("Z", "+00:00"))
         live_time = datetime.fromisoformat(scoped["updated_at"].replace("Z", "+00:00"))
         return (reviewed_time.tzinfo is not None and live_time.tzinfo is not None
