@@ -19,6 +19,44 @@ preflight = SourceFileLoader("release_preflight", str(SCRIPT)).load_module()
 
 
 class ReleasePreflightTests(unittest.TestCase):
+    def test_generic_protected_merge_disposition_accepts_only_exact_hygiene_noise(self):
+        newest, older = (letter * 40 for letter in "ab")
+        report = {"results": [{"gate": "Repository Hygiene", "status": "FAIL", "blocking": True,
+                               "message": "Accidental merge commits detected.",
+                               "details": [newest, older]}]}
+        merges = subprocess.CompletedProcess([], 0, f"{newest}\n{older}\n", "")
+        with tempfile.TemporaryDirectory() as temp, patch.object(preflight, "git", return_value=merges):
+            path = Path(temp) / "report.json"
+            path.write_text(json.dumps(report))
+            self.assertTrue(preflight.protected_merge_hygiene_disposition(
+                ROOT, path, "main", "pr-qa-v1-rc215", [older, newest]))
+            self.assertFalse(preflight.protected_merge_hygiene_disposition(
+                ROOT, path, "development", "pr-qa-v1-rc215", [older, newest]))
+            self.assertFalse(preflight.protected_merge_hygiene_disposition(
+                ROOT, path, "main", "pr-qa-v1-rc215", None))
+            report["results"][0]["details"] = [newest]
+            path.write_text(json.dumps(report))
+            self.assertFalse(preflight.protected_merge_hygiene_disposition(
+                ROOT, path, "main", "pr-qa-v1-rc215", [older, newest]))
+            report["results"][0]["details"] = [newest, older]
+            report["results"].append({"gate": "Secrets", "status": "FAIL", "blocking": True})
+            path.write_text(json.dumps(report))
+            self.assertFalse(preflight.protected_merge_hygiene_disposition(
+                ROOT, path, "main", "pr-qa-v1-rc215", [older, newest]))
+
+    def test_compatibility_deferral_requires_bound_release_and_reports_pending(self):
+        sha = "a" * 40
+        for args in (["release-preflight", "--base", "main", "--compatibility-via-provenance"],
+                     ["release-preflight", "--base", "staging", "--verified-release", "pr-qa-v1-rc215",
+                      "--verified-commit", sha, "--compatibility-via-provenance"]):
+            with self.subTest(args=args), patch.object(sys, "argv", args), self.assertRaises(SystemExit):
+                preflight.main()
+        output = __import__("io").StringIO()
+        with patch("sys.stdout", output):
+            preflight.print_report("pr-qa-v1-rc215", "main", "CLEAN", "PASS",
+                                   "DEFERRED_TO_EXACT_SOURCE_PROVENANCE", [])
+        self.assertIn("READY_FOR_PROMOTION: PENDING_PROVENANCE", output.getvalue())
+
     def test_rc215_disposition_is_limited_to_reviewed_v9_lineage_and_two_findings(self):
         decision = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())[
             "release_preflight_dispositions"]["pr-qa-v1-rc215"]
@@ -430,13 +468,16 @@ class ReleasePreflightTests(unittest.TestCase):
                 value = inherited_text
             else:
                 return subprocess.CompletedProcess(args, 1, "", "unexpected git query")
-            return subprocess.CompletedProcess(args, 0, value + "\n", "")
+            return subprocess.CompletedProcess(args, 0, value, "")
 
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "report.json"
             with patch.object(preflight, "git", side_effect=fake_git):
                 path.write_text(json.dumps(report), encoding="utf-8")
                 self.assertTrue(preflight.reviewed_inherited_fixture_disposition(ROOT, path, "main", "pr-qa-v1-rc204"))
+                inherited_text += "\n# changed fixture\n"
+                self.assertFalse(preflight.reviewed_inherited_fixture_disposition(ROOT, path, "main", "pr-qa-v1-rc204"))
+                inherited_text = (ROOT / "tests/test_pr_qa_regressions.py").read_text(encoding="utf-8")
                 self.assertFalse(preflight.reviewed_inherited_fixture_disposition(ROOT, path, "development", "pr-qa-v1-rc204"))
                 all_details = report["results"][0]["details"]
                 report["results"][0]["details"] = all_details[:6]
@@ -723,6 +764,19 @@ class ReleasePreflightTests(unittest.TestCase):
             self.assertEqual(preflight.main(), 0)
             enumerate_releases.assert_not_called()
             verify_bound.assert_called_once()
+        with patch.object(sys, "argv", [*args, "--compatibility-via-provenance"]), \
+             patch.object(preflight, "repo_root", return_value=ROOT), \
+             patch.object(release_pin, "verify_bound_release"), \
+             patch.object(preflight, "git", return_value=local), \
+             patch.object(preflight, "resolve_origin_base", return_value="b" * 40), \
+             patch.object(preflight, "worktree_state", return_value="CLEAN"), \
+             patch.object(preflight, "extract_release", return_value=True), \
+             patch.object(preflight, "run_pr_qa", return_value=True), \
+             patch.object(preflight, "run_consumer_compatibility") as compatibility, \
+             patch.object(preflight, "print_report") as report:
+            self.assertEqual(preflight.main(), 0)
+            compatibility.assert_not_called()
+            self.assertEqual(report.call_args.args[4], "DEFERRED_TO_EXACT_SOURCE_PROVENANCE")
         stale = subprocess.CompletedProcess([], 0, "c" * 40 + "\n", "")
         with patch.object(sys, "argv", args), patch.object(preflight, "repo_root", return_value=ROOT), \
              patch.object(release_pin, "verify_bound_release"), \

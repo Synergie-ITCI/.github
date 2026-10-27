@@ -166,6 +166,8 @@ class CallerClassifierTests(unittest.TestCase):
             **shared_policy["gate_d_workflow_releases"][release],
             "workflows": ["roadsense-build-release.yml", workflow],
         }
+        shared_policy["gate_d_workflow_releases"]["roadsense-gate-d-v8"] = (
+            shared_policy["gate_d_workflow_releases"].pop(release))
         shared[f"{prefix}/contents/policy/framework-releases.json?ref={main}"]["content"] = (
             base64.b64encode(json.dumps(shared_policy).encode()).decode())
         shared[f"{prefix}/git/ref/tags/{shared_release}"] = {
@@ -182,6 +184,24 @@ class CallerClassifierTests(unittest.TestCase):
             altered[f"{prefix}/rulesets/42"]["conditions"]["ref_name"]["include"] = extra
             self.assertFalse(engine.approved_roadsense_gate_d_release(
                 shared_release, workflow, lambda path: altered[path]))
+        future = copy.deepcopy(shared)
+        future_policy = copy.deepcopy(shared_policy)
+        future_policy["gate_d_workflow_releases"]["roadsense-gate-d-v10"] = {
+            **future_policy["gate_d_workflow_releases"][shared_release],
+            "commit": "d" * 40, "tag_object": "e" * 40,
+        }
+        future[f"{prefix}/contents/policy/framework-releases.json?ref={main}"]["content"] = (
+            base64.b64encode(json.dumps(future_policy).encode()).decode())
+        future[f"{prefix}/rulesets/42"]["conditions"]["ref_name"]["include"] = [
+            "refs/tags/roadsense-gate-d-v8", "refs/tags/roadsense-gate-d-v9",
+            "refs/tags/roadsense-gate-d-v10"]
+        self.assertTrue(engine.approved_roadsense_gate_d_release(
+            shared_release, workflow, lambda path: future[path]))
+        future_policy["gate_d_workflow_releases"]["roadsense-gate-d-v10"]["ruleset_updated_at"] = "changed"
+        future[f"{prefix}/contents/policy/framework-releases.json?ref={main}"]["content"] = (
+            base64.b64encode(json.dumps(future_policy).encode()).decode())
+        self.assertFalse(engine.approved_roadsense_gate_d_release(
+            shared_release, workflow, lambda path: future[path]))
 
 
 if __name__ == "__main__":

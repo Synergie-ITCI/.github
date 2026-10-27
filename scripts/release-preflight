@@ -12,6 +12,7 @@ import sys
 import tarfile
 import tempfile
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 
@@ -129,8 +130,10 @@ def verify_central_lineage(root: Path, release: str, candidate: str) -> list[str
     commits = checked_git("rev-list", "--reverse", "--first-parent", f"{release}..{candidate}").splitlines()
     if not commits:
         raise ValueError("candidate contains no source changes after the active release")
-    previous = checked_git("rev-parse", f"{release}^{{commit}}")
-    for commit in commits:
+    release_commit = checked_git("rev-parse", f"{release}^{{commit}}")
+
+    def verify_merge(item: tuple[str, str]) -> None:
+        previous, commit = item
         parents = checked_git("rev-list", "--parents", "-n", "1", commit).split()
         if parents[0] != commit or len(parents) not in (2, 3) or parents[1] != previous:
             raise ValueError(f"unexpected merge or direct push: {commit}")
@@ -163,7 +166,11 @@ def verify_central_lineage(root: Path, release: str, candidate: str) -> list[str
         if any(latest.get(name, {}).get("status") != "completed"
                or latest.get(name, {}).get("conclusion") != "success" for name in required):
             raise ValueError(f"required exact-head checks missing for PR #{pr['number']}: {commit}")
-        previous = commit
+
+    # Every merge has an independent immutable PR head and check-run identity.
+    # Verify those read-only records concurrently, retaining fail-closed errors.
+    with ThreadPoolExecutor(max_workers=min(4, len(commits))) as pool:
+        list(pool.map(verify_merge, zip([release_commit, *commits[:-1]], commits)))
     return commits
 
 
@@ -468,6 +475,8 @@ def reviewed_inherited_fixture_disposition(root: Path, report_path: Path, base: 
         inherited = git(["show", f"{release}:tests/test_pr_qa_regressions.py"], root)
         source = root / "tests/test_pr_qa_regressions.py"
         if inherited.returncode or not source.is_file() or source.is_symlink():
+            return False
+        if source.read_text(encoding="utf-8") != inherited.stdout:
             return False
         current_hashes = {hashlib.sha256(line.strip().encode()).hexdigest()
                           for line in source.read_text(encoding="utf-8").splitlines()}
@@ -880,7 +889,34 @@ def reviewed_rc215_road_sense_disposition(root: Path, report_path: Path, base: s
         return False
 
 
-def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str, release: str = "") -> bool:
+def protected_merge_hygiene_disposition(
+    root: Path, report_path: Path, base: str, release: str, verified_lineage: list[str] | None
+) -> bool:
+    """Classify only merge-history noise after every commit passed live provenance checks."""
+    if base != "main" or not RC_RE.fullmatch(release) or not verified_lineage:
+        return False
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        failures = [item for item in report["results"]
+                    if item.get("blocking") and item.get("status") == "FAIL"]
+        if len(failures) != 1 or failures[0].get("gate") != "Repository Hygiene":
+            return False
+        finding = failures[0]
+        if finding.get("message") != "Accidental merge commits detected.":
+            return False
+        merges = git(["rev-list", "--first-parent", "--merges", f"{release}..HEAD"], root)
+        if merges.returncode:
+            return False
+        commits = merges.stdout.splitlines()
+        return bool(commits and len(commits) == len(set(commits))
+                    and set(commits) <= set(verified_lineage)
+                    and finding.get("details") == commits)
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return False
+
+
+def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str, release: str = "",
+              verified_lineage: list[str] | None = None) -> bool:
     head_sha = git(["rev-parse", "HEAD"], root).stdout.strip()
     head_ref = git(["branch", "--show-current"], root).stdout.strip() or "HEAD"
     with tempfile.TemporaryDirectory(prefix="release-preflight-qa-") as tmp:
@@ -919,6 +955,9 @@ def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str, release: st
             cwd=root,
         )
         if proc.returncode == 0:
+            return True
+        if protected_merge_hygiene_disposition(root, report_path, base, release, verified_lineage):
+            print("Active PR-QA merge-history finding matched live verified protected PR provenance.")
             return True
         if reviewed_rc201_disposition(root, report_path, base, release):
             print("Active PR-QA findings matched the reviewed rc201 merge and exact synthetic fixture fingerprints.")
@@ -965,7 +1004,7 @@ def run_consumer_compatibility(root: Path) -> bool:
 
 
 def print_report(release: str, base: str, dirty: str, qa: str, compatibility: str, blockers: list[str]) -> None:
-    ready = "NO" if blockers else "YES"
+    ready = "NO" if blockers else ("PENDING_PROVENANCE" if compatibility == "DEFERRED_TO_EXACT_SOURCE_PROVENANCE" else "YES")
     staging = base == "staging"
     print("DEVELOPER STAGING READINESS" if staging else "DEVELOPER RELEASE READINESS")
     print()
@@ -993,9 +1032,13 @@ def main() -> int:
     parser.add_argument("--base", default="development", help="promotion base branch")
     parser.add_argument("--verified-release", help="release already resolved in this publication operation")
     parser.add_argument("--verified-commit", help="exact commit of the verified release")
+    parser.add_argument("--compatibility-via-provenance", action="store_true",
+                        help="defer compatibility only to the exact-source release provenance workflow")
     args = parser.parse_args()
     if bool(args.verified_release) != bool(args.verified_commit):
         parser.error("--verified-release and --verified-commit must be provided together")
+    if args.compatibility_via_provenance and (args.base != "main" or not args.verified_release):
+        parser.error("compatibility deferral requires a bound central main release")
 
     root = repo_root()
     blockers: list[str] = []
@@ -1003,6 +1046,7 @@ def main() -> int:
     qa = "FAIL"
     compatibility = "FAIL"
     dirty = "DIRTY"
+    lineage: list[str] | None = None
 
     if root is None:
         print_report(release, args.base, dirty, qa, compatibility, ["not inside a git repository"])
@@ -1037,28 +1081,32 @@ def main() -> int:
     if not blockers and args.base == "main" and origin.returncode == 0 and origin.stdout.strip() == CENTRAL_ORIGIN:
         candidate = git(["rev-parse", "HEAD"], root)
         try:
-            commits = verify_central_lineage(root, release, candidate.stdout.strip())
-            print(f"Verified {len(commits)} protected PR merge(s) since {release}.")
+            lineage = verify_central_lineage(root, release, candidate.stdout.strip())
+            print(f"Verified {len(lineage)} protected PR merge(s) since {release}.")
             base_sha = git(["rev-parse", f"{release}^{{commit}}"], root).stdout.strip()
         except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
             blockers.append(f"central source lineage: {exc}")
 
-    if not blockers and release and base_sha:
-        with tempfile.TemporaryDirectory(prefix="release-preflight-framework-") as tmp:
-            framework = Path(tmp)
-            if extract_release(root, release, framework):
-                qa_passed = run_pr_qa(root, framework, args.base, base_sha, release)
-                qa = "PASS" if qa_passed else "FAIL"
-                if not qa_passed:
-                    blockers.append("central PR-QA failed")
-            else:
-                blockers.append(f"active PR-QA release '{release}' could not be resolved")
-
-    if root is not None and dirty == "CLEAN":
-        compatibility_passed = run_consumer_compatibility(root)
-        compatibility = "PASS" if compatibility_passed else "FAIL"
-        if not compatibility_passed:
-            blockers.append("representative consumer compatibility preflight failed")
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        compatibility_future = (pool.submit(run_consumer_compatibility, root)
+                                if dirty == "CLEAN" and not args.compatibility_via_provenance else None)
+        if not blockers and release and base_sha:
+            with tempfile.TemporaryDirectory(prefix="release-preflight-framework-") as tmp:
+                framework = Path(tmp)
+                if extract_release(root, release, framework):
+                    qa_passed = run_pr_qa(root, framework, args.base, base_sha, release, lineage)
+                    qa = "PASS" if qa_passed else "FAIL"
+                    if not qa_passed:
+                        blockers.append("central PR-QA failed")
+                else:
+                    blockers.append(f"active PR-QA release '{release}' could not be resolved")
+        if compatibility_future is not None:
+            compatibility_passed = compatibility_future.result()
+            compatibility = "PASS" if compatibility_passed else "FAIL"
+            if not compatibility_passed:
+                blockers.append("representative consumer compatibility preflight failed")
+        elif args.compatibility_via_provenance and not blockers:
+            compatibility = "DEFERRED_TO_EXACT_SOURCE_PROVENANCE"
 
     print_report(release, args.base, dirty, qa, compatibility, blockers)
     return 0 if not blockers else 1

@@ -194,6 +194,16 @@ def remote_tag_object(release: str) -> str | None:
     return output.split()[0] if output else None
 
 
+def preflight_command(release: str, commit: str, check_only: bool) -> list[str]:
+    command_line = ["python3", "scripts/release-preflight", "--base", "main",
+                    "--verified-release", release, "--verified-commit", commit]
+    if not check_only:
+        # The pinned provenance workflow reruns compatibility at the exact
+        # source SHA before tag creation; avoid a duplicate local execution.
+        command_line.append("--compatibility-via-provenance")
+    return command_line
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--release", required=True)
@@ -210,8 +220,7 @@ def main() -> int:
     previous = f"pr-qa-v1-rc{int(RELEASE.fullmatch(args.release).group(1)) - 1}"
     if f"Resolved active release {previous} at " not in active:
         raise ValueError("Current active release is not the immediate predecessor")
-    command("python3", "scripts/release-preflight", "--base", "main",
-            "--verified-release", bound.group(1), "--verified-commit", bound.group(2))
+    command(*preflight_command(bound.group(1), bound.group(2), args.check_only))
     if args.check_only:
         print("Release source, protection, and preflight verified; no dispatch or tag created")
         return 0

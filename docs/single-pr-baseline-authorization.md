@@ -87,6 +87,40 @@ workflow-run SHA still equals the approved candidate. An existing source branch
 stops the helper for prior-dispatch inspection. Later commits are not silently
 included. A changed source SHA still needs its own exact-source authorization.
 
+### Central release overhead after rc215
+
+The rc215 consumer framework already reads reviewed `diff_size` and exact-patch
+promotion authorizations from protected central `main`. Those application-specific
+decisions do not change immutable framework code and do not need a new central
+RC. The existing schema, live PR identity, expiry, patch, required checks, and
+other security gates still apply. Changes to shared framework code or the
+immutable security contract do need a successor immutable release. This central
+preflight/classifier correction is such a code change; it must not alter rc215
+or any active consumer pin.
+
+For future framework publication, preflight validates every first-parent commit
+from the active tag to the selected source against its merged PR and exact-head
+PR-QA and Architecture Governance checks. Only the report's precise
+`Accidental merge commits detected.` finding may be classified as protected
+merge history; any additional hygiene, secret, deployment, or fixture failure
+still blocks. Historical rc-specific dispositions remain limited to their
+already reviewed releases. A selected source may remain pinned while unrelated
+protected merges advance `main`.
+
+`publish-pr-qa-release --check-only` runs both local QA and representative
+compatibility. During actual publication, local preflight reports compatibility
+as `DEFERRED_TO_EXACT_SOURCE_PROVENANCE`; the existing provenance workflow runs
+that compatibility check at the pinned source SHA and must pass before tag
+creation. The helper then freshly checks source ancestry, tag protection,
+ruleset timestamp, and provenance. No failed dispatch or uncertain tag push is
+automatically retried.
+
+On the same clean rc214-to-rc215 source, an elapsed-time local preflight before
+this change took 23.49 seconds. The final parallel provenance/check version
+took 17.26 seconds; both reported QA and compatibility PASS. These are single
+comparable runs, a 6.23-second observed difference, not a guaranteed CI saving.
+The release provenance GitHub Action itself remains required at the exact source.
+
 ## Reproduction and verification
 
 In rc99, the same in-memory authorization was accepted after changing event PR
