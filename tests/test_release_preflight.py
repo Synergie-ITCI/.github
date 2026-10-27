@@ -19,6 +19,65 @@ preflight = SourceFileLoader("release_preflight", str(SCRIPT)).load_module()
 
 
 class ReleasePreflightTests(unittest.TestCase):
+    def test_rc215_disposition_is_limited_to_reviewed_v9_lineage_and_two_findings(self):
+        decision = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())[
+            "release_preflight_dispositions"]["pr-qa-v1-rc215"]
+        reviewed = decision["reviewed_commits"]
+        candidate, correction_head, tree = (letter * 40 for letter in "xyz")
+        report = {"results": [
+            {"gate": "Repository Hygiene", "status": "FAIL", "blocking": True,
+             "message": "Accidental merge commits detected.",
+             "details": [candidate, *reversed(reviewed[1:])]},
+            {"gate": "Deployment Risk", "status": "FAIL", "blocking": True,
+             "message": "Deployment workflow is structurally unsafe or missing required controlled-release safeguards.",
+             "details": [f"{path}: production/live deployment-sensitive workflow does not match the controlled Gate D safe shape."
+                         for path in decision["workflow_sha256"]]},
+        ]}
+
+        def fake_git(args, _root):
+            if args == ["remote", "get-url", "origin"]:
+                value = preflight.CENTRAL_ORIGIN + "\n"
+            elif args in (["rev-parse", "HEAD"], ["rev-parse", "refs/remotes/origin/main"]):
+                value = candidate + "\n"
+            elif args == ["rev-list", "--reverse", "--first-parent", "pr-qa-v1-rc214..HEAD"]:
+                value = "\n".join([*reviewed, candidate]) + "\n"
+            elif args == ["rev-list", "--reverse", "--first-parent", "--merges", "pr-qa-v1-rc214..HEAD"]:
+                value = "\n".join([*reviewed[1:], candidate]) + "\n"
+            elif args == ["log", "-1", "--format=%B"]:
+                value = "Merge pull request #420 from Synergie-ITCI/feature/roadsense-scoped-publication-gate\n"
+            elif args == ["rev-parse", "HEAD^2"]:
+                value = correction_head + "\n"
+            elif args in (["rev-parse", f"{correction_head}^{{tree}}"], ["rev-parse", "HEAD^{tree}"]):
+                value = tree + "\n"
+            elif args == ["diff", "--name-only", "HEAD^1..HEAD"]:
+                value = "policy/pr-qa-policy.json\nscripts/release-preflight\ntests/test_release_preflight.py\n"
+            elif len(args) == 2 and args[0] == "show" and args[1].startswith("roadsense-gate-d-v9:"):
+                value = (ROOT / args[1].split(":", 1)[1]).read_text()
+            else:
+                return subprocess.CompletedProcess(args, 1, "", "unexpected git command")
+            return subprocess.CompletedProcess(args, 0, value, "")
+
+        def fake_run(args, _root):
+            number = int(args[-1].rsplit("/", 1)[-1])
+            metadata = {"merged_at": "2026-10-27T00:00:00Z",
+                        "merge_commit_sha": (candidate if number == 420 else
+                                              reviewed[decision["reviewed_prs"].index(number)]),
+                        "base": {"ref": "main"},
+                        "head": {"sha": correction_head},
+                        "title": "Pin rc215 preflight to reviewed RoadSense v9 controls"}
+            return subprocess.CompletedProcess(args, 0, json.dumps(metadata), "")
+
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "report.json"
+            with patch.object(preflight, "git", side_effect=fake_git), patch.object(preflight, "run", side_effect=fake_run):
+                path.write_text(json.dumps(report))
+                self.assertTrue(preflight.reviewed_rc215_road_sense_disposition(
+                    ROOT, path, "main", "pr-qa-v1-rc214"))
+                report["results"].append({"gate": "Secrets", "status": "FAIL", "blocking": True})
+                path.write_text(json.dumps(report))
+                self.assertFalse(preflight.reviewed_rc215_road_sense_disposition(
+                    ROOT, path, "main", "pr-qa-v1-rc214"))
+
     def test_rc211_disposition_accepts_only_reviewed_merge_and_no_other_failure(self):
         policy = json.loads((ROOT / "policy/pr-qa-policy.json").read_text(encoding="utf-8"))
         reviewed = policy["release_preflight_dispositions"]["pr-qa-v1-rc211"]

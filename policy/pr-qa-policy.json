@@ -879,6 +879,20 @@
         }
       ]
     },
+    "pr-qa-v1-rc215": {
+      "reason": "rc215-only disposition for the exact reviewed RoadSense release-control lineage and v9 workflow bytes. Only the two reported inherited merge and workflow-shape findings may be accepted; all other failures remain blocking.",
+      "predecessor_release": "pr-qa-v1-rc214",
+      "reviewed_commits": [
+        "da09b8b6c8fd5e399bc0a704f2d1b7c926fa6d82",
+        "011093719f2a8a50a7b5aeafa42b076fa75f38ab",
+        "7fd573520a15ecece341a542528d2ca6ebf5f0a9"
+      ],
+      "reviewed_prs": [417, 418, 419],
+      "workflow_sha256": {
+        ".github/workflows/roadsense-build-release.yml": "09d225b78b031ff437946fd0a7741b295dbc3ce88ad6e0b60c764f8d04645c4c",
+        ".github/workflows/roadsense-controlled-release.yml": "cf3f79bb492792c8eaaed7cdc5ea2411d2126b3f609c5f6e6ed731ab19a17a29"
+      }
+    },
     "pr-qa-v1-rc214": {
       "reason": "rc214-only disposition for the exact reviewed RoadSense PR #413 staging size-policy merge and its protected correction PR; only the reported accidental-merge finding is accepted, with all other release checks still blocking.",
       "predecessor_release": "pr-qa-v1-rc213",

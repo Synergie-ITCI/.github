@@ -796,6 +796,90 @@ def reviewed_rc214_lineage_disposition(root: Path, report_path: Path, base: str,
         return False
 
 
+def reviewed_rc215_road_sense_disposition(root: Path, report_path: Path, base: str, release: str) -> bool:
+    """Accept only rc214's reviewed RoadSense merge and immutable-v9 workflow findings."""
+    if base != "main" or release != "pr-qa-v1-rc214":
+        return False
+    origin = git(["remote", "get-url", "origin"], root)
+    if origin.returncode or origin.stdout.strip() != CENTRAL_ORIGIN:
+        return False
+    try:
+        policy = json.loads((root / "policy/pr-qa-policy.json").read_text(encoding="utf-8"))
+        decision = policy["release_preflight_dispositions"]["pr-qa-v1-rc215"]
+        if decision["predecessor_release"] != release:
+            return False
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        failures = [item for item in report["results"]
+                    if item.get("blocking") and item.get("status") == "FAIL"]
+        if len(failures) != 2 or {item.get("gate") for item in failures} != {
+                "Repository Hygiene", "Deployment Risk"}:
+            return False
+        by_gate = {item["gate"]: item for item in failures}
+        head = git(["rev-parse", "HEAD"], root)
+        main = git(["rev-parse", "refs/remotes/origin/main"], root)
+        if head.returncode or main.returncode or head.stdout != main.stdout:
+            return False
+        candidate = head.stdout.strip()
+        reviewed = decision["reviewed_commits"]
+        if (len(reviewed) != 3 or len(set(reviewed)) != 3
+                or decision["reviewed_prs"] != [417, 418, 419]):
+            return False
+        history = git(["rev-list", "--reverse", "--first-parent", f"{release}..HEAD"], root)
+        merges = git(["rev-list", "--reverse", "--first-parent", "--merges", f"{release}..HEAD"], root)
+        if (history.returncode or history.stdout.splitlines() != [*reviewed, candidate]
+                or merges.returncode or merges.stdout.splitlines() != [*reviewed[1:], candidate]):
+            return False
+        for number, commit in zip(decision["reviewed_prs"], reviewed):
+            result = run(["gh", "api", f"repos/Synergie-ITCI/.github/pulls/{number}"], root)
+            if result.returncode:
+                return False
+            pr = json.loads(result.stdout)
+            if (not pr.get("merged_at") or pr.get("merge_commit_sha") != commit
+                    or pr.get("base", {}).get("ref") != "main"):
+                return False
+        correction_number = re.search(r"Merge pull request #(\d+) ",
+                                      git(["log", "-1", "--format=%B"], root).stdout)
+        if not correction_number:
+            return False
+        correction = run(["gh", "api", f"repos/Synergie-ITCI/.github/pulls/{correction_number.group(1)}"], root)
+        second_parent = git(["rev-parse", "HEAD^2"], root)
+        if correction.returncode or second_parent.returncode:
+            return False
+        pr = json.loads(correction.stdout)
+        if (not pr.get("merged_at") or pr.get("merge_commit_sha") != candidate
+                or pr.get("base", {}).get("ref") != "main"
+                or pr.get("head", {}).get("sha") != second_parent.stdout.strip()
+                or pr.get("title") != "Pin rc215 preflight to reviewed RoadSense v9 controls"):
+            return False
+        reviewed_tree = git(["rev-parse", f"{second_parent.stdout.strip()}^{{tree}}"], root)
+        candidate_tree = git(["rev-parse", "HEAD^{tree}"], root)
+        if reviewed_tree.returncode or candidate_tree.returncode or reviewed_tree.stdout != candidate_tree.stdout:
+            return False
+        hygiene = by_gate["Repository Hygiene"]
+        if (hygiene.get("message") != "Accidental merge commits detected."
+                or hygiene.get("details") != [candidate, *reversed(reviewed[1:])]):
+            return False
+        workflow_details = [f"{path}: production/live deployment-sensitive workflow does not match the controlled Gate D safe shape."
+                            for path in decision["workflow_sha256"]]
+        deployment = by_gate["Deployment Risk"]
+        if (deployment.get("message") != "Deployment workflow is structurally unsafe or missing required controlled-release safeguards."
+                or deployment.get("details") != workflow_details):
+            return False
+        for path, expected_sha in decision["workflow_sha256"].items():
+            tagged = git(["show", f"roadsense-gate-d-v9:{path}"], root)
+            if (tagged.returncode or not (root / path).is_file()
+                    or hashlib.sha256(tagged.stdout.encode()).hexdigest() != expected_sha
+                    or hashlib.sha256((root / path).read_bytes()).hexdigest() != expected_sha):
+                return False
+        correction_files = git(["diff", "--name-only", "HEAD^1..HEAD"], root)
+        if (correction_files.returncode or set(correction_files.stdout.splitlines()) != {
+                "policy/pr-qa-policy.json", "scripts/release-preflight", "tests/test_release_preflight.py"}):
+            return False
+        return True
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return False
+
+
 def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str, release: str = "") -> bool:
     head_sha = git(["rev-parse", "HEAD"], root).stdout.strip()
     head_ref = git(["branch", "--show-current"], root).stdout.strip() or "HEAD"
@@ -865,6 +949,9 @@ def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str, release: st
             return True
         if reviewed_rc214_lineage_disposition(root, report_path, base, release):
             print("Active PR-QA findings matched exact rc214 reviewed merge lineage.")
+            return True
+        if reviewed_rc215_road_sense_disposition(root, report_path, base, release):
+            print("Active PR-QA findings matched exact rc215 RoadSense lineage and protected v9 workflow bytes.")
             return True
         return False
 
