@@ -90,7 +90,9 @@ class ReleasePreflightTests(unittest.TestCase):
             elif args == ["diff", "--name-only", "HEAD^1..HEAD"]:
                 value = "policy/pr-qa-policy.json\nscripts/release-preflight\ntests/test_release_preflight.py\n"
             elif len(args) == 2 and args[0] == "show" and args[1].startswith("roadsense-gate-d-v9:"):
-                value = (ROOT / args[1].split(":", 1)[1]).read_text()
+                historical = subprocess.run(
+                    ["git", "show", args[1]], cwd=ROOT, capture_output=True, text=True, check=True)
+                value = historical.stdout
             else:
                 return subprocess.CompletedProcess(args, 1, "", "unexpected git command")
             return subprocess.CompletedProcess(args, 0, value, "")
@@ -106,15 +108,26 @@ class ReleasePreflightTests(unittest.TestCase):
             return subprocess.CompletedProcess(args, 0, json.dumps(metadata), "")
 
         with tempfile.TemporaryDirectory() as temp:
-            path = Path(temp) / "report.json"
+            fixture_root = Path(temp)
+            policy_path = fixture_root / "policy/pr-qa-policy.json"
+            policy_path.parent.mkdir(parents=True)
+            policy_path.write_bytes((ROOT / "policy/pr-qa-policy.json").read_bytes())
+            for workflow_path in decision["workflow_sha256"]:
+                historical = subprocess.run(
+                    ["git", "show", f"roadsense-gate-d-v9:{workflow_path}"],
+                    cwd=ROOT, capture_output=True, check=True)
+                destination = fixture_root / workflow_path
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(historical.stdout)
+            path = fixture_root / "report.json"
             with patch.object(preflight, "git", side_effect=fake_git), patch.object(preflight, "run", side_effect=fake_run):
                 path.write_text(json.dumps(report))
                 self.assertTrue(preflight.reviewed_rc215_road_sense_disposition(
-                    ROOT, path, "main", "pr-qa-v1-rc214"))
+                    fixture_root, path, "main", "pr-qa-v1-rc214"))
                 report["results"].append({"gate": "Secrets", "status": "FAIL", "blocking": True})
                 path.write_text(json.dumps(report))
                 self.assertFalse(preflight.reviewed_rc215_road_sense_disposition(
-                    ROOT, path, "main", "pr-qa-v1-rc214"))
+                    fixture_root, path, "main", "pr-qa-v1-rc214"))
 
     def test_rc211_disposition_accepts_only_reviewed_merge_and_no_other_failure(self):
         policy = json.loads((ROOT / "policy/pr-qa-policy.json").read_text(encoding="utf-8"))
