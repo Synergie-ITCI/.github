@@ -18,7 +18,7 @@ EXPECTED_SHA = "a7f33ee09fb8df02fbce96ec5244f7d5ebc88cb8550ef882157f0d3e5d579b71
 
 
 class RoadSenseRestrictedSsmDocumentTests(unittest.TestCase):
-    def test_proposed_v3_session_gateway_document_is_exact_and_not_active(self):
+    def test_v3_session_gateway_document_is_exact(self):
         proposed_script = (ROOT / "iam/roadsense-production-remote-v3.sh").read_bytes()
         proposed_sha = hashlib.sha256(proposed_script).hexdigest()
         self.assertEqual(proposed_sha, "e2defbadd032e539c81ae24939eaef70a9f792cbf542fe08e815240af9a86031")
@@ -33,8 +33,8 @@ class RoadSenseRestrictedSsmDocumentTests(unittest.TestCase):
         self.assertIn(b"test \"$status\" = '401'", proposed_script)
         self.assertIn(b"! grep -qi '^www-authenticate:'", proposed_script)
         active = (ROOT / ".github/workflows/roadsense-controlled-release.yml").read_text()
-        self.assertIn("--document-name RoadSense-GateD-Production-Command-v2", active)
-        self.assertNotIn("--document-name RoadSense-GateD-Production-Command-v3", active)
+        self.assertIn("--document-name RoadSense-GateD-Production-Command-v3", active)
+        self.assertNotIn("--document-name RoadSense-GateD-Production-Command-v2", active)
 
     def test_fixed_script_and_bounded_parameter(self):
         document = json.loads(DOCUMENT.read_text())
@@ -82,24 +82,31 @@ class RoadSenseRestrictedSsmDocumentTests(unittest.TestCase):
         encoded = re.search(r"printf '%s' '([A-Za-z0-9+/=]+)' \| base64 -d", command)
         self.assertEqual(base64.b64decode(encoded.group(1), validate=True), prior)
 
+        v2 = (ROOT / "iam/roadsense-production-remote-v2.sh").read_bytes()
+        self.assertEqual(hashlib.sha256(v2).hexdigest(), EXPECTED_SHA)
+        v2_document = json.loads((ROOT / "iam/roadsense-production-command-v2.json").read_text())
+        v2_command = v2_document["mainSteps"][0]["inputs"]["runCommand"][0]
+        v2_encoded = re.search(r"printf '%s' '([A-Za-z0-9+/=]+)' \| base64 -d", v2_command)
+        self.assertEqual(base64.b64decode(v2_encoded.group(1), validate=True), v2)
+
     def test_workflow_and_policy_use_only_fixed_document(self):
         workflow = (ROOT / ".github/workflows/roadsense-controlled-release.yml").read_text()
         policy = json.loads((ROOT / "iam/roadsense-deploy-policy.json").read_text())
         trust = json.loads((ROOT / "iam/roadsense-deploy-trust.json").read_text())
-        self.assertIn(f"'{EXPECTED_SHA}'", workflow)
+        self.assertIn("'e2defbadd032e539c81ae24939eaef70a9f792cbf542fe08e815240af9a86031'", workflow)
         self.assertIn("--document-version 1", workflow)
-        self.assertIn("--document-name RoadSense-GateD-Production-Command-v2", workflow)
+        self.assertIn("--document-name RoadSense-GateD-Production-Command-v3", workflow)
         self.assertNotIn("AWS-RunShellScript", workflow)
         self.assertNotIn("AWS-RunShellScript", json.dumps(policy))
         send = next(item for item in policy["Statement"] if item["Sid"] == "SendCommandOnlyToRoadSenseManagedNode")
         self.assertEqual(set(send["Resource"]), {
-            "arn:aws:ssm:ap-south-1:918870682888:document/RoadSense-GateD-Production-Command-v2",
+            "arn:aws:ssm:ap-south-1:918870682888:document/RoadSense-GateD-Production-Command-v3",
             "arn:aws:ssm:ap-south-1:918870682888:managed-instance/mi-0dade13fd68d1b435",
         })
         claims = trust["Statement"][0]["Condition"]["StringEquals"]
         self.assertEqual(
             claims["token.actions.githubusercontent.com:job_workflow_ref"],
-            "Synergie-ITCI/.github/.github/workflows/roadsense-controlled-release.yml@refs/tags/roadsense-gate-d-v9",
+            "Synergie-ITCI/.github/.github/workflows/roadsense-controlled-release.yml@refs/tags/roadsense-gate-d-v10",
         )
         self.assertEqual(
             claims["token.actions.githubusercontent.com:sub"],
