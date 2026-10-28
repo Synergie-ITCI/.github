@@ -18,6 +18,24 @@ EXPECTED_SHA = "a7f33ee09fb8df02fbce96ec5244f7d5ebc88cb8550ef882157f0d3e5d579b71
 
 
 class RoadSenseRestrictedSsmDocumentTests(unittest.TestCase):
+    def test_proposed_v3_session_gateway_document_is_exact_and_not_active(self):
+        proposed_script = (ROOT / "iam/roadsense-production-remote-v3.sh").read_bytes()
+        proposed_sha = hashlib.sha256(proposed_script).hexdigest()
+        self.assertEqual(proposed_sha, "e2defbadd032e539c81ae24939eaef70a9f792cbf542fe08e815240af9a86031")
+        document = json.loads((ROOT / "iam/roadsense-production-command-v3.json").read_text())
+        self.assertEqual(set(document["parameters"]), {"ReleaseJsonBase64"})
+        (command,) = document["mainSteps"][0]["inputs"]["runCommand"]
+        encoded = re.search(r"printf '%s' '([A-Za-z0-9+/=]+)' \| base64 -d", command)
+        self.assertIsNotNone(encoded)
+        self.assertEqual(base64.b64decode(encoded.group(1), validate=True), proposed_script)
+        self.assertIn(proposed_sha, command)
+        self.assertIn(b"test \"$status\" = '302'", proposed_script)
+        self.assertIn(b"test \"$status\" = '401'", proposed_script)
+        self.assertIn(b"! grep -qi '^www-authenticate:'", proposed_script)
+        active = (ROOT / ".github/workflows/roadsense-controlled-release.yml").read_text()
+        self.assertIn("--document-name RoadSense-GateD-Production-Command-v2", active)
+        self.assertNotIn("--document-name RoadSense-GateD-Production-Command-v3", active)
+
     def test_fixed_script_and_bounded_parameter(self):
         document = json.loads(DOCUMENT.read_text())
         source = SCRIPT.read_bytes()
