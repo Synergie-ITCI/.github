@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Publish one protected PR-QA tag after an owner-created exact-tag ruleset.
+"""Publish one protected PR-QA tag under centrally approved tag protection.
 
 The provenance workflow must finish successfully before this command creates
 the annotated tag. A failure never retries a dispatch, tag push, or release.
@@ -23,7 +23,11 @@ sys.path.insert(0, str(ROOT / "pr-qa"))
 from release_pin import (  # noqa: E402
     ALLOWED_RELEASE_ACTORS,
     EVIDENCE_HEADER,
+    PROTECTION_MODE_LEGACY_EXACT,
+    PROTECTION_MODE_WILDCARD_NAMESPACE,
     REPOSITORY,
+    approved_wildcard_policy,
+    ruleset_config_fingerprint,
     verify_release_provenance,
 )
 
@@ -69,6 +73,45 @@ def validate_ruleset(release: str, ruleset_id: int, org: dict, repo: dict) -> st
     return str(org["updated_at"])
 
 
+def validate_protection(release: str, ruleset_id: int, org: dict, repo: dict) -> tuple[str, str]:
+    """Accept only exact protection or the reviewed wildcard policy for this release."""
+    refs = org.get("conditions", {}).get("ref_name")
+    if refs == {"include": [f"refs/tags/{release}"], "exclude": []}:
+        return validate_ruleset(release, ruleset_id, org, repo), PROTECTION_MODE_LEGACY_EXACT
+
+    manifest = json.loads((ROOT / "policy/framework-releases.json").read_text())
+    policy = approved_wildcard_policy(release, {"ruleset_id": ruleset_id}, manifest)
+    if org.get("id") != ruleset_id or repo.get("id") != ruleset_id:
+        raise ValueError("Wildcard ruleset ID mismatch")
+    if org.get("updated_at") != policy["ruleset_updated_at"] or repo.get("updated_at") != org.get("updated_at"):
+        raise ValueError("Wildcard ruleset changed since central review")
+    expected_org = {
+        "ref_name": {"include": policy["include"], "exclude": policy["exclude"]},
+        "repository_name": {"include": policy["repository_include"],
+                            "exclude": policy["repository_exclude"],
+                            "protected": policy["repository_protected"]},
+    }
+    if org.get("conditions") != expected_org or repo.get("conditions", {}).get("ref_name") != expected_org["ref_name"]:
+        raise ValueError("Wildcard ruleset scope differs from central policy")
+    for rule in (org, repo):
+        if (rule.get("target") != "tag" or rule.get("enforcement") != "active"
+                or rule.get("bypass_actors") != []
+                or {item.get("type") for item in rule.get("rules", [])} != {"update", "deletion"}):
+            raise ValueError("Wildcard ruleset lacks immutable no-bypass protection")
+    snapshot = {
+        "ruleset_id": ruleset_id, "target": org["target"], "enforcement": org["enforcement"],
+        "include": policy["include"], "exclude": policy["exclude"],
+        "repository_include": policy["repository_include"],
+        "repository_exclude": policy["repository_exclude"],
+        "repository_protected": policy["repository_protected"],
+        "rules": sorted(item["type"] for item in org["rules"]),
+        "bypass_actors": org["bypass_actors"],
+    }
+    if ruleset_config_fingerprint(snapshot) != policy["config_fingerprint"]:
+        raise ValueError("Wildcard ruleset fingerprint differs from central review")
+    return str(org["updated_at"]), PROTECTION_MODE_WILDCARD_NAMESPACE
+
+
 def next_release(refs: list[dict]) -> str:
     numbers = [int(match.group(1)) for ref in refs
                if (match := RELEASE.fullmatch(str(ref.get("ref", "")).removeprefix("refs/tags/")))]
@@ -77,14 +120,15 @@ def next_release(refs: list[dict]) -> str:
     return f"pr-qa-v1-rc{max(numbers) + 1}"
 
 
-def annotation(release: str, commit: str, ruleset_id: int, updated_at: str, run_id: int) -> str:
+def annotation(release: str, commit: str, ruleset_id: int, updated_at: str, run_id: int,
+               mode: str = PROTECTION_MODE_LEGACY_EXACT) -> str:
     evidence = {
         "release": release,
         "commit": commit,
         "ruleset_id": ruleset_id,
         "ruleset_updated_at": updated_at,
         "bypass_actors": [],
-        "protection_mode": "legacy_exact",
+        "protection_mode": mode,
         "release_workflow_run_id": run_id,
     }
     return EVIDENCE_HEADER + "\n" + json.dumps(evidence, separators=(",", ":"))
@@ -183,10 +227,10 @@ def verify_source(release: str, commit: str, *, check_main: bool = True) -> str:
     return actor
 
 
-def verify_protection(release: str, ruleset_id: int) -> str:
+def verify_protection(release: str, ruleset_id: int) -> tuple[str, str]:
     org = api(f"orgs/Synergie-ITCI/rulesets/{ruleset_id}")
     repo = api(f"repos/{REPOSITORY}/rulesets/{ruleset_id}")
-    return validate_ruleset(release, ruleset_id, org, repo)
+    return validate_protection(release, ruleset_id, org, repo)
 
 
 def remote_tag_object(release: str) -> str | None:
@@ -212,7 +256,7 @@ def main() -> int:
     parser.add_argument("--check-only", action="store_true")
     args = parser.parse_args()
     actor = verify_source(args.release, args.commit)
-    updated_at = verify_protection(args.release, args.ruleset_id)
+    protection = verify_protection(args.release, args.ruleset_id)
     active = command("python3", "pr-qa/release_pin.py", "--resolve-active").stdout
     bound = re.fullmatch(r"Resolved active release (pr-qa-v1-rc[1-9][0-9]*) at ([0-9a-f]{40})\s*", active)
     if bound is None:
@@ -232,11 +276,12 @@ def main() -> int:
     run = wait_for_provenance_run(args.release, args.commit, actor, started, branch=branch)
 
     verify_source(args.release, args.commit, check_main=False)
-    if verify_protection(args.release, args.ruleset_id) != updated_at:
+    if verify_protection(args.release, args.ruleset_id) != protection:
         raise ValueError("Ruleset changed after provenance; no tag created")
     entry = {"commit": args.commit, "release_workflow_run_id": run["id"]}
     verify_release_provenance(args.release, entry)
-    message = annotation(args.release, args.commit, args.ruleset_id, updated_at, run["id"])
+    message = annotation(args.release, args.commit, args.ruleset_id,
+                         protection[0], run["id"], protection[1])
     with tempfile.TemporaryDirectory(prefix="pr-qa-release-") as temp:
         message_file = Path(temp) / "annotation.txt"
         message_file.write_text(message, encoding="utf-8")
@@ -251,7 +296,7 @@ def main() -> int:
     if tag_content.split("\n\n", 1)[-1] != message:
         raise ValueError("Local tag annotation differs from approved evidence")
     verify_source_on_main(args.commit)
-    if verify_protection(args.release, args.ruleset_id) != updated_at:
+    if verify_protection(args.release, args.ruleset_id) != protection:
         raise ValueError("Ruleset changed before tag publication")
     if remote_tag_object(args.release):
         raise ValueError("Candidate tag appeared remotely before publication")

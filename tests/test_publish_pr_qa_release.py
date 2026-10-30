@@ -33,7 +33,59 @@ def ruleset(*, organization: bool = False) -> dict:
     }
 
 
+def wildcard_ruleset(*, organization: bool = False) -> dict:
+    result = ruleset(organization=organization)
+    result["id"] = 25061784
+    result["updated_at"] = "2026-10-14T13:19:05.354+05:30"
+    result["conditions"]["ref_name"]["include"] = ["refs/tags/pr-qa-v1-rc*"]
+    return result
+
+
 class PublishReleaseTests(unittest.TestCase):
+    def test_approved_wildcard_and_legacy_exact_remain_distinct(self) -> None:
+        self.assertEqual(release.validate_protection(
+            "pr-qa-v1-rc219", 25061784,
+            wildcard_ruleset(organization=True), wildcard_ruleset(),
+        ), ("2026-10-14T13:19:05.354+05:30", "wildcard_namespace"))
+        self.assertEqual(release.validate_protection(
+            "pr-qa-v1-rc192", 42, ruleset(organization=True), ruleset(),
+        )[1], "legacy_exact")
+        evidence = json.loads(release.annotation(
+            "pr-qa-v1-rc219", "a" * 40, 25061784,
+            "2026-10-14T13:19:05.354+05:30", 123, "wildcard_namespace",
+        ).split("\n", 1)[1])
+        self.assertEqual(evidence["protection_mode"], "wildcard_namespace")
+
+    def test_wildcard_rejects_changed_or_insufficient_protection(self) -> None:
+        for field, value in (
+            ("id", 1), ("updated_at", "changed"), ("target", "branch"),
+            ("enforcement", "evaluate"), ("bypass_actors", [{"actor_id": 1}]),
+            ("rules", [{"type": "update"}]),
+            ("rules", [{"type": "update"}, {"type": "deletion"}, {"type": "creation"}]),
+        ):
+            with self.subTest(field=field, value=value):
+                org, repo = wildcard_ruleset(organization=True), wildcard_ruleset()
+                repo[field] = value
+                with self.assertRaises(ValueError):
+                    release.validate_protection("pr-qa-v1-rc219", 25061784, org, repo)
+        for field, value in (
+            ("repository_name", {"include": ["other"], "exclude": [], "protected": False}),
+            ("ref_name", {"include": ["refs/tags/*"], "exclude": []}),
+        ):
+            with self.subTest(field=field):
+                org = wildcard_ruleset(organization=True)
+                org["conditions"][field] = value
+                with self.assertRaises(ValueError):
+                    release.validate_protection("pr-qa-v1-rc219", 25061784, org, wildcard_ruleset())
+        with self.assertRaises(ValueError):
+            release.validate_protection("other-v1", 25061784,
+                                        wildcard_ruleset(organization=True), wildcard_ruleset())
+
+    def test_wildcard_api_evidence_unavailable_fails_closed(self) -> None:
+        with patch.object(release, "api", side_effect=ValueError("GitHub API unavailable")):
+            with self.assertRaisesRegex(ValueError, "GitHub API unavailable"):
+                release.verify_protection("pr-qa-v1-rc219", 25061784)
+
     def test_only_exact_source_provenance_defers_duplicate_compatibility(self) -> None:
         checked = release.preflight_command("pr-qa-v1-rc215", "a" * 40, True)
         publishing = release.preflight_command("pr-qa-v1-rc215", "a" * 40, False)
