@@ -23,7 +23,7 @@ class ReleasePreflightTests(unittest.TestCase):
         decisions = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())[
             "release_preflight_dispositions"]
         reviewed = decisions["pr-qa-v1-rc217"]["reviewed_commits"]
-        approved = decisions["inherited_synthetic_fixtures"]["synthetic_fixture_findings"][:6]
+        approved = decisions["inherited_synthetic_fixtures"]["synthetic_fixture_findings"]
         candidate = "a" * 40
         workflow = ".github/workflows/roadsense-controlled-release.yml"
         report = {"summary": {"overall_result": "FAIL"}, "results": [
@@ -46,13 +46,12 @@ class ReleasePreflightTests(unittest.TestCase):
                 ("rev-list", "--first-parent", "--merges", "pr-qa-v1-rc216..HEAD"):
                     "\n".join([candidate, *reversed(reviewed)]) + "\n",
                 ("diff", "--name-only", "HEAD^1..HEAD"):
-                    "policy/pr-qa-policy.json\nscripts/release-preflight\ntests/test_release_preflight.py\n",
+                    "policy/pr-qa-policy.json\npr-qa/pr_qa.py\nscripts/release-preflight\ntests/test_pr_qa_regressions.py\ntests/test_release_preflight.py\n",
             }
             if tuple(args) in values:
                 return subprocess.CompletedProcess(args, 0, values[tuple(args)], "")
             if args == ["show", "pr-qa-v1-rc216:tests/test_pr_qa_regressions.py"]:
-                return subprocess.CompletedProcess(args, 0,
-                    (ROOT / "tests/test_pr_qa_regressions.py").read_text(), "")
+                return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, check=False)
             if args == ["show", f"roadsense-gate-d-v10:{workflow}"]:
                 return subprocess.CompletedProcess(args, 0, (ROOT / workflow).read_text(), "")
             return subprocess.CompletedProcess(args, 1, "", "unexpected git command")
@@ -70,6 +69,15 @@ class ReleasePreflightTests(unittest.TestCase):
                 report_path.write_text(json.dumps(report))
                 self.assertTrue(preflight.reviewed_rc217_disposition(
                     root, report_path, "main", "pr-qa-v1-rc216", [*reviewed, candidate]))
+                self.assertEqual(len(report["results"][1]["details"]), 26)
+                report["results"][1]["details"] = report["results"][1]["details"][:6]
+                report_path.write_text(json.dumps(report))
+                self.assertFalse(preflight.reviewed_rc217_disposition(
+                    root, report_path, "main", "pr-qa-v1-rc216", [*reviewed, candidate]))
+                report["results"][1]["details"] = [
+                    f"{item['path']}: {item['label']}. line_sha256={item['line_sha256']}"
+                    for item in approved]
+                report_path.write_text(json.dumps(report))
                 self.assertFalse(preflight.reviewed_rc217_disposition(
                     root, report_path, "development", "pr-qa-v1-rc216", [*reviewed, candidate]))
                 self.assertFalse(preflight.reviewed_rc217_disposition(
