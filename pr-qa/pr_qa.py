@@ -6703,7 +6703,10 @@ def render_markdown_report(summary: dict[str, Any], results: list[CheckResult]) 
         lines.append("## Findings")
         for result in findings:
             technology = f" [{markdown_escape(result.technology)}]" if result.technology else ""
-            lines.append(f"- {result.status} {markdown_escape(result.gate)}{technology}: {markdown_escape(result.message)}")
+            count = len(result.details)
+            detail_count = (f" ({count} findings; 6 shown; {count - 6} omitted; complete set in JSON)"
+                            if count > 6 else "")
+            lines.append(f"- {result.status} {markdown_escape(result.gate)}{technology}: {markdown_escape(result.message)}{detail_count}")
             for detail in result.details[:6]:
                 lines.append(f"  - {markdown_escape(str(detail))}")
     lines.append("")

@@ -37,6 +37,27 @@ def load_engine_module():
 
 
 class PrQaRegressionTests(unittest.TestCase):
+    def test_secret_markdown_count_reconciles_with_complete_json(self):
+        engine = load_engine_module()
+        inherited = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())[
+            "release_preflight_dispositions"]["inherited_synthetic_fixtures"]["synthetic_fixture_findings"]
+        details = [f"{item['path']}: {item['label']}. line_sha256={item['line_sha256']}"
+                   for item in inherited]
+        result = engine.CheckResult("Secrets", "FAIL", "High-confidence secret indicators found.", details)
+        summary = {
+            "detected_technologies": [], "repository": "Synergie-ITCI/.github",
+            "policy_id": "synergie-pr-qa-enterprise-v1", "base_ref": "main", "head_ref": "feature/test",
+            "changed_files": 1, "additions": 1, "deletions": 0, "gate_statuses": {"Secrets": "FAIL"},
+            "risk_score": 0, "overall_result": "FAIL", "merge_readiness": "NOT READY",
+        }
+        markdown = engine.render_markdown_report(summary, [result])
+        machine = engine.render_json_report(summary, [result], SimpleNamespace(command_log=[]))
+        self.assertEqual(len(details), 26)
+        self.assertEqual(len(machine["results"][0]["details"]), 26)
+        self.assertIn("26 findings; 6 shown; 20 omitted; complete set in JSON", markdown)
+        self.assertEqual(markdown.count("sha256"), 6)
+        self.assertEqual(machine["results"][0]["status"], "FAIL")
+
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="prqa-regression-"))
         self.bin = self.tmp / "bin"

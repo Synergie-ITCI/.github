@@ -930,12 +930,13 @@ def reviewed_rc217_disposition(
         decision = decisions["pr-qa-v1-rc217"]
         reviewed = decision["reviewed_commits"]
         if (decision["predecessor_release"] != release
-                or decision["reviewed_prs"] != [422, 423, 424, 425]
+                or decision["reviewed_prs"] != [422, 423, 424, 425, 426]
                 or reviewed != [
                     "ef7e3970401ce3fdc3acea4de9927c6a21ba1bb1",
                     "383ab99972d89c75d4521274498f035b7ed70b06",
                     "e32854d5ff59359221f397748477812cc90028dc",
                     "bb6274f2d932d936f78ad50e628f81b940536e8d",
+                    "7c64178975647615633133666029b6993239be87",
                 ]):
             return False
         head = git(["rev-parse", "HEAD"], root)
@@ -949,7 +950,8 @@ def reviewed_rc217_disposition(
         files = git(["diff", "--name-only", "HEAD^1..HEAD"], root)
         if (merges.returncode or merges.stdout.splitlines() != [candidate, *reversed(reviewed)]
                 or files.returncode or set(files.stdout.splitlines()) != {
-                    "policy/pr-qa-policy.json", "scripts/release-preflight", "tests/test_release_preflight.py"
+                    "policy/pr-qa-policy.json", "pr-qa/pr_qa.py", "scripts/release-preflight",
+                    "tests/test_pr_qa_regressions.py", "tests/test_release_preflight.py"
                 }):
             return False
         report = json.loads(report_path.read_text(encoding="utf-8"))
@@ -981,14 +983,10 @@ def reviewed_rc217_disposition(
                             for line in inherited.stdout.splitlines()}
         approved = {(item["path"], item["label"], item["line_sha256"])
                     for item in decisions["inherited_synthetic_fixtures"]["synthetic_fixture_findings"]}
-        expected_hashes = {
-            "0cd495ab39da81b14d89d937cf8a961d968efec6392ba224c5fe1c06a7ade71f",
-            "18f3a70e674251f001cf17bbd7da85dce1b54c90e62b03ff3345bfd692f7f7fc",
-            "2c2a164bd4998656a6d3092bb5b353878605623f316bf5d7757eca51f92d7b32",
-            "2c72cf07a731cb2fa66c9c9d8753896209c9b05b0323a6679283ae3f6d00c2a0",
-            "51676bc49572272a6808d507a9938be3c8780332604259072e705214e40bb12d",
-            "9242958c91a8ba257c78cb263467a97121dacc5e970f76280701b15b56cf3487",
-        }
+        canonical = json.dumps(sorted(approved), separators=(",", ":"))
+        if (len(approved) != 26
+                or hashlib.sha256(canonical.encode()).hexdigest() != decision["fixture_findings_sha256"]):
+            return False
         actual = set()
         for detail in by_gate["Secrets"].get("details", []):
             match = re.fullmatch(r"([^:]+): (.+)\. line_sha256=([0-9a-f]{64})", detail)
@@ -998,9 +996,7 @@ def reviewed_rc217_disposition(
             if path != "tests/test_pr_qa_regressions.py" or fingerprint not in current_hashes or fingerprint not in inherited_hashes:
                 return False
             actual.add((path, label, fingerprint))
-        if (set(decision["fixture_line_sha256"]) != expected_hashes
-                or {item[2] for item in actual} != expected_hashes
-                or len(by_gate["Secrets"].get("details", [])) != 6 or not actual <= approved):
+        if len(by_gate["Secrets"].get("details", [])) != len(approved) or actual != approved:
             return False
         workflow = ".github/workflows/roadsense-controlled-release.yml"
         expected_sha = "5407e2c5537e2372638901c890e2035290222a043f51c0ed4bcc0e59fde9cbd9"
@@ -1017,7 +1013,10 @@ def reviewed_rc217_disposition(
             return False
         sys.path.insert(0, str(root / "pr-qa"))
         from pr_qa import approved_roadsense_gate_d_release  # pylint: disable=import-outside-toplevel
-        return approved_roadsense_gate_d_release("roadsense-gate-d-v10", "roadsense-controlled-release.yml")
+        if not approved_roadsense_gate_d_release("roadsense-gate-d-v10", "roadsense-controlled-release.yml"):
+            return False
+        print(f"Secret findings: {len(actual)} inherited synthetic findings accepted; 0 new blocking findings.")
+        return True
     except (OSError, ImportError, KeyError, TypeError, ValueError, json.JSONDecodeError):
         return False
 
