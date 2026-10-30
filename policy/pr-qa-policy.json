@@ -895,6 +895,26 @@
         }
       ]
     },
+    "pr-qa-v1-rc217": {
+      "reason": "rc217-only disposition for four verified protected PR merges, six inherited synthetic token fixtures, and the immutable RoadSense v10 Gate D workflow. Any changed evidence or additional failure remains blocking.",
+      "predecessor_release": "pr-qa-v1-rc216",
+      "reviewed_commits": [
+        "ef7e3970401ce3fdc3acea4de9927c6a21ba1bb1",
+        "383ab99972d89c75d4521274498f035b7ed70b06",
+        "e32854d5ff59359221f397748477812cc90028dc",
+        "bb6274f2d932d936f78ad50e628f81b940536e8d"
+      ],
+      "reviewed_prs": [422, 423, 424, 425],
+      "fixture_line_sha256": [
+        "0cd495ab39da81b14d89d937cf8a961d968efec6392ba224c5fe1c06a7ade71f",
+        "18f3a70e674251f001cf17bbd7da85dce1b54c90e62b03ff3345bfd692f7f7fc",
+        "2c2a164bd4998656a6d3092bb5b353878605623f316bf5d7757eca51f92d7b32",
+        "2c72cf07a731cb2fa66c9c9d8753896209c9b05b0323a6679283ae3f6d00c2a0",
+        "51676bc49572272a6808d507a9938be3c8780332604259072e705214e40bb12d",
+        "9242958c91a8ba257c78cb263467a97121dacc5e970f76280701b15b56cf3487"
+      ],
+      "workflow_sha256": "5407e2c5537e2372638901c890e2035290222a043f51c0ed4bcc0e59fde9cbd9"
+    },
     "pr-qa-v1-rc215": {
       "reason": "rc215-only disposition for the exact reviewed RoadSense release-control lineage and v9 workflow bytes. Only the two reported inherited merge and workflow-shape findings may be accepted; all other failures remain blocking.",
       "predecessor_release": "pr-qa-v1-rc214",

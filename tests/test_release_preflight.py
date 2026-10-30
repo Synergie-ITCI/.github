@@ -19,6 +19,117 @@ preflight = SourceFileLoader("release_preflight", str(SCRIPT)).load_module()
 
 
 class ReleasePreflightTests(unittest.TestCase):
+    def test_rc217_disposition_requires_exact_inherited_evidence(self):
+        decisions = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())[
+            "release_preflight_dispositions"]
+        reviewed = decisions["pr-qa-v1-rc217"]["reviewed_commits"]
+        approved = decisions["inherited_synthetic_fixtures"]["synthetic_fixture_findings"][:6]
+        candidate = "a" * 40
+        workflow = ".github/workflows/roadsense-controlled-release.yml"
+        report = {"summary": {"overall_result": "FAIL"}, "results": [
+            {"gate": "Repository Hygiene", "status": "FAIL", "blocking": True,
+             "message": "Accidental merge commits detected.",
+             "details": [candidate, *reversed(reviewed)]},
+            {"gate": "Secrets", "status": "FAIL", "blocking": True,
+             "details": [f"{item['path']}: {item['label']}. line_sha256={item['line_sha256']}"
+                         for item in approved]},
+            {"gate": "Deployment Risk", "status": "FAIL", "blocking": True,
+             "message": "Deployment workflow is structurally unsafe or missing required controlled-release safeguards.",
+             "details": [f"{workflow}: production/live deployment-sensitive workflow does not match the controlled Gate D safe shape."]},
+        ]}
+
+        def fake_git(args, _root):
+            values = {
+                ("remote", "get-url", "origin"): preflight.CENTRAL_ORIGIN + "\n",
+                ("rev-parse", "HEAD"): candidate + "\n",
+                ("rev-parse", "refs/remotes/origin/main"): candidate + "\n",
+                ("rev-list", "--first-parent", "--merges", "pr-qa-v1-rc216..HEAD"):
+                    "\n".join([candidate, *reversed(reviewed)]) + "\n",
+                ("diff", "--name-only", "HEAD^1..HEAD"):
+                    "policy/pr-qa-policy.json\nscripts/release-preflight\ntests/test_release_preflight.py\n",
+            }
+            if tuple(args) in values:
+                return subprocess.CompletedProcess(args, 0, values[tuple(args)], "")
+            if args == ["show", "pr-qa-v1-rc216:tests/test_pr_qa_regressions.py"]:
+                return subprocess.CompletedProcess(args, 0,
+                    (ROOT / "tests/test_pr_qa_regressions.py").read_text(), "")
+            if args == ["show", f"roadsense-gate-d-v10:{workflow}"]:
+                return subprocess.CompletedProcess(args, 0, (ROOT / workflow).read_text(), "")
+            return subprocess.CompletedProcess(args, 1, "", "unexpected git command")
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            sys.path.insert(0, str(ROOT / "pr-qa"))
+            for relative in ("policy/pr-qa-policy.json", "tests/test_pr_qa_regressions.py", workflow):
+                destination = root / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes((ROOT / relative).read_bytes())
+            report_path = root / "report.json"
+            with patch.object(preflight, "git", side_effect=fake_git), \
+                 patch("pr_qa.approved_roadsense_gate_d_release", return_value=True):
+                report_path.write_text(json.dumps(report))
+                self.assertTrue(preflight.reviewed_rc217_disposition(
+                    root, report_path, "main", "pr-qa-v1-rc216", [*reviewed, candidate]))
+                self.assertFalse(preflight.reviewed_rc217_disposition(
+                    root, report_path, "development", "pr-qa-v1-rc216", [*reviewed, candidate]))
+                self.assertFalse(preflight.reviewed_rc217_disposition(
+                    root, report_path, "main", "pr-qa-v1-rc216", reviewed))
+                with patch("pr_qa.approved_roadsense_gate_d_release", return_value=False):
+                    self.assertFalse(preflight.reviewed_rc217_disposition(
+                        root, report_path, "main", "pr-qa-v1-rc216", [*reviewed, candidate]))
+                report["results"][1]["details"][0] = "tests/test_pr_qa_regressions.py: GitHub token. line_sha256=" + "0" * 64
+                report_path.write_text(json.dumps(report))
+                self.assertFalse(preflight.reviewed_rc217_disposition(
+                    root, report_path, "main", "pr-qa-v1-rc216", [*reviewed, candidate]))
+                report["results"][1]["details"][0] = (
+                    f"{approved[0]['path']}: {approved[0]['label']}. line_sha256={approved[0]['line_sha256']}")
+                report["results"].append({"gate": "Architecture", "status": "FAIL", "blocking": True})
+                report_path.write_text(json.dumps(report))
+                self.assertFalse(preflight.reviewed_rc217_disposition(
+                    root, report_path, "main", "pr-qa-v1-rc216", [*reviewed, candidate]))
+                report["results"].pop()
+                report_path.write_text(json.dumps(report))
+                for other_release in ("pr-qa-v1-rc215", "pr-qa-v1-rc217"):
+                    self.assertFalse(preflight.reviewed_rc217_disposition(
+                        root, report_path, "main", other_release, [*reviewed, candidate]))
+                with patch.object(preflight, "git", side_effect=lambda args, repo: (
+                    subprocess.CompletedProcess(args, 0, "https://github.com/OtherOrg/.github.git\n", "")
+                    if args == ["remote", "get-url", "origin"] else fake_git(args, repo))):
+                    self.assertFalse(preflight.reviewed_rc217_disposition(
+                        root, report_path, "main", "pr-qa-v1-rc216", [*reviewed, candidate]))
+                with patch.object(preflight, "git", side_effect=lambda args, repo: (
+                    subprocess.CompletedProcess(args, 0, "\n".join(reversed(reviewed)) + "\n", "")
+                    if args == ["rev-list", "--first-parent", "--merges", "pr-qa-v1-rc216..HEAD"]
+                    else fake_git(args, repo))):
+                    self.assertFalse(preflight.reviewed_rc217_disposition(
+                        root, report_path, "main", "pr-qa-v1-rc216", [*reviewed, candidate]))
+                with patch.object(preflight, "git", side_effect=lambda args, repo: (
+                    subprocess.CompletedProcess(args, 1, "", "tag unavailable")
+                    if args == ["show", f"roadsense-gate-d-v10:{workflow}"]
+                    else fake_git(args, repo))):
+                    self.assertFalse(preflight.reviewed_rc217_disposition(
+                        root, report_path, "main", "pr-qa-v1-rc216", [*reviewed, candidate]))
+                workflow_path = root / workflow
+                original_workflow = workflow_path.read_bytes()
+                workflow_path.write_bytes(original_workflow + b"\n# changed\n")
+                self.assertFalse(preflight.reviewed_rc217_disposition(
+                    root, report_path, "main", "pr-qa-v1-rc216", [*reviewed, candidate]))
+                workflow_path.write_bytes(original_workflow)
+                report["results"][1]["details"].append("tests/new.py: GitHub token. line_sha256=" + "f" * 64)
+                report_path.write_text(json.dumps(report))
+                self.assertFalse(preflight.reviewed_rc217_disposition(
+                    root, report_path, "main", "pr-qa-v1-rc216", [*reviewed, candidate]))
+                report["results"][1]["details"].pop()
+                report["results"].append({"gate": "Tests", "status": "FAIL", "message": "Failed."})
+                report_path.write_text(json.dumps(report))
+                self.assertFalse(preflight.reviewed_rc217_disposition(
+                    root, report_path, "main", "pr-qa-v1-rc216", [*reviewed, candidate]))
+                report["results"].pop()
+                report["summary"].pop("overall_result")
+                report_path.write_text(json.dumps(report))
+                self.assertFalse(preflight.reviewed_rc217_disposition(
+                    root, report_path, "main", "pr-qa-v1-rc216", [*reviewed, candidate]))
+
     def test_generic_protected_merge_disposition_accepts_only_exact_hygiene_noise(self):
         newest, older = (letter * 40 for letter in "ab")
         report = {"results": [{"gate": "Repository Hygiene", "status": "FAIL", "blocking": True,

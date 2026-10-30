@@ -915,6 +915,113 @@ def protected_merge_hygiene_disposition(
         return False
 
 
+def reviewed_rc217_disposition(
+    root: Path, report_path: Path, base: str, release: str, verified_lineage: list[str] | None
+) -> bool:
+    """Accept only the exact reviewed rc217 merge, fixture and protected Gate D findings."""
+    if base != "main" or release != "pr-qa-v1-rc216" or not verified_lineage:
+        return False
+    origin = git(["remote", "get-url", "origin"], root)
+    if origin.returncode or origin.stdout.strip() != CENTRAL_ORIGIN:
+        return False
+    try:
+        policy = json.loads((root / "policy/pr-qa-policy.json").read_text(encoding="utf-8"))
+        decisions = policy["release_preflight_dispositions"]
+        decision = decisions["pr-qa-v1-rc217"]
+        reviewed = decision["reviewed_commits"]
+        if (decision["predecessor_release"] != release
+                or decision["reviewed_prs"] != [422, 423, 424, 425]
+                or reviewed != [
+                    "ef7e3970401ce3fdc3acea4de9927c6a21ba1bb1",
+                    "383ab99972d89c75d4521274498f035b7ed70b06",
+                    "e32854d5ff59359221f397748477812cc90028dc",
+                    "bb6274f2d932d936f78ad50e628f81b940536e8d",
+                ]):
+            return False
+        head = git(["rev-parse", "HEAD"], root)
+        main = git(["rev-parse", "refs/remotes/origin/main"], root)
+        if head.returncode or main.returncode or head.stdout != main.stdout:
+            return False
+        candidate = head.stdout.strip()
+        if verified_lineage != [*reviewed, candidate]:
+            return False
+        merges = git(["rev-list", "--first-parent", "--merges", f"{release}..HEAD"], root)
+        files = git(["diff", "--name-only", "HEAD^1..HEAD"], root)
+        if (merges.returncode or merges.stdout.splitlines() != [candidate, *reversed(reviewed)]
+                or files.returncode or set(files.stdout.splitlines()) != {
+                    "policy/pr-qa-policy.json", "scripts/release-preflight", "tests/test_release_preflight.py"
+                }):
+            return False
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        if (not isinstance(report.get("summary"), dict)
+                or report["summary"].get("overall_result") != "FAIL"
+                or not isinstance(report.get("results"), list)
+                or any(not isinstance(item, dict)
+                       or type(item.get("blocking")) is not bool
+                       or item.get("status") not in {"PASS", "FAIL", "WARNING", "SKIP"}
+                       for item in report["results"])):
+            return False
+        failures = [item for item in report["results"]
+                    if item.get("blocking") and item.get("status") == "FAIL"]
+        if len(failures) != 3 or {item.get("gate") for item in failures} != {
+                "Repository Hygiene", "Secrets", "Deployment Risk"}:
+            return False
+        by_gate = {item["gate"]: item for item in failures}
+        hygiene = by_gate["Repository Hygiene"]
+        if (hygiene.get("message") != "Accidental merge commits detected."
+                or hygiene.get("details") != [candidate, *reversed(reviewed)]):
+            return False
+        inherited = git(["show", f"{release}:tests/test_pr_qa_regressions.py"], root)
+        source = root / "tests/test_pr_qa_regressions.py"
+        if inherited.returncode or not source.is_file() or source.is_symlink():
+            return False
+        current_hashes = {hashlib.sha256(line.strip().encode()).hexdigest()
+                          for line in source.read_text(encoding="utf-8").splitlines()}
+        inherited_hashes = {hashlib.sha256(line.strip().encode()).hexdigest()
+                            for line in inherited.stdout.splitlines()}
+        approved = {(item["path"], item["label"], item["line_sha256"])
+                    for item in decisions["inherited_synthetic_fixtures"]["synthetic_fixture_findings"]}
+        expected_hashes = {
+            "0cd495ab39da81b14d89d937cf8a961d968efec6392ba224c5fe1c06a7ade71f",
+            "18f3a70e674251f001cf17bbd7da85dce1b54c90e62b03ff3345bfd692f7f7fc",
+            "2c2a164bd4998656a6d3092bb5b353878605623f316bf5d7757eca51f92d7b32",
+            "2c72cf07a731cb2fa66c9c9d8753896209c9b05b0323a6679283ae3f6d00c2a0",
+            "51676bc49572272a6808d507a9938be3c8780332604259072e705214e40bb12d",
+            "9242958c91a8ba257c78cb263467a97121dacc5e970f76280701b15b56cf3487",
+        }
+        actual = set()
+        for detail in by_gate["Secrets"].get("details", []):
+            match = re.fullmatch(r"([^:]+): (.+)\. line_sha256=([0-9a-f]{64})", detail)
+            if not match:
+                return False
+            path, label, fingerprint = match.groups()
+            if path != "tests/test_pr_qa_regressions.py" or fingerprint not in current_hashes or fingerprint not in inherited_hashes:
+                return False
+            actual.add((path, label, fingerprint))
+        if (set(decision["fixture_line_sha256"]) != expected_hashes
+                or {item[2] for item in actual} != expected_hashes
+                or len(by_gate["Secrets"].get("details", [])) != 6 or not actual <= approved):
+            return False
+        workflow = ".github/workflows/roadsense-controlled-release.yml"
+        expected_sha = "5407e2c5537e2372638901c890e2035290222a043f51c0ed4bcc0e59fde9cbd9"
+        deployment = by_gate["Deployment Risk"]
+        if (decision["workflow_sha256"] != expected_sha
+                or deployment.get("message") != "Deployment workflow is structurally unsafe or missing required controlled-release safeguards."
+                or deployment.get("details") != [
+                    f"{workflow}: production/live deployment-sensitive workflow does not match the controlled Gate D safe shape."]):
+            return False
+        tagged = git(["show", f"roadsense-gate-d-v10:{workflow}"], root)
+        if (tagged.returncode or not (root / workflow).is_file()
+                or hashlib.sha256(tagged.stdout.encode()).hexdigest() != expected_sha
+                or hashlib.sha256((root / workflow).read_bytes()).hexdigest() != expected_sha):
+            return False
+        sys.path.insert(0, str(root / "pr-qa"))
+        from pr_qa import approved_roadsense_gate_d_release  # pylint: disable=import-outside-toplevel
+        return approved_roadsense_gate_d_release("roadsense-gate-d-v10", "roadsense-controlled-release.yml")
+    except (OSError, ImportError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return False
+
+
 def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str, release: str = "",
               verified_lineage: list[str] | None = None) -> bool:
     head_sha = git(["rev-parse", "HEAD"], root).stdout.strip()
@@ -991,6 +1098,9 @@ def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str, release: st
             return True
         if reviewed_rc215_road_sense_disposition(root, report_path, base, release):
             print("Active PR-QA findings matched exact rc215 RoadSense lineage and protected v9 workflow bytes.")
+            return True
+        if reviewed_rc217_disposition(root, report_path, base, release, verified_lineage):
+            print("Active PR-QA findings matched exact rc217 protected lineage, inherited fixtures and immutable v10 Gate D evidence.")
             return True
         return False
 
