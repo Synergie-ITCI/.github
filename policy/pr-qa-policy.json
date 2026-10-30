@@ -1,6 +1,20 @@
 {
   "version": 1,
   "policy_id": "synergie-pr-qa-enterprise-v1",
+  "application_risk_contracts": {
+    "Synergie-ITCI/BDPP": [
+      {
+        "risk": "authentication-and-session",
+        "source_paths": ["BdppApp/api/v1/auth.py", "BdppApp/api/v1/user.py"],
+        "evidence_paths": ["tests/test_admin_user_management.py", "tests/test_grievance_workflow.py"]
+      },
+      {
+        "risk": "authorization-concurrency-and-idempotency",
+        "source_paths": ["BdppApp/api/v1/grievance.py"],
+        "evidence_paths": ["tests/test_grievance_workflow.py"]
+      }
+    ]
+  },
   "mandatory_gates": [
     "baseline_alignment",
     "repository_hygiene",
