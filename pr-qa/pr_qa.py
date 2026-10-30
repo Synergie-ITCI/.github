@@ -1091,8 +1091,8 @@ def gate_application_risk_contract(ctx: PRContext, existing_results: list[CheckR
     if not isinstance(configured, list):
         return [failed("Application Risk Contract", None, "Central risk contract has an invalid shape.")]
     test_results = [item for item in existing_results if item.gate == "Tests"]
-    tests_passed = bool(test_results) and any(item.status == PASS for item in test_results) and all(
-        item.status not in {FAIL, WARNING, SKIP} for item in test_results
+    tests_passed = any(item.blocking and item.status == PASS for item in test_results) and all(
+        not item.blocking or item.status == PASS for item in test_results
     )
     assessments = assess_risk_contracts(configured, ctx.changed_files, ctx.repo, tests_passed)
     if not assessments:
