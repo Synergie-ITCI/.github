@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 import re
@@ -149,7 +150,10 @@ def main() -> int:
                 if len(repos) < 100:
                     break
                 page += 1
-        records = [live_record(args.owner, name) for name in names]
+        # Bound concurrency so an organization scan remains timely without
+        # flooding the GitHub API or multiplying full PR-QA scans.
+        with ThreadPoolExecutor(max_workers=6) as executor:
+            records = list(executor.map(lambda name: live_record(args.owner, name), names))
     now = datetime.now(timezone.utc)
     findings = [f for record in records for f in findings_for_repository(record)]
     findings.extend(expired_exception_findings(Path(__file__).resolve().parents[1], now))
