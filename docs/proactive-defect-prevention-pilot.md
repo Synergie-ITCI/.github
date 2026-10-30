@@ -16,6 +16,8 @@ Live repository reads use at most six concurrent workers. The two-repository pil
 
 The new workflow runs deterministic fixture tests on its own PR head. Scheduled and manual organization reads stay disabled until the repository variable `SYNERGIE_ORG_AUDIT_ENABLED=true` and an approved read-only `SYNERGIE_GOVERNANCE_READ_TOKEN` secret are configured through a separate authorization. Neither setting was changed in this pilot. It checks out the exact event SHA and records that identity in the artifact name. After merge, immutable versioning follows the existing central release publication and tag-protection process; this PR must not claim an unpublished tag is active.
 
+The audit token needs access to the selected private repositories with repository **Metadata: read**, **Contents: read**, and **Actions: read** only. These cover organization enumeration/effective rules, caller contents/branch state, and workflow/environment listing. Do not grant write or administration permissions. Verify the actual token against BDPP and Scholarships before enabling the weekly run; an authorization failure must remain `EVIDENCE_UNAVAILABLE` rather than a clean report. [GitHub rules API](https://docs.github.com/en/rest/repos/rules), [workflow API](https://docs.github.com/en/rest/actions/workflows), and [repository contents API](https://docs.github.com/en/rest/repos/contents) document the endpoint permissions.
+
 The attestor is report-only and never edits repositories or rules. A missing caller with a required check may be a merge deadlock rather than a bypass. A production environment name is only a declaration; an external release route may exist. Owners must resolve those findings before any organization ruleset change.
 
 ## Validation and rollout boundary

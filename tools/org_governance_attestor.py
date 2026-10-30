@@ -163,7 +163,7 @@ def main() -> int:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"Attested {len(records)} repositories; {len(findings)} report-only findings; output={args.output}")
-    return 0
+    return 1 if any(record.get("query_error") for record in records) else 0
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+import subprocess
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -73,6 +74,18 @@ class OrganizationAttestorTests(unittest.TestCase):
             findings = expired_exception_findings(Path(tmp), datetime(2026, 10, 30, tzinfo=timezone.utc))
             self.assertEqual([(f["code"], f["detail"]) for f in findings],
                              [("EXPIRED_EXCEPTION_RECORD", "expired.json")])
+
+    def test_unavailable_repository_evidence_fails_the_cli_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot = Path(tmp) / "snapshot.json"
+            output = Path(tmp) / "report.json"
+            snapshot.write_text(json.dumps([{"name": "private-repo", "query_error": "403"}]))
+            script = Path(__file__).resolve().parents[1] / "tools" / "org_governance_attestor.py"
+            result = subprocess.run([sys.executable, str(script), "--snapshot", str(snapshot),
+                                     "--output", str(output)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(json.loads(output.read_text())["findings"][0]["code"],
+                             "EVIDENCE_UNAVAILABLE")
 
 
 if __name__ == "__main__":
