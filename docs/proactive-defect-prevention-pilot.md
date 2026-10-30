@@ -2,6 +2,12 @@
 
 This pilot extends the existing central PR-QA and read-only governance inventory. It does not change branch rules, deploy applications, or create a second scanner.
 
+## Controlled PR-QA release selection
+
+The central reusable workflow now resolves consumer releases from `consumer_release_selection` in the centrally governed `policy/framework-releases.json`. The default is the currently approved `pr-qa-v1-rc216` at its exact commit. No pilot repository is selected yet. A future, separately reviewed central policy change may map BDPP to a newly published release; application PRs cannot edit this mapping or supply a framework override. The resolver verifies the selected tag, exact commit, protection and release provenance before either PR-QA job executes. The existing `--resolve-active` path remains the release-publication path and still checks the newest candidate.
+
+Publishing a higher immutable tag alone therefore does not migrate consumers. Roll back a pilot by removing its mapping through a governed central PR; the verified default remains available. Promote a new default only after pilot acceptance and a separate central review. The required PR-QA status name and Gate D remain unchanged.
+
 ## Application risk contract
 
 `policy/pr-qa-policy.json` declares pilot risk paths and existing test evidence for BDPP. When a declared source path changes, the `Application Risk Contract` gate requires the named test files and the already-running central `Tests` gate to pass, then executes only the declared focused test selectors on the same PR-QA runner. This prevents an unrelated passing test from substituting for the relevant cases. It does not run a second full suite or scanner. Unrelated changes skip the contract. Application owners still review the selected cases and negative tests.

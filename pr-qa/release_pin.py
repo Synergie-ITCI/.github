@@ -41,6 +41,12 @@ def validate_workflow(workflow: str, manifest: dict) -> tuple[str, dict]:
     parsed = parse_workflow_yaml(normalized)
     if manifest.get("version") != 1 or manifest.get("repository") != REPOSITORY:
         raise ValueError("Invalid central release manifest")
+    resolver_steps = [step for step in parsed.get("jobs", {}).get("detect", {}).get("steps", [])
+                      if step.get("id") == "active-framework"]
+    if (len(resolver_steps) != 1
+            or resolver_steps[0].get("run", "").strip()
+            != "python3 .pr-qa-release-resolver/pr-qa/release_pin.py --resolve-for-consumer"):
+        raise ValueError("Consumer release selection must use the central resolver")
     release, entry = active_release_from_manifest(manifest)
     if not re.fullmatch(r"[0-9a-f]{40}", entry.get("commit", "")):
         raise ValueError("Release must bind an exact commit")
@@ -516,6 +522,31 @@ def verify_bound_release(
         verify_release_provenance(release, entry, lookup, list_refs)
 
 
+def resolve_consumer_release(
+    manifest: dict,
+    consumer: str,
+    lookup=github_json,
+    list_refs=github_list,
+) -> tuple[str, dict]:
+    """Use only centrally reviewed selection, then verify the exact immutable tag."""
+    selection = manifest.get("consumer_release_selection")
+    if not isinstance(selection, dict) or set(selection) != {"default", "repositories"}:
+        raise ValueError("Central consumer release selection is unavailable")
+    repositories = selection["repositories"]
+    if not isinstance(repositories, dict) or not re.fullmatch(r"Synergie-ITCI/[A-Za-z0-9_.-]+", consumer):
+        raise ValueError("Consumer repository identity is invalid")
+    if not all(re.fullmatch(r"Synergie-ITCI/[A-Za-z0-9_.-]+", name) for name in repositories):
+        raise ValueError("Central consumer release selection has an invalid repository")
+    for candidate in [selection["default"], *repositories.values()]:
+        if (not isinstance(candidate, dict) or set(candidate) != {"release", "commit"}
+                or not RELEASE_RE.fullmatch(str(candidate.get("release")))
+                or not re.fullmatch(r"[0-9a-f]{40}", str(candidate.get("commit")))):
+            raise ValueError("Central consumer release selection has an invalid release")
+    selected = repositories.get(consumer, selection["default"])
+    verify_bound_release(selected["release"], selected["commit"], manifest, lookup, list_refs)
+    return selected["release"], {"commit": selected["commit"]}
+
+
 def write_github_output(release: str, entry: dict) -> None:
     output = os.environ.get("GITHUB_OUTPUT")
     if output:
@@ -527,6 +558,7 @@ def write_github_output(release: str, entry: dict) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--resolve-active", action="store_true")
+    parser.add_argument("--resolve-for-consumer", action="store_true")
     parser.add_argument("--verify-bound", metavar="RELEASE")
     parser.add_argument("--commit")
     args = parser.parse_args()
@@ -538,6 +570,10 @@ if __name__ == "__main__":
             parser.error("--verify-bound requires --commit")
         verify_bound_release(args.verify_bound, args.commit, manifest)
         print(f"Verified bound release {args.verify_bound} at {args.commit}")
+    elif args.resolve_for_consumer:
+        release, entry = resolve_consumer_release(manifest, os.environ.get("GITHUB_REPOSITORY", ""))
+        write_github_output(release, entry)
+        print(f"Resolved approved release {release} at {entry['commit']}")
     elif args.resolve_active:
         release, entry = resolve_active_release(manifest)
         write_github_output(release, entry)

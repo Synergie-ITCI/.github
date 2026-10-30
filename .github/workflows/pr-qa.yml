@@ -76,13 +76,13 @@ jobs:
           path: .pr-qa-release-resolver
           persist-credentials: false
 
-      - name: Resolve active central PR QA release
+      - name: Resolve approved central PR QA release
         id: active-framework
         if: github.repository != 'Synergie-ITCI/.github'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          python3 .pr-qa-release-resolver/pr-qa/release_pin.py --resolve-active
+          python3 .pr-qa-release-resolver/pr-qa/release_pin.py --resolve-for-consumer
 
       - name: Checkout immutable central PR QA framework
         if: github.repository != 'Synergie-ITCI/.github'

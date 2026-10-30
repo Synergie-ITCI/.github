@@ -6,6 +6,7 @@ import subprocess
 import sys
 import types
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,6 +15,7 @@ from release_pin import (
     EVIDENCE_HEADER,
     evidence_from_annotated_tag,
     resolve_active_release,
+    resolve_consumer_release,
     ruleset_config_fingerprint,
     same_timestamp,
     validate_workflow,
@@ -45,6 +47,49 @@ class ReleasePinTests(unittest.TestCase):
         if path.startswith("git/tags/"):
             return self.tag
         return self.ruleset
+
+    def test_non_pilot_uses_centrally_pinned_approved_release(self):
+        selected = self.manifest["consumer_release_selection"]["default"]
+        with patch("release_pin.verify_bound_release") as verify:
+            release, entry = resolve_consumer_release(self.manifest, "Synergie-ITCI/scholarships")
+        self.assertEqual((release, entry["commit"]), (selected["release"], selected["commit"]))
+        verify.assert_called_once_with(selected["release"], selected["commit"], self.manifest,
+                                       unittest.mock.ANY, unittest.mock.ANY)
+
+    def test_approved_pilot_selection_and_rollback_are_central_only(self):
+        pilot = {"release": "pr-qa-v1-rc217", "commit": "a" * 40}
+        self.manifest["consumer_release_selection"]["repositories"]["Synergie-ITCI/BDPP"] = pilot
+        with patch("release_pin.verify_bound_release") as verify:
+            release, _ = resolve_consumer_release(self.manifest, "Synergie-ITCI/BDPP")
+            self.assertEqual(release, pilot["release"])
+            verify.assert_called_with(pilot["release"], pilot["commit"], self.manifest,
+                                      unittest.mock.ANY, unittest.mock.ANY)
+            self.manifest["consumer_release_selection"]["repositories"].clear()
+            release, _ = resolve_consumer_release(self.manifest, "Synergie-ITCI/BDPP")
+        self.assertEqual(release, self.manifest["consumer_release_selection"]["default"]["release"])
+
+    def test_invalid_or_unauthorized_selection_fails_closed(self):
+        selection = self.manifest["consumer_release_selection"]
+        for bad in ("main", "pr-qa-v1-rc217; echo bypass", "pr-qa-v1-rc999999"):
+            selection["repositories"]["Synergie-ITCI/BDPP"] = {"release": bad, "commit": "a" * 40}
+            if bad == "pr-qa-v1-rc999999":
+                with self.assertRaises(ValueError):
+                    resolve_consumer_release(self.manifest, "Synergie-ITCI/BDPP", self.lookup,
+                                             lambda _path: [])
+            else:
+                with self.assertRaisesRegex(ValueError, "invalid release"):
+                    resolve_consumer_release(self.manifest, "Synergie-ITCI/BDPP")
+        selection["repositories"].clear()
+        with self.assertRaisesRegex(ValueError, "identity is invalid"):
+            resolve_consumer_release(self.manifest, "attacker/BDPP")
+        selection["repositories"]["*/BDPP"] = selection["default"]
+        with self.assertRaisesRegex(ValueError, "invalid repository"):
+            resolve_consumer_release(self.manifest, "Synergie-ITCI/BDPP")
+
+    def test_workflow_cannot_replace_central_consumer_selector(self):
+        modified = self.workflow.replace("--resolve-for-consumer", "--resolve-active", 1)
+        with self.assertRaisesRegex(ValueError, "central resolver"):
+            validate_workflow(modified, self.manifest)
 
     def test_ruleset_timestamp_offsets_preserve_exact_instant(self):
         self.assertTrue(same_timestamp("2026-09-09T10:08:30.583Z", "2026-09-09T15:38:30.583+05:30"))
