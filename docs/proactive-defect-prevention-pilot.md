@@ -12,7 +12,7 @@ Contracts live in the immutable central policy so a PR cannot remove its own req
 
 `tools/org_governance_attestor.py` reuses `tools/github_governance_inventory.py`'s read-only GitHub API helper. It distinguishes caller absence, non-central or disabled callers, missing effective required check, missing PR rule, unprotected promotion branches, missing repository release-workflow evidence for a declared production environment, and expired exception records. Query failure is `EVIDENCE_UNAVAILABLE`, not compliance. Historical expired one-time exceptions are review findings, not claims of an active bypass.
 
-Live repository reads use at most six concurrent workers. The two-repository pilot completed in 12.39 seconds after this bound was added; the full 81-repository run has not been measured.
+Live repository reads use at most six concurrent workers. The two-repository pilot completed in 12.39 seconds; a local read-only run across 81 repositories completed in 213.80 seconds. Scheduled GitHub Actions runner usage has not been measured.
 
 The new workflow runs deterministic fixture tests on its own PR head. Scheduled and manual organization reads stay disabled until the repository variable `SYNERGIE_ORG_AUDIT_ENABLED=true` and an approved read-only `SYNERGIE_GOVERNANCE_READ_TOKEN` secret are configured through a separate authorization. Neither setting was changed in this pilot. It checks out the exact event SHA and records that identity in the artifact name. After merge, immutable versioning follows the existing central release publication and tag-protection process; this PR must not claim an unpublished tag is active.
 
