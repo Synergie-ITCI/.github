@@ -81,6 +81,11 @@ class PublishReleaseTests(unittest.TestCase):
             release.validate_protection("other-v1", 25061784,
                                         wildcard_ruleset(organization=True), wildcard_ruleset())
 
+    def test_wildcard_api_evidence_unavailable_fails_closed(self) -> None:
+        with patch.object(release, "api", side_effect=ValueError("GitHub API unavailable")):
+            with self.assertRaisesRegex(ValueError, "GitHub API unavailable"):
+                release.verify_protection("pr-qa-v1-rc219", 25061784)
+
     def test_only_exact_source_provenance_defers_duplicate_compatibility(self) -> None:
         checked = release.preflight_command("pr-qa-v1-rc215", "a" * 40, True)
         publishing = release.preflight_command("pr-qa-v1-rc215", "a" * 40, False)
