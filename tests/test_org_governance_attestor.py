@@ -50,6 +50,12 @@ class OrganizationAttestorTests(unittest.TestCase):
         self.assertEqual([f["code"] for f in findings_for_repository({"name": "pilot", "query_error": "403"})],
                          ["EVIDENCE_UNAVAILABLE"])
 
+    def test_unknown_workflow_state_is_not_called_disabled(self):
+        record = self.healthy()
+        record["caller"]["workflow_state"] = "unknown"
+        self.assertEqual([f["code"] for f in findings_for_repository(record)],
+                         ["CALLER_STATE_UNVERIFIED"])
+
     def test_expired_exception_is_reported_without_claiming_active_bypass(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "policy" / "exceptions"
