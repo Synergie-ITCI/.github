@@ -151,8 +151,12 @@ branches, arbitrary commit references, user overrides, or persistent checkout
 credentials.
 
 Architecture Governance verifies the selected tag directly against GitHub and
-requires an active, exact-tag ruleset prohibiting updates and deletion with no
-bypass actors. Both reusable-workflow framework checkouts must use that pin.
+requires active tag protection prohibiting updates and deletion with no bypass
+actors. Historical exact-tag releases retain their recorded ruleset identity.
+Future releases may use only the wildcard namespace ruleset explicitly approved
+and fingerprinted in `policy/framework-releases.json`; the publisher checks its
+live scope and timestamp before publication. Both reusable-workflow framework
+checkouts must use the exact release pin.
 Tag protection and GitHub Release API immutability are separate evidence.
 
 GitHub hides ruleset bypass actors from read-only workflow tokens. Registration
