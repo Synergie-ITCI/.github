@@ -24,6 +24,12 @@ CALLER_PATH = ".github/workflows/pr-qa.yml"
 CENTRAL_USES = "Synergie-ITCI/.github/.github/workflows/pr-qa.yml@"
 
 
+def invokes_central_pr_qa(workflow: str) -> bool:
+    """Require an active YAML uses entry, not a comment or free-text mention."""
+    return any(re.match(r"^\s*uses\s*:\s*['\"]?" + re.escape(CENTRAL_USES), line)
+               for line in workflow.splitlines() if not line.lstrip().startswith("#"))
+
+
 def findings_for_repository(record: dict[str, Any]) -> list[dict[str, str]]:
     """Classify observations without equating missing evidence with bypass."""
     findings: list[dict[str, str]] = []
@@ -97,7 +103,7 @@ def live_record(owner: str, name: str) -> dict[str, Any]:
         contents = gh_api(f"repos/{full}/contents/{CALLER_PATH}?ref={branch}")
         if contents.ok and isinstance(contents.data, dict):
             text = base64.b64decode(contents.data["content"]).decode("utf-8", "replace")
-            central = CENTRAL_USES in text
+            central = invokes_central_pr_qa(text)
             present = True
         elif "404" in contents.error or "Not Found" in contents.error:
             central, present = False, False
