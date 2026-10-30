@@ -20,7 +20,8 @@ class ApplicationRiskContractTests(unittest.TestCase):
         (self.repo / "tests").mkdir()
         (self.repo / "tests" / "test_auth.py").write_text("def test_auth(): pass\n")
         self.contract = [{"risk": "session", "source_paths": ["app/auth.py"],
-                          "evidence_paths": ["tests/test_auth.py"]}]
+                          "evidence_paths": ["tests/test_auth.py"],
+                          "test_command": ["pytest", "-q", "tests/test_auth.py"]}]
 
     def test_unrelated_change_does_not_trigger_test_contract(self):
         self.assertEqual(assess_risk_contracts(self.contract, ["README.md"], self.repo, False), [])
@@ -44,6 +45,7 @@ class ApplicationRiskContractTests(unittest.TestCase):
             event={"repository": {"full_name": "Synergie-ITCI/pilot"}},
             policy={"application_risk_contracts": {"Synergie-ITCI/pilot": self.contract}},
             changed_files=["app/auth.py"], repo=self.repo,
+            run=lambda command, timeout: SimpleNamespace(ok=True, skipped=False),
         )
         failed_tests = [CheckResult("Tests", "FAIL", "synthetic test failure")]
         result = gate_application_risk_contract(context, failed_tests)
@@ -52,6 +54,12 @@ class ApplicationRiskContractTests(unittest.TestCase):
         passing_tests = [CheckResult("Tests", "PASS", "synthetic test pass")]
         result = gate_application_risk_contract(context, passing_tests)
         self.assertEqual(result[0].status, "PASS")
+
+        context.run = lambda command, timeout: SimpleNamespace(
+            ok=False, skipped=False, concise_output=lambda: "synthetic focused failure"
+        )
+        result = gate_application_risk_contract(context, passing_tests)
+        self.assertEqual(result[0].status, "FAIL")
 
 
 if __name__ == "__main__":

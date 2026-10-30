@@ -1100,7 +1100,18 @@ def gate_application_risk_contract(ctx: PRContext, existing_results: list[CheckR
     failures = [f"{risk}: {status}" for risk, status in assessments if status != "PASS"]
     if failures:
         return [failed("Application Risk Contract", None, "Risk-triggered application test evidence is missing or failed.", failures)]
-    return [passed("Application Risk Contract", None, "Declared risk paths have application test files and passing existing Tests gate.",
+    for contract in configured:
+        risk = str(contract.get("risk", "unnamed"))
+        if (risk, "PASS") not in assessments:
+            continue
+        command = contract.get("test_command")
+        if not isinstance(command, list) or not command or not all(isinstance(part, str) and part for part in command):
+            return [failed("Application Risk Contract", None, f"{risk}: focused test command is missing or invalid.")]
+        outcome = ctx.run(command, timeout=180)
+        if outcome.skipped or not outcome.ok:
+            return [failed("Application Risk Contract", None, f"{risk}: focused application tests did not pass.",
+                           [outcome.concise_output()])]
+    return [passed("Application Risk Contract", None, "Declared risk paths have passing existing Tests gate and focused application tests.",
                    [risk for risk, _ in assessments])]
 
 

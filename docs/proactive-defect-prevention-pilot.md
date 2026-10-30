@@ -4,7 +4,7 @@ This pilot extends the existing central PR-QA and read-only governance inventory
 
 ## Application risk contract
 
-`policy/pr-qa-policy.json` declares pilot risk paths and existing test evidence for BDPP. When a declared source path changes, the `Application Risk Contract` gate requires the named test files to exist and the already-running central `Tests` gate to pass. It does not run a second test suite. Unrelated changes skip the contract. A test file's presence alone cannot prove that every business case is covered; the application owner reviews the declared cases and negative tests.
+`policy/pr-qa-policy.json` declares pilot risk paths and existing test evidence for BDPP. When a declared source path changes, the `Application Risk Contract` gate requires the named test files and the already-running central `Tests` gate to pass, then executes only the declared focused test selectors on the same PR-QA runner. This prevents an unrelated passing test from substituting for the relevant cases. It does not run a second full suite or scanner. Unrelated changes skip the contract. Application owners still review the selected cases and negative tests.
 
 Contracts live in the immutable central policy so a PR cannot remove its own required tests. Add a repository contract through the normal central PR, regression and immutable release process. The initial BDPP contract uses existing auth/user/grievance tests; the pilot BDPP PR adds expiry and deactivation assertions. Scholarships is the caller-onboarding case and has no risk contract until its application owners establish deterministic tests.
 
