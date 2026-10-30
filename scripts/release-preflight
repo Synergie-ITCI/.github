@@ -1021,6 +1021,99 @@ def reviewed_rc217_disposition(
         return False
 
 
+def reviewed_rc219_disposition(
+    root: Path, report_path: Path, base: str, release: str, verified_lineage: list[str] | None
+) -> bool:
+    """Accept only rc219's checked merge history and unchanged inherited fixtures."""
+    if base != "main" or release != "pr-qa-v1-rc218" or not verified_lineage:
+        return False
+    origin = git(["remote", "get-url", "origin"], root)
+    if origin.returncode or origin.stdout.strip() != CENTRAL_ORIGIN:
+        return False
+    try:
+        policy = json.loads((root / "policy/pr-qa-policy.json").read_text(encoding="utf-8"))
+        decisions = policy["release_preflight_dispositions"]
+        decision = decisions["pr-qa-v1-rc219"]
+        reviewed = [
+            "bc2397f914da2db864f97a5745a1fcecc2f39328",
+            "3c5e4ec85ce6148ed183c7dd5b2b444d094f56f6",
+            "5b69874162fb11c52c145eb3c61ddb88db1fbbb3",
+        ]
+        fixture_digest = "4d7f89cdf09c5b240231a6d45ee4e85e2e641a25d577d3e33936bbff730fbbab"
+        if (decision.get("predecessor_release") != release
+                or decision.get("reviewed_commits") != reviewed
+                or decision.get("reviewed_prs") != [430, 431, 432]
+                or decision.get("fixture_findings_sha256") != fixture_digest):
+            return False
+        head = git(["rev-parse", "HEAD"], root)
+        main = git(["rev-parse", "refs/remotes/origin/main"], root)
+        if head.returncode or main.returncode or head.stdout != main.stdout:
+            return False
+        candidate = head.stdout.strip()
+        if verified_lineage != [*reviewed, candidate]:
+            return False
+        merges = git(["rev-list", "--first-parent", "--merges", f"{release}..HEAD"], root)
+        files = git(["diff", "--name-only", "HEAD^1..HEAD"], root)
+        if (merges.returncode or merges.stdout.splitlines() != [candidate, *reversed(reviewed)]
+                or files.returncode or set(files.stdout.splitlines()) != {
+                    "policy/pr-qa-policy.json", "scripts/release-preflight",
+                    "tests/test_release_preflight.py",
+                }):
+            return False
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        if (not isinstance(report.get("summary"), dict)
+                or report["summary"].get("overall_result") != "FAIL"
+                or not isinstance(report.get("results"), list)
+                or any(not isinstance(item, dict)
+                       or type(item.get("blocking")) is not bool
+                       or item.get("status") not in {"PASS", "FAIL", "WARNING", "SKIP"}
+                       for item in report["results"])):
+            return False
+        failures = [item for item in report["results"]
+                    if item["blocking"] and item["status"] == "FAIL"]
+        if len(failures) != 2 or {item.get("gate") for item in failures} != {
+                "Repository Hygiene", "Secrets"}:
+            return False
+        by_gate = {item["gate"]: item for item in failures}
+        hygiene = by_gate["Repository Hygiene"]
+        if (hygiene.get("message") != "Accidental merge commits detected."
+                or hygiene.get("details") != [candidate, *reversed(reviewed)]):
+            return False
+        fixtures = decisions["inherited_synthetic_fixtures"]["synthetic_fixture_findings"]
+        expected = {(item["path"], item["label"], item["line_sha256"]) for item in fixtures}
+        if (len(fixtures) != 26 or len(expected) != 26
+                or hashlib.sha256(json.dumps(sorted(expected), separators=(",", ":")).encode()).hexdigest()
+                != fixture_digest):
+            return False
+        source = root / "tests/test_pr_qa_regressions.py"
+        inherited = git(["show", f"{release}:tests/test_pr_qa_regressions.py"], root)
+        if not source.is_file() or source.is_symlink() or inherited.returncode:
+            return False
+        current_hashes = {hashlib.sha256(line.strip().encode()).hexdigest()
+                          for line in source.read_text(encoding="utf-8").splitlines()}
+        inherited_hashes = {hashlib.sha256(line.strip().encode()).hexdigest()
+                            for line in inherited.stdout.splitlines()}
+        actual = set()
+        details = by_gate["Secrets"].get("details")
+        if not isinstance(details, list) or len(details) != 26:
+            return False
+        for detail in details:
+            match = re.fullmatch(r"([^:]+): (.+)\. line_sha256=([0-9a-f]{64})", detail)
+            if not match:
+                return False
+            path, label, fingerprint = match.groups()
+            if (path != "tests/test_pr_qa_regressions.py"
+                    or fingerprint not in current_hashes or fingerprint not in inherited_hashes):
+                return False
+            actual.add((path, label, fingerprint))
+        if actual != expected or len(actual) != len(details):
+            return False
+        print(f"Secret findings: {len(actual)} inherited synthetic findings accepted; 0 new blocking findings.")
+        return True
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return False
+
+
 def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str, release: str = "",
               verified_lineage: list[str] | None = None) -> bool:
     head_sha = git(["rev-parse", "HEAD"], root).stdout.strip()
@@ -1100,6 +1193,9 @@ def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str, release: st
             return True
         if reviewed_rc217_disposition(root, report_path, base, release, verified_lineage):
             print("Active PR-QA findings matched exact rc217 protected lineage, inherited fixtures and immutable v10 Gate D evidence.")
+            return True
+        if reviewed_rc219_disposition(root, report_path, base, release, verified_lineage):
+            print("Active PR-QA findings matched exact rc219 protected lineage and inherited fixtures.")
             return True
         return False
 

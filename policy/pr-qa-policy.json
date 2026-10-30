@@ -895,6 +895,17 @@
         }
       ]
     },
+    "pr-qa-v1-rc219": {
+      "reason": "rc219-only disposition for three independently verified protected PR merges and the complete unchanged set of 26 inherited synthetic fixture findings. Any changed lineage, finding or additional blocking gate remains blocking.",
+      "predecessor_release": "pr-qa-v1-rc218",
+      "reviewed_commits": [
+        "bc2397f914da2db864f97a5745a1fcecc2f39328",
+        "3c5e4ec85ce6148ed183c7dd5b2b444d094f56f6",
+        "5b69874162fb11c52c145eb3c61ddb88db1fbbb3"
+      ],
+      "reviewed_prs": [430, 431, 432],
+      "fixture_findings_sha256": "4d7f89cdf09c5b240231a6d45ee4e85e2e641a25d577d3e33936bbff730fbbab"
+    },
     "pr-qa-v1-rc217": {
       "reason": "rc217-only disposition for the verified protected PR lineage, the complete canonical set of 26 inherited synthetic findings, and the immutable RoadSense v10 Gate D workflow. Any changed evidence or additional failure remains blocking.",
       "predecessor_release": "pr-qa-v1-rc216",

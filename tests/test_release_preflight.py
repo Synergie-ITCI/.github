@@ -19,6 +19,97 @@ preflight = SourceFileLoader("release_preflight", str(SCRIPT)).load_module()
 
 
 class ReleasePreflightTests(unittest.TestCase):
+    def test_rc219_disposition_accepts_only_verified_lineage_and_complete_fixtures(self):
+        decisions = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())[
+            "release_preflight_dispositions"]
+        reviewed = decisions["pr-qa-v1-rc219"]["reviewed_commits"]
+        fixtures = decisions["inherited_synthetic_fixtures"]["synthetic_fixture_findings"]
+        candidate = "a" * 40
+        expected_merges = [candidate, *reversed(reviewed)]
+        report = {"summary": {"overall_result": "FAIL"}, "results": [
+            {"gate": "Repository Hygiene", "status": "FAIL", "blocking": True,
+             "message": "Accidental merge commits detected.", "details": expected_merges},
+            {"gate": "Secrets", "status": "FAIL", "blocking": True,
+             "details": [f"{item['path']}: {item['label']}. line_sha256={item['line_sha256']}"
+                         for item in fixtures]},
+        ]}
+        self.assertEqual(len(fixtures), 26)
+        self.assertEqual(len(set(report["results"][1]["details"])), 26)
+
+        def fake_git(args, _root):
+            values = {
+                ("remote", "get-url", "origin"): preflight.CENTRAL_ORIGIN + "\n",
+                ("rev-parse", "HEAD"): candidate + "\n",
+                ("rev-parse", "refs/remotes/origin/main"): candidate + "\n",
+                ("rev-list", "--first-parent", "--merges", "pr-qa-v1-rc218..HEAD"):
+                    "\n".join(expected_merges) + "\n",
+                ("diff", "--name-only", "HEAD^1..HEAD"):
+                    "policy/pr-qa-policy.json\nscripts/release-preflight\ntests/test_release_preflight.py\n",
+            }
+            if tuple(args) in values:
+                return subprocess.CompletedProcess(args, 0, values[tuple(args)], "")
+            if args == ["show", "pr-qa-v1-rc218:tests/test_pr_qa_regressions.py"]:
+                return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, check=False)
+            return subprocess.CompletedProcess(args, 1, "", "unexpected git query")
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for relative in ("policy/pr-qa-policy.json", "tests/test_pr_qa_regressions.py"):
+                destination = root / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes((ROOT / relative).read_bytes())
+            report_path = root / "report.json"
+
+            def accepted():
+                report_path.write_text(json.dumps(report), encoding="utf-8")
+                return preflight.reviewed_rc219_disposition(
+                    root, report_path, "main", "pr-qa-v1-rc218", [*reviewed, candidate])
+
+            with patch.object(preflight, "git", side_effect=fake_git):
+                self.assertTrue(accepted())
+                self.assertFalse(preflight.reviewed_rc219_disposition(
+                    root, report_path, "development", "pr-qa-v1-rc218", [*reviewed, candidate]))
+                self.assertFalse(preflight.reviewed_rc219_disposition(
+                    root, report_path, "main", "pr-qa-v1-rc217", [*reviewed, candidate]))
+                self.assertFalse(preflight.reviewed_rc219_disposition(
+                    root, report_path, "main", "pr-qa-v1-rc218", reviewed))
+
+                original = report["results"][1]["details"][:]
+                for changed in (original[:6], original[:-1], original + [original[0]],
+                                original + ["src/config.py: API key. line_sha256=" + "b" * 64],
+                                [original[0].replace("line_sha256=", "fingerprint=")] + original[1:],
+                                [original[0].replace("GitHub token", "API key")] + original[1:]):
+                    report["results"][1]["details"] = changed
+                    self.assertFalse(accepted())
+                report["results"][1]["details"] = original
+                report["results"].append({"gate": "Deployment Risk", "status": "FAIL", "blocking": True})
+                self.assertFalse(accepted())
+                report["results"].pop()
+                report["results"][0]["details"] = expected_merges[:-1]
+                self.assertFalse(accepted())
+                report["results"][0]["details"] = expected_merges
+                report_path.write_text("{malformed", encoding="utf-8")
+                self.assertFalse(preflight.reviewed_rc219_disposition(
+                    root, report_path, "main", "pr-qa-v1-rc218", [*reviewed, candidate]))
+                self.assertTrue(accepted())
+
+            with patch.object(preflight, "git", side_effect=lambda args, cwd: (
+                subprocess.CompletedProcess(args, 0, "https://github.com/other/repo.git\n", "")
+                if args == ["remote", "get-url", "origin"] else fake_git(args, cwd))):
+                self.assertFalse(accepted())
+
+            source = root / "tests/test_pr_qa_regressions.py"
+            source.write_text("changed fixture source\n", encoding="utf-8")
+            with patch.object(preflight, "git", side_effect=fake_git):
+                self.assertFalse(accepted())
+            source.write_bytes((ROOT / "tests/test_pr_qa_regressions.py").read_bytes())
+            policy = root / "policy/pr-qa-policy.json"
+            value = json.loads(policy.read_text(encoding="utf-8"))
+            value["release_preflight_dispositions"]["pr-qa-v1-rc219"]["reviewed_prs"] = [430, 431]
+            policy.write_text(json.dumps(value), encoding="utf-8")
+            with patch.object(preflight, "git", side_effect=fake_git):
+                self.assertFalse(accepted())
+
     def test_rc217_disposition_requires_exact_inherited_evidence(self):
         decisions = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())[
             "release_preflight_dispositions"]
