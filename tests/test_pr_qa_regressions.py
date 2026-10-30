@@ -7335,7 +7335,10 @@ exit 0
 
         summary = engine.render_pr_failure_summary(report, self.status_event("developer"), self.status_policy())
 
-        self.assertIn("PR-QA merge readiness: BLOCKED (GitHub branch rules control enforcement).", summary)
+        self.assertIn("Quality-check result: FAIL", summary)
+        self.assertIn("PR-QA merge readiness: BLOCKED", summary)
+        self.assertIn("GitHub merge enforcement: UNKNOWN", summary)
+        self.assertIn("Why it matters: PR-QA cannot report a ready result", summary)
         self.assertIn("Where:\ntests/unit/test_roles.py::test_scope", summary)
         self.assertIn("Reproduce:\ncd apps/api && pytest", summary)
 

@@ -5450,7 +5450,14 @@ def render_pr_failure_summary(report: dict[str, Any], event: dict[str, Any], pol
     status = build_pr_status_model(report, event, policy, {})
     if status["status"] != "BLOCKED" or not status.get("action_items"):
         return ""
-    lines = ["PR QA BLOCKED", "PR-QA merge readiness: BLOCKED (GitHub branch rules control enforcement)."]
+    quality_result = str((report.get("summary") or {}).get("overall_result") or "UNKNOWN")
+    lines = [
+        "PR QA BLOCKED",
+        f"Quality-check result: {quality_result}",
+        "PR-QA merge readiness: BLOCKED",
+        "GitHub merge enforcement: UNKNOWN (branch rules are not verified by this report).",
+        "Why it matters: PR-QA cannot report a ready result while these blockers remain.",
+    ]
     commands = report.get("commands", []) or []
     repository = str((report.get("summary") or {}).get("repository") or "")
     for index, item in enumerate(status["action_items"], start=1):
@@ -5458,8 +5465,7 @@ def render_pr_failure_summary(report: dict[str, Any], event: dict[str, Any], pol
             lines.extend(["", f"Blocker {index}:"])
         lines.extend(["", "What failed:", item["what_failed"], "", "Why:", item["why"], "", "What to do:", item["what_to_do"]])
         location = developer_failure_location(item.get("technical_details", []))
-        if location:
-            lines.extend(["", "Where:", location])
+        lines.extend(["", "Where:", location or "No file, line, or commit identified by this finding."])
         command = developer_reproduction_command(item["what_failed"], commands, repository)
         if command:
             lines.extend(["", "Reproduce:", command])
@@ -5473,6 +5479,8 @@ def render_pr_failure_summary(report: dict[str, Any], event: dict[str, Any], pol
 
 def developer_failure_location(details: list[str]) -> str:
     for detail in details:
+        if re.fullmatch(r"[0-9a-f]{40}", detail):
+            return f"Commit {detail}"
         match = re.search(r"\bFAILED\s+([.\w/-]+(?:::\w+)*)", detail)
         if not match:
             match = re.match(r"([.\w/-]+(?::\d+)?):", detail)
