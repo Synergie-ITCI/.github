@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from adapters import ADAPTERS
+from risk_contract import assess_risk_contracts
 from adapters.base import (
     FAIL,
     MANDATORY_GATES,
@@ -95,6 +96,7 @@ TECHNICAL_GATE_NAMES = {
     "Lint",
     "Build",
     "Tests",
+    "Application Risk Contract",
     "Dependencies",
     "Licence",
 }
@@ -138,6 +140,7 @@ GATE_ORDER = [
     ("dependencies", "Dependencies"),
     ("licence", "Licence"),
     ("documentation", "Documentation"),
+    ("application_risk_contract", "Application Risk Contract"),
     ("advisory_review", "Architecture"),
     ("release_drift", "Release Drift"),
     ("risk", "Risk Engine"),
@@ -1071,12 +1074,45 @@ def run_governance(ctx: PRContext, existing_results: list[CheckResult], args: ar
     if context_cache(ctx).get("audited_migration_used"):
         results.extend(gate_database_safety(ctx))
     results.extend(run_if_enabled(ctx, "documentation", lambda: gate_documentation(ctx)))
+    results.extend(gate_application_risk_contract(ctx, existing_results))
     results.extend(run_if_enabled(ctx, "advisory_review", lambda: gate_advisory_review(ctx)))
     results.extend(gate_release_drift(ctx))
     results.extend(run_if_enabled(ctx, "risk", lambda: gate_risk(ctx, existing_results + results)))
     results.extend(run_if_enabled(ctx, "evidence", lambda: gate_evidence(ctx)))
     results.extend(run_if_enabled(ctx, "review_policy", lambda: gate_review_policy(ctx, args.review_policy_input)))
     return results
+
+
+def gate_application_risk_contract(ctx: PRContext, existing_results: list[CheckResult]) -> list[CheckResult]:
+    repository = str((ctx.event.get("repository") or {}).get("full_name") or "")
+    configured = (ctx.policy.get("application_risk_contracts") or {}).get(repository, [])
+    if not configured:
+        return []
+    if not isinstance(configured, list):
+        return [failed("Application Risk Contract", None, "Central risk contract has an invalid shape.")]
+    test_results = [item for item in existing_results if item.gate == "Tests"]
+    tests_passed = bool(test_results) and any(item.status == PASS for item in test_results) and all(
+        item.status not in {FAIL, WARNING, SKIP} for item in test_results
+    )
+    assessments = assess_risk_contracts(configured, ctx.changed_files, ctx.repo, tests_passed)
+    if not assessments:
+        return [skipped("Application Risk Contract", None, "No declared application risk path changed.")]
+    failures = [f"{risk}: {status}" for risk, status in assessments if status != "PASS"]
+    if failures:
+        return [failed("Application Risk Contract", None, "Risk-triggered application test evidence is missing or failed.", failures)]
+    for contract in configured:
+        risk = str(contract.get("risk", "unnamed"))
+        if (risk, "PASS") not in assessments:
+            continue
+        command = contract.get("test_command")
+        if not isinstance(command, list) or not command or not all(isinstance(part, str) and part for part in command):
+            return [failed("Application Risk Contract", None, f"{risk}: focused test command is missing or invalid.")]
+        outcome = ctx.run(command, timeout=180)
+        if outcome.skipped or not outcome.ok:
+            return [failed("Application Risk Contract", None, f"{risk}: focused application tests did not pass.",
+                           [outcome.concise_output()])]
+    return [passed("Application Risk Contract", None, "Declared risk paths have passing existing Tests gate and focused application tests.",
+                   [risk for risk, _ in assessments])]
 
 
 def gate_release_drift(ctx: PRContext) -> list[CheckResult]:

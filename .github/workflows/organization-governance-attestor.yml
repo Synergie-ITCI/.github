@@ -1,0 +1,43 @@
+name: Organization Governance Attestor
+
+on:
+  pull_request:
+    paths:
+      - tools/org_governance_attestor.py
+      - tools/github_governance_inventory.py
+      - tests/test_org_governance_attestor.py
+      - .github/workflows/organization-governance-attestor.yml
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  attest:
+    if: github.event_name == 'pull_request' || vars.SYNERGIE_ORG_AUDIT_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Test report-only attestor
+        run: python3 -m unittest discover -s tests -p test_org_governance_attestor.py -v
+      - name: Read organization governance
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.SYNERGIE_GOVERNANCE_READ_TOKEN }}
+        run: |
+          test -n "$GH_TOKEN" || { echo 'Read-only organization governance token is unavailable'; exit 1; }
+          python3 tools/org_governance_attestor.py \
+            --output "$RUNNER_TEMP/organization-governance-attestation.json"
+      - name: Preserve report-only evidence
+        if: github.event_name != 'pull_request' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: organization-governance-attestation-${{ github.sha }}
+          path: ${{ runner.temp }}/organization-governance-attestation.json
+          if-no-files-found: warn

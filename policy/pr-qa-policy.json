@@ -1,6 +1,22 @@
 {
   "version": 1,
   "policy_id": "synergie-pr-qa-enterprise-v1",
+  "application_risk_contracts": {
+    "Synergie-ITCI/BDPP": [
+      {
+        "risk": "authentication-and-session",
+        "source_paths": ["BdppApp/api/v1/auth.py", "BdppApp/api/v1/user.py"],
+        "evidence_paths": ["tests/test_admin_user_management.py", "tests/test_grievance_workflow.py"],
+        "test_command": ["pytest", "-q", "tests/test_admin_user_management.py::AdminUserManagementTests::test_real_create_login_and_token_authorization", "tests/test_grievance_workflow.py::WorkflowTests::test_role_otp_login_refresh_and_deactivation"]
+      },
+      {
+        "risk": "authorization-concurrency-and-idempotency",
+        "source_paths": ["BdppApp/api/v1/grievance.py"],
+        "evidence_paths": ["tests/test_grievance_workflow.py"],
+        "test_command": ["pytest", "-q", "tests/test_grievance_workflow.py::WorkflowTests::test_idempotent_create_assign_comment_and_key_reuse", "tests/test_grievance_workflow.py::WorkflowTests::test_list_filters_and_dashboard_dates_validate"]
+      }
+    ]
+  },
   "mandatory_gates": [
     "baseline_alignment",
     "repository_hygiene",

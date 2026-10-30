@@ -6616,10 +6616,10 @@ jobs:
         self.assertIn("tfsec_${TFSEC_VERSION}_linux_amd64.tar.gz", workflow)
         self.assertIn("name: pr-qa", self_workflow)
 
-    def test_workflow_cli_contract_uses_resolved_active_framework_release(self) -> None:
+    def test_workflow_cli_contract_uses_approved_consumer_framework_release(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "pr-qa.yml").read_text(encoding="utf-8")
         self.assertNotRegex(workflow, r'PR_QA_FRAMEWORK_RELEASE:\s*"pr-qa-v1-rc\d+"')
-        self.assertIn("python3 .pr-qa-release-resolver/pr-qa/release_pin.py --resolve-active", workflow)
+        self.assertIn("python3 .pr-qa-release-resolver/pr-qa/release_pin.py --resolve-for-consumer", workflow)
         self.assertIn("ref: ${{ steps.active-framework.outputs.release }}", workflow)
         self.assertIn("ref: ${{ needs.detect.outputs.framework_release }}", workflow)
 
