@@ -61,6 +61,33 @@ class ApplicationRiskContractTests(unittest.TestCase):
         result = gate_application_risk_contract(context, passing_tests)
         self.assertEqual(result[0].status, "FAIL")
 
+    def test_unrelated_test_skips_do_not_hide_pass_or_failure(self):
+        commands = []
+        context = SimpleNamespace(
+            event={"repository": {"full_name": "Synergie-ITCI/pilot"}},
+            policy={"application_risk_contracts": {"Synergie-ITCI/pilot": self.contract}},
+            changed_files=["app/auth.py"], repo=self.repo,
+            run=lambda command, timeout: (commands.append(command) or SimpleNamespace(ok=True, skipped=False)),
+        )
+        python_pass = CheckResult("Tests", "PASS", "Python tests passed", technology="Python")
+        unrelated_skips = [CheckResult("Tests", "SKIP", f"No {name} files changed",
+                                       technology=name, blocking=False)
+                           for name in ("Shell", "Docker", "GitHub Actions")]
+        result = gate_application_risk_contract(context, [python_pass, *unrelated_skips])
+        self.assertEqual(result[0].status, "PASS")
+        self.assertEqual(commands, [self.contract[0]["test_command"]])
+
+        result = gate_application_risk_contract(context, [python_pass, *unrelated_skips,
+                                                         CheckResult("Tests", "FAIL", "Selected test failed")])
+        self.assertEqual(result[0].status, "FAIL")
+        self.assertEqual(len(commands), 1)
+
+        context.run = lambda command, timeout: SimpleNamespace(
+            ok=False, skipped=False, concise_output=lambda: "selected test failed"
+        )
+        result = gate_application_risk_contract(context, [python_pass, *unrelated_skips])
+        self.assertEqual(result[0].status, "FAIL")
+
 
 if __name__ == "__main__":
     unittest.main()

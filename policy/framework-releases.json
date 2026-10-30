@@ -3,9 +3,7 @@
   "repository": "Synergie-ITCI/.github",
   "consumer_release_selection": {
     "default": {"release": "pr-qa-v1-rc216", "commit": "300758cbf29384909a0b5027719242689a26698f"},
-    "repositories": {
-      "Synergie-ITCI/BDPP": {"release": "pr-qa-v1-rc217", "commit": "5cbc6b0793c552431e8c926eb33d9309c9ddb8c8"}
-    }
+    "repositories": {}
   },
   "gate_d_workflow_releases": {
     "roadsense-gate-d-v1": {
