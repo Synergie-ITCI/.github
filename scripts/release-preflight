@@ -953,6 +953,14 @@ def reviewed_rc217_disposition(
                 }):
             return False
         report = json.loads(report_path.read_text(encoding="utf-8"))
+        if (not isinstance(report.get("summary"), dict)
+                or report["summary"].get("overall_result") != "FAIL"
+                or not isinstance(report.get("results"), list)
+                or any(not isinstance(item, dict)
+                       or type(item.get("blocking")) is not bool
+                       or item.get("status") not in {"PASS", "FAIL", "WARNING", "SKIP"}
+                       for item in report["results"])):
+            return False
         failures = [item for item in report["results"]
                     if item.get("blocking") and item.get("status") == "FAIL"]
         if len(failures) != 3 or {item.get("gate") for item in failures} != {

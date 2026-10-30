@@ -26,7 +26,7 @@ class ReleasePreflightTests(unittest.TestCase):
         approved = decisions["inherited_synthetic_fixtures"]["synthetic_fixture_findings"][:6]
         candidate = "a" * 40
         workflow = ".github/workflows/roadsense-controlled-release.yml"
-        report = {"results": [
+        report = {"summary": {"overall_result": "FAIL"}, "results": [
             {"gate": "Repository Hygiene", "status": "FAIL", "blocking": True,
              "message": "Accidental merge commits detected.",
              "details": [candidate, *reversed(reviewed)]},
@@ -84,6 +84,48 @@ class ReleasePreflightTests(unittest.TestCase):
                 report["results"][1]["details"][0] = (
                     f"{approved[0]['path']}: {approved[0]['label']}. line_sha256={approved[0]['line_sha256']}")
                 report["results"].append({"gate": "Architecture", "status": "FAIL", "blocking": True})
+                report_path.write_text(json.dumps(report))
+                self.assertFalse(preflight.reviewed_rc217_disposition(
+                    root, report_path, "main", "pr-qa-v1-rc216", [*reviewed, candidate]))
+                report["results"].pop()
+                report_path.write_text(json.dumps(report))
+                for other_release in ("pr-qa-v1-rc215", "pr-qa-v1-rc217"):
+                    self.assertFalse(preflight.reviewed_rc217_disposition(
+                        root, report_path, "main", other_release, [*reviewed, candidate]))
+                with patch.object(preflight, "git", side_effect=lambda args, repo: (
+                    subprocess.CompletedProcess(args, 0, "https://github.com/OtherOrg/.github.git\n", "")
+                    if args == ["remote", "get-url", "origin"] else fake_git(args, repo))):
+                    self.assertFalse(preflight.reviewed_rc217_disposition(
+                        root, report_path, "main", "pr-qa-v1-rc216", [*reviewed, candidate]))
+                with patch.object(preflight, "git", side_effect=lambda args, repo: (
+                    subprocess.CompletedProcess(args, 0, "\n".join(reversed(reviewed)) + "\n", "")
+                    if args == ["rev-list", "--first-parent", "--merges", "pr-qa-v1-rc216..HEAD"]
+                    else fake_git(args, repo))):
+                    self.assertFalse(preflight.reviewed_rc217_disposition(
+                        root, report_path, "main", "pr-qa-v1-rc216", [*reviewed, candidate]))
+                with patch.object(preflight, "git", side_effect=lambda args, repo: (
+                    subprocess.CompletedProcess(args, 1, "", "tag unavailable")
+                    if args == ["show", f"roadsense-gate-d-v10:{workflow}"]
+                    else fake_git(args, repo))):
+                    self.assertFalse(preflight.reviewed_rc217_disposition(
+                        root, report_path, "main", "pr-qa-v1-rc216", [*reviewed, candidate]))
+                workflow_path = root / workflow
+                original_workflow = workflow_path.read_bytes()
+                workflow_path.write_bytes(original_workflow + b"\n# changed\n")
+                self.assertFalse(preflight.reviewed_rc217_disposition(
+                    root, report_path, "main", "pr-qa-v1-rc216", [*reviewed, candidate]))
+                workflow_path.write_bytes(original_workflow)
+                report["results"][1]["details"].append("tests/new.py: GitHub token. line_sha256=" + "f" * 64)
+                report_path.write_text(json.dumps(report))
+                self.assertFalse(preflight.reviewed_rc217_disposition(
+                    root, report_path, "main", "pr-qa-v1-rc216", [*reviewed, candidate]))
+                report["results"][1]["details"].pop()
+                report["results"].append({"gate": "Tests", "status": "FAIL", "message": "Failed."})
+                report_path.write_text(json.dumps(report))
+                self.assertFalse(preflight.reviewed_rc217_disposition(
+                    root, report_path, "main", "pr-qa-v1-rc216", [*reviewed, candidate]))
+                report["results"].pop()
+                report["summary"].pop("overall_result")
                 report_path.write_text(json.dumps(report))
                 self.assertFalse(preflight.reviewed_rc217_disposition(
                     root, report_path, "main", "pr-qa-v1-rc216", [*reviewed, candidate]))
