@@ -9,7 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-from org_governance_attestor import expired_exception_findings, findings_for_repository, invokes_central_pr_qa
+from org_governance_attestor import (expired_exception_findings, findings_for_repository,
+                                     has_active_release_workflow, invokes_central_pr_qa)
 
 
 class OrganizationAttestorTests(unittest.TestCase):
@@ -29,6 +30,12 @@ class OrganizationAttestorTests(unittest.TestCase):
         self.assertFalse(invokes_central_pr_qa("# uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@main\n"))
         self.assertFalse(invokes_central_pr_qa("name: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@main\n"))
         self.assertTrue(invokes_central_pr_qa("    uses: Synergie-ITCI/.github/.github/workflows/pr-qa.yml@main\n"))
+
+    def test_disabled_release_workflow_is_not_control_evidence(self):
+        workflows = [{"path": ".github/workflows/production-deploy.yml", "state": "disabled_manually"}]
+        self.assertFalse(has_active_release_workflow(workflows))
+        workflows[0]["state"] = "active"
+        self.assertTrue(has_active_release_workflow(workflows))
 
     def test_missing_caller_and_required_check_are_distinct(self):
         record = self.healthy()

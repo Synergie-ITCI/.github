@@ -30,6 +30,13 @@ def invokes_central_pr_qa(workflow: str) -> bool:
                for line in workflow.splitlines() if not line.lstrip().startswith("#"))
 
 
+def has_active_release_workflow(workflows: list[dict[str, Any]]) -> bool:
+    return any(w.get("state") == "active" and
+               re.search(r"(production.*deploy|controlled.*release|gate.?d)",
+                         str(w.get("path", "")), re.IGNORECASE)
+               for w in workflows)
+
+
 def findings_for_repository(record: dict[str, Any]) -> list[dict[str, str]]:
     """Classify observations without equating missing evidence with bypass."""
     findings: list[dict[str, str]] = []
@@ -122,9 +129,7 @@ def live_record(owner: str, name: str) -> dict[str, Any]:
                 promotion[promotion_branch] = bool(result.data.get("protected"))
             elif "404" not in result.error and "Not Found" not in result.error:
                 raise RuntimeError(f"GET branch {promotion_branch}: {result.error[:160]}")
-        release_workflow_candidate = any(re.search(r"(production.*deploy|controlled.*release|gate.?d)",
-                                                   str(w.get("path", "")), re.IGNORECASE)
-                                         for w in workflows.get("workflows", []))
+        release_workflow_candidate = has_active_release_workflow(workflows.get("workflows", []))
         return {"name": name, "default_branch": branch, "archived": repo.get("archived"),
                 "disabled": repo.get("disabled"), "caller": {"present": present, "central": central,
                 "workflow_state": state}, "required_checks": checks,
