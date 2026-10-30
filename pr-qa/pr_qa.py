@@ -5450,7 +5450,7 @@ def render_pr_failure_summary(report: dict[str, Any], event: dict[str, Any], pol
     status = build_pr_status_model(report, event, policy, {})
     if status["status"] != "BLOCKED" or not status.get("action_items"):
         return ""
-    lines = ["PR QA BLOCKED", "Merge blocked: YES"]
+    lines = ["PR QA BLOCKED", "PR-QA merge readiness: BLOCKED (GitHub branch rules control enforcement)."]
     commands = report.get("commands", []) or []
     repository = str((report.get("summary") or {}).get("repository") or "")
     for index, item in enumerate(status["action_items"], start=1):
