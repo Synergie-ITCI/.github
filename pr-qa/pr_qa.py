@@ -5450,17 +5450,61 @@ def render_pr_failure_summary(report: dict[str, Any], event: dict[str, Any], pol
     status = build_pr_status_model(report, event, policy, {})
     if status["status"] != "BLOCKED" or not status.get("action_items"):
         return ""
-    lines = ["PR QA BLOCKED"]
+    quality_result = str((report.get("summary") or {}).get("overall_result") or "UNKNOWN")
+    lines = [
+        "PR QA BLOCKED",
+        f"Quality-check result: {quality_result}",
+        "PR-QA merge readiness: BLOCKED",
+        "GitHub merge enforcement: UNKNOWN (branch rules are not verified by this report).",
+        "Why it matters: PR-QA cannot report a ready result while these blockers remain.",
+    ]
+    commands = report.get("commands", []) or []
+    repository = str((report.get("summary") or {}).get("repository") or "")
     for index, item in enumerate(status["action_items"], start=1):
         if len(status["action_items"]) > 1:
             lines.extend(["", f"Blocker {index}:"])
         lines.extend(["", "What failed:", item["what_failed"], "", "Why:", item["why"], "", "What to do:", item["what_to_do"]])
+        location = developer_failure_location(item.get("technical_details", []))
+        lines.extend(["", "Where:", location or "No file, line, or commit identified by this finding."])
+        command = developer_reproduction_command(item["what_failed"], commands, repository)
+        if command:
+            lines.extend(["", "Reproduce:", command])
         if item.get("technical_details"):
             lines.extend(["", "Technical details:"])
             lines.extend(f"- {detail}" for detail in item["technical_details"])
     if status.get("additional_blockers"):
         lines.extend(["", f"Additional blockers: {status['additional_blockers']} more. Review the PR-QA technical details for the remaining blockers."])
     return "\n".join(lines).rstrip() + "\n"
+
+
+def developer_failure_location(details: list[str]) -> str:
+    for detail in details:
+        if re.fullmatch(r"[0-9a-f]{40}", detail):
+            return f"Commit {detail}"
+        match = re.search(r"\bFAILED\s+([.\w/-]+(?:::\w+)*)", detail)
+        if not match:
+            match = re.match(r"([.\w/-]+(?::\d+)?):", detail)
+        if match:
+            location = match.group(1)
+            if "/" in location or re.search(r"\.[A-Za-z][A-Za-z0-9]*$", location):
+                return location
+    return ""
+
+
+def developer_reproduction_command(label: str, commands: list[Any], repository: str) -> str:
+    if not label.startswith("Tests") or not isinstance(commands, list):
+        return ""
+    failed = [command for command in commands if isinstance(command, dict) and command.get("exit_code") not in (None, 0) and not command.get("skipped")]
+    if len(failed) != 1:
+        return ""
+    command = str(failed[0].get("command") or "").strip()
+    if not re.fullmatch(r"(?:pytest(?:\s+-q)?|php vendor/bin/phpunit)(?:\s+[\w./:-]+)*", command):
+        return ""
+    cwd = str(failed[0].get("cwd") or "")
+    repo_name = repository.rsplit("/", 1)[-1]
+    marker = f"/{repo_name}/"
+    relative = cwd.rsplit(marker, 1)[1] if repo_name and marker in cwd else ""
+    return f"cd {relative} && {command}" if relative and re.fullmatch(r"[\w./-]+", relative) else command
 
 
 def actions_error_annotation(summary: str) -> str:
@@ -6447,8 +6491,9 @@ def extract_risk_score(message: str) -> int:
 
 
 def write_reports(args: argparse.Namespace, summary: dict[str, Any], results: list[CheckResult], ctx: PRContext) -> None:
-    report = render_markdown_report(summary, results)
     json_report = render_json_report(summary, results, ctx)
+    failure_summary = render_pr_failure_summary(json_report, {}, ctx.policy) if summary.get("overall_result") == FAIL else ""
+    report = render_markdown_report(summary, results, failure_summary=failure_summary)
     qa_packet = build_pr_qa_packet(summary, results, ctx)
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
@@ -6645,11 +6690,12 @@ def emergency_override_digest(record: dict[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def render_markdown_report(summary: dict[str, Any], results: list[CheckResult]) -> str:
+def render_markdown_report(summary: dict[str, Any], results: list[CheckResult], *, failure_summary: str = "") -> str:
     techs = ", ".join(summary["detected_technologies"]) or "None detected"
     lines = [
         "# PR QUALITY REPORT",
         "",
+        *(["## Immediate action", "", *(markdown_escape(line) for line in failure_summary.rstrip().splitlines()), ""] if failure_summary else []),
         f"Repository: `{markdown_escape(summary['repository'])}`",
         f"Policy: `{markdown_escape(summary['policy_id'])}`",
         f"Base Ref: `{markdown_escape(summary['base_ref'] or 'unknown')}`",

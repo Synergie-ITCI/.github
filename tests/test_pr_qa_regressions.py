@@ -7322,6 +7322,31 @@ exit 0
 
         self.assertEqual(annotation, "::error title=PR QA BLOCKED::php artisan test failed.")
 
+    def test_failure_summary_uses_reported_test_location_and_command(self) -> None:
+        engine = load_engine_module()
+        report = self.status_report(
+            "FAIL", "staging", "feature/work",
+            [{"gate": "Tests", "status": "FAIL", "blocking": True,
+              "message": "apps/api: Pytest failed.",
+              "details": ["FAILED tests/unit/test_roles.py::test_scope - AssertionError"]}],
+        )
+        report["summary"]["repository"] = "Synergie-ITCI/programme-management-platform"
+        report["commands"] = [{"command": "pytest", "cwd": "/home/runner/work/programme-management-platform/programme-management-platform/apps/api", "exit_code": 1, "skipped": False}]
+
+        summary = engine.render_pr_failure_summary(report, self.status_event("developer"), self.status_policy())
+
+        self.assertIn("Quality-check result: FAIL", summary)
+        self.assertIn("PR-QA merge readiness: BLOCKED", summary)
+        self.assertIn("GitHub merge enforcement: UNKNOWN", summary)
+        self.assertIn("Why it matters: PR-QA cannot report a ready result", summary)
+        self.assertIn("Where:\ntests/unit/test_roles.py::test_scope", summary)
+        self.assertIn("Reproduce:\ncd apps/api && pytest", summary)
+
+        report["commands"][0]["command"] = "pytest; echo unsafe"
+        self.assertNotIn("Reproduce:", engine.render_pr_failure_summary(report, self.status_event("developer"), self.status_policy()))
+        report["summary"]["overall_result"] = "PASS"
+        self.assertEqual(engine.render_pr_failure_summary(report, self.status_event("developer"), self.status_policy()), "")
+
     def test_actions_failure_summary_cli_writes_job_summary_and_redacts_secrets(self) -> None:
         engine = load_engine_module()
         fake_token = "ghp_FAKEtokenForRegressionOnly1234567890"
