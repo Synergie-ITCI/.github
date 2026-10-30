@@ -4,9 +4,12 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pr-qa"))
 from risk_contract import assess_risk_contracts
+from adapters.base import CheckResult
+from pr_qa import gate_application_risk_contract
 
 
 class ApplicationRiskContractTests(unittest.TestCase):
@@ -35,6 +38,20 @@ class ApplicationRiskContractTests(unittest.TestCase):
         unsafe = [{**self.contract[0], "evidence_paths": ["../outside.py"]}]
         self.assertEqual(assess_risk_contracts(unsafe, ["app/auth.py"], self.repo, True),
                          [("session", "INVALID_CONTRACT")])
+
+    def test_central_gate_blocks_failed_existing_tests(self):
+        context = SimpleNamespace(
+            event={"repository": {"full_name": "Synergie-ITCI/pilot"}},
+            policy={"application_risk_contracts": {"Synergie-ITCI/pilot": self.contract}},
+            changed_files=["app/auth.py"], repo=self.repo,
+        )
+        failed_tests = [CheckResult("Tests", "FAIL", "synthetic test failure")]
+        result = gate_application_risk_contract(context, failed_tests)
+        self.assertEqual([(item.gate, item.status) for item in result],
+                         [("Application Risk Contract", "FAIL")])
+        passing_tests = [CheckResult("Tests", "PASS", "synthetic test pass")]
+        result = gate_application_risk_contract(context, passing_tests)
+        self.assertEqual(result[0].status, "PASS")
 
 
 if __name__ == "__main__":

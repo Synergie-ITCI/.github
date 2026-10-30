@@ -38,6 +38,14 @@ class OrganizationAttestorTests(unittest.TestCase):
         codes = {item["code"] for item in findings_for_repository(record)}
         self.assertEqual(codes, {"DISABLED_CALLER", "UNPROTECTED_PROMOTION_BRANCH"})
 
+    def test_noncentral_caller_missing_pr_rule_and_release_route_are_distinct(self):
+        record = self.healthy()
+        record["caller"]["central"] = False
+        record["pull_request_rule"] = False
+        record["release_workflow_candidate"] = False
+        codes = {item["code"] for item in findings_for_repository(record)}
+        self.assertEqual(codes, {"NONCENTRAL_CALLER", "MISSING_PR_RULE", "MISSING_RELEASE_CONTROL_EVIDENCE"})
+
     def test_failed_query_is_unknown_not_compliant(self):
         self.assertEqual([f["code"] for f in findings_for_repository({"name": "pilot", "query_error": "403"})],
                          ["EVIDENCE_UNAVAILABLE"])
