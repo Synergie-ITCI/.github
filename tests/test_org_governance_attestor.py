@@ -46,6 +46,12 @@ class OrganizationAttestorTests(unittest.TestCase):
         codes = {item["code"] for item in findings_for_repository(record)}
         self.assertEqual(codes, {"NONCENTRAL_CALLER", "MISSING_PR_RULE", "MISSING_RELEASE_CONTROL_EVIDENCE"})
 
+    def test_central_repository_self_caller_is_valid(self):
+        record = self.healthy()
+        record["name"] = ".github"
+        record["caller"]["central"] = False
+        self.assertEqual(findings_for_repository(record), [])
+
     def test_failed_query_is_unknown_not_compliant(self):
         self.assertEqual([f["code"] for f in findings_for_repository({"name": "pilot", "query_error": "403"})],
                          ["EVIDENCE_UNAVAILABLE"])

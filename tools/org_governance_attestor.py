@@ -40,7 +40,7 @@ def findings_for_repository(record: dict[str, Any]) -> list[dict[str, str]]:
     caller = record.get("caller") or {}
     if not caller.get("present"):
         add("MISSING_CALLER", f"{CALLER_PATH} absent on {record.get('default_branch')}")
-    elif not caller.get("central"):
+    elif not caller.get("central") and name != ".github":
         add("NONCENTRAL_CALLER", "PR-QA caller does not invoke the central reusable workflow")
     elif str(caller.get("workflow_state") or "").startswith("disabled"):
         add("DISABLED_CALLER", f"workflow state={caller.get('workflow_state')}")
