@@ -19,6 +19,61 @@ preflight = SourceFileLoader("release_preflight", str(SCRIPT)).load_module()
 
 
 class ReleasePreflightTests(unittest.TestCase):
+    def test_rc221_fieldzilla_disposition_accepts_only_exact_workflow_finding(self):
+        reviewed = [
+            "2fc0207350fdcae7ba64e5876f3e125c7b91011b",
+            "5bb3ca12446ed348d57f43e3163b9575a53b463c",
+        ]
+        candidate = "a" * 40
+        workflow = ".github/workflows/fieldzilla-production-hosting.yml"
+        workflow_text = (ROOT / workflow).read_text()
+        finding = {
+            "gate": "Deployment Risk", "status": "FAIL", "blocking": True,
+            "message": "Deployment workflow is structurally unsafe or missing required controlled-release safeguards.",
+            "details": [f"{workflow}: production/live deployment-sensitive workflow does not match the controlled Gate D safe shape."],
+            "technology": None, "score": 20,
+        }
+        report = {"summary": {"overall_result": "FAIL"}, "results": [finding]}
+
+        def fake_git(args, _root):
+            values = {
+                ("remote", "get-url", "origin"): preflight.CENTRAL_ORIGIN + "\n",
+                ("rev-parse", "HEAD"): candidate + "\n",
+                ("rev-parse", "refs/remotes/origin/main"): candidate + "\n",
+                ("rev-list", "--first-parent", "--merges", "pr-qa-v1-rc220..HEAD"): "",
+                ("diff", "--name-only", "HEAD^1..HEAD"):
+                    "policy/pr-qa-policy.json\nscripts/release-preflight\ntests/test_release_preflight.py\n",
+                ("show", f"{reviewed[1]}:{workflow}"): workflow_text,
+            }
+            value = values.get(tuple(args))
+            return subprocess.CompletedProcess(args, 0 if value is not None else 1, value or "", "")
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for relative in ("policy/pr-qa-policy.json", workflow):
+                destination = root / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes((ROOT / relative).read_bytes())
+            report_path = root / "report.json"
+
+            def accepted():
+                report_path.write_text(json.dumps(report), encoding="utf-8")
+                return preflight.reviewed_rc221_fieldzilla_disposition(
+                    root, report_path, "main", "pr-qa-v1-rc220", [*reviewed, candidate])
+
+            with patch.object(preflight, "git", side_effect=fake_git):
+                self.assertTrue(accepted())
+                self.assertFalse(preflight.reviewed_rc221_fieldzilla_disposition(
+                    root, report_path, "main", "pr-qa-v1-rc220", reviewed))
+                report["results"].append({"gate": "Secrets", "status": "FAIL", "blocking": True})
+                self.assertFalse(accepted())
+                report["results"].pop()
+                finding["details"] = ["another workflow"]
+                self.assertFalse(accepted())
+                finding["details"] = [f"{workflow}: production/live deployment-sensitive workflow does not match the controlled Gate D safe shape."]
+                (root / workflow).write_text(workflow_text + "\n# altered\n")
+                self.assertFalse(accepted())
+
     def test_rc220_fieldzilla_disposition_is_exact_and_fail_closed(self):
         reviewed = [
             "e5f342564a14ba20101c330c2895d4ab968dde08",

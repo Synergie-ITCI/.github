@@ -430,6 +430,16 @@
     "*.csproj"
   ],
   "release_preflight_dispositions": {
+    "pr-qa-v1-rc221": {
+      "reason": "rc221-only disposition for verified protected PR #440 and #441 lineage and the exact reviewed production hosting workflow bytes after approval moved to the consumer PR. No other blocking finding is accepted.",
+      "predecessor_release": "pr-qa-v1-rc220",
+      "reviewed_commits": [
+        "2fc0207350fdcae7ba64e5876f3e125c7b91011b",
+        "5bb3ca12446ed348d57f43e3163b9575a53b463c"
+      ],
+      "reviewed_prs": [440, 441],
+      "workflow_sha256": "e315e4e3637f1314a4ff6f2d075acf984d3b970501c053346eda2fa0af714deb"
+    },
     "pr-qa-v1-rc220": {
       "reason": "rc220-only disposition for verified protected PR #436 and #438 lineage, a GitHub runner temporary plan directory, and the exact reviewed production hosting workflow bytes. No other finding is accepted; plan/apply authorization remains in the workflow.",
       "predecessor_release": "pr-qa-v1-rc219",
