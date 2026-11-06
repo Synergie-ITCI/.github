@@ -1,0 +1,281 @@
+name: FieldZilla Production Hosting
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        required: true
+        type: string
+      phase:
+        required: true
+        type: string
+      source-sha:
+        required: true
+        type: string
+      caller-sha:
+        required: true
+        type: string
+      workflow-tag:
+        required: true
+        type: string
+      plan-run-id:
+        required: false
+        type: string
+      artifact-id:
+        required: false
+        type: string
+      artifact-name:
+        required: false
+        type: string
+      artifact-digest:
+        required: false
+        type: string
+      plan-sha256:
+        required: false
+        type: string
+      approval-comment-id:
+        required: false
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  deployments: write
+  id-token: write
+
+concurrency:
+  group: fieldzilla-production-hosting
+  cancel-in-progress: false
+
+jobs:
+  hosting:
+    runs-on: ubuntu-latest
+    environment: synergie-app-production
+    timeout-minutes: 45
+    env:
+      AWS_REGION: ap-south-1
+      CENTRAL_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-production-hosting.yml@${{ inputs.workflow-tag }}
+      ROOT: deploy/production/hosting
+      STATE_BUCKET: synergie-fieldzilla-opentofu-state-918870682888-ap-south-1
+      STATE_KEY: programme-management-platform/fieldzilla/production/hosting/opentofu.tfstate
+      STATE_LOCK_TABLE: synergie-fieldzilla-opentofu-locks
+      ROLE_ARN: arn:aws:iam::918870682888:role/SynergieFieldzillaProductionHostingOpenTofu
+      MODE: ${{ inputs.mode }}
+      PHASE: ${{ inputs.phase }}
+      SOURCE_SHA: ${{ inputs.source-sha }}
+      CALLER_SHA: ${{ inputs.caller-sha }}
+      WORKFLOW_TAG: ${{ inputs.workflow-tag }}
+      PLAN_RUN_ID: ${{ inputs.plan-run-id }}
+      ARTIFACT_ID: ${{ inputs.artifact-id }}
+      ARTIFACT_NAME: ${{ inputs.artifact-name }}
+      ARTIFACT_DIGEST: ${{ inputs.artifact-digest }}
+      PLAN_SHA256: ${{ inputs.plan-sha256 }}
+      APPROVAL_COMMENT_ID: ${{ inputs.approval-comment-id }}
+    steps:
+      - name: Verify call contract
+        env:
+          MODE: ${{ inputs.mode }}
+          PHASE: ${{ inputs.phase }}
+          SOURCE_SHA: ${{ inputs.source-sha }}
+          CALLER_SHA: ${{ inputs.caller-sha }}
+        run: |
+          set -euo pipefail
+          [ "${GITHUB_REPOSITORY}" = "Synergie-ITCI/programme-management-platform" ]
+          [ "${GITHUB_REF}" = "refs/heads/main" ]
+          [ "${GITHUB_SHA}" = "${CALLER_SHA}" ]
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${CALLER_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${MODE}" =~ ^(plan|apply)$ ]]
+          [[ "${PHASE}" =~ ^(phase1|phase2)$ ]]
+
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source-sha }}
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Verify source is in protected caller commit
+        env:
+          CALLER_SHA: ${{ inputs.caller-sha }}
+          SOURCE_SHA: ${{ inputs.source-sha }}
+        run: |
+          set -euo pipefail
+          git cat-file -e "${CALLER_SHA}^{commit}"
+          git merge-base --is-ancestor "${SOURCE_SHA}" "${CALLER_SHA}"
+          test -f "${ROOT}/verify_plan.py"
+
+      - name: Checkout exact central workflow release
+        uses: actions/checkout@v4
+        with:
+          repository: Synergie-ITCI/.github
+          ref: ${{ inputs.workflow-tag }}
+          path: .central-framework
+          persist-credentials: false
+
+      - name: Verify central workflow identity
+        env:
+          EXPECTED_TAG: ${{ inputs.workflow-tag }}
+        run: |
+          set -euo pipefail
+          [[ "${EXPECTED_TAG}" =~ ^refs/tags/pr-qa-v1-rc[0-9]+$ ]]
+          test -f .central-framework/actions/fieldzilla-production-hosting/authorize.py
+          actual="$(git -C .central-framework rev-parse HEAD)"
+          test -n "${actual}"
+
+      - name: Verify GitHub OIDC production identity
+        env:
+          EXPECTED_CALLER_SHA: ${{ inputs.caller-sha }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, json, os, urllib.parse, urllib.request
+          url = os.environ['ACTIONS_ID_TOKEN_REQUEST_URL']
+          url += ('&' if '?' in url else '?') + urllib.parse.urlencode({'audience':'sts.amazonaws.com'})
+          req = urllib.request.Request(url, headers={'Authorization':'Bearer '+os.environ['ACTIONS_ID_TOKEN_REQUEST_TOKEN']})
+          with urllib.request.urlopen(req, timeout=20) as response:
+              token = json.load(response)['value']
+          payload = token.split('.')[1]
+          claims = json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
+          required = {
+              'aud':'sts.amazonaws.com',
+              'repository':'Synergie-ITCI/programme-management-platform',
+              'repository_id':'1315697868',
+              'environment':'synergie-app-production',
+              'sub':'repo:Synergie-ITCI@209829096/programme-management-platform@1315697868:environment:synergie-app-production',
+              'ref':'refs/heads/main',
+              'sha':os.environ['EXPECTED_CALLER_SHA'],
+              'job_workflow_ref':os.environ['CENTRAL_WORKFLOW_REF'],
+          }
+          if any(str(claims.get(key)) != value for key,value in required.items()):
+              raise SystemExit('GitHub OIDC claim mismatch')
+          print('GitHub OIDC production identity verified')
+          PY
+
+      - name: Configure production-only AWS role
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify AWS account and state controls
+        run: |
+          set -euo pipefail
+          test "$(aws sts get-caller-identity --query Account --output text)" = 918870682888
+          test "$(aws s3api get-bucket-versioning --bucket "${STATE_BUCKET}" --query Status --output text)" = Enabled
+          test "$(aws s3api get-bucket-encryption --bucket "${STATE_BUCKET}" --query 'ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.SSEAlgorithm' --output text)" = aws:kms
+          aws dynamodb describe-table --table-name "${STATE_LOCK_TABLE}" --query Table.TableStatus --output text | grep -qx ACTIVE
+
+      - name: Verify certificate issued for phase two
+        if: ${{ inputs.phase == 'phase2' }}
+        run: |
+          set -euo pipefail
+          arn="$(aws acm list-certificates --certificate-statuses ISSUED --query "CertificateSummaryList[?DomainName=='fieldzilla.synergieinsights.in'].CertificateArn | [0]" --output text)"
+          test "${arn}" != None
+          test -n "${arn}"
+
+      - name: Set up OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.12.5
+          tofu_wrapper: false
+
+      - name: Download exact approved plan
+        if: ${{ inputs.mode == 'apply' }}
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ inputs.artifact-id }}
+          path: ${{ runner.temp }}/approved
+          github-token: ${{ github.token }}
+          repository: Synergie-ITCI/programme-management-platform
+          run-id: ${{ inputs.plan-run-id }}
+          merge-multiple: true
+
+      - name: Initialize production-only state
+        run: |
+          set -euo pipefail
+          grep -Fqx "bucket         = \"${STATE_BUCKET}\"" "${ROOT}/backend.hcl"
+          grep -Fqx "key            = \"${STATE_KEY}\"" "${ROOT}/backend.hcl"
+          grep -Fqx "dynamodb_table = \"${STATE_LOCK_TABLE}\"" "${ROOT}/backend.hcl"
+          grep -Fqx 'encrypt        = true' "${ROOT}/backend.hcl"
+          grep -Fqx 'region         = "ap-south-1"' "${ROOT}/backend.hcl"
+          tofu -chdir="${ROOT}" fmt -check
+          if [ "${MODE}" = apply ]; then
+            cp "${RUNNER_TEMP}/approved/.terraform.lock.hcl" "${ROOT}/.terraform.lock.hcl"
+            tofu -chdir="${ROOT}" init -input=false -lockfile=readonly -backend-config=backend.hcl
+          else
+            tofu -chdir="${ROOT}" init -input=false -backend-config=backend.hcl
+          fi
+          tofu -chdir="${ROOT}" validate
+
+      - name: Generate exact binary plan
+        if: ${{ inputs.mode == 'plan' }}
+        env:
+          PHASE: ${{ inputs.phase }}
+          SOURCE_SHA: ${{ inputs.source-sha }}
+          CALLER_SHA: ${{ inputs.caller-sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/plan"
+          attach=false
+          if [ "${PHASE}" = phase2 ]; then attach=true; fi
+          tofu -chdir="${ROOT}" plan -input=false -lock=true \
+            -var="attach_validated_certificate=${attach}" -out="${RUNNER_TEMP}/plan/hosting.tfplan"
+          tofu -chdir="${ROOT}" show -json "${RUNNER_TEMP}/plan/hosting.tfplan" > "${RUNNER_TEMP}/plan/hosting.plan.json"
+          tofu -chdir="${ROOT}" show -no-color "${RUNNER_TEMP}/plan/hosting.tfplan" > "${RUNNER_TEMP}/plan/hosting.plan.txt"
+          python3 .central-framework/actions/fieldzilla-production-hosting/authorize.py plan \
+            --source-sha "${SOURCE_SHA}" --caller-sha "${CALLER_SHA}" \
+            --workflow-tag "${WORKFLOW_TAG}" --phase "${PHASE}" \
+            --plan-json "${RUNNER_TEMP}/plan/hosting.plan.json"
+          cp "${ROOT}/.terraform.lock.hcl" "${RUNNER_TEMP}/plan/.terraform.lock.hcl"
+          plan_sha="$(sha256sum "${RUNNER_TEMP}/plan/hosting.tfplan" | cut -d' ' -f1)"
+          lock_sha="$(sha256sum "${RUNNER_TEMP}/plan/.terraform.lock.hcl" | cut -d' ' -f1)"
+          SOURCE_SHA="${SOURCE_SHA}" CALLER_SHA="${CALLER_SHA}" PHASE="${PHASE}" PLAN_SHA="${plan_sha}" LOCK_SHA="${lock_sha}" python3 -c 'import json,os,pathlib; pathlib.Path(os.environ["RUNNER_TEMP"],"plan","metadata.json").write_text(json.dumps({"repository":os.environ["GITHUB_REPOSITORY"],"source_sha":os.environ["SOURCE_SHA"],"caller_sha":os.environ["CALLER_SHA"],"phase":os.environ["PHASE"],"state_key":os.environ["STATE_KEY"],"plan_sha256":os.environ["PLAN_SHA"],"provider_lock_sha256":os.environ["LOCK_SHA"]},sort_keys=True))'
+          echo "Plan SHA-256: ${plan_sha}" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload exact plan
+        if: ${{ inputs.mode == 'plan' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: fieldzilla-production-${{ inputs.phase }}-${{ inputs.source-sha }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/plan/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Verify owner approval and exact plan
+        if: ${{ inputs.mode == 'apply' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tofu -chdir="${ROOT}" show -json "${RUNNER_TEMP}/approved/hosting.tfplan" > "${RUNNER_TEMP}/approved/hosting.plan.rechecked.json"
+          python3 .central-framework/actions/fieldzilla-production-hosting/authorize.py apply \
+            --source-sha "${SOURCE_SHA}" --caller-sha "${CALLER_SHA}" \
+            --workflow-tag "${WORKFLOW_TAG}" --phase "${PHASE}" \
+            --plan-run-id "${PLAN_RUN_ID}" --artifact-id "${ARTIFACT_ID}" \
+            --artifact-name "${ARTIFACT_NAME}" --artifact-digest "${ARTIFACT_DIGEST}" \
+            --plan-sha256 "${PLAN_SHA256}" --artifact-dir "${RUNNER_TEMP}/approved" \
+            --plan-json "${RUNNER_TEMP}/approved/hosting.plan.rechecked.json" \
+            --approval-comment-id "${APPROVAL_COMMENT_ID}"
+
+      - name: Consume one-time approval before mutation
+        if: ${{ inputs.mode == 'apply' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 .central-framework/actions/fieldzilla-production-hosting/authorize.py consume \
+            --source-sha "${SOURCE_SHA}" --caller-sha "${CALLER_SHA}" \
+            --workflow-tag "${WORKFLOW_TAG}" --phase "${PHASE}" \
+            --plan-run-id "${PLAN_RUN_ID}" --artifact-id "${ARTIFACT_ID}" \
+            --artifact-name "${ARTIFACT_NAME}" --artifact-digest "${ARTIFACT_DIGEST}" \
+            --plan-sha256 "${PLAN_SHA256}" --artifact-dir "${RUNNER_TEMP}/approved" \
+            --plan-json "${RUNNER_TEMP}/approved/hosting.plan.rechecked.json" \
+            --approval-comment-id "${APPROVAL_COMMENT_ID}"
+
+      - name: Apply exact reviewed plan
+        if: ${{ inputs.mode == 'apply' }}
+        run: |
+          set -euo pipefail
+          tofu -chdir="${ROOT}" apply -input=false -lock=true "${RUNNER_TEMP}/approved/hosting.tfplan"
