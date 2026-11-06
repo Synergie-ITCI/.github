@@ -19,6 +19,67 @@ preflight = SourceFileLoader("release_preflight", str(SCRIPT)).load_module()
 
 
 class ReleasePreflightTests(unittest.TestCase):
+    def test_rc220_fieldzilla_disposition_is_exact_and_fail_closed(self):
+        reviewed = [
+            "e5f342564a14ba20101c330c2895d4ab968dde08",
+            "901b21bd32c7563caa77925f36ff24bed7625600",
+        ]
+        candidate = "a" * 40
+        workflow = ".github/workflows/fieldzilla-production-hosting.yml"
+        workflow_text = (ROOT / workflow).read_text()
+        report = {"summary": {"overall_result": "FAIL"}, "results": [
+            {"gate": "Repository Hygiene", "status": "FAIL", "blocking": True,
+             "message": "Accidental merge commits detected.", "details": [reviewed[0]]},
+            {"gate": "Persistent Data Safety", "status": "FAIL", "blocking": True,
+             "message": "Persistent data declarations are missing, incomplete, or structurally unsafe.",
+             "details": ["DEVELOPER_DECLARATION: `${RUNNER_TEMP}/plan` introduces a writable/runtime path that has not been classified."]},
+            {"gate": "Deployment Risk", "status": "FAIL", "blocking": True,
+             "message": "Deployment workflow is structurally unsafe or missing required controlled-release safeguards.",
+             "details": [f"{workflow}: production/live deployment-sensitive workflow does not match the controlled Gate D safe shape."]},
+        ]}
+
+        def fake_git(args, _root):
+            values = {
+                ("remote", "get-url", "origin"): preflight.CENTRAL_ORIGIN + "\n",
+                ("rev-parse", "HEAD"): candidate + "\n",
+                ("rev-parse", "refs/remotes/origin/main"): candidate + "\n",
+                ("rev-list", "--first-parent", "--merges", "pr-qa-v1-rc219..HEAD"): reviewed[0] + "\n",
+                ("diff", "--name-only", "HEAD^1..HEAD"):
+                    "policy/pr-qa-policy.json\nscripts/release-preflight\ntests/test_release_preflight.py\n",
+                ("show", f"{reviewed[1]}:{workflow}"): workflow_text,
+            }
+            value = values.get(tuple(args))
+            return subprocess.CompletedProcess(args, 0 if value is not None else 1, value or "", "")
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for relative in ("policy/pr-qa-policy.json", workflow):
+                destination = root / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes((ROOT / relative).read_bytes())
+            report_path = root / "report.json"
+
+            def accepted():
+                report_path.write_text(json.dumps(report), encoding="utf-8")
+                return preflight.reviewed_rc220_fieldzilla_disposition(
+                    root, report_path, "main", "pr-qa-v1-rc219", [*reviewed, candidate])
+
+            with patch.object(preflight, "git", side_effect=fake_git):
+                self.assertTrue(accepted())
+                self.assertFalse(preflight.reviewed_rc220_fieldzilla_disposition(
+                    root, report_path, "main", "pr-qa-v1-rc219", reviewed))
+                for index, changed in ((1, ["an unreviewed persistent path"]),
+                                       (2, ["an unreviewed deployment workflow"])):
+                    original = report["results"][index]["details"]
+                    report["results"][index]["details"] = changed
+                    self.assertFalse(accepted())
+                    report["results"][index]["details"] = original
+                report["results"].append({"gate": "Secrets", "status": "FAIL", "blocking": True})
+                self.assertFalse(accepted())
+                report["results"].pop()
+                (root / workflow).write_text(workflow_text + "\n# altered\n")
+                self.assertFalse(accepted())
+
     def test_rc219_disposition_accepts_only_verified_lineage_and_complete_fixtures(self):
         decisions = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())[
             "release_preflight_dispositions"]

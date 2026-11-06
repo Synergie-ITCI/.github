@@ -429,6 +429,16 @@
     "*.csproj"
   ],
   "release_preflight_dispositions": {
+    "pr-qa-v1-rc220": {
+      "reason": "rc220-only disposition for verified protected PR #436 and #438 lineage, a GitHub runner temporary plan directory, and the exact reviewed production hosting workflow bytes. No other finding is accepted; plan/apply authorization remains in the workflow.",
+      "predecessor_release": "pr-qa-v1-rc219",
+      "reviewed_commits": [
+        "e5f342564a14ba20101c330c2895d4ab968dde08",
+        "901b21bd32c7563caa77925f36ff24bed7625600"
+      ],
+      "reviewed_prs": [436, 438],
+      "workflow_sha256": "5332ebcb61e66b1bca3f3112793d76e278ecfaddb4b620b92d342178c7d1fbb6"
+    },
     "pr-qa-v1-rc201": {
       "reason": "Reviewed protected PR #382 merge and synthetic secret-scanner regression fixtures inherited by rc200 release preflight. No other finding is disposed.",
       "approved_merge": {
