@@ -26,7 +26,8 @@ class ReleasePreflightTests(unittest.TestCase):
         ]
         candidate = "a" * 40
         workflow = ".github/workflows/fieldzilla-production-hosting.yml"
-        workflow_text = (ROOT / workflow).read_text()
+        workflow_text = subprocess.check_output(
+            ["git", "show", f"pr-qa-v1-rc220:{workflow}"], cwd=ROOT, text=True)
         report = {"summary": {"overall_result": "FAIL"}, "results": [
             {"gate": "Repository Hygiene", "status": "FAIL", "blocking": True,
              "message": "Accidental merge commits detected.", "details": [reviewed[0]]},
@@ -53,10 +54,13 @@ class ReleasePreflightTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            for relative in ("policy/pr-qa-policy.json", workflow):
+            for relative in ("policy/pr-qa-policy.json",):
                 destination = root / relative
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_bytes((ROOT / relative).read_bytes())
+            destination = root / workflow
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(workflow_text)
             report_path = root / "report.json"
 
             def accepted():
