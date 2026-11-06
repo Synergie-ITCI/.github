@@ -120,6 +120,17 @@ This means:
 
 ### Step 3 — Gate D for deployable applications
 
+An existing manually dispatched UAT workflow may be reviewed under the bounded
+`MANUAL_UAT_DEPLOYMENT` Deployment Risk contract when it runs only from `main`,
+binds to `staging`, uses a UAT-only runner and loopback destination, verifies the
+exact checked-out commit, and preserves a database backup and code rollback.
+This result is a warning requiring human review, not permission to deploy.
+Before approving the consumer PR, verify the live GitHub `staging` environment
+restricts deployments to `main`; the workflow file alone cannot prove that
+environment setting. A Compose filename containing `production` is accepted
+only when the workflow binds it to the fixed staging environment file and has
+no production destination or credential.
+
 For deployable applications, configure Gate D separately using `docs/gate-d-deployment-standard.md`.
 
 Do not combine IAM, production deployment, CODEOWNERS, or infrastructure changes into the initial PR QA onboarding pull request.

@@ -6467,6 +6467,104 @@ jobs:
         self.assertEqual(report_json["summary"]["gate_statuses"]["Deployment Risk"], "WARNING")
         self.assertIn("STAGING_ONLY_DEPLOYMENT", report)
 
+    @staticmethod
+    def manual_uat_workflow() -> str:
+        return """name: Deploy UAT
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, Linux, X64, team-uat]
+    environment: staging
+    timeout-minutes: 45
+    env:
+      APP_ROOT: /opt/team-app
+      ENV_FILE: /opt/team-app/shared/.env.staging
+      COMPOSE_PROJECT: team-app
+      COMPOSE_FILE: docker-compose.production.yml
+      LOCAL_URL: http://127.0.0.1:8083
+      NGINX_HTTP_PORT: "8083"
+      UAT_NGINX_BASIC_AUTH_PASSWORD: ${{ secrets.UAT_NGINX_BASIC_AUTH_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          release_id="${GITHUB_SHA}-${GITHUB_RUN_ID}"
+          new_release_dir="$APP_ROOT/releases/$release_id"
+          previous_release="$(readlink -f "$APP_ROOT/current" || true)"
+          case "$previous_release" in
+            ""|"$APP_ROOT/releases/"*) ;;
+            *) exit 1 ;;
+          esac
+          rollback() {
+            ln -sfn "$previous_release" "$APP_ROOT/current"
+            PRODUCTION_ENV_FILE="$ENV_FILE" docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" up -d --build
+          }
+          trap rollback ERR
+          PRODUCTION_ENV_FILE="$ENV_FILE" docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" up -d --build
+          pg_dump -Fc > "$APP_ROOT/shared/backups/$release_id.dump"
+          pg_restore -l "$APP_ROOT/shared/backups/$release_id.dump"
+          alembic upgrade head
+      - run: |
+          set -euo pipefail
+          rollback() {
+            case "${PREVIOUS_RELEASE:-}" in
+              ""|"$APP_ROOT/releases/"*) ;;
+              *) exit 1 ;;
+            esac
+            ln -sfn "$PREVIOUS_RELEASE" "$APP_ROOT/current"
+          }
+          trap rollback ERR
+          expect_status "nginx health" "200" "$LOCAL_URL/nginx-health"
+"""
+
+    def test_manual_uat_contract_accepts_bounded_local_deployment(self) -> None:
+        engine = load_engine_module()
+        path = ".github/workflows/deploy-uat.yml"
+        text = self.manual_uat_workflow()
+        self.assertIn("MANUAL_UAT_DEPLOYMENT", " ".join(engine.manual_uat_workflow_details(path, text)))
+        repo, base = self.init_repo("manual-uat-contract")
+        self.write(repo / path, text)
+        self.commit(repo, "ci: add bounded manual UAT deploy")
+        _, report, report_json, _ = self.run_engine_with_artifacts(repo, base, static_only=True)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Deployment Risk"], "WARNING", report)
+
+    def test_manual_uat_contract_rejects_unsafe_variants(self) -> None:
+        engine = load_engine_module()
+        path = ".github/workflows/deploy-uat.yml"
+        original = self.manual_uat_workflow()
+        variants = {
+            "automatic-main": original.replace("  workflow_dispatch:", "  push:\n    branches: [main]"),
+            "unrestricted-branch": original.replace("    if: github.ref == 'refs/heads/main'\n", ""),
+            "unbound-environment": original.replace("    environment: staging\n", ""),
+            "production-secret": original.replace("secrets.UAT_NGINX_BASIC_AUTH_PASSWORD", "secrets.PROD_DATABASE_PASSWORD"),
+            "production-destination": original.replace("/opt/team-app", "/opt/production-app"),
+            "remote-mutation": original.replace("          alembic upgrade head", "          ssh deploy@production.example.invalid true\n          alembic upgrade head"),
+            "external-http": original.replace("          alembic upgrade head", "          curl https://external.example.invalid/act\n          alembic upgrade head"),
+            "other-docker-project": original.replace("          alembic upgrade head", "          docker stop other-app\n          alembic upgrade head"),
+            "unbound-compose-project": original.replace('-p "$COMPOSE_PROJECT"', '-p other-app'),
+            "unverified-artifact": original.replace('          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"\n', ""),
+            "missing-backup": original.replace("          pg_dump -Fc >", "          printf backup >"),
+            "backup-after-migration": original.replace(
+                '          pg_dump -Fc > "$APP_ROOT/shared/backups/$release_id.dump"\n', ""
+            ).replace("          alembic upgrade head", '          alembic upgrade head\n          pg_dump -Fc > "$APP_ROOT/shared/backups/$release_id.dump"'),
+            "missing-rollback": original.replace("          trap rollback ERR", "          true"),
+            "credential-persistence": original.replace("persist-credentials: false", "persist-credentials: true"),
+        }
+        for name, text in variants.items():
+            with self.subTest(name=name):
+                self.assertEqual(engine.manual_uat_workflow_details(path, text), [])
+        production = original.replace("LOCAL_URL: http://127.0.0.1:8083", "LOCAL_URL: https://production.example.invalid")
+        self.assertTrue(engine.workflow_has_production_intent(engine.parse_workflow_yaml(production), production))
+        self.assertEqual(engine.manual_uat_workflow_details(path, production), [])
+
     def test_staging_workflow_with_hidden_production_target_fails(self) -> None:
         repo, base = self.init_repo("staging-hidden-production")
         self.write(
