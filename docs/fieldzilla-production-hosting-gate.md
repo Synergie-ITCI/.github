@@ -18,6 +18,10 @@ accept only its exact `job_workflow_ref`, repository ID, production
 environment and main ref, with production-only state-key and resource access.
 The central workflow checks the matching OIDC claims at runtime. It uses a
 separate encrypted S3 state key and the existing DynamoDB lock.
+The central PR-QA policy explicitly classifies this root as governed critical
+infrastructure. Without that reviewed classification, the application PR's
+Deployment Risk gate fails before technical QA; the policy addition is
+required for the protected path, not a QA bypass.
 
 `plan` creates a one-day immutable GitHub artifact containing the binary
 plan, readable diff, JSON diff, provider lock and metadata. The verifier
