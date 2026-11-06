@@ -56,6 +56,15 @@ class ReleasePinTests(unittest.TestCase):
         verify.assert_called_once_with(selected["release"], selected["commit"], self.manifest,
                                        unittest.mock.ANY, unittest.mock.ANY)
 
+    def test_csr_uses_approved_manual_uat_release_without_changing_default(self):
+        selected = self.manifest["consumer_release_selection"]["repositories"]["Synergie-ITCI/csr-intelligence-engine"]
+        self.assertEqual(selected, {"release": "pr-qa-v1-rc219", "commit": "75a3024f9f8187f520e4e1290e1f6aaeaefef6c6"})
+        with patch("release_pin.verify_bound_release") as verify:
+            release, entry = resolve_consumer_release(self.manifest, "Synergie-ITCI/csr-intelligence-engine")
+        self.assertEqual((release, entry["commit"]), (selected["release"], selected["commit"]))
+        verify.assert_called_once()
+        self.assertEqual(self.manifest["consumer_release_selection"]["default"]["release"], "pr-qa-v1-rc216")
+
     def test_approved_pilot_selection_and_rollback_are_central_only(self):
         pilot = {"release": "pr-qa-v1-rc217", "commit": "a" * 40}
         self.manifest["consumer_release_selection"]["repositories"]["Synergie-ITCI/BDPP"] = pilot
