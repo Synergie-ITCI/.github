@@ -42,6 +42,7 @@ permissions:
   contents: read
   deployments: write
   id-token: write
+  issues: read
 
 concurrency:
   group: fieldzilla-production-hosting

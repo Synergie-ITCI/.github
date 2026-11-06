@@ -4,7 +4,10 @@ import importlib.util
 import json
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 
 spec = importlib.util.spec_from_file_location("hosting_authorize", Path(__file__).with_name("authorize.py"))
@@ -58,6 +61,42 @@ class PlanSafetyTest(unittest.TestCase):
                 self.change("aws_lb_listener_rule.application_pending", "aws_lb_listener_rule"),
                 self.change("aws_db_instance.unreviewed", "aws_db_instance"),
             ], "phase2")
+
+    def test_approval_must_be_owner_comment_on_consumer_pr(self):
+        args = SimpleNamespace(
+            approval_comment_id=123, phase="phase1", source_sha="a" * 40,
+            caller_sha="b" * 40, plan_run_id=42, artifact_id=43,
+            artifact_digest="c" * 64, plan_sha256="d" * 64,
+        )
+        body = (
+            "APPROVE FIELDZILLA PRODUCTION HOSTING phase1\n"
+            f"Source: {args.source_sha}\nCaller: {args.caller_sha}\n"
+            "Plan run: 42\nArtifact ID: 43\n"
+            f"Artifact SHA-256: {args.artifact_digest}\nPlan SHA-256: {args.plan_sha256}\n"
+            f"State key: {authorize.STATE_KEY}"
+        )
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        comment = {
+            "user": {"login": "SaurabhVermaIN", "id": 52234089},
+            "author_association": "OWNER", "body": body,
+            "issue_url": f"https://api.github.com/repos/{authorize.REPOSITORY}/issues/674",
+            "created_at": now, "updated_at": now,
+        }
+
+        def fake_api(path):
+            if "/environments/" in path:
+                return {"protection_rules": []}
+            if "/issues/comments/" in path:
+                return comment
+            if "/deployments?" in path:
+                return []
+            raise AssertionError(path)
+
+        with patch.object(authorize, "api", side_effect=fake_api):
+            self.assertEqual(authorize.verify_owner_approval(args), "fieldzilla-hosting-approval:123")
+            comment["issue_url"] = "https://api.github.com/repos/Synergie-ITCI/.github/issues/437"
+            with self.assertRaises(SystemExit):
+                authorize.verify_owner_approval(args)
 
 
 if __name__ == "__main__":

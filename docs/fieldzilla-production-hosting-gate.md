@@ -33,8 +33,8 @@ the successful plan run, source and caller commits, artifact digest, binary
 SHA-256, provider lock, state key and current plan safety, then applies that
 binary. It does not re-plan during apply.
 
-The designated owner must post this exact, unedited comment on central issue
-`Synergie-ITCI/.github#437` after reviewing the artifact. Values in angle
+The designated owner must post this exact, unedited comment on hosting PR
+`Synergie-ITCI/programme-management-platform#674` after reviewing the artifact. Values in angle
 brackets are substituted with the verified artifact evidence:
 
 ```text
