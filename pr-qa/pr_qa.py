@@ -3970,6 +3970,11 @@ def classify_safe_deployment_workflows(ctx: PRContext, changed: list[str]) -> tu
         if staging:
             details.extend(staging)
             safe_paths.add(path)
+            continue
+        manual_ua = manual_uat_workflow_details(path, text)
+        if manual_ua:
+            details.extend(manual_ua)
+            safe_paths.add(path)
     return details, safe_paths
 
 
@@ -4705,6 +4710,109 @@ def staging_only_workflow_details(path: str, text: str) -> list[str]:
     if not all(checks.values()):
         return []
     return [f"{path}: STAGING_ONLY_DEPLOYMENT trigger and destination are staging-scoped; legacy SSH staging transport remains review-visible."]
+
+
+def manual_uat_workflow_details(path: str, text: str) -> list[str]:
+    """Recognize a bounded, local-only UAT deploy from an approved main commit.
+
+    The staging environment's actual branch policy must also be verified in
+    GitHub before this warning can be treated as deployment authorization.
+    """
+    parsed = parse_workflow_yaml(text)
+    jobs = parsed.get("jobs", {})
+    permissions = parsed.get("permissions", {})
+    if (not workflow_dispatch_only(parsed, text)
+            or not isinstance(jobs, dict) or len(jobs) != 1
+            or permissions != {"contents": "read"}
+            or workflow_has_embedded_or_static_deployment_credentials(text)):
+        return []
+    job = next(iter(jobs.values()))
+    if not isinstance(job, dict):
+        return []
+    condition = str(job.get("if", "")).strip()
+    if condition not in {"github.ref == 'refs/heads/main'", "${{ github.ref == 'refs/heads/main' }}"}:
+        return []
+    if job.get("environment") != "staging":
+        return []
+    labels = job.get("runs-on", [])
+    if isinstance(labels, str) and labels.startswith("[") and labels.endswith("]"):
+        labels = [label.strip() for label in labels[1:-1].split(",")]
+    if (not isinstance(labels, list) or not {"self-hosted", "Linux", "X64"} <= set(labels)
+            or len(labels) != 4 or not re.fullmatch(r"[a-z0-9-]*uat[a-z0-9-]*", str(labels[3]))):
+        return []
+    try:
+        if not 0 < int(job.get("timeout-minutes", 0)) <= 60:
+            return []
+    except (TypeError, ValueError):
+        return []
+    env = job.get("env", {})
+    if not isinstance(env, dict):
+        return []
+    root = str(env.get("APP_ROOT", ""))
+    config = str(env.get("ENV_FILE", ""))
+    project = str(env.get("COMPOSE_PROJECT", ""))
+    if (not re.fullmatch(r"/opt/[a-z0-9-]+", root)
+            or config != f"{root}/shared/.env.staging"
+            or not re.fullmatch(r"[a-z0-9-]+", project)
+            or "prod" in root or "prod" in project
+            or not re.fullmatch(r"http://127\.0\.0\.1:([0-9]+)", str(env.get("LOCAL_URL", "")))
+            or str(env.get("NGINX_HTTP_PORT", "")) != str(env.get("LOCAL_URL", "")).rsplit(":", 1)[-1]
+            or not re.fullmatch(r"docker-compose\.[a-z0-9-]+\.yml", str(env.get("COMPOSE_FILE", "")))):
+        return []
+    if set(re.findall(r"secrets\.([A-Z0-9_]+)", text)) - {
+        "UAT_NGINX_BASIC_AUTH_USERNAME", "UAT_NGINX_BASIC_AUTH_PASSWORD"
+    }:
+        return []
+    steps = job.get("steps", [])
+    if not isinstance(steps, list) or not steps:
+        return []
+    checkout = steps[0]
+    if (not isinstance(checkout, dict) or checkout.get("uses") != "actions/checkout@v4"
+            or checkout.get("with") != {"ref": "${{ github.sha }}", "persist-credentials": False}
+            or any(isinstance(step, dict) and step.get("uses") for step in steps[1:])):
+        return []
+    commands = "\n".join(str(step.get("run", "")) for step in steps if isinstance(step, dict))
+    required = (
+        'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"',
+        'release_id="${GITHUB_SHA}-${GITHUB_RUN_ID}"',
+        'new_release_dir="$APP_ROOT/releases/$release_id"',
+        'previous_release="$(readlink -f "$APP_ROOT/current" || true)"',
+        '"$APP_ROOT/releases/"*',
+        'trap rollback ERR',
+        'ln -sfn "$previous_release" "$APP_ROOT/current"',
+        'ln -sfn "$PREVIOUS_RELEASE" "$APP_ROOT/current"',
+        'pg_dump', 'pg_restore -l', 'alembic upgrade head',
+        'expect_status "nginx health" "200" "$LOCAL_URL/nginx-health"',
+    )
+    if not all(marker in commands for marker in required):
+        return []
+    if commands.count('trap rollback ERR') < 2:
+        return []
+    if not (commands.index('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"')
+            < commands.index('release_id="${GITHUB_SHA}-${GITHUB_RUN_ID}"')
+            < commands.index('pg_dump')
+            < commands.index('pg_restore -l')
+            < commands.index('alembic upgrade head')):
+        return []
+    if re.search(r"\b(?:ssh|rsync|sudo|aws|kubectl|terraform|tofu)\b|DOCKER_HOST|docker\s+(?:run|context|--host|stop|kill|rm|volume|network)|docker\s+compose\s+(?:down|kill|rm|run)", commands, re.IGNORECASE):
+        return []
+    for invocation in commands.split("docker compose")[1:]:
+        if invocation.lstrip().startswith("version"):
+            continue
+        if '-p "$COMPOSE_PROJECT"' not in invocation[:200]:
+            return []
+    if re.search(r"(?m)^\s*(?:rm|mv|cp|chown)\s", commands):
+        return []
+    if re.search(r"https?://(?!127\.0\.0\.1(?::|/)|localhost(?::|/))", text, re.IGNORECASE):
+        return []
+    # The Compose file and its input variable are historically named
+    # "production". Only those exact uses are accepted; neither identifies a
+    # production destination when bound to the fixed staging environment file.
+    remainder = text.replace("docker-compose.production.yml", "")
+    remainder = remainder.replace('PRODUCTION_ENV_FILE="$ENV_FILE"', "")
+    if re.search(r"\bprod(?:uction)?\b|PROD_[A-Z0-9_]+", remainder, re.IGNORECASE):
+        return []
+    return [f"{path}: MANUAL_UAT_DEPLOYMENT exact main artifact, staging environment, UAT runner and local destination, backup and rollback verified; live environment protection still requires review."]
 
 
 def unsafe_deployment_workflow_details(ctx: PRContext, changed: list[str]) -> list[str]:
