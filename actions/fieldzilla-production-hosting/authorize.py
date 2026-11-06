@@ -132,11 +132,12 @@ def verify_owner_approval(args):
         fail("native environment reviewers are available; fallback must not be used")
     if args.approval_comment_id < 1:
         fail("exact owner approval comment is required")
-    comment = api(f"repos/Synergie-ITCI/.github/issues/comments/{args.approval_comment_id}")
-    if comment["user"]["login"] != OWNER or comment.get("author_association") not in ("OWNER", "MEMBER", "COLLABORATOR"):
+    comment = api(f"repos/{REPOSITORY}/issues/comments/{args.approval_comment_id}")
+    if (comment["user"]["login"] != OWNER or comment["user"]["id"] != 52234089
+            or comment.get("author_association") not in ("OWNER", "MEMBER", "COLLABORATOR")):
         fail("approval is not from the designated owner")
-    if comment.get("issue_url", "").split("/")[-1] != "437":
-        fail("approval must be on central governance issue 437")
+    if comment.get("issue_url") != f"https://api.github.com/repos/{REPOSITORY}/issues/674":
+        fail("approval must be on the hosting PR 674")
     expected = (
         f"APPROVE FIELDZILLA PRODUCTION HOSTING {args.phase}\n"
         f"Source: {args.source_sha}\nCaller: {args.caller_sha}\n"
