@@ -23,6 +23,8 @@ class ReleasePreflightTests(unittest.TestCase):
         decisions = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())[
             "release_preflight_dispositions"]
         reviewed = decisions["pr-qa-v1-rc219"]["reviewed_commits"]
+        self.assertEqual(decisions["pr-qa-v1-rc219"]["reviewed_prs"], [430, 431, 432, 433, 434])
+        self.assertEqual(reviewed[-1], "ce9119a0a145c761d2301f511801f77627c819a5")
         fixtures = decisions["inherited_synthetic_fixtures"]["synthetic_fixture_findings"]
         candidate = "a" * 40
         expected_merges = [candidate, *reversed(reviewed)]
