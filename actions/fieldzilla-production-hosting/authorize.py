@@ -12,6 +12,7 @@ import os
 import re
 import sys
 import urllib.request
+from urllib.error import HTTPError
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -44,8 +45,14 @@ def api(path, method="GET", payload=None):
             "Content-Type": "application/json",
         },
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return json.load(response)
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return json.load(response)
+    except HTTPError as error:
+        permissions = error.headers.get("X-Accepted-GitHub-Permissions", "not supplied")
+        remaining = error.headers.get("X-RateLimit-Remaining", "not supplied")
+        fail(f"GitHub API {method} {path}: HTTP {error.code}; "
+             f"accepted permissions: {permissions}; rate limit remaining: {remaining}")
 
 
 def require_identity(args):

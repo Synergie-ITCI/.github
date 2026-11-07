@@ -2,8 +2,11 @@
 
 import importlib.util
 import json
+import re
 import tempfile
 import unittest
+from email.message import Message
+from urllib.error import HTTPError
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,6 +19,34 @@ spec.loader.exec_module(authorize)
 
 
 class PlanSafetyTest(unittest.TestCase):
+    def test_api_failure_reports_permission_and_rate_context_without_token(self):
+        headers = Message()
+        headers["X-Accepted-GitHub-Permissions"] = "pull_requests=read"
+        headers["X-RateLimit-Remaining"] = "500"
+        path = f"repos/{authorize.REPOSITORY}/issues/comments/123"
+        error = HTTPError("https://api.github.com/" + path, 403, "Forbidden", headers, None)
+        with patch.dict(authorize.os.environ, {"GITHUB_TOKEN": "private-test-token"}), \
+                patch.object(authorize.urllib.request, "urlopen", side_effect=error):
+            with self.assertRaises(SystemExit) as caught:
+                authorize.api(path)
+        message = str(caught.exception)
+        self.assertIn("HTTP 403", message)
+        self.assertIn("pull_requests=read", message)
+        self.assertIn("rate limit remaining: 500", message)
+        self.assertNotIn("private-test-token", message)
+
+    def test_workflow_checks_pr_read_access_before_aws_identity(self):
+        root = Path(__file__).resolve().parents[2]
+        workflow = (root / ".github/workflows/fieldzilla-production-hosting.yml").read_text()
+        permissions = workflow.split("\npermissions:\n", 1)[1].split("\n\n", 1)[0]
+        self.assertEqual(re.findall(r"^  pull-requests: (\S+)$", permissions, re.MULTILINE), ["read"])
+        probe = workflow.index("- name: Verify hosting PR comment read access")
+        identity = workflow.index("- name: Verify GitHub OIDC production identity")
+        self.assertLess(probe, identity)
+        probe_step = workflow[probe:identity]
+        self.assertIn("GH_TOKEN: ${{ github.token }}", probe_step)
+        self.assertIn('gh api "repos/${GITHUB_REPOSITORY}/issues/674/comments?per_page=1" --silent', probe_step)
+
     def verify(self, changes, phase):
         with tempfile.TemporaryDirectory() as directory:
             plan = Path(directory) / "plan.json"
