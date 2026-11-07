@@ -87,7 +87,7 @@ jobs:
           [ "${GITHUB_SHA}" = "${CALLER_SHA}" ]
           [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
           [[ "${CALLER_SHA}" =~ ^[0-9a-f]{40}$ ]]
-          [[ "${MODE}" =~ ^(plan|apply)$ ]]
+          [[ "${MODE}" =~ ^(probe|plan|apply)$ ]]
           [[ "${PHASE}" =~ ^(phase1|phase2)$ ]]
 
       - name: Checkout exact source
@@ -128,7 +128,17 @@ jobs:
       - name: Verify hosting PR comment read access
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh api "repos/${GITHUB_REPOSITORY}/issues/674/comments?per_page=1" --silent
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "${MODE}" = probe ]; then
+            python3 .central-framework/actions/fieldzilla-production-hosting/authorize.py probe \
+              --source-sha "${SOURCE_SHA}" --caller-sha "${CALLER_SHA}" \
+              --workflow-tag "${WORKFLOW_TAG}" --phase "${PHASE}" \
+              --approval-comment-id "${APPROVAL_COMMENT_ID}"
+          else
+            gh api "repos/${GITHUB_REPOSITORY}/issues/674/comments?per_page=1" --silent
+          fi
 
       - name: Verify GitHub OIDC production identity
         env:
@@ -162,12 +172,14 @@ jobs:
           PY
 
       - name: Configure production-only AWS role
+        if: ${{ inputs.mode != 'probe' }}
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ env.ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Verify AWS account and state controls
+        if: ${{ inputs.mode != 'probe' }}
         run: |
           set -euo pipefail
           test "$(aws sts get-caller-identity --query Account --output text)" = 918870682888
@@ -176,7 +188,7 @@ jobs:
           aws dynamodb describe-table --table-name "${STATE_LOCK_TABLE}" --query Table.TableStatus --output text | grep -qx ACTIVE
 
       - name: Verify certificate issued for phase two
-        if: ${{ inputs.phase == 'phase2' }}
+        if: ${{ inputs.mode != 'probe' && inputs.phase == 'phase2' }}
         run: |
           set -euo pipefail
           arn="$(aws acm list-certificates --certificate-statuses ISSUED --query "CertificateSummaryList[?DomainName=='fieldzilla.synergieinsights.in'].CertificateArn | [0]" --output text)"
@@ -184,6 +196,7 @@ jobs:
           test -n "${arn}"
 
       - name: Set up OpenTofu
+        if: ${{ inputs.mode != 'probe' }}
         uses: opentofu/setup-opentofu@v1
         with:
           tofu_version: 1.12.5
@@ -201,6 +214,7 @@ jobs:
           merge-multiple: true
 
       - name: Initialize production-only state
+        if: ${{ inputs.mode != 'probe' }}
         run: |
           set -euo pipefail
           grep -Fqx "bucket         = \"${STATE_BUCKET}\"" "${ROOT}/backend.hcl"

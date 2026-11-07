@@ -133,6 +133,25 @@ def verify_artifact(args):
         fail("provider lock mismatch")
 
 
+def probe_owner_comment(args):
+    """Prove exact owner-comment read access without granting or consuming approval."""
+    if args.approval_comment_id < 1:
+        fail("exact comment ID is required for the read-only probe")
+    path = f"repos/{REPOSITORY}/issues/comments/{args.approval_comment_id}"
+    comment = api(path)
+    if (comment.get("id") != args.approval_comment_id
+            or comment["user"]["login"] != OWNER or comment["user"]["id"] != 52234089
+            or comment.get("author_association") not in ("OWNER", "MEMBER", "COLLABORATOR")
+            or comment.get("issue_url") != f"https://api.github.com/repos/{REPOSITORY}/issues/674"):
+        fail("probe did not read the designated owner's comment on hosting PR 674")
+    print(json.dumps({
+        "probe": "owner_comment_read", "result": "PASS", "comment_id": comment["id"],
+        "author": OWNER, "issue_url": comment["issue_url"],
+        "body_sha256": hashlib.sha256(comment["body"].encode()).hexdigest(),
+        "approval_granted": False, "approval_consumed": False,
+    }, sort_keys=True))
+
+
 def verify_owner_approval(args):
     environment = api(f"repos/{REPOSITORY}/environments/{ENVIRONMENT}")
     if any(rule["type"] == "required_reviewers" for rule in environment.get("protection_rules", [])):
@@ -181,7 +200,7 @@ def verify_owner_approval(args):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=["plan", "apply", "consume"])
+    parser.add_argument("mode", choices=["probe", "plan", "apply", "consume"])
     parser.add_argument("--source-sha", required=True)
     parser.add_argument("--caller-sha", required=True)
     parser.add_argument("--workflow-tag", required=True)
@@ -196,6 +215,9 @@ def main():
     parser.add_argument("--approval-comment-id", type=int, default=0)
     args = parser.parse_args()
     require_identity(args)
+    if args.mode == "probe":
+        probe_owner_comment(args)
+        return
     if args.mode == "plan":
         check_plan(args.plan_json, args.phase)
         return
