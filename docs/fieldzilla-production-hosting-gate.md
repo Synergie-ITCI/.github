@@ -16,9 +16,11 @@ The application repository calls this reusable workflow from protected
 `main` at an immutable `pr-qa-v1-rcNNN` tag. The dedicated AWS OIDC role must
 accept only its exact `job_workflow_ref`, repository ID, production
 environment and main ref, with production-only state-key and resource access.
-The repository's live OIDC customization setting is `use_default: true`, so
-the trust must match GitHub's default environment subject
-`repo:Synergie-ITCI/programme-management-platform:environment:synergie-app-production`.
+The repository's live OIDC customization setting is `use_default: true` and
+`use_immutable_subject: true`, with subject prefix
+`repo:Synergie-ITCI@209829096/programme-management-platform@1315697868`.
+The trust must match its immutable production-environment subject ending
+`:environment:synergie-app-production`.
 The central workflow checks the matching OIDC claims at runtime. It uses a
 separate encrypted S3 state key and the existing DynamoDB lock.
 The central PR-QA policy explicitly classifies this root as governed critical
