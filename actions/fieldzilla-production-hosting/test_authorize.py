@@ -104,7 +104,7 @@ class PlanSafetyTest(unittest.TestCase):
             "address": address,
             "mode": "managed",
             "type": kind,
-            "change": {"actions": actions or ["create"], "after": after or {}},
+            "change": {"actions": actions or ["create"], "before": (after or {}) if actions == ["no-op"] else None, "after": after or {}},
         }
 
     def test_phase_one_accepts_isolated_addition(self):
@@ -137,6 +137,57 @@ class PlanSafetyTest(unittest.TestCase):
                 self.change("aws_lb_listener_rule.application_pending", "aws_lb_listener_rule"),
                 self.change("aws_db_instance.unreviewed", "aws_db_instance"),
             ], "phase2")
+
+    def test_partial_recovery_preserves_unchanged_production_resources(self):
+        unchanged = self.change("aws_lb_target_group.api", "aws_lb_target_group", ["no-op"], {"name": "pmp-production-api"})
+        unchanged["change"]["before"] = unchanged["change"]["after"].copy()
+        self.verify([unchanged, self.change("aws_db_instance.production", "aws_db_instance")], "phase1")
+
+    def test_noop_does_not_hide_mutation_move_import_or_staging(self):
+        addition = self.change("aws_db_instance.production", "aws_db_instance")
+        for patch_value in (
+            {"change": {"actions": ["no-op"], "before": {"x": 1}, "after": {"x": 2}}},
+            {"previous_address": "aws_s3_bucket.old"},
+            {"change": {"actions": ["no-op"], "before": {}, "after": {}, "importing": {"id": "bucket"}}},
+            {"address": "aws_s3_bucket.staging"},
+        ):
+            with self.subTest(patch_value=patch_value), self.assertRaises(SystemExit):
+                unchanged = self.change("aws_s3_bucket.production", actions=["no-op"])
+                unchanged.update(patch_value)
+                self.verify([addition, unchanged], "phase1")
+
+    def test_recovery_rejects_delete_update_and_both_replacement_orders(self):
+        for actions in (["update"], ["delete"], ["delete", "create"], ["create", "delete"]):
+            with self.subTest(actions=actions), self.assertRaises(SystemExit):
+                self.verify([self.change("aws_lb_target_group.api", "aws_lb_target_group", actions)], "phase1")
+
+    def test_phase_two_counts_additions_without_recreating_existing_hosting(self):
+        self.verify([
+            self.change("aws_s3_bucket.production", actions=["no-op"]),
+            self.change("aws_lb_listener_certificate.production", "aws_lb_listener_certificate"),
+            self.change("aws_lb_listener_rule.hosting_health", "aws_lb_listener_rule"),
+            self.change("aws_lb_listener_rule.application_pending", "aws_lb_listener_rule"),
+        ], "phase2")
+
+    def test_phase_one_rejects_shared_alb_even_when_marked_unchanged(self):
+        with self.assertRaises(SystemExit):
+            self.verify([
+                self.change("aws_s3_bucket.production"),
+                self.change("aws_lb_listener_rule.hosting_health", "aws_lb_listener_rule", ["no-op"]),
+            ], "phase1")
+
+    def test_phase_two_shared_noops_cannot_mask_other_creates(self):
+        with self.assertRaises(SystemExit):
+            self.verify([
+                self.change("aws_lb_listener_certificate.production", "aws_lb_listener_certificate", ["no-op"]),
+                self.change("aws_lb_listener_rule.hosting_health", "aws_lb_listener_rule", ["no-op"]),
+                self.change("aws_lb_listener_rule.application_pending", "aws_lb_listener_rule", ["no-op"]),
+                *[self.change(f"aws_s3_bucket.extra_{i}") for i in range(3)],
+            ], "phase2")
+
+    def test_noop_only_plan_cannot_authorize_apply(self):
+        with self.assertRaises(SystemExit):
+            self.verify([self.change("aws_s3_bucket.production", actions=["no-op"])], "phase1")
 
     def test_approval_must_be_owner_comment_on_consumer_pr(self):
         args = SimpleNamespace(
