@@ -431,13 +431,14 @@
   ],
   "release_preflight_dispositions": {
     "pr-qa-v1-rc222": {
-      "reason": "rc222-only disposition for verified protected PR #443 and #444 merge lineage and the exact reviewed default-subject production hosting workflow bytes. Only the resulting merge-history and Gate D workflow-shape findings are accepted.",
+      "reason": "rc222-only disposition for verified protected PR #443, #444 and #445 merge lineage and the exact reviewed default-subject production hosting workflow bytes. Only the resulting merge-history and Gate D workflow-shape findings are accepted.",
       "predecessor_release": "pr-qa-v1-rc221",
       "reviewed_commits": [
         "349b97dbb789f696f939a25420baa874333ae142",
-        "0b290787fee7e8a3f3f728ecf94e6eb3e973ed2d"
+        "0b290787fee7e8a3f3f728ecf94e6eb3e973ed2d",
+        "8747ebe959d39abefdb4948152291c51284cc7da"
       ],
-      "reviewed_prs": [443, 444],
+      "reviewed_prs": [443, 444, 445],
       "workflow_sha256": "278901f718d8d6c965a2fa514f14499982d7500cf62a1ee630a43f4cbab0ad15"
     },
     "pr-qa-v1-rc221": {

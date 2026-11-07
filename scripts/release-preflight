@@ -1264,12 +1264,13 @@ def reviewed_rc222_fieldzilla_disposition(
         reviewed = [
             "349b97dbb789f696f939a25420baa874333ae142",
             "0b290787fee7e8a3f3f728ecf94e6eb3e973ed2d",
+            "8747ebe959d39abefdb4948152291c51284cc7da",
         ]
         workflow = ".github/workflows/fieldzilla-production-hosting.yml"
         workflow_sha = "278901f718d8d6c965a2fa514f14499982d7500cf62a1ee630a43f4cbab0ad15"
         if (decision.get("predecessor_release") != release
                 or decision.get("reviewed_commits") != reviewed
-                or decision.get("reviewed_prs") != [443, 444]
+                or decision.get("reviewed_prs") != [443, 444, 445]
                 or decision.get("workflow_sha256") != workflow_sha):
             return False
         head = git(["rev-parse", "HEAD"], root)
@@ -1303,7 +1304,7 @@ def reviewed_rc222_fieldzilla_disposition(
             return False
         by_gate = {item["gate"]: item for item in failures}
         if (by_gate["Repository Hygiene"].get("message") != "Accidental merge commits detected."
-                or by_gate["Repository Hygiene"].get("details") != list(reversed(reviewed))):
+                or by_gate["Repository Hygiene"].get("details") != [candidate, *reversed(reviewed)]):
             return False
         if (by_gate["Deployment Risk"].get("message") !=
                 "Deployment workflow is structurally unsafe or missing required controlled-release safeguards."
