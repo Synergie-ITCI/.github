@@ -1317,6 +1317,73 @@ def reviewed_rc222_fieldzilla_disposition(
         return False
 
 
+def reviewed_rc223_fieldzilla_disposition(
+    root: Path, report_path: Path, base: str, release: str, verified_lineage: list[str] | None
+) -> bool:
+    """Dispose only exact protected merge noise and the reviewed immutable OIDC workflow finding."""
+    if base != "main" or release != "pr-qa-v1-rc222" or not verified_lineage:
+        return False
+    origin = git(["remote", "get-url", "origin"], root)
+    if origin.returncode or origin.stdout.strip() != CENTRAL_ORIGIN:
+        return False
+    try:
+        policy = json.loads((root / "policy/pr-qa-policy.json").read_text(encoding="utf-8"))
+        decision = policy["release_preflight_dispositions"]["pr-qa-v1-rc223"]
+        reviewed = [
+            "9a1e0c40eccf4b3b2021f447bad5d7f0a02cbf3f",
+            "e98becc5c1b5ecb3b86c93f306a62867f4682fd5",
+        ]
+        workflow = ".github/workflows/fieldzilla-production-hosting.yml"
+        workflow_sha = "f58decc6a51d88a4ce3cda18868bd91d952cd22ea97ce556b28e47f606d2926e"
+        if (decision.get("predecessor_release") != release
+                or decision.get("reviewed_commits") != reviewed
+                or decision.get("reviewed_prs") != [447, 448]
+                or decision.get("workflow_sha256") != workflow_sha):
+            return False
+        head = git(["rev-parse", "HEAD"], root)
+        main = git(["rev-parse", "refs/remotes/origin/main"], root)
+        if head.returncode or main.returncode or head.stdout != main.stdout:
+            return False
+        candidate = head.stdout.strip()
+        if verified_lineage != [*reviewed, candidate]:
+            return False
+        files = git(["diff", "--name-only", "HEAD^1..HEAD"], root)
+        merges = git(["rev-list", "--first-parent", "--merges", f"{release}..HEAD"], root)
+        if (files.returncode or set(files.stdout.splitlines()) != {
+                "policy/pr-qa-policy.json", "scripts/release-preflight", "tests/test_release_preflight.py"}
+                or merges.returncode or merges.stdout.splitlines() != [candidate, *reversed(reviewed)]):
+            return False
+        current_workflow = root / workflow
+        merged_workflow = git(["show", f"{reviewed[1]}:{workflow}"], root)
+        if (not current_workflow.is_file() or current_workflow.is_symlink()
+                or merged_workflow.returncode
+                or hashlib.sha256(current_workflow.read_bytes()).hexdigest() != workflow_sha
+                or hashlib.sha256(merged_workflow.stdout.encode()).hexdigest() != workflow_sha):
+            return False
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        if (report.get("summary", {}).get("overall_result") != "FAIL"
+                or not isinstance(report.get("results"), list)):
+            return False
+        failures = [item for item in report["results"]
+                    if item.get("blocking") and item.get("status") == "FAIL"]
+        if len(failures) != 2 or {item.get("gate") for item in failures} != {
+                "Repository Hygiene", "Deployment Risk"}:
+            return False
+        by_gate = {item["gate"]: item for item in failures}
+        if (by_gate["Repository Hygiene"].get("message") != "Accidental merge commits detected."
+                or by_gate["Repository Hygiene"].get("details") != [candidate, *reversed(reviewed)]):
+            return False
+        if (by_gate["Deployment Risk"].get("message") !=
+                "Deployment workflow is structurally unsafe or missing required controlled-release safeguards."
+                or by_gate["Deployment Risk"].get("details") != [
+                    f"{workflow}: production/live deployment-sensitive workflow does not match the controlled Gate D safe shape."]):
+            return False
+        print("FieldZilla rc223 findings matched exact protected lineage and immutable OIDC workflow bytes.")
+        return True
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return False
+
+
 def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str, release: str = "",
               verified_lineage: list[str] | None = None) -> bool:
     head_sha = git(["rev-parse", "HEAD"], root).stdout.strip()
@@ -1408,6 +1475,9 @@ def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str, release: st
             return True
         if reviewed_rc222_fieldzilla_disposition(root, report_path, base, release, verified_lineage):
             print("Active PR-QA findings matched exact rc222 FieldZilla workflow evidence.")
+            return True
+        if reviewed_rc223_fieldzilla_disposition(root, report_path, base, release, verified_lineage):
+            print("Active PR-QA findings matched exact rc223 FieldZilla workflow evidence.")
             return True
         return False
 

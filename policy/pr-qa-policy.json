@@ -430,6 +430,16 @@
     "*.csproj"
   ],
   "release_preflight_dispositions": {
+    "pr-qa-v1-rc223": {
+      "reason": "rc223-only disposition for verified protected PR #447 and #448 merge lineage and the exact reviewed immutable-subject production hosting workflow bytes. Only the resulting merge-history and Gate D workflow-shape findings are accepted.",
+      "predecessor_release": "pr-qa-v1-rc222",
+      "reviewed_commits": [
+        "9a1e0c40eccf4b3b2021f447bad5d7f0a02cbf3f",
+        "e98becc5c1b5ecb3b86c93f306a62867f4682fd5"
+      ],
+      "reviewed_prs": [447, 448],
+      "workflow_sha256": "f58decc6a51d88a4ce3cda18868bd91d952cd22ea97ce556b28e47f606d2926e"
+    },
     "pr-qa-v1-rc222": {
       "reason": "rc222-only disposition for verified protected PR #443, #444 and #445 merge lineage and the exact reviewed default-subject production hosting workflow bytes. Only the resulting merge-history and Gate D workflow-shape findings are accepted.",
       "predecessor_release": "pr-qa-v1-rc221",
