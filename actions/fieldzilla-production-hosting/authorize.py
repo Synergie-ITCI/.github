@@ -22,7 +22,7 @@ OWNER = "SaurabhVermaIN"
 ENVIRONMENT = "synergie-app-production"
 STATE_KEY = "programme-management-platform/fieldzilla/production/hosting/opentofu.tfstate"
 WORKFLOW = ".github/workflows/fieldzilla-production-hosting.yml"
-ALLOWED_ACTIONS = {"create"}
+ALLOWED_ACTIONS = {"create", "no-op"}
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -77,28 +77,43 @@ def check_plan(path, phase):
     if not changes:
         fail("empty managed-resource plan")
     shared = []
+    creates = 0
+    unchanged = 0
     for change in changes:
         address = change["address"]
         actions = change["change"]["actions"]
-        if actions != ["create"]:
+        if len(actions) != 1 or actions[0] not in ALLOWED_ACTIONS:
             fail(f"non-additive action: {address}: {actions}")
+        if change.get("previous_address") or change["change"].get("importing"):
+            fail(f"state move or import is not authorized: {address}")
+        if actions == ["no-op"]:
+            if change["change"].get("before") != change["change"].get("after"):
+                fail(f"inconsistent no-op: {address}")
+            unchanged += 1
+        else:
+            creates += 1
         if "staging" in address.lower():
             fail(f"staging resource: {address}")
         after = change["change"].get("after")
         if after is not None and "staging" in json.dumps(after, sort_keys=True).lower():
             fail(f"staging reference or name in planned resource: {address}")
         if change["type"].startswith("aws_lb_") and change["type"] != "aws_lb_target_group":
-            shared.append(address.split("[")[0])
+            if phase == "phase1":
+                fail("phase 1 cannot include the shared ALB")
+            if actions == ["create"]:
+                shared.append(address.split("[")[0])
     expected_shared = {
         "aws_lb_listener_certificate.production",
         "aws_lb_listener_rule.hosting_health",
         "aws_lb_listener_rule.application_pending",
     }
+    if not creates:
+        fail("plan contains no infrastructure additions")
     if phase == "phase1" and shared:
         fail("phase 1 cannot change the shared ALB")
-    if phase == "phase2" and (set(shared) != expected_shared or len(changes) != 3):
+    if phase == "phase2" and (set(shared) != expected_shared or creates != 3):
         fail("phase 2 shared ALB additions differ from reviewed allowlist")
-    print(json.dumps({"phase": phase, "creates": len(changes), "shared_alb_additions": shared}, sort_keys=True))
+    print(json.dumps({"phase": phase, "creates": creates, "unchanged": unchanged, "shared_alb_additions": shared}, sort_keys=True))
 
 
 def verify_artifact(args):
