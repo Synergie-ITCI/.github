@@ -23,6 +23,7 @@ class ReleasePreflightTests(unittest.TestCase):
         reviewed = [
             "349b97dbb789f696f939a25420baa874333ae142",
             "0b290787fee7e8a3f3f728ecf94e6eb3e973ed2d",
+            "8747ebe959d39abefdb4948152291c51284cc7da",
         ]
         candidate = "a" * 40
         workflow = ".github/workflows/fieldzilla-production-hosting.yml"
@@ -30,7 +31,7 @@ class ReleasePreflightTests(unittest.TestCase):
         report = {"summary": {"overall_result": "FAIL"}, "results": [
             {"gate": "Repository Hygiene", "status": "FAIL", "blocking": True,
              "message": "Accidental merge commits detected.",
-             "details": list(reversed(reviewed))},
+             "details": [candidate, *reversed(reviewed)]},
             {"gate": "Deployment Risk", "status": "FAIL", "blocking": True,
              "message": "Deployment workflow is structurally unsafe or missing required controlled-release safeguards.",
              "details": [f"{workflow}: production/live deployment-sensitive workflow does not match the controlled Gate D safe shape."]},
@@ -72,7 +73,7 @@ class ReleasePreflightTests(unittest.TestCase):
                 report["results"].pop()
                 report["results"][0]["details"] = [reviewed[0]]
                 self.assertFalse(accepted())
-                report["results"][0]["details"] = list(reversed(reviewed))
+                report["results"][0]["details"] = [candidate, *reversed(reviewed)]
                 (root / workflow).write_text(workflow_text + "\n# altered\n")
                 self.assertFalse(accepted())
 
