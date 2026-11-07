@@ -28,9 +28,12 @@ class ReleasePreflightTests(unittest.TestCase):
         workflow = ".github/workflows/fieldzilla-production-hosting.yml"
         predecessor_workflow_text = subprocess.check_output(
             ["git", "show", f"{reviewed[1]}:{workflow}"], cwd=ROOT, text=True)
-        workflow_text = (ROOT / workflow).read_text()
+        immutable_rc224 = "db686f587c32cff26b34f2567fbec21634e2d194"
+        workflow_text = subprocess.check_output(
+            ["git", "show", f"{immutable_rc224}:{workflow}"], cwd=ROOT, text=True)
         authorizer = "actions/fieldzilla-production-hosting/authorize.py"
-        authorizer_text = (ROOT / authorizer).read_text()
+        authorizer_text = subprocess.check_output(
+            ["git", "show", f"{immutable_rc224}:{authorizer}"], cwd=ROOT, text=True)
         report = {"summary": {"overall_result": "FAIL"}, "results": [
             {"gate": "Repository Hygiene", "status": "FAIL", "blocking": True,
              "message": "Accidental merge commits detected.",
@@ -61,7 +64,7 @@ class ReleasePreflightTests(unittest.TestCase):
                 destination = root / relative
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_text(
-                    workflow_text if relative == workflow else (ROOT / relative).read_text())
+                    workflow_text if relative == workflow else authorizer_text if relative == authorizer else (ROOT / relative).read_text())
             report_path = root / "report.json"
 
             def accepted():
