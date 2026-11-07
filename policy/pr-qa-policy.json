@@ -430,6 +430,21 @@
     "*.csproj"
   ],
   "release_preflight_dispositions": {
+    "pr-qa-v1-rc224": {
+      "reason": "rc224-only disposition for verified protected PR #450/#451 lineage and the exact owner-reviewed read-only comment-probe workflow and authorizer bytes. Only the resulting merge-history and Gate D workflow-shape findings are accepted.",
+      "predecessor_release": "pr-qa-v1-rc223",
+      "reviewed_commits": [
+        "ddca9c9d1f6b07b140a7cea2f6713e1659bbc839",
+        "d98d4b4d36be6d2622d50eedbe86cbfd494a76d4"
+      ],
+      "reviewed_prs": [
+        450,
+        451
+      ],
+      "workflow_sha256": "cd7799b435c377239c79b7fd0b20b315ae40461c8de9e87f3d5cc2ee5c58754b",
+      "predecessor_workflow_sha256": "844e9dc47ced8fda371d4f43268afac4157db8cde49230547ae25e7b6d244282",
+      "authorizer_sha256": "224aaf6e2208eb31baa63824e5cd2f28a9b10edf9f8e5781abe0228f4413be8a"
+    },
     "pr-qa-v1-rc223": {
       "reason": "rc223-only disposition for verified protected PR #447 and #448 merge lineage and the exact reviewed immutable-subject production hosting workflow bytes. Only the resulting merge-history and Gate D workflow-shape findings are accepted.",
       "predecessor_release": "pr-qa-v1-rc222",

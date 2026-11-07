@@ -19,6 +19,73 @@ preflight = SourceFileLoader("release_preflight", str(SCRIPT)).load_module()
 
 
 class ReleasePreflightTests(unittest.TestCase):
+    def test_rc224_fieldzilla_disposition_is_exact_and_fail_closed(self):
+        reviewed = [
+            "ddca9c9d1f6b07b140a7cea2f6713e1659bbc839",
+            "d98d4b4d36be6d2622d50eedbe86cbfd494a76d4",
+        ]
+        candidate = "a" * 40
+        workflow = ".github/workflows/fieldzilla-production-hosting.yml"
+        predecessor_workflow_text = subprocess.check_output(
+            ["git", "show", f"{reviewed[1]}:{workflow}"], cwd=ROOT, text=True)
+        workflow_text = (ROOT / workflow).read_text()
+        authorizer = "actions/fieldzilla-production-hosting/authorize.py"
+        authorizer_text = (ROOT / authorizer).read_text()
+        report = {"summary": {"overall_result": "FAIL"}, "results": [
+            {"gate": "Repository Hygiene", "status": "FAIL", "blocking": True,
+             "message": "Accidental merge commits detected.",
+             "details": [candidate, *reversed(reviewed)]},
+            {"gate": "Deployment Risk", "status": "FAIL", "blocking": True,
+             "message": "Deployment workflow is structurally unsafe or missing required controlled-release safeguards.",
+             "details": [f"{workflow}: production/live deployment-sensitive workflow does not match the controlled Gate D safe shape."]},
+        ]}
+
+        def fake_git(args, _root):
+            values = {
+                ("remote", "get-url", "origin"): preflight.CENTRAL_ORIGIN + "\n",
+                ("rev-parse", "HEAD"): candidate + "\n",
+                ("rev-parse", "refs/remotes/origin/main"): candidate + "\n",
+                ("rev-list", "--first-parent", "--merges", "pr-qa-v1-rc223..HEAD"):
+                    "\n".join([candidate, *reversed(reviewed)]) + "\n",
+                ("diff", "--name-only", "HEAD^1..HEAD"):
+                    "policy/pr-qa-policy.json\nscripts/release-preflight\ntests/test_release_preflight.py\n"
+                    f"{workflow}\n{authorizer}\nactions/fieldzilla-production-hosting/test_authorize.py\n",
+                ("show", f"{reviewed[1]}:{workflow}"): predecessor_workflow_text,
+            }
+            value = values.get(tuple(args))
+            return subprocess.CompletedProcess(args, 0 if value is not None else 1, value or "", "")
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for relative in ("policy/pr-qa-policy.json", workflow, authorizer):
+                destination = root / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_text(
+                    workflow_text if relative == workflow else (ROOT / relative).read_text())
+            report_path = root / "report.json"
+
+            def accepted():
+                report_path.write_text(json.dumps(report), encoding="utf-8")
+                return preflight.reviewed_rc224_fieldzilla_disposition(
+                    root, report_path, "main", "pr-qa-v1-rc223", [*reviewed, candidate])
+
+            with patch.object(preflight, "git", side_effect=fake_git):
+                self.assertTrue(accepted())
+                self.assertFalse(preflight.reviewed_rc224_fieldzilla_disposition(
+                    root, report_path, "main", "pr-qa-v1-rc223", reviewed))
+                report["results"].append({"gate": "Secrets", "status": "FAIL", "blocking": True})
+                self.assertFalse(accepted())
+                report["results"].pop()
+                report["results"][0]["details"] = list(reversed(reviewed))
+                self.assertFalse(accepted())
+                report["results"][0]["details"] = [candidate, *reversed(reviewed)]
+                (root / workflow).write_text(workflow_text + "\n# altered\n")
+                self.assertFalse(accepted())
+
+                (root / workflow).write_text(workflow_text)
+                (root / authorizer).write_text(authorizer_text + "\n# altered\n")
+                self.assertFalse(accepted())
+
     def test_rc223_fieldzilla_disposition_is_exact_and_fail_closed(self):
         reviewed = [
             "9a1e0c40eccf4b3b2021f447bad5d7f0a02cbf3f",

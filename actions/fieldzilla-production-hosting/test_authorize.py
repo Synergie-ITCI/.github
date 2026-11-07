@@ -1,6 +1,8 @@
 """Safety contract for the production-only OpenTofu plan verifier."""
 
 import importlib.util
+import hashlib
+import io
 import json
 import re
 import tempfile
@@ -19,6 +21,49 @@ spec.loader.exec_module(authorize)
 
 
 class PlanSafetyTest(unittest.TestCase):
+    def test_probe_reads_exact_owner_comment_without_authorizing_or_consuming(self):
+        comment = {
+            "id": 123, "user": {"login": "SaurabhVermaIN", "id": 52234089},
+            "author_association": "MEMBER", "body": "existing owner approval",
+            "issue_url": f"https://api.github.com/repos/{authorize.REPOSITORY}/issues/674",
+        }
+        argv = ["authorize.py", "probe", "--source-sha", "a" * 40,
+                "--caller-sha", "b" * 40, "--workflow-tag", "refs/tags/pr-qa-v1-rc224",
+                "--phase", "phase1", "--approval-comment-id", "123"]
+        output = io.StringIO()
+        with patch.object(authorize.sys, "argv", argv), \
+                patch.object(authorize, "require_identity") as identity, \
+                patch.object(authorize, "api", return_value=comment) as api, \
+                patch.object(authorize, "verify_artifact", side_effect=AssertionError("artifact validation in probe")), \
+                patch.object(authorize, "verify_owner_approval", side_effect=AssertionError("approval in probe")), \
+                patch.object(authorize.sys, "stdout", output):
+            authorize.main()
+        identity.assert_called_once()
+        api.assert_called_once_with(f"repos/{authorize.REPOSITORY}/issues/comments/123")
+        evidence = json.loads(output.getvalue())
+        self.assertEqual(evidence["comment_id"], 123)
+        self.assertEqual(evidence["body_sha256"], hashlib.sha256(comment["body"].encode()).hexdigest())
+        self.assertFalse(evidence["approval_granted"])
+        self.assertFalse(evidence["approval_consumed"])
+        comment["issue_url"] = "https://api.github.com/repos/Synergie-ITCI/.github/issues/437"
+        with patch.object(authorize, "api", return_value=comment), self.assertRaises(SystemExit):
+            authorize.probe_owner_comment(SimpleNamespace(approval_comment_id=123))
+        with patch.object(authorize, "api") as api, self.assertRaises(SystemExit):
+            authorize.probe_owner_comment(SimpleNamespace(approval_comment_id=0))
+        api.assert_not_called()
+
+    def test_probe_skips_every_aws_and_opentofu_step(self):
+        root = Path(__file__).resolve().parents[2]
+        workflow = (root / ".github/workflows/fieldzilla-production-hosting.yml").read_text()
+        guarded = []
+        for step in re.split(r"\n      - name: ", workflow)[1:]:
+            if any(text in step for text in ("aws-actions/configure-aws-credentials", "opentofu/setup-opentofu", "aws ", "tofu -")):
+                self.assertTrue(any(guard in step for guard in (
+                    "inputs.mode != 'probe'", "inputs.mode == 'plan'", "inputs.mode == 'apply'"
+                )), step.splitlines()[0])
+                guarded.append(step.splitlines()[0])
+        self.assertGreaterEqual(len(guarded), 6)
+
     def test_api_failure_reports_permission_and_rate_context_without_token(self):
         headers = Message()
         headers["X-Accepted-GitHub-Permissions"] = "pull_requests=read"
