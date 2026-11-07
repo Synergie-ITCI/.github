@@ -26,7 +26,8 @@ class ReleasePreflightTests(unittest.TestCase):
         ]
         candidate = "a" * 40
         workflow = ".github/workflows/fieldzilla-production-hosting.yml"
-        workflow_text = (ROOT / workflow).read_text()
+        workflow_text = subprocess.check_output(
+            ["git", "show", f"pr-qa-v1-rc221:{workflow}"], cwd=ROOT, text=True)
         finding = {
             "gate": "Deployment Risk", "status": "FAIL", "blocking": True,
             "message": "Deployment workflow is structurally unsafe or missing required controlled-release safeguards.",
@@ -53,7 +54,8 @@ class ReleasePreflightTests(unittest.TestCase):
             for relative in ("policy/pr-qa-policy.json", workflow):
                 destination = root / relative
                 destination.parent.mkdir(parents=True, exist_ok=True)
-                destination.write_bytes((ROOT / relative).read_bytes())
+                destination.write_text(
+                    workflow_text if relative == workflow else (ROOT / relative).read_text())
             report_path = root / "report.json"
 
             def accepted():
