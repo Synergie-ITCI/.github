@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "version": "operational-source-qa-v1",
+  "max_age_seconds": {
+    "counts-only-observe": 21600,
+    "locked-worker-pause": 3600
+  },
+  "reusable_categories": ["format", "lint", "typecheck", "build", "tests", "architecture"],
+  "never_reusable": ["authorization", "runtime", "security", "advisory", "migration", "deployment", "snapshot", "drain-lock"],
+  "artifact_name": "operational-source-qa",
+  "max_zip_bytes": 262144,
+  "max_record_bytes": 65536
+}

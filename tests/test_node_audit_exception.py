@@ -1,15 +1,20 @@
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import tempfile
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
 from adapters.base import CommandOutcome, PRContext
 from adapters.node import NodeAdapter
-from adapters.node_audit_exception import EXCEPTION_DIRECTORY, EXCEPTION_FILES, evaluate_mobile_audit_exception
+from adapters.node_audit_exception import (
+    EXCEPTION_DIRECTORY,
+    EXCEPTION_FILES,
+    evaluate_mobile_audit_exception,
+)
 
 
 class MobileAuditExceptionTests(unittest.TestCase):
@@ -22,6 +27,9 @@ class MobileAuditExceptionTests(unittest.TestCase):
         self.mobile = self.repo / "apps/mobile"
         self.mobile.mkdir(parents=True)
         self.manifest = json.loads(EXCEPTION_FILES[self.pr].read_text())
+        # Positive fixtures must not depend on today's date. Runtime expiry and
+        # the approved manifest stay unchanged; expiry rejection is tested below.
+        self.fixture_time = datetime.fromisoformat(self.manifest["expires_at"]) - timedelta(hours=1)
         for relative in self.manifest["dependency_sha256"]:
             content = '{"scripts":{"audit:ci":"npm audit --audit-level=high"}}' if relative.endswith("package.json") else "test dependency"
             (self.repo / relative).write_text(content)
@@ -72,13 +80,21 @@ class MobileAuditExceptionTests(unittest.TestCase):
                         item["source_sha256"] = hashlib.sha256(destination.read_bytes()).hexdigest()
             (self.repo / "exception.json").write_text(json.dumps(self.manifest))
             (self.repo / canonical_evidence).write_bytes(source_evidence)
-            with patch.object(self.ctx, "run", side_effect=run):
+            with patch.object(self.ctx, "run", side_effect=run), \
+                 patch("adapters.node_audit_exception.datetime", wraps=datetime) as clock:
+                clock.now.return_value = self.fixture_time
                 return evaluate_mobile_audit_exception(self.ctx, self.mobile, self.original)
 
     def test_exact_match_is_visible_warning(self):
         result = self.evaluate()
         self.assertEqual(result.status, "WARNING")
         self.assertTrue((self.repo / "pr-qa-results/mobile-audit-exception.json").exists())
+
+    def test_exact_expiry_and_later_remain_blocking(self):
+        expiry = datetime.fromisoformat(self.manifest["expires_at"])
+        for now in (expiry, expiry + timedelta(days=1)):
+            self.fixture_time = now
+            self.assertIsNone(self.evaluate())
 
     def test_other_pr_or_head_fails_closed(self):
         self.ctx.event["pull_request"]["number"] = 477 if self.pr == 476 else 476
