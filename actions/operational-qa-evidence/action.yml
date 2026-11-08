@@ -1,0 +1,42 @@
+name: Trusted operational source QA evidence
+description: Opt-in source-only evidence decision; unavailable evidence requires existing full QA
+inputs:
+  mode:
+    description: verify or issue; issue is allowed only after original source checks succeed
+    required: true
+  contract:
+    description: Protected caller contract with current input fingerprint
+    required: true
+  operation:
+    description: Caller operation (mapped by its reviewed contract)
+    required: true
+  artifact-id:
+    description: Explicit prior Actions artifact ID; empty means full QA
+    default: ''
+  record:
+    description: Output record path for issue mode
+    default: ''
+outputs:
+  reuse_source_checks:
+    description: true only for authenticated complete exact-input evidence
+    value: ${{ steps.decision.outputs.reuse_source_checks }}
+  issued:
+    description: true when the caller may upload the newly issued record
+    value: ${{ steps.decision.outputs.issued }}
+runs:
+  using: composite
+  steps:
+    - id: decision
+      shell: bash
+      env:
+        EVIDENCE_MODE: ${{ inputs.mode }}
+        EVIDENCE_CONTRACT: ${{ inputs.contract }}
+        EVIDENCE_OPERATION: ${{ inputs.operation }}
+        EVIDENCE_ARTIFACT_ID: ${{ inputs.artifact-id }}
+        EVIDENCE_RECORD: ${{ inputs.record }}
+        EVIDENCE_VERIFIER_REF: ${{ github.action_ref }}
+      run: |
+        set -euo pipefail
+        args=("$EVIDENCE_MODE" --contract "$EVIDENCE_CONTRACT" --operation "$EVIDENCE_OPERATION" --artifact-id "$EVIDENCE_ARTIFACT_ID")
+        if [ -n "$EVIDENCE_RECORD" ]; then args+=(--record "$EVIDENCE_RECORD"); fi
+        python3 "$GITHUB_ACTION_PATH/../../tools/operational_qa_evidence.py" "${args[@]}"
