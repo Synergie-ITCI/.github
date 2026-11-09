@@ -52,6 +52,12 @@ For consequential or multi-session work, use a compact Task Evidence v1.1 record
 
 On resumption, re-read current instructions and compare them with the recorded sources. Follow higher-priority instructions and stronger repository security or governance controls. If an instruction snapshot is missing, unavailable, changed, or materially conflicts with another instruction, do not treat affected prior conclusions as verified until the conflict is resolved and the affected evidence is revalidated. Immediately before consequential action, recheck the current source SHA, applicable instructions, required checks, approvals, and mutable runtime prerequisites. Existing PR-QA, Architecture Governance, and approval gates remain authoritative.
 
+### Codex task execution and closure
+
+Choose only from models available in the current Codex environment. Use the least costly capability and reasoning effort safely sufficient for the task: lower effort for routine work, with escalation for architecture, security, production risk, or difficult cross-repository work. Do not infer billed cost or savings from token counts.
+
+Before retrying a failed tool or agent action, determine whether it may already have executed and set a bounded attempt or time limit. Do not repeat completed checks without changed inputs, failed validation, or another documented reason. If retry is unsafe or the bound is reached, record the blocker and next safe action in Task Evidence v1.1. At handoff and closure, distinguish implementation, exact-source CI, deployment, runtime acceptance, and the requested outcome; claim completion only when the outcome has the required evidence. Existing security, PR-QA, Architecture Governance, and approval gates still apply.
+
 ## 2. Branch-by-branch matrix
 
 | Promotion | Purpose | PR Required? | Checks Run | Human Approval | Merge Condition | Deployment? |
