@@ -51,6 +51,14 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Reject consumer-owned central QA checkout paths
+        if: github.repository != 'Synergie-ITCI/.github'
+        run: |
+          if git ls-tree -r --name-only HEAD | grep -Eq '^\.pr-qa-(framework|release-resolver)(/|$)'; then
+            echo 'Consumer source uses a reserved central QA checkout path.' >&2
+            exit 1
+          fi
+
       - name: Fetch current pull request base branch
         if: github.event_name == 'pull_request' && github.event.pull_request.base.ref != ''
         env:
@@ -126,6 +134,14 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Reject consumer-owned central QA checkout paths
+        if: github.repository != 'Synergie-ITCI/.github'
+        run: |
+          if git ls-tree -r --name-only HEAD | grep -Eq '^\.pr-qa-(framework|release-resolver)(/|$)'; then
+            echo 'Consumer source uses a reserved central QA checkout path.' >&2
+            exit 1
+          fi
 
       - name: Fetch current pull request base branch
         if: github.event_name == 'pull_request' && github.event.pull_request.base.ref != ''
@@ -402,6 +418,11 @@ jobs:
           ALTER DATABASE telepathy_test OWNER TO runner;
           GRANT ALL PRIVILEGES ON DATABASE telepathy_test TO runner;
           SQL
+
+      - name: Prepare opted-in Python test database
+        if: needs.detect.outputs.python == 'true' && github.repository != 'Synergie-ITCI/.github'
+        run: |
+          python3 .pr-qa-release-resolver/pr-qa/setup_test_postgres.py --repo "$GITHUB_WORKSPACE"
 
       - name: Phase 2 and Phase 3 validation
         id: full
