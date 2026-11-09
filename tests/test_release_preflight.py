@@ -916,6 +916,9 @@ class ReleasePreflightTests(unittest.TestCase):
         parents = {first: f"{first} {release}", second: f"{second} {first}"}
         remote_main = [second]
         first_parent_history = [second, first, release]
+        workflow = (ROOT / ".github/workflows/architecture-governance.yml").read_text()
+        changed_paths = ["pr-qa/runner.py"]
+        workflow_blob = ["a" * 40, "a" * 40]
 
         def fake_git(args, _root):
             if args == ["rev-parse", "HEAD"]:
@@ -934,6 +937,14 @@ class ReleasePreflightTests(unittest.TestCase):
                 value = "f" * 40
             elif args[:2] == ["rev-parse", f"{second_head}^{{tree}}"] or args[:2] == ["rev-parse", f"{second}^{{tree}}"]:
                 value = "e" * 40
+            elif args == ["rev-parse", f"{first}:.github/workflows/architecture-governance.yml"]:
+                value = workflow_blob[0]
+            elif args == ["rev-parse", f"{second_head}:.github/workflows/architecture-governance.yml"]:
+                value = workflow_blob[1]
+            elif args == ["show", f"{first}:.github/workflows/architecture-governance.yml"]:
+                value = workflow
+            elif args == ["diff", "--name-only", "-z", "--no-renames", first, second_head]:
+                return subprocess.CompletedProcess(args, 0, "\0".join(changed_paths) + "\0", "")
             else:
                 return subprocess.CompletedProcess(args, 1, "", "unexpected git query")
             return subprocess.CompletedProcess(args, 0, value + "\n", "")
@@ -980,6 +991,20 @@ class ReleasePreflightTests(unittest.TestCase):
             checks = lambda head: checks_without_architecture if head == second_head else original_checks(head)
             with self.assertRaisesRegex(ValueError, "required exact-head checks missing"):
                 preflight.verify_central_lineage(ROOT, "pr-qa-v1-rc204", second)
+            changed_paths[:] = ["docs/Synergie-Developer-Governance-Handoff.md"]
+            self.assertEqual(preflight.verify_central_lineage(ROOT, "pr-qa-v1-rc204", second), [first, second])
+            for invalid in ([], [{**original_checks(second_head)["check_runs"][0], "conclusion": "failure"}],
+                            [{**original_checks(second_head)["check_runs"][0], "head_sha": first_head}]):
+                checks = lambda head, invalid=invalid: ({"total_count": len(invalid), "check_runs": invalid}
+                                                        if head == second_head else original_checks(head))
+                with self.assertRaisesRegex(ValueError, "required exact-head checks missing"):
+                    preflight.verify_central_lineage(ROOT, "pr-qa-v1-rc204", second)
+            checks = lambda head: checks_without_architecture if head == second_head else original_checks(head)
+            workflow_blob[1] = "b" * 40
+            with self.assertRaisesRegex(ValueError, "workflow changed"):
+                preflight.verify_central_lineage(ROOT, "pr-qa-v1-rc204", second)
+            workflow_blob[1] = workflow_blob[0]
+            changed_paths[:] = ["pr-qa/runner.py"]
             checks = lambda head: ({"total_count": 3, "check_runs": [
                 *original_checks(head)["check_runs"],
                 {"id": 3, "name": "Architecture Governance", "head_sha": head,
@@ -987,6 +1012,22 @@ class ReleasePreflightTests(unittest.TestCase):
             ]} if head == second_head else original_checks(head))
             with self.assertRaisesRegex(ValueError, "required exact-head checks missing"):
                 preflight.verify_central_lineage(ROOT, "pr-qa-v1-rc204", second)
+
+    def test_historical_architecture_applicability_is_fail_closed(self):
+        workflow = (ROOT / ".github/workflows/architecture-governance.yml").read_text()
+        applicable = preflight.architecture_governance_applicable
+        self.assertFalse(applicable(workflow, ["docs/Synergie-Developer-Governance-Handoff.md"]))
+        self.assertTrue(applicable(workflow, ["docs/readme.md", "pr-qa/runner.py"]))
+        for altered in (
+            workflow.replace("      - 'tests/**'", "      - 'tests/**'\n      - '!tests/private/**'"),
+            workflow.replace("branches: [main]", "branches: [development]"),
+            workflow.replace("      - 'tests/**'", "      - 'tests/*'"),
+            workflow.replace("  workflow_dispatch:", "  push:\n  workflow_dispatch:"),
+        ):
+            with self.subTest(altered=altered[-100:]), self.assertRaises(ValueError):
+                applicable(altered, ["docs/readme.md"])
+        with self.assertRaises(ValueError):
+            applicable(workflow, [])
 
     def test_inherited_fixture_disposition_accepts_only_exact_prior_fingerprints(self):
         policy = json.loads((ROOT / "policy/pr-qa-policy.json").read_text(encoding="utf-8"))

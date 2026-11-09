@@ -15,6 +15,9 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pr-qa"))
+from pr_qa import parse_workflow_yaml, workflow_on_section  # noqa: E402
+
 
 PIN_RE = re.compile(r'(?m)^\s*PR_QA_FRAMEWORK_RELEASE:\s*["\']?([^"\'\s]+)["\']?\s*$')
 RC_RE = re.compile(r"^pr-qa-v1-rc([1-9][0-9]*)$")
@@ -83,6 +86,33 @@ def worktree_state(root: Path) -> str:
     return "DIRTY" if proc.stdout.strip() else "CLEAN"
 
 
+def architecture_governance_applicable(workflow: str, paths: list[str]) -> bool:
+    """Waive a missing check only for a proven, simple historical PR path filter."""
+    parsed = parse_workflow_yaml(workflow)
+    events = workflow_on_section(parsed)
+    if not isinstance(events, dict) or set(events) != {"pull_request", "workflow_dispatch"}:
+        raise ValueError("Historical Architecture Governance event scope is unknown")
+    pull_request = events.get("pull_request")
+    if not isinstance(pull_request, dict) or set(pull_request) != {"branches", "paths"}:
+        raise ValueError("Historical Architecture Governance PR filters are unknown")
+    branches = pull_request["branches"]
+    if branches not in (["main"], "[main]"):
+        raise ValueError("Historical Architecture Governance base filter is unknown")
+    filters = pull_request["paths"]
+    if not isinstance(filters, list) or not filters or not paths:
+        raise ValueError("Historical Architecture Governance paths are unavailable")
+    prefixes: list[str] = []
+    for pattern in filters:
+        if not isinstance(pattern, str) or not re.fullmatch(
+            r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*/\*\*", pattern
+        ):
+            raise ValueError("Historical Architecture Governance path filter is unknown")
+        prefixes.append(pattern[:-2])
+    if len(prefixes) != len(set(prefixes)):
+        raise ValueError("Historical Architecture Governance path filter is ambiguous")
+    return any(path.startswith(prefix) for path in paths for prefix in prefixes)
+
+
 def extract_release(root: Path, release: str, dest: Path) -> bool:
     archive = subprocess.run(
         ["git", "archive", "--format=tar", release],
@@ -120,7 +150,8 @@ def verify_central_lineage(root: Path, release: str, candidate: str) -> list[str
     if checked_git("merge-base", release, candidate) != checked_git("rev-parse", f"{release}^{{commit}}"):
         raise ValueError("active release is not an ancestor of the candidate")
     rules = checked_api("repos/Synergie-ITCI/.github/rules/branches/main")
-    required = {"pr-qa / Pull Request Quality Assurance", "Architecture Governance"}
+    pr_qa_check = "pr-qa / Pull Request Quality Assurance"
+    architecture_check = "Architecture Governance"
     if not any(item.get("type") == "pull_request" for item in rules):
         raise ValueError("protected main no longer requires pull requests")
     contexts = {check["context"] for item in rules if item.get("type") == "required_status_checks"
@@ -163,8 +194,32 @@ def verify_central_lineage(root: Path, release: str, candidate: str) -> list[str
             name = check["name"]
             if name not in latest or check["id"] > latest[name]["id"]:
                 latest[name] = check
-        if any(latest.get(name, {}).get("status") != "completed"
-               or latest.get(name, {}).get("conclusion") != "success" for name in required):
+        if (latest.get(pr_qa_check, {}).get("status") != "completed"
+                or latest.get(pr_qa_check, {}).get("conclusion") != "success"):
+            raise ValueError(f"required exact-head checks missing for PR #{pr['number']}: {commit}")
+        architecture = latest.get(architecture_check)
+        if architecture is not None:
+            if architecture.get("status") != "completed" or architecture.get("conclusion") != "success":
+                raise ValueError(f"required exact-head checks missing for PR #{pr['number']}: {commit}")
+            return
+
+        workflow_path = ".github/workflows/architecture-governance.yml"
+        try:
+            base_blob = checked_git("rev-parse", f"{previous}:{workflow_path}")
+            head_blob = checked_git("rev-parse", f"{head}:{workflow_path}")
+        except ValueError as exc:
+            raise ValueError(f"historical Architecture Governance applicability unavailable for PR #{pr['number']}") from exc
+        if base_blob != head_blob:
+            raise ValueError(f"historical Architecture Governance workflow changed in PR #{pr['number']}")
+        if checked_git("rev-parse", f"{commit}^{{tree}}") != checked_git("rev-parse", f"{head}^{{tree}}"):
+            raise ValueError(f"historical Architecture Governance merge content differs for PR #{pr['number']}")
+        workflow = git(["show", f"{previous}:{workflow_path}"], root)
+        changed = git(["diff", "--name-only", "-z", "--no-renames", previous, head], root)
+        if (workflow.returncode or changed.returncode or not changed.stdout
+                or not changed.stdout.endswith("\0")):
+            raise ValueError(f"historical Architecture Governance evidence unavailable for PR #{pr['number']}")
+        paths = changed.stdout[:-1].split("\0")
+        if architecture_governance_applicable(workflow.stdout, paths):
             raise ValueError(f"required exact-head checks missing for PR #{pr['number']}: {commit}")
 
     # Every merge has an independent immutable PR head and check-run identity.
