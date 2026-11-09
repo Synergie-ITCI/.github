@@ -243,6 +243,31 @@ class PostgresTestConfigurationTests(unittest.TestCase):
             ):
                 self.module.main()
 
+    def test_existing_role_or_database_fails_closed(self) -> None:
+        self.assertIn('CREATE ROLE :"qa_role" LOGIN;', self.module.SQL)
+        self.assertIn('CREATE DATABASE :"qa_db" OWNER :"qa_role";', self.module.SQL)
+        self.assertNotIn("IF NOT EXISTS", self.module.SQL)
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "pyproject.toml").write_text(
+                '[tool.synergie_pr_qa.postgres_test]\nrole = "fixture_user"\ndatabase = "fixture_db"\n'
+            )
+            for existing in ("role", "database"):
+                with (
+                    mock.patch.object(
+                        sys, "argv", ["setup_test_postgres.py", "--repo", str(repo)]
+                    ),
+                    mock.patch.object(
+                        self.module.subprocess,
+                        "run",
+                        return_value=subprocess.CompletedProcess(
+                            [], 3, stderr=f"{existing} already exists"
+                        ),
+                    ),
+                    self.assertRaisesRegex(RuntimeError, "Could not prepare isolated"),
+                ):
+                    self.module.main()
+
     def test_reserved_checkout_paths_are_rejected_before_central_checkout(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "pr-qa.yml").read_text()
         self.assertEqual(

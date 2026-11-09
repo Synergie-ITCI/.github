@@ -12,12 +12,8 @@ import tomllib
 
 IDENTIFIER = re.compile(r"[a-z][a-z0-9_]{0,62}")
 SQL = r"""
-SELECT format('CREATE ROLE %I LOGIN', :'qa_role')
-WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'qa_role')
-\gexec
-SELECT format('CREATE DATABASE %I OWNER %I', :'qa_db', :'qa_role')
-WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'qa_db')
-\gexec
+CREATE ROLE :"qa_role" LOGIN;
+CREATE DATABASE :"qa_db" OWNER :"qa_role";
 """
 
 
