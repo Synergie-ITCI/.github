@@ -15,8 +15,12 @@ from .base import (
     passed,
     read_text,
     restricted_license_hit,
+    should_skip_path,
     warning,
 )
+
+CENTRAL_CHECKOUTS = (".pr-qa-framework", ".pr-qa-release-resolver")
+BLACK_CHECKOUT_EXCLUDE = r"/\.pr-qa-(framework|release-resolver)/"
 
 
 class PythonAdapter(TechnologyAdapter):
@@ -26,7 +30,10 @@ class PythonAdapter(TechnologyAdapter):
     def detect(self, repo: Path) -> list[Path]:
         markers = {"pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "Pipfile", "poetry.lock", "uv.lock"}
         roots = [path.parent for path in find_named_files(repo, markers)]
-        if not roots and any(repo.rglob("*.py")):
+        if not roots and any(
+            path.is_file() and not should_skip_path(path.relative_to(repo))
+            for path in repo.rglob("*.py")
+        ):
             roots = [repo]
         return sorted(set(roots))
 
@@ -40,11 +47,17 @@ class PythonAdapter(TechnologyAdapter):
             pyproject = read_text(root / "pyproject.toml")
             ran = False
             if "tool.black" in pyproject or command_exists("black"):
-                outcome = ctx.run(["black", "--check", "."], cwd=root)
+                outcome = ctx.run(
+                    ["black", "--check", "--extend-exclude", BLACK_CHECKOUT_EXCLUDE, "."],
+                    cwd=root,
+                )
                 results.append(command_result("Formatting", self.name, outcome, f"{prefix}Black check passed.", f"{prefix}Black check failed.", score=8))
                 ran = True
             if "tool.ruff" in pyproject or command_exists("ruff"):
-                outcome = ctx.run(["ruff", "format", "--check", "."], cwd=root)
+                outcome = ctx.run(
+                    ["ruff", "format", "--check", ".", *self._ruff_checkout_excludes()],
+                    cwd=root,
+                )
                 if outcome.ok:
                     results.append(passed("Formatting", self.name, f"{prefix}Ruff format check passed."))
                 elif "unrecognized subcommand" not in outcome.concise_output().lower():
@@ -63,7 +76,10 @@ class PythonAdapter(TechnologyAdapter):
                 continue
             pyproject = read_text(root / "pyproject.toml")
             if "tool.ruff" in pyproject or command_exists("ruff"):
-                outcome = ctx.run(["ruff", "check", "."], cwd=root)
+                outcome = ctx.run(
+                    ["ruff", "check", ".", *self._ruff_checkout_excludes()],
+                    cwd=root,
+                )
                 results.append(command_result("Lint", self.name, outcome, f"{prefix}Ruff passed.", f"{prefix}Ruff failed.", score=10))
             elif command_exists("flake8"):
                 outcome = ctx.run(["flake8", "."], cwd=root)
@@ -76,7 +92,10 @@ class PythonAdapter(TechnologyAdapter):
         results: list[CheckResult] = []
         for root in roots:
             prefix = f"{ctx.rel(root)}: "
-            outcome = ctx.run([sys.executable, "-m", "compileall", "-q", "."], cwd=root)
+            outcome = ctx.run(
+                [sys.executable, "-m", "compileall", "-q", "-x", BLACK_CHECKOUT_EXCLUDE, "."],
+                cwd=root,
+            )
             results.append(command_result("Build", self.name, outcome, f"{prefix}Python bytecode compilation passed.", f"{prefix}Python bytecode compilation failed.", score=12))
         return results
 
@@ -92,11 +111,22 @@ class PythonAdapter(TechnologyAdapter):
                 results.append(warning("Tests", self.name, f"{prefix}No automated test suite configured."))
                 continue
             if command_exists("pytest"):
-                outcome = ctx.run(["pytest"], cwd=root)
+                outcome = ctx.run(["pytest", *self._pytest_checkout_ignores()], cwd=root)
             else:
-                outcome = ctx.run([sys.executable, "-m", "pytest"], cwd=root)
+                outcome = ctx.run(
+                    [sys.executable, "-m", "pytest", *self._pytest_checkout_ignores()],
+                    cwd=root,
+                )
             results.append(command_result("Tests", self.name, outcome, f"{prefix}Pytest passed.", f"{prefix}Pytest failed.", score=14))
         return results
+
+    @staticmethod
+    def _ruff_checkout_excludes() -> list[str]:
+        return [arg for directory in CENTRAL_CHECKOUTS for arg in ("--extend-exclude", directory)]
+
+    @staticmethod
+    def _pytest_checkout_ignores() -> list[str]:
+        return [f"--ignore={directory}" for directory in CENTRAL_CHECKOUTS]
 
     def dependencies(self, ctx: PRContext, roots: list[Path]) -> list[CheckResult]:
         results: list[CheckResult] = []
