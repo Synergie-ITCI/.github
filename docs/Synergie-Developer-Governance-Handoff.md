@@ -1,6 +1,6 @@
 # Synergie Developer Governance & PR-QA Handoff
 
-Version/date: 2026-08-25
+Version/date: 2026-11-09
 
 Audience: Synergie developers and IT team
 
@@ -45,6 +45,12 @@ Never bypass:
 - Do not add ad-hoc deployment paths.
 - Do not commit secrets or real credentials.
 - Do not create fake project-root files just to satisfy CI.
+
+### Task continuity and instruction provenance
+
+For consequential or multi-session work, use a compact Task Evidence v1.1 record in the existing task issue/PR or an approved private location. Link the exact repository SHA, verified work and validation, blockers, and next safe action. Record each applicable instruction source: the global `AGENTS.md` path and SHA-256 when available; any task-supplied, unversioned instructions as unversioned; and Git-versioned `AGENTS.md`, architecture rules, and ADRs by repository path and exact commit or blob SHA. Keep private session metadata out of public records.
+
+On resumption, re-read current instructions and compare them with the recorded sources. Follow higher-priority instructions and stronger repository security or governance controls. If an instruction snapshot is missing, unavailable, changed, or materially conflicts with another instruction, do not treat affected prior conclusions as verified until the conflict is resolved and the affected evidence is revalidated. Immediately before consequential action, recheck the current source SHA, applicable instructions, required checks, approvals, and mutable runtime prerequisites. Existing PR-QA, Architecture Governance, and approval gates remain authoritative.
 
 ## 2. Branch-by-branch matrix
 
