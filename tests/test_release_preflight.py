@@ -19,6 +19,38 @@ preflight = SourceFileLoader("release_preflight", str(SCRIPT)).load_module()
 
 
 class ReleasePreflightTests(unittest.TestCase):
+    def test_framework_profile_requires_exact_verified_central_main_lineage(self):
+        head = "a" * 40
+        for origin, base, lineage, expected_profile in (
+            (preflight.CENTRAL_ORIGIN, "main", [head], True),
+            (preflight.CENTRAL_ORIGIN, "main", None, False),
+            (preflight.CENTRAL_ORIGIN, "main", [], False),
+            (preflight.CENTRAL_ORIGIN, "main", ["b" * 40], False),
+            (preflight.CENTRAL_ORIGIN, "staging", [head], False),
+            ("https://github.com/Synergie-ITCI/programme-management-platform.git", "main", [head], False),
+            ("", "main", [head], False),
+        ):
+            with self.subTest(origin=origin, base=base, lineage=lineage):
+                def fake_git(args, root, origin=origin):
+                    values = {
+                        ("rev-parse", "HEAD"): head,
+                        ("branch", "--show-current"): "",
+                        ("remote", "get-url", "origin"): origin,
+                    }
+                    value = values.get(tuple(args))
+                    self.assertIsNotNone(value)
+                    return subprocess.CompletedProcess(args, 0 if value else 1, value + "\n", "")
+
+                with patch.object(preflight, "git", side_effect=fake_git), \
+                        patch.object(preflight.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as command:
+                    self.assertTrue(preflight.run_pr_qa(ROOT, ROOT, base, "c" * 40, verified_lineage=lineage))
+                arguments = command.call_args.args[0]
+                if expected_profile:
+                    position = arguments.index("--repository-profile")
+                    self.assertEqual(arguments[position + 1], "framework")
+                else:
+                    self.assertNotIn("--repository-profile", arguments)
+
     def test_rc224_fieldzilla_disposition_is_exact_and_fail_closed(self):
         reviewed = [
             "ddca9c9d1f6b07b140a7cea2f6713e1659bbc839",

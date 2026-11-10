@@ -1518,6 +1518,14 @@ def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str, release: st
               verified_lineage: list[str] | None = None) -> bool:
     head_sha = git(["rev-parse", "HEAD"], root).stdout.strip()
     head_ref = git(["branch", "--show-current"], root).stdout.strip() or "HEAD"
+    profile_args: list[str] = []
+    # Match central GitHub self-QA only after the caller has verified protected
+    # main lineage. Application repos and unverified local branches retain their
+    # existing profile and every deployment/security gate.
+    if base == "main" and verified_lineage and verified_lineage[-1] == head_sha:
+        origin = git(["remote", "get-url", "origin"], root)
+        if origin.returncode == 0 and origin.stdout.strip() == CENTRAL_ORIGIN:
+            profile_args = ["--repository-profile", "framework"]
     with tempfile.TemporaryDirectory(prefix="release-preflight-qa-") as tmp:
         tmp_path = Path(tmp)
         event = tmp_path / "event.json"
@@ -1546,6 +1554,7 @@ def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str, release: st
                 base,
                 "--head-ref",
                 head_ref,
+                *profile_args,
                 "--out",
                 str(tmp_path / "pr-quality-report.md"),
                 "--json-out",
