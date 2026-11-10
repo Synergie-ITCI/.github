@@ -1377,17 +1377,17 @@
       "pr_number": 712,
       "head_ref": "release/fieldzilla-production-application",
       "base_ref": "main",
-      "expected_head_sha": "47782d529195999ab52408c8e3b6de1fbd9c0d38",
-      "expected_base_sha": "c8aee71a61059392f17343eac434d2a73dfb3b4c",
-      "issued_at": "2026-11-10T12:16:08Z",
+      "expected_head_sha": "8c187ba9b90bba5a51b7e774a63d57784d9306f0",
+      "expected_base_sha": "45fc0ce54058125c1dfd4e9bc38de1487232730c",
+      "issued_at": "2026-11-10T15:54:48Z",
       "enabled": true,
-      "authorization_id": "dbc23317-25b3-46e3-b17c-1b9546c57d8b",
+      "authorization_id": "c34f341a-3eb3-428e-b0ff-a5c3916d2e64",
       "expires_after": "2026-11-11T07:04:04Z",
       "allowed_effective_additions": 148823,
       "allowed_changed_files": 844,
       "minimum_changed_files": 844,
-      "required_pr_body_marker": "FIELDZILLA-PR712-FORMAT-EXACT-dbc23317-25b3-46e3-b17c-1b9546c57d8b",
-      "purpose": "Exact PR712 formatting-only rebind: head47782d5/basec8aee71a;844 files/148823 effective additions. Only the audit contract test formatting changes; AST, approved advisory baseline, lock, deployment and SQL content are unchanged. Preserve all security/QA/release gates and existing expiry.",
+      "required_pr_body_marker": "FIELDZILLA-PR712-CALLER-BASE-EXACT-c34f341a-3eb3-428e-b0ff-a5c3916d2e64",
+      "purpose": "Exact PR712 post-caller base rebind: byte-identical promotion patch,844 files/148823 effective additions unchanged. Carry review5837789245 only for unchanged40 deployment findings and audited SQL. Preserve separately approved PR715 caller base files with two new exact base-overlay paths. No scanner/default/expiry change or runtime authorization.",
       "relaxations": [
         "changed_file_count",
         "diff_size"
@@ -1424,7 +1424,9 @@
           "apps/api/tests/architecture/test_mobile_audit_baseline.py",
           "apps/mobile/package-lock.json",
           "apps/mobile/package.json",
-          "apps/mobile/security/mobile-audit-baseline.json"
+          "apps/mobile/security/mobile-audit-baseline.json",
+          "deploy/production/hosting/prepare_application_manifest.py",
+          "deploy/production/hosting/test_prepare_application_manifest.py"
         ],
         "paths": {
           ".github/CODEOWNERS": {
@@ -1559,6 +1561,14 @@
             "source": "present",
             "candidate": "reviewed_sha256",
             "candidate_sha256": "fbb8d12a375224c2d778ad92fda079a0bae1c1db8196ac54750320b73f64a7e8"
+          },
+          "deploy/production/hosting/prepare_application_manifest.py": {
+            "source": "absent",
+            "candidate": "base"
+          },
+          "deploy/production/hosting/test_prepare_application_manifest.py": {
+            "source": "absent",
+            "candidate": "base"
           }
         }
       }
