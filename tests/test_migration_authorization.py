@@ -336,8 +336,22 @@ class BundledMigrationAuthorizationTests(unittest.TestCase):
         self.assertEqual([item["line"] for item in r["delete_fingerprints"]], [139, 143])
         self.assertEqual(r["approved_reviewer"], {"login": "SaurabhVermaIN", "id": 52234089})
 
+        # PR712 has the same audited SQL bytes, but a new exact live binding.
+        self.assertIn(712, by_pr)
+        r = by_pr[712]
+        self.assertEqual(r["authorization_id"], "3364a847-f9bc-483b-baba-4518d85a5b72")
+        self.assertEqual(r["repository_id"], 1315697868)
+        self.assertEqual(r["expected_head_sha"], "f34956e640faaf82d712eff74ae7c195e3d01f87")
+        self.assertEqual(r["expected_base_sha"], "c8aee71a61059392f17343eac434d2a73dfb3b4c")
+        self.assertEqual(r["migration_path"], "apps/api/alembic/sql/20260910_0038.sql")
+        self.assertEqual(r["migration_sha256"], "56d29de95cd31ae88509757f414da89a679161761da07693605e0db1a631f773")
+        self.assertEqual(r["delete_fingerprints"], by_pr[118]["delete_fingerprints"])
+        self.assertEqual(r["approved_reviewer"], {"login": "SaurabhVermaIN", "id": 52234089})
+        self.assertEqual(r["issued_at"], "2026-11-10T07:04:04Z")
+        self.assertEqual(r["expires_at"], "2026-11-11T07:04:04Z")
+
         # No unknown PRs
-        known = {118, 241}
+        known = {118, 241, 712}
         unknown = set(by_pr) - known
         self.assertFalse(unknown, f"unexpected migration authorization PRs: {unknown}")
         policy = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())
