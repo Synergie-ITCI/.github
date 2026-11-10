@@ -1377,17 +1377,17 @@
       "pr_number": 712,
       "head_ref": "release/fieldzilla-production-application",
       "base_ref": "main",
-      "expected_head_sha": "219ff68c08caeb850b6e21cf745ffa3f8712bcaa",
+      "expected_head_sha": "47782d529195999ab52408c8e3b6de1fbd9c0d38",
       "expected_base_sha": "c8aee71a61059392f17343eac434d2a73dfb3b4c",
-      "issued_at": "2026-11-10T11:35:00Z",
+      "issued_at": "2026-11-10T12:16:08Z",
       "enabled": true,
-      "authorization_id": "5e210c7c-337b-4bf9-b751-cfed65fffbde",
+      "authorization_id": "dbc23317-25b3-46e3-b17c-1b9546c57d8b",
       "expires_after": "2026-11-11T07:04:04Z",
-      "allowed_effective_additions": 148799,
+      "allowed_effective_additions": 148823,
       "allowed_changed_files": 844,
       "minimum_changed_files": 844,
-      "required_pr_body_marker": "FIELDZILLA-PR712-MOBILE-EXACT-5e210c7c-337b-4bf9-b751-cfed65fffbde",
-      "purpose": "Exact PR712 mobile security correction: bind only head219ff68/basec8aee71a, 844 files and148799 effective additions. Carry forward unchanged deployment/SQL review5837789245. Include only separately owner-approved exact-lock low deepmerge record and coupled contract test; preserve every other security, QA and release gate.",
+      "required_pr_body_marker": "FIELDZILLA-PR712-FORMAT-EXACT-dbc23317-25b3-46e3-b17c-1b9546c57d8b",
+      "purpose": "Exact PR712 formatting-only rebind: head47782d5/basec8aee71a;844 files/148823 effective additions. Only the audit contract test formatting changes; AST, approved advisory baseline, lock, deployment and SQL content are unchanged. Preserve all security/QA/release gates and existing expiry.",
       "relaxations": [
         "changed_file_count",
         "diff_size"
@@ -1543,7 +1543,7 @@
           "apps/api/tests/architecture/test_mobile_audit_baseline.py": {
             "source": "present",
             "candidate": "reviewed_sha256",
-            "candidate_sha256": "9d3e459d43795e2d195381c8419a1f6de950ec989ced3a42544f65fe26cbcced"
+            "candidate_sha256": "8c0067e9bc45a7dee23283a58e7acf231d87a2326df98eba18cde67416e1f65d"
           },
           "apps/mobile/package-lock.json": {
             "source": "present",
