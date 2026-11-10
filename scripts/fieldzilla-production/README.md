@@ -109,3 +109,35 @@ known schemas. Live revocation, changed selection, expired review, stale checks,
 or mismatched artifacts stop execution before approval consumption or AWS mutation.
 Raw detector logs remain in memory; only the exact release identity is parsed.
 This correction is source preparation, not activation or AWS rehearsal evidence.
+
+## Image publication increment (prepared, not active)
+
+`fieldzilla-production-images.yml` is reusable-only. Its two jobs keep candidate
+Docker builds away from the AWS publication identity. `image_runner.py prepare`
+packages the exact bounded metadata after current candidate/check/policy checks;
+it neither assumes AWS nor consumes execution approval. The same runner validates,
+builds, loads and publishes using a same-run digest-checked artifact. ECR readback
+must match both manifest and built config digests before publication is acknowledged.
+Partial or ambiguous pushes stop without retry.
+
+`publisher_policy()` and `publisher_trust()` render review-only JSON; they never
+apply IAM. Uploads are restricted to the existing production API/Admin repositories.
+Registry-token access is region restricted because that action has no repository
+resource scope. Trust requires the immutable repository/owner IDs, main ref and
+existing production environment. AWS Access Analyzer found no permission-policy
+findings. After adding main/ID/environment trust constraints, its only remaining
+trust suggestion was confirmation that audience is single-valued; StringEquals is
+already used without a set qualifier. No IAM role has been created.
+
+The live main caller still needs an approved immutable publisher reference and
+metadata/publish modes. No published central release contains this new workflow.
+Do not point a caller at a nonexistent workflow in rc234 or substitute direct
+local push. Finish the executable batch before requesting its protected merge and
+any necessary immutable publication; do not churn QA selections or RCs in advance.
+
+Live discovery found only fieldzilla (retained staging) and fieldzilla-production;
+there is no separate rehearsal cluster. Production has one host and no services
+or tasks. It is production-managed infrastructure, not an implicitly approved
+isolated target. Do not borrow staging or treat unused production capacity as
+rehearsal authorization. A scoped target/resource/cost approval is still required.
+No registry publication, isolated AWS rehearsal or production deployment has run.

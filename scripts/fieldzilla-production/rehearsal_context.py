@@ -26,8 +26,34 @@ def verify_rehearsal_context(
     api: Callable,
     central_checkout_sha: str,
 ) -> dict[str, dict[str, Any]]:
-    if manifest.get("scope") != "production-rehearsal":
-        raise ValueError("This verifier permits only isolated rehearsal")
+    return _verify_context(
+        manifest=manifest,
+        environment=environment,
+        api=api,
+        central_checkout_sha=central_checkout_sha,
+        scope="production-rehearsal",
+        workflow="fieldzilla-production-application.yml",
+    )
+
+
+def verify_image_context(*, manifest, environment, api, central_checkout_sha):
+    if manifest.get("operation") != "prepare":
+        raise ValueError("Image publication requires its exact preparation approval")
+    return _verify_context(
+        manifest=manifest,
+        environment=environment,
+        api=api,
+        central_checkout_sha=central_checkout_sha,
+        scope="production-images",
+        workflow="fieldzilla-production-images.yml",
+    )
+
+
+def _verify_context(
+    *, manifest, environment, api, central_checkout_sha, scope, workflow
+):
+    if manifest.get("scope") != scope:
+        raise ValueError("Execution purpose does not match the exact trusted workflow")
     caller = manifest.get("caller_sha", "")
     source = manifest.get("application", {}).get("source_sha", "")
     base = manifest.get("base_sha", "")
@@ -47,8 +73,7 @@ def verify_rehearsal_context(
             "Rehearsal references must be exact commits and an immutable release"
         )
     expected_ref = (
-        "Synergie-ITCI/.github/.github/workflows/fieldzilla-production-application.yml@refs/tags/"
-        + tag
+        "Synergie-ITCI/.github/.github/workflows/" + workflow + "@refs/tags/" + tag
     )
     if (
         environment.get("GITHUB_REPOSITORY") != REPOSITORY

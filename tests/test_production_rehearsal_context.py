@@ -5,7 +5,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/fieldzilla-production"))
-from rehearsal_context import REQUIRED_CHECKS, verify_rehearsal_context
+from rehearsal_context import (
+    REQUIRED_CHECKS,
+    verify_image_context,
+    verify_rehearsal_context,
+)
 
 REPO = "Synergie-ITCI/programme-management-platform"
 
@@ -70,6 +74,42 @@ class RehearsalContextTests(unittest.TestCase):
             api=self.api,
             central_checkout_sha="c" * 40,
         )
+
+    def test_image_publication_has_a_separate_fixed_scope_and_workflow(self):
+        self.manifest["scope"] = "production-images"
+        self.manifest["operation"] = "prepare"
+        self.environment["CENTRAL_WORKFLOW_REF"] = self.environment[
+            "CENTRAL_WORKFLOW_REF"
+        ].replace(
+            "fieldzilla-production-application.yml", "fieldzilla-production-images.yml"
+        )
+        result = verify_image_context(
+            manifest=self.manifest,
+            environment=self.environment,
+            api=self.api,
+            central_checkout_sha="c" * 40,
+        )
+        self.assertEqual(set(result), REQUIRED_CHECKS)
+        with self.assertRaises(ValueError):
+            self.verify()
+        self.manifest["operation"] = "rollout"
+        with self.assertRaises(ValueError):
+            verify_image_context(
+                manifest=self.manifest,
+                environment=self.environment,
+                api=self.api,
+                central_checkout_sha="c" * 40,
+            )
+
+    def test_rehearsal_context_cannot_impersonate_image_publication(self):
+        self.manifest["operation"] = "prepare"
+        with self.assertRaises(ValueError):
+            verify_image_context(
+                manifest=self.manifest,
+                environment=self.environment,
+                api=self.api,
+                central_checkout_sha="c" * 40,
+            )
 
     def test_exact_immutable_source_and_current_head_checks(self):
         self.verify()
