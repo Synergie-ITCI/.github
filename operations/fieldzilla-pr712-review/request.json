@@ -1,0 +1,410 @@
+{
+  "format_version": 1,
+  "status": "PREPARATION_ONLY_NOT_AN_AUTHORIZATION",
+  "review_request_id": "5f14528d-fd02-472a-9175-af772110ef10",
+  "application": {
+    "repository": "Synergie-ITCI/programme-management-platform",
+    "repository_id": 1315697868,
+    "pr_number": 712,
+    "head_ref": "release/fieldzilla-production-application",
+    "base_ref": "main",
+    "head_sha": "f3071101ad93c5e2ff19ae1ea63abdb69e22d5e9",
+    "base_sha": "f4c19ac165b09f2704ec06231ad7e0b0952cd6fb",
+    "comparison_source_sha": "9a199f332165fd825e186b8aa6273532f0987efc"
+  },
+  "observed_framework": {
+    "release": "pr-qa-v1-rc225",
+    "commit": "aca405da1f2b8e7da1d3494c2f1926f8fca16c40"
+  },
+  "scope": {
+    "raw_patch_sha256": "74f827c5b56f27dc9e9597a62c32c7e023fb82573a9d6a83f693a1961bcbe274",
+    "git_changed_paths": 903,
+    "qa_changed_files": 844,
+    "effective_additions": 148749,
+    "deployment_findings": [
+      {
+        "path": ".github/workflows/architecture-governance.yml",
+        "source_blob": "303237d5ff44164ccc2efd0fd15e8e10b12934ee",
+        "candidate_blob": "010bdafa5615ebc96881d709284173247de47f68",
+        "candidate_sha256": "c354a9e26a49da61a34549f55cfb1c6cf195285548573333fbd46278f0cb9f03",
+        "matches_comparison_source": false
+      },
+      {
+        "path": ".github/workflows/fieldzilla-release-gate.yml",
+        "source_blob": "6eb6dddb35201591e290149c1787f95be38ac8f4",
+        "candidate_blob": "6eb6dddb35201591e290149c1787f95be38ac8f4",
+        "candidate_sha256": "6cd6dd8d4dd29df0b78ef2a6d248936f44b5182b81e619961cd77003a24f6a77",
+        "matches_comparison_source": true
+      },
+      {
+        "path": ".github/workflows/fieldzilla-staging-iac.yml",
+        "source_blob": "cedcf63238c683f5ca0dfb891c3226fb7938ece8",
+        "candidate_blob": "cedcf63238c683f5ca0dfb891c3226fb7938ece8",
+        "candidate_sha256": "a7911458e498908063dc5c0b3c5e9dc45f7befd038226be1b9e317335e2e60f8",
+        "matches_comparison_source": true
+      },
+      {
+        "path": ".github/workflows/fieldzilla-staging-images.yml",
+        "source_blob": "1de36b084b396db9dcd6e5b19c07d77bc287003f",
+        "candidate_blob": "1de36b084b396db9dcd6e5b19c07d77bc287003f",
+        "candidate_sha256": "69f2767cf00c72746f7e301d138baa6d37214bd462cac2d00e97bd7b7289e2fb",
+        "matches_comparison_source": true
+      },
+      {
+        "path": ".github/workflows/staging-deploy.yml",
+        "source_blob": "d9e88501e60bc7b2cf68bc2fd34446e296ca89c0",
+        "candidate_blob": "d9e88501e60bc7b2cf68bc2fd34446e296ca89c0",
+        "candidate_sha256": "da37fdc97cab2c435864bbeaddce63b752a135e610299442cdbd896380cfba48",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "apps/mobile/ios/.xcode.env",
+        "source_blob": "3d5782c71568d32eec2fe71b034efcde053305f9",
+        "candidate_blob": "3d5782c71568d32eec2fe71b034efcde053305f9",
+        "candidate_sha256": "3c02dca07775b31ce4e77dfb3bb660d7c6e577474d65a6216f1ea9bef54e1ca6",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "deploy/production/application_plan.py",
+        "source_blob": null,
+        "candidate_blob": "09fd8925a3b3f3a004518b4c5e7849dda52c2f67",
+        "candidate_sha256": "34fdad8c40e131bd04fd540451403324fdc7876a09dd68420aef1831abfd7dbd",
+        "matches_comparison_source": false
+      },
+      {
+        "path": "deploy/production/application_preflight.py",
+        "source_blob": "0f042477cb1ad2d9e3e1463584b847c014a0ae4b",
+        "candidate_blob": "0f042477cb1ad2d9e3e1463584b847c014a0ae4b",
+        "candidate_sha256": "c86eb8aa88cc8e8e03b0fedcb67c07d436394e1af355fa84e37b7e613360daa5",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "deploy/staging/README.md",
+        "source_blob": "fd568b2ad7ba666f45ecc0800e27f0c06c34cc29",
+        "candidate_blob": "fd568b2ad7ba666f45ecc0800e27f0c06c34cc29",
+        "candidate_sha256": "353631b6b89178c7e012573ac4ea59602867c844c7c62a0697a1df0d5c664412",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "deploy/staging/admin_web_ecs_rollout.py",
+        "source_blob": "4743e22496050e5eab88b3c11b8c671fe779fc1f",
+        "candidate_blob": "4743e22496050e5eab88b3c11b8c671fe779fc1f",
+        "candidate_sha256": "6a978d7f0bf334531d5ac5b6ca3a2cb15bc2edd2433e56a63b62bb012a9388ae",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "deploy/staging/api_admin_ecs_rollout.py",
+        "source_blob": "285a02003298066fb5d16eae456941f040292bdf",
+        "candidate_blob": "285a02003298066fb5d16eae456941f040292bdf",
+        "candidate_sha256": "9ea2843f4ec9f5a566462daa0a2f0358d84772ff42d8b2b21f6234e4b9e045a1",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "deploy/staging/audit_scope.py",
+        "source_blob": "40c2ec55dc0fd46d5706e87381ce28f0316b8c2b",
+        "candidate_blob": "40c2ec55dc0fd46d5706e87381ce28f0316b8c2b",
+        "candidate_sha256": "a92849a86f20cc4aa26af016f3f115bfb5f8b35bb3e2593f48f698214a349fe5",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "deploy/staging/check_image_build_eligibility.py",
+        "source_blob": "c111559fb21b7284b2d6fda2d8151a4f2182cbb3",
+        "candidate_blob": "c111559fb21b7284b2d6fda2d8151a4f2182cbb3",
+        "candidate_sha256": "129c03ad0d144aa2e51cb4cc8d23ab28f593a3f1f3fbfb7b07b11fdd40e17019",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "deploy/staging/deploy.sh",
+        "source_blob": "3df7a4615d85f55147b8b516b5fe0c2bba376ff9",
+        "candidate_blob": "3df7a4615d85f55147b8b516b5fe0c2bba376ff9",
+        "candidate_sha256": "7ed5693699335d6908bd00bb837d5e635970c8382ed1a78b29a3efc21d7ac1a4",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "deploy/staging/docker-compose.yml",
+        "source_blob": "6f95fe293bc787780fee6d3f663b40b2fdba8004",
+        "candidate_blob": "6f95fe293bc787780fee6d3f663b40b2fdba8004",
+        "candidate_sha256": "b5cc1358db0b0d3f1bcedd100ad6e9d2b6d74179e3cb088e371f12922f78dbb5",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "deploy/staging/migration_plan_evidence.py",
+        "source_blob": "3677118f3c31b7fca0b3e43d016b6a58a161c991",
+        "candidate_blob": "3677118f3c31b7fca0b3e43d016b6a58a161c991",
+        "candidate_sha256": "d69672905bc07d4e448007aa981c79f6d7c3553d96e6abc7f00bd6a14f59e2a0",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "deploy/staging/nginx.conf",
+        "source_blob": "08fc967d13ac89c36dac21044a2ee21588437b61",
+        "candidate_blob": "08fc967d13ac89c36dac21044a2ee21588437b61",
+        "candidate_sha256": "8b4ed96edb463de2e41abb8409f938c8be0cffc473e3de2457906bc31e8b6ed9",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "deploy/staging/otp_migration_dispatch_guard.py",
+        "source_blob": "39c58acf3815395091b58d70eb1896d24276e6c2",
+        "candidate_blob": "39c58acf3815395091b58d70eb1896d24276e6c2",
+        "candidate_sha256": "095fe90236372eb41e17cc569582db34c3d37d9982595ccf8cd0bd9543c27ccb",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "deploy/staging/project_publish_ecs_migration.py",
+        "source_blob": "297ae596ea7efd4a144b507ba9ba63af8c7c2ec8",
+        "candidate_blob": "297ae596ea7efd4a144b507ba9ba63af8c7c2ec8",
+        "candidate_sha256": "cce40d124baf4d5ed8b836e5cb5fd1234e1d50c6ab7d7ac2551c57bee010b49c",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "infra/aws/.terraform.lock.hcl",
+        "source_blob": "1fbebaa716fdd81465bf8c8f9aad362ea93017ad",
+        "candidate_blob": "1fbebaa716fdd81465bf8c8f9aad362ea93017ad",
+        "candidate_sha256": "5e8d5bbea7fc386cff13682d75c1984da12f90a6bd9062a19a1555ae83167868",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "infra/aws/README.md",
+        "source_blob": "922208ee109c98facc938ad7dbacd807c8ed617b",
+        "candidate_blob": "922208ee109c98facc938ad7dbacd807c8ed617b",
+        "candidate_sha256": "3769bd9c63a01ec5054d2390f76bccf08201e110732500f55c6e47fa45ad05bf",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "infra/aws/bootstrap/README.md",
+        "source_blob": "a673e0c098f3557aa518631254e5d8e156512835",
+        "candidate_blob": "a673e0c098f3557aa518631254e5d8e156512835",
+        "candidate_sha256": "950292e4a8f93c79adf6fc2c1a6af9215eddbbd83ccb3e3f036b9b38b6001f00",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "infra/aws/bootstrap/staging-migration-execution-boundary.json",
+        "source_blob": "5342747773c0c6976a155308511da560dd96b2be",
+        "candidate_blob": "5342747773c0c6976a155308511da560dd96b2be",
+        "candidate_sha256": "f3e4907bc2c7dee58e414b94b4fb3bba65ce0e9f1446b3cb6c870ffad57b2513",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "infra/aws/bootstrap/staging-migration-iac-bootstrap-grant.json",
+        "source_blob": "bed423bedc1f03f71227dcbacb44e612c3483234",
+        "candidate_blob": "bed423bedc1f03f71227dcbacb44e612c3483234",
+        "candidate_sha256": "949c6e52b9e71c5e18cc16e2cf90a525b51e7490d987a13b3422b3e1b9eb1030",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "infra/aws/compute.tf",
+        "source_blob": "a00650a3dc3ab0eb424377debdadf0d03e3d6d5d",
+        "candidate_blob": "a00650a3dc3ab0eb424377debdadf0d03e3d6d5d",
+        "candidate_sha256": "af7cdcffe1ee1dcd7111b9b0a05ffddd7a1634c3eb1f756335ef341a60e5ae66",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "infra/aws/data.tf",
+        "source_blob": "45badcb6185427bbdf4ff658593843bf67e5bd3a",
+        "candidate_blob": "45badcb6185427bbdf4ff658593843bf67e5bd3a",
+        "candidate_sha256": "ddfd4a9f090e28ab91dea61bf11b681507fa20cbf9e370f85db12c1214993b3e",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "infra/aws/database.tf",
+        "source_blob": "2a7807a5d72decd6674b29e9501a79434cd0f3c8",
+        "candidate_blob": "2a7807a5d72decd6674b29e9501a79434cd0f3c8",
+        "candidate_sha256": "8aee9a4c39a68badc5e50f005c18519cbcc69b6b10384f07209848acc214905f",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "infra/aws/iam-deploy.tf",
+        "source_blob": "e4f44e1c5beba90e1185b19ab6619f64517996fd",
+        "candidate_blob": "e4f44e1c5beba90e1185b19ab6619f64517996fd",
+        "candidate_sha256": "342e08625f0a65be1dc7a7c8dfab6b424596453c3ed42587ea70f01f80092960",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "infra/aws/ingress.tf",
+        "source_blob": "1cb11b781d8bfc3d842760768656e2ac5b8a1141",
+        "candidate_blob": "1cb11b781d8bfc3d842760768656e2ac5b8a1141",
+        "candidate_sha256": "436f5dd2258543dac6125cf63e80c03c2e9350492a921cd82a7bbcdd0e9ca25d",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "infra/aws/locals.tf",
+        "source_blob": "faea62fb44e4ad83787557b7cb9822172a863dd3",
+        "candidate_blob": "faea62fb44e4ad83787557b7cb9822172a863dd3",
+        "candidate_sha256": "a0a9a673801e9c15ce052b83c5301d9030df1b1e221b43af570b30bccc3dc8e1",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "infra/aws/monitoring.tf",
+        "source_blob": "4e5ac6949ef3ba29540ba8f7e8065015935c3784",
+        "candidate_blob": "4e5ac6949ef3ba29540ba8f7e8065015935c3784",
+        "candidate_sha256": "650ed730feb8464c451be13d1b3f024ccc117eb14a7ec1f3054ed33669001813",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "infra/aws/network.tf",
+        "source_blob": "5af0630bd3d70d90ae52391e33a189a066b14c04",
+        "candidate_blob": "5af0630bd3d70d90ae52391e33a189a066b14c04",
+        "candidate_sha256": "f71ebf7b3be5a717c23dd82a16fb26cc02cc491753e0996dea7f8be8271d42fc",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "infra/aws/outputs.tf",
+        "source_blob": "75decf5115a513ad80af07e483a2cd7a21089927",
+        "candidate_blob": "75decf5115a513ad80af07e483a2cd7a21089927",
+        "candidate_sha256": "5d6df93869208e2fa20f2ab3bab81a1f7249a46a384185ad9c895209d446c5a0",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "infra/aws/plan-discovery.tf",
+        "source_blob": "3234ca63d8ba664bcc2e4d844b8d1226b1ed8f87",
+        "candidate_blob": "3234ca63d8ba664bcc2e4d844b8d1226b1ed8f87",
+        "candidate_sha256": "e57bacd4c346d3116b0165aaee152ca72765e1e7951a06524b93f02c4c994436",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "infra/aws/providers.tf",
+        "source_blob": "3daea972a1cf33a5afb5fd432980597cec45b098",
+        "candidate_blob": "3daea972a1cf33a5afb5fd432980597cec45b098",
+        "candidate_sha256": "f92dc2c2cac15aa6d895faec98c401388f6647e8dcd26ee1d9bd39543976d76c",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "infra/aws/recovery_imports.tofu",
+        "source_blob": "2fcea15c20b999856a8bf35f2eba8c8490f897ad",
+        "candidate_blob": "2fcea15c20b999856a8bf35f2eba8c8490f897ad",
+        "candidate_sha256": "eed06ebad4d7616d216c146b6b20d9f214d4aecbcbe5db649d40525f070e669a",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "infra/aws/security.tf",
+        "source_blob": "6c705ae8391bba9e7970f8cc514738f619e4f013",
+        "candidate_blob": "6c705ae8391bba9e7970f8cc514738f619e4f013",
+        "candidate_sha256": "50645b85fbfa112a35a166242e802fcd78ae245cd01ad22df2eb6ff82c02b80d",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "infra/aws/storage.tf",
+        "source_blob": "6b9d88fd8dfa87511c3ccde8fc5e20b81eb5f699",
+        "candidate_blob": "6b9d88fd8dfa87511c3ccde8fc5e20b81eb5f699",
+        "candidate_sha256": "7636789eef7bffcc803d3e4188ea4df6991510c04852355a4b5950637994e708",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "infra/aws/variables.tf",
+        "source_blob": "484fb8f80f33b661a82aa8367db76c90b639fea7",
+        "candidate_blob": "484fb8f80f33b661a82aa8367db76c90b639fea7",
+        "candidate_sha256": "88ce69152bcb0dfdb6bc649c16ffc2df7e4d8e626abb8fd66e6b9d7554354294",
+        "matches_comparison_source": true
+      },
+      {
+        "path": "infra/aws/versions.tf",
+        "source_blob": "0f2b1ddc2db83c7d59f98ef9a7dfad04f02760cd",
+        "candidate_blob": "0f2b1ddc2db83c7d59f98ef9a7dfad04f02760cd",
+        "candidate_sha256": "9003def491473edb89b9e62f4597b3ce1a845cc91443da963dd262b58a9b2564",
+        "matches_comparison_source": true
+      }
+    ],
+    "comparison_source_differences": [
+      ".github/CODEOWNERS",
+      ".github/workflows/architecture-governance.yml",
+      ".github/workflows/fieldzilla-production-hosting.yml",
+      ".github/workflows/pr-qa.yml",
+      "apps/api/tests/architecture/test_mobile_backend_integration_contracts.py",
+      "apps/api/tests/architecture/test_p0a_domain_contracts.py",
+      "apps/api/tests/architecture/test_production_application_plan.py",
+      "deploy/production/application_plan.py",
+      "deploy/production/hosting/.gitignore",
+      "deploy/production/hosting/PLAN.md",
+      "deploy/production/hosting/README.md",
+      "deploy/production/hosting/backend.hcl",
+      "deploy/production/hosting/compute.tf",
+      "deploy/production/hosting/database.tf",
+      "deploy/production/hosting/ingress.tf",
+      "deploy/production/hosting/outputs.tf",
+      "deploy/production/hosting/security.tf",
+      "deploy/production/hosting/test_verify_plan.py",
+      "deploy/production/hosting/uploads.tf",
+      "deploy/production/hosting/variables.tf",
+      "deploy/production/hosting/verify_plan.py",
+      "deploy/production/hosting/versions.tf"
+    ]
+  },
+  "requested_migration_review": {
+    "path": "apps/api/alembic/sql/20260910_0038.sql",
+    "sha256": "56d29de95cd31ae88509757f414da89a679161761da07693605e0db1a631f773",
+    "delete_fingerprints": [
+      {
+        "line": 375,
+        "sha256": "9965fa9be54aa737fb8b2de3167134d1148f3fca0ccea81b6f21d86036b5f975"
+      },
+      {
+        "line": 388,
+        "sha256": "f1e2b02f94b888158ad1996fd9d40177b26f0f47a5b227c3b7f909a87c3301bf"
+      },
+      {
+        "line": 389,
+        "sha256": "01d56dbe5d8adebe70a5cef76b0d18e5bf0246ed670c013631b4a9b5ff119151"
+      },
+      {
+        "line": 390,
+        "sha256": "e1d8239a68dab277024cc8d943bfd433eb9fd848fa708ca74a09125afc4239a0"
+      },
+      {
+        "line": 391,
+        "sha256": "9cd66159aa692b88d51f8ca09d4ea8baffac76de0bfe5726d091fc1f4d4d48ee"
+      }
+    ],
+    "requested_reviewer": {
+      "login": "SaurabhVermaIN",
+      "id": 52234089
+    }
+  },
+  "issuance": {
+    "issued": false,
+    "start": null,
+    "expiry": null,
+    "maximum_hours": 24,
+    "requires_new_authorization_uuids": true
+  },
+  "excluded_actions": [
+    "merge",
+    "scan_exception_application",
+    "central_policy_activation",
+    "framework_publication",
+    "consumer_pin_activation",
+    "iam_grant",
+    "database_migration",
+    "historical_repair",
+    "deployment",
+    "traffic_switch",
+    "apk_distribution",
+    "staging_change"
+  ],
+  "limitations": [
+    "The comparison source is evidence, not a new approval; new or modified files remain blocking.",
+    "An existing-source baseline must not classify fresh deployment code as inherited.",
+    "Source/base overlay selectors cannot safely express newly authored content absent from both; do not invent wildcard/unknown selectors.",
+    "A size-only live-main allowance cannot clear immutable deployment or SQL review controls.",
+    "Ownership/checksum updates will change the final app head/base and invalidate this snapshot for authorization issuance.",
+    "No approved reviewer declaration, issuance window or active policy record is created by this proposal."
+  ],
+  "central_review_base_sha": "d5fa06a58ad444031e3ae5a8fbfc271b7b07b004",
+  "preparation_dependencies": {
+    "ownership_pr": {
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "number": 713,
+      "head_sha": "1661e208d637ae169a247ff72374c64e46d5790a",
+      "status": "UNMERGED"
+    },
+    "checksum_disposition": {
+      "status": "UNAPPLIED",
+      "requested_exact_fingerprints": [
+        "fb578da6cc35ede41c091c106830530ea6e0cb8b:apps/mobile/ios/Podfile.lock:generic-api-key:2265",
+        "fb578da6cc35ede41c091c106830530ea6e0cb8b:apps/mobile/ios/Podfile.lock:generic-api-key:2336"
+      ]
+    }
+  },
+  "observed_qa_run": {
+    "pr_qa": 42763550060,
+    "scope": "static snapshot at exact application head; not a PASS"
+  }
+}
