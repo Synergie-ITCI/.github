@@ -1,0 +1,230 @@
+name: FieldZilla reviewed production images only
+
+on:
+  workflow_call:
+    inputs:
+      workflow-tag:
+        type: string
+        required: true
+      central-sha:
+        type: string
+        required: true
+      caller-sha:
+        type: string
+        required: true
+      artifact-id:
+        type: string
+        required: true
+      artifact-run-id:
+        type: string
+        required: true
+      manifest-sha256:
+        type: string
+        required: true
+      approval-comment-id:
+        type: string
+        required: true
+      expires-at:
+        type: string
+        required: true
+
+permissions:
+  actions: read
+  contents: read
+  deployments: write
+  id-token: write
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: fieldzilla-production-hosting
+  cancel-in-progress: false
+
+env:
+  WORKFLOW_TAG: ${{ inputs.workflow-tag }}
+  CENTRAL_SHA: ${{ inputs.central-sha }}
+  CALLER_SHA: ${{ inputs.caller-sha }}
+  ARTIFACT_ID: ${{ inputs.artifact-id }}
+  ARTIFACT_RUN_ID: ${{ inputs.artifact-run-id }}
+  MANIFEST_SHA: ${{ inputs.manifest-sha256 }}
+  APPROVAL_COMMENT: ${{ inputs.approval-comment-id }}
+  APPROVAL_EXPIRY: ${{ inputs.expires-at }}
+  CENTRAL_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-production-images.yml@refs/tags/${{ inputs.workflow-tag }}
+
+jobs:
+  build:
+    name: Build reviewed API and Admin images
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    permissions:
+      actions: read
+      contents: read
+      deployments: read
+      id-token: write
+      issues: read
+      pull-requests: read
+    outputs:
+      artifact-id: ${{ steps.archive.outputs.artifact-id }}
+      artifact-digest: ${{ steps.archive.outputs.artifact-digest }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Verify actual build identity without a production environment
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, json, os, re, urllib.parse, urllib.request
+          assert os.environ['GITHUB_REPOSITORY'] == 'Synergie-ITCI/programme-management-platform'
+          assert os.environ['GITHUB_REF'] == 'refs/heads/main'
+          assert os.environ['GITHUB_EVENT_NAME'] == 'workflow_dispatch'
+          assert os.environ['GITHUB_RUN_ATTEMPT'] == '1'
+          assert os.environ['GITHUB_SHA'] == os.environ['CALLER_SHA']
+          assert re.fullmatch(r'pr-qa-v1-rc[1-9][0-9]*', os.environ['WORKFLOW_TAG'])
+          assert re.fullmatch(r'[0-9a-f]{40}', os.environ['CENTRAL_SHA'])
+          audience = 'fieldzilla-production-image-build'
+          url = os.environ['ACTIONS_ID_TOKEN_REQUEST_URL']
+          url += ('&' if '?' in url else '?') + urllib.parse.urlencode({'audience': audience})
+          req = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + os.environ['ACTIONS_ID_TOKEN_REQUEST_TOKEN']})
+          with urllib.request.urlopen(req, timeout=20) as response:
+              token = json.load(response)['value']
+          payload = token.split('.')[1]
+          claims = json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
+          expected = {'aud': audience, 'repository_id': '1315697868', 'repository_owner_id': '209829096', 'ref': 'refs/heads/main', 'sha': os.environ['CALLER_SHA'], 'job_workflow_ref': os.environ['CENTRAL_WORKFLOW_REF'], 'job_workflow_sha': os.environ['CENTRAL_SHA']}
+          if any(str(claims.get(k)) != v for k, v in expected.items()) or claims.get('environment') is not None:
+              raise SystemExit('Image build identity mismatch; no AWS role may be assumed')
+          print('Exact immutable build identity verified without a production environment')
+          PY
+          image_build_config="${RUNNER_TEMP}/fieldzilla-build-docker-config"
+          mkdir -m 700 "${image_build_config}"
+          printf 'DOCKER_CONFIG=%s\n' "${image_build_config}" >> "${GITHUB_ENV}"
+      - name: Checkout actual immutable executor
+        uses: actions/checkout@v4
+        with:
+          repository: Synergie-ITCI/.github
+          ref: ${{ inputs.workflow-tag }}
+          path: .central-framework
+          persist-credentials: false
+      - name: Verify release and unused exact source approval
+        id: request
+        run: |
+          set -euo pipefail
+          test "$(git -C .central-framework rev-parse HEAD)" = "${CENTRAL_SHA}"
+          python3 .central-framework/pr-qa/release_pin.py --verify-bound "${WORKFLOW_TAG}" --commit "${CENTRAL_SHA}"
+          python3 .central-framework/scripts/fieldzilla-production/image_runner.py validate \
+            --artifact-id "${ARTIFACT_ID}" --artifact-run-id "${ARTIFACT_RUN_ID}" \
+            --manifest-sha256 "${MANIFEST_SHA}" --approval-comment-id "${APPROVAL_COMMENT}" \
+            --expires-at "${APPROVAL_EXPIRY}" --central-sha "${CENTRAL_SHA}" \
+            --output "${RUNNER_TEMP}/fieldzilla-images"
+      - name: Checkout only the approved private application commit
+        uses: actions/checkout@v4
+        with:
+          repository: Synergie-ITCI/programme-management-platform
+          ref: ${{ steps.request.outputs.source_sha }}
+          path: .candidate
+          persist-credentials: false
+      - name: Enable ARM64 emulation without AWS credentials
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - name: Set up credential-free builder
+        uses: docker/setup-buildx-action@v3
+      - name: Build and bind exact reviewed images without AWS
+        run: |
+          set -euo pipefail
+          python3 .central-framework/scripts/fieldzilla-production/image_runner.py build \
+            --artifact-id "${ARTIFACT_ID}" --artifact-run-id "${ARTIFACT_RUN_ID}" \
+            --manifest-sha256 "${MANIFEST_SHA}" --approval-comment-id "${APPROVAL_COMMENT}" \
+            --expires-at "${APPROVAL_EXPIRY}" --central-sha "${CENTRAL_SHA}" \
+            --candidate "${GITHUB_WORKSPACE}/.candidate" --output "${RUNNER_TEMP}/fieldzilla-images"
+      - name: Preserve only same-run image data and provenance metadata
+        id: archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: fieldzilla-production-images-${{ steps.request.outputs.source_sha }}
+          path: |
+            ${{ runner.temp }}/fieldzilla-images/api.tar
+            ${{ runner.temp }}/fieldzilla-images/admin-web.tar
+            ${{ runner.temp }}/fieldzilla-images/images.json
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+
+  publish:
+    name: Publish and acknowledge named ECR images only
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment: synergie-app-production
+    env:
+      GH_TOKEN: ${{ github.token }}
+      AWS_REGION: ap-south-1
+      IMAGE_ARTIFACT: ${{ needs.build.outputs.artifact-id }}
+      IMAGE_ARCHIVE_DIGEST: ${{ needs.build.outputs.artifact-digest }}
+    steps:
+      - name: Verify actual production-environment publisher identity
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, json, os, re, urllib.parse, urllib.request
+          assert os.environ['GITHUB_REPOSITORY'] == 'Synergie-ITCI/programme-management-platform'
+          assert os.environ['GITHUB_REF'] == 'refs/heads/main'
+          assert os.environ['GITHUB_EVENT_NAME'] == 'workflow_dispatch'
+          assert os.environ['GITHUB_RUN_ATTEMPT'] == '1'
+          assert os.environ['GITHUB_SHA'] == os.environ['CALLER_SHA']
+          assert re.fullmatch(r'pr-qa-v1-rc[1-9][0-9]*', os.environ['WORKFLOW_TAG'])
+          assert re.fullmatch(r'[0-9a-f]{40}', os.environ['CENTRAL_SHA'])
+          url = os.environ['ACTIONS_ID_TOKEN_REQUEST_URL']
+          url += ('&' if '?' in url else '?') + urllib.parse.urlencode({'audience': 'sts.amazonaws.com'})
+          req = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + os.environ['ACTIONS_ID_TOKEN_REQUEST_TOKEN']})
+          with urllib.request.urlopen(req, timeout=20) as response:
+              token = json.load(response)['value']
+          payload = token.split('.')[1]
+          claims = json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
+          expected = {'aud': 'sts.amazonaws.com', 'repository_id': '1315697868', 'repository_owner_id': '209829096', 'ref': 'refs/heads/main', 'sha': os.environ['CALLER_SHA'], 'environment': 'synergie-app-production', 'sub': 'repo:Synergie-ITCI@209829096/programme-management-platform@1315697868:environment:synergie-app-production', 'job_workflow_ref': os.environ['CENTRAL_WORKFLOW_REF'], 'job_workflow_sha': os.environ['CENTRAL_SHA']}
+          if any(str(claims.get(k)) != v for k, v in expected.items()):
+              raise SystemExit('Named image publisher identity mismatch')
+          print('Exact production image publisher identity verified; no AWS role assumed yet')
+          PY
+      - name: Checkout only trusted immutable publisher code
+        uses: actions/checkout@v4
+        with:
+          repository: Synergie-ITCI/.github
+          ref: ${{ inputs.workflow-tag }}
+          path: .central-framework
+          persist-credentials: false
+      - name: Verify release and load owned images before AWS credentials
+        run: |
+          set -euo pipefail
+          test "$(git -C .central-framework rev-parse HEAD)" = "${CENTRAL_SHA}"
+          python3 .central-framework/pr-qa/release_pin.py --verify-bound "${WORKFLOW_TAG}" --commit "${CENTRAL_SHA}"
+          python3 .central-framework/scripts/fieldzilla-production/image_runner.py load \
+            --artifact-id "${ARTIFACT_ID}" --artifact-run-id "${ARTIFACT_RUN_ID}" \
+            --manifest-sha256 "${MANIFEST_SHA}" --approval-comment-id "${APPROVAL_COMMENT}" \
+            --expires-at "${APPROVAL_EXPIRY}" --central-sha "${CENTRAL_SHA}" \
+            --image-artifact-id "${IMAGE_ARTIFACT}" --image-artifact-digest "${IMAGE_ARCHIVE_DIGEST}" \
+            --output "${RUNNER_TEMP}/fieldzilla-publisher"
+      - name: Assume only the separately approved image-only role
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::918870682888:role/SynergieFieldzillaProductionImagePublisher
+          aws-region: ap-south-1
+          role-duration-seconds: 3600
+      - name: Revalidate authorization then publish and verify ECR manifests
+        run: |
+          set -euo pipefail
+          python3 .central-framework/scripts/fieldzilla-production/image_runner.py publish \
+            --artifact-id "${ARTIFACT_ID}" --artifact-run-id "${ARTIFACT_RUN_ID}" \
+            --manifest-sha256 "${MANIFEST_SHA}" --approval-comment-id "${APPROVAL_COMMENT}" \
+            --expires-at "${APPROVAL_EXPIRY}" --central-sha "${CENTRAL_SHA}" \
+            --image-artifact-id "${IMAGE_ARTIFACT}" --image-artifact-digest "${IMAGE_ARCHIVE_DIGEST}" \
+            --output "${RUNNER_TEMP}/fieldzilla-publisher"
+      - name: Preserve only acknowledgement and partial-outcome metadata
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fieldzilla-production-image-receipts-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/fieldzilla-publisher/publication.jsonl
+            ${{ runner.temp }}/fieldzilla-publisher/registry-receipt.json
+          retention-days: 1
+          if-no-files-found: warn
