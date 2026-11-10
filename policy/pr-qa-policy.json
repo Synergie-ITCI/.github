@@ -1377,18 +1377,21 @@
       "pr_number": 712,
       "head_ref": "release/fieldzilla-production-application",
       "base_ref": "main",
-      "expected_head_sha": "f34956e640faaf82d712eff74ae7c195e3d01f87",
+      "expected_head_sha": "c92beeb7f493739d9685402925f3104f9716924d",
       "expected_base_sha": "c8aee71a61059392f17343eac434d2a73dfb3b4c",
-      "issued_at": "2026-11-10T07:04:04Z",
+      "issued_at": "2026-11-10T10:08:38Z",
       "enabled": true,
-      "authorization_id": "69daf55c-854f-47e6-a19e-9fc84c129717",
+      "authorization_id": "66f07120-e3c9-403d-a30a-a3edee2ed00d",
       "expires_after": "2026-11-11T07:04:04Z",
       "allowed_effective_additions": 148759,
       "allowed_changed_files": 844,
       "minimum_changed_files": 844,
-      "required_pr_body_marker": "FIELDZILLA-PR712-EXACT-REVIEW-69daf55c-854f-47e6-a19e-9fc84c129717",
-      "purpose": "Classify only the exact reviewed source plus bounded governance overlay for PR712. No size, scanner or other relaxation. No execution authorization.",
-      "relaxations": [],
+      "required_pr_body_marker": "FIELDZILLA-PR712-C92-SIZE-66f07120-e3c9-403d-a30a-a3edee2ed00d",
+      "purpose": "Exact PR712 initial application import only: waive file-count/diff-size thresholds up to measured 844 files and 148759 effective additions. Preserve all other QA, secret scanning, execution and release gates. Carry forward unchanged deployment/SQL review5837789245; new Admin patch and bounded size decision require exact approval.",
+      "relaxations": [
+        "changed_file_count",
+        "diff_size"
+      ],
       "source_overlay": {
         "approved_application_source_sha": "9a199f332165fd825e186b8aa6273532f0987efc",
         "allowed_paths": [
@@ -1414,7 +1417,10 @@
           "deploy/production/hosting/uploads.tf",
           "deploy/production/hosting/variables.tf",
           "deploy/production/hosting/verify_plan.py",
-          "deploy/production/hosting/versions.tf"
+          "deploy/production/hosting/versions.tf",
+          "apps/admin-web/package-lock.json",
+          "apps/admin-web/package.json",
+          "apps/admin-web/src/App.test.tsx"
         ],
         "paths": {
           ".github/CODEOWNERS": {
@@ -1514,6 +1520,21 @@
           "deploy/production/hosting/versions.tf": {
             "source": "absent",
             "candidate": "base"
+          },
+          "apps/admin-web/package-lock.json": {
+            "source": "present",
+            "candidate": "reviewed_sha256",
+            "candidate_sha256": "a1f2ac248f68730e6809e05424ca05c739ad49b693d8ff78a86b8bf0a0e674c0"
+          },
+          "apps/admin-web/package.json": {
+            "source": "present",
+            "candidate": "reviewed_sha256",
+            "candidate_sha256": "d1113bd81d5f24587e60ea26ed534daef385c77c2ad52437e2f6b6820d26d302"
+          },
+          "apps/admin-web/src/App.test.tsx": {
+            "source": "present",
+            "candidate": "reviewed_sha256",
+            "candidate_sha256": "2a5cb53d1e25d640329f8e6a3fad7cadd292e8ee9e8616f2793fa4f05937719b"
           }
         }
       }
