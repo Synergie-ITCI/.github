@@ -1561,6 +1561,8 @@ def validate_baseline_overlay_path(ctx: PRContext, source_sha: str, head_sha: st
         details.append(f"governance overlay path `{path}` must exist in approved application source.")
 
     expected_candidate = str(spec.get("candidate") or "")
+    if expected_candidate == "base" and not base_sha:
+        details.append(f"governance overlay path `{path}` requires an exact authorized base.")
     if expected_candidate == "base" and base_sha:
         if not base_exists:
             details.append(f"governance overlay path `{path}` must match base but is absent from authorized base.")
@@ -1570,7 +1572,30 @@ def validate_baseline_overlay_path(ctx: PRContext, source_sha: str, head_sha: st
         if tree_file_sha256(ctx.repo, head_sha, path) != tree_file_sha256(ctx.repo, source_sha, path):
             details.append(f"governance overlay path `{path}` does not match approved application source content.")
 
-    if path == ".github/workflows/pr-qa.yml":
+    if expected_candidate == "reviewed_sha256":
+        # This selector is useful only inside an already live/exact-head-bound
+        # central authorization. It does not approve a path from PR content.
+        expected_hash = str(spec.get("candidate_sha256") or "")
+        candidate_path = ctx.repo / path
+        if (
+            not re.fullmatch(r"[0-9a-f]{64}", expected_hash)
+            or Path(path).is_absolute()
+            or ".." in Path(path).parts
+            or "\\" in path
+            or candidate_path.is_symlink()
+            or not candidate_path.is_file()
+            or candidate_path.resolve() != ctx.repo.resolve() / path
+        ):
+            details.append(f"governance overlay path `{path}` lacks a regular exact-hash candidate.")
+        elif (
+            tree_file_sha256(ctx.repo, head_sha, path) != expected_hash
+            or hashlib.sha256(candidate_path.read_bytes()).hexdigest() != expected_hash
+        ):
+            details.append(f"governance overlay path `{path}` differs from centrally reviewed bytes.")
+    elif spec.get("candidate_sha256") is not None:
+        details.append(f"governance overlay path `{path}` has a hash without its reviewed selector.")
+
+    if path == ".github/workflows/pr-qa.yml" and not (expected_candidate == "base" and base_sha):
         details.extend(validate_baseline_pr_qa_caller_update(ctx, source_sha, head_sha, base_sha, path, spec))
     return details
 
