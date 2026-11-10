@@ -1377,17 +1377,17 @@
       "pr_number": 712,
       "head_ref": "release/fieldzilla-production-application",
       "base_ref": "main",
-      "expected_head_sha": "c92beeb7f493739d9685402925f3104f9716924d",
+      "expected_head_sha": "219ff68c08caeb850b6e21cf745ffa3f8712bcaa",
       "expected_base_sha": "c8aee71a61059392f17343eac434d2a73dfb3b4c",
-      "issued_at": "2026-11-10T10:08:38Z",
+      "issued_at": "2026-11-10T11:35:00Z",
       "enabled": true,
-      "authorization_id": "66f07120-e3c9-403d-a30a-a3edee2ed00d",
+      "authorization_id": "5e210c7c-337b-4bf9-b751-cfed65fffbde",
       "expires_after": "2026-11-11T07:04:04Z",
-      "allowed_effective_additions": 148759,
+      "allowed_effective_additions": 148799,
       "allowed_changed_files": 844,
       "minimum_changed_files": 844,
-      "required_pr_body_marker": "FIELDZILLA-PR712-C92-SIZE-66f07120-e3c9-403d-a30a-a3edee2ed00d",
-      "purpose": "Exact PR712 initial application import only: waive file-count/diff-size thresholds up to measured 844 files and 148759 effective additions. Preserve all other QA, secret scanning, execution and release gates. Carry forward unchanged deployment/SQL review5837789245; new Admin patch and bounded size decision require exact approval.",
+      "required_pr_body_marker": "FIELDZILLA-PR712-MOBILE-EXACT-5e210c7c-337b-4bf9-b751-cfed65fffbde",
+      "purpose": "Exact PR712 mobile security correction: bind only head219ff68/basec8aee71a, 844 files and148799 effective additions. Carry forward unchanged deployment/SQL review5837789245. Include only separately owner-approved exact-lock low deepmerge record and coupled contract test; preserve every other security, QA and release gate.",
       "relaxations": [
         "changed_file_count",
         "diff_size"
@@ -1420,7 +1420,11 @@
           "deploy/production/hosting/versions.tf",
           "apps/admin-web/package-lock.json",
           "apps/admin-web/package.json",
-          "apps/admin-web/src/App.test.tsx"
+          "apps/admin-web/src/App.test.tsx",
+          "apps/api/tests/architecture/test_mobile_audit_baseline.py",
+          "apps/mobile/package-lock.json",
+          "apps/mobile/package.json",
+          "apps/mobile/security/mobile-audit-baseline.json"
         ],
         "paths": {
           ".github/CODEOWNERS": {
@@ -1535,6 +1539,26 @@
             "source": "present",
             "candidate": "reviewed_sha256",
             "candidate_sha256": "2a5cb53d1e25d640329f8e6a3fad7cadd292e8ee9e8616f2793fa4f05937719b"
+          },
+          "apps/api/tests/architecture/test_mobile_audit_baseline.py": {
+            "source": "present",
+            "candidate": "reviewed_sha256",
+            "candidate_sha256": "9d3e459d43795e2d195381c8419a1f6de950ec989ced3a42544f65fe26cbcced"
+          },
+          "apps/mobile/package-lock.json": {
+            "source": "present",
+            "candidate": "reviewed_sha256",
+            "candidate_sha256": "9bd53e16a76f2720a31c7d27cbe203f8841e8ab796ec9c5bd2679f9f0904a4a2"
+          },
+          "apps/mobile/package.json": {
+            "source": "present",
+            "candidate": "reviewed_sha256",
+            "candidate_sha256": "b1c2c263465442f206596ccdc79d86aab4bbc0015ee8d365b4d9a2ebe5b4283c"
+          },
+          "apps/mobile/security/mobile-audit-baseline.json": {
+            "source": "present",
+            "candidate": "reviewed_sha256",
+            "candidate_sha256": "fbb8d12a375224c2d778ad92fda079a0bae1c1db8196ac54750320b73f64a7e8"
           }
         }
       }
