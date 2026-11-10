@@ -20,6 +20,7 @@ from approval_receipts import ApprovalReceipt
 from execution_artifact import read_manifest_artifact
 from execution_gate import REPOSITORY
 from issued_windows import verify_issued_windows
+from qa_policy_evidence import verify_qa_policy_evidence
 from rehearsal_context import verify_rehearsal_context
 
 
@@ -40,7 +41,7 @@ def github_api(path, method="GET", payload=None):
     )
     if result.returncode:
         raise RuntimeError("GitHub release evidence unavailable; no automatic retry")
-    if path.endswith("/zip"):
+    if path.endswith(("/zip", "/logs")):
         return result.stdout
     return json.loads(result.stdout)
 
@@ -87,13 +88,14 @@ def validate(raw, manifest, args, *, api, environment, central_sha):
     )
 
     def current_authority():
-        verify_rehearsal_context(
+        checks = verify_rehearsal_context(
             manifest=manifest,
             environment=environment,
             api=api,
             central_checkout_sha=central_sha,
         )
-        verify_issued_windows(manifest, api=api)
+        policies = verify_qa_policy_evidence(manifest, checks=checks, api=api)
+        verify_issued_windows(manifest, api=api, activated_policies=policies)
 
     bound = ContextBoundReceipt(receipt, current_authority)
     bound.verify()

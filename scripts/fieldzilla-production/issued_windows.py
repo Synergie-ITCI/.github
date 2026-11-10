@@ -8,13 +8,18 @@ of its centrally issued, exact-PR review records.
 import base64
 import json
 import re
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from execution_gate import REPOSITORY
 
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "pr-qa"))
+from baseline_authorization import schema_errors
 
-def verify_issued_windows(manifest, *, api, now=None, bundled_policies=None):
+
+def verify_issued_windows(manifest, *, api, activated_policies, now=None):
     expected = manifest.get("review_authorizations", {})
     if (
         not isinstance(expected, dict)
@@ -63,11 +68,10 @@ def verify_issued_windows(manifest, *, api, now=None, bundled_policies=None):
         if len(matches) != 1:
             raise ValueError("Central review identity is absent, revoked or ambiguous")
         row = matches[0]
-        bundled = (
-            bundled_policies[path]
-            if bundled_policies is not None
-            else json.loads((Path(__file__).resolve().parents[2] / path).read_text())
-        )
+        # These files come only from verify_qa_policy_evidence: the selected,
+        # protected immutable QA release proved by the successful detector and
+        # final report. Executor code is a separate immutable reference.
+        bundled = activated_policies[path]
         bundled_rows = (
             bundled["one_time_baseline_alignments"] if kind == "baseline" else bundled
         )
@@ -77,7 +81,19 @@ def verify_issued_windows(manifest, *, api, now=None, bundled_policies=None):
             if item.get("authorization_id") == expected[kind]
         ]
         if activated != [row]:
-            raise ValueError("Live review differs from the executing immutable release")
+            raise ValueError(
+                "Live review differs from the activated immutable QA release"
+            )
+        schema_path = (
+            "one-time-baseline.schema.json"
+            if kind == "baseline"
+            else "audited-migration-authorizations.schema.json"
+        )
+        schema = json.loads((ROOT / "schemas" / schema_path).read_text())
+        if schema_errors(row if kind == "baseline" else [row], schema):
+            raise ValueError(
+                "Activated review schema is incompatible with this executor"
+            )
         binding = {
             "repository": REPOSITORY,
             "repository_id": 1315697868,

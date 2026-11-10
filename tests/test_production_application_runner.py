@@ -4,11 +4,13 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/fieldzilla-production"))
 sys.path.insert(0, str(ROOT / "pr-qa"))
-from application_runner import ContextBoundReceipt, execute_infrastructure
+from application_runner import ContextBoundReceipt, execute_infrastructure, validate
 from pr_qa import parse_workflow_yaml
 
 
@@ -105,6 +107,44 @@ class RunnerTests(unittest.TestCase):
                     self.assertNotIn("prepare", self.calls)
                 if failure == "migrate":
                     self.assertNotIn("start", self.calls)
+
+
+class PolicyAuthorityTests(unittest.TestCase):
+    def test_unproven_policy_blocks_receipt_before_any_aws_execution(self):
+        manifest = {
+            "operation": "rehearsal",
+            "expires_at": "2026-11-10T18:00:00Z",
+            "application": {},
+            "scope": "production-rehearsal",
+            "promotion_pr": 712,
+            "caller_sha": "a" * 40,
+        }
+        args = SimpleNamespace(expires_at=manifest["expires_at"], approval_comment_id=1)
+        receipt = Mock()
+        checks = {"fixture": "current checks"}
+        with (
+            patch("application_runner.verify_rehearsal_context", return_value=checks),
+            patch("application_runner.render"),
+            patch("application_runner.ApprovalReceipt", return_value=receipt),
+            patch(
+                "application_runner.verify_qa_policy_evidence",
+                side_effect=ValueError("policy proof rejected"),
+            ) as policy,
+            patch("application_runner.verify_issued_windows") as windows,
+        ):
+            with self.assertRaisesRegex(ValueError, "policy proof rejected"):
+                validate(
+                    b"{}",
+                    manifest,
+                    args,
+                    api=Mock(),
+                    environment={"GITHUB_RUN_ID": "1", "GITHUB_RUN_ATTEMPT": "1"},
+                    central_sha="b" * 40,
+                )
+            self.assertEqual(policy.call_count, 1)
+            windows.assert_not_called()
+            receipt.verify.assert_not_called()
+            receipt.consume.assert_not_called()
 
 
 class WorkflowTests(unittest.TestCase):
