@@ -82,13 +82,30 @@ identities. Registration is restricted to three target families and candidate
 tags. Secrets, IAM mutation and listener changes are excluded.
 
 Validation: `python3 -m unittest discover -s tests -p 'test_production_*.py'`.
-The 62 deterministic checks and Ruff cover the prepared source only. They cannot
+The focused deterministic checks and Ruff cover the prepared source only. They cannot
 replace governed exact-head QA, an actual AWS rehearsal or authenticated acceptance.
 
 Execution manifests must bind `review_authorizations.baseline` and
 `review_authorizations.sql` to the issued UUIDs. Before each mutation,
 `issued_windows.py` checks their exact source/base/PR bindings, enabled state,
-and complete execution window against both live central policy and the executing
-immutable release. An old green QA result cannot extend an expired decision;
+and complete execution window against both live central policy and the activated
+immutable QA policy release that actually passed for this candidate. An old green QA result cannot extend an expired decision;
 main-only issuance cannot activate a new or extended record. No policy record,
 expiry, scanner or consumer selection is changed by this guard.
+
+
+Executor code and review data use separate immutable references. A main-only
+caller can retain its reviewed executor pin while a newly issued review package
+passes the normal publication and consumer-activation gates. Main-only issuance
+is never sufficient. The manifest must include `qa_evidence` with exactly
+`policy_release`, `policy_sha`, `run_id`, `artifact_id`, and `archive_sha256`.
+These identify the latest successful required QA check and its final
+`pr-qa-results` artifact, not the Phase 1 artifact. The runner verifies the
+existing central release resolver's selection, tag protection and provenance,
+the detector job's executing release, final artifact digest and job attempt,
+and exact PR/head/base report binding before reading the two policy files at
+that immutable source. Unknown review schemas fail closed against the executor's
+known schemas. Live revocation, changed selection, expired review, stale checks,
+or mismatched artifacts stop execution before approval consumption or AWS mutation.
+Raw detector logs remain in memory; only the exact release identity is parsed.
+This correction is source preparation, not activation or AWS rehearsal evidence.

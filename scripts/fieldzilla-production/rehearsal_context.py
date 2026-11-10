@@ -25,7 +25,7 @@ def verify_rehearsal_context(
     environment: dict[str, str],
     api: Callable,
     central_checkout_sha: str,
-) -> None:
+) -> dict[str, dict[str, Any]]:
     if manifest.get("scope") != "production-rehearsal":
         raise ValueError("This verifier permits only isolated rehearsal")
     caller = manifest.get("caller_sha", "")
@@ -117,3 +117,4 @@ def verify_rehearsal_context(
         for row in latest.values()
     ):
         raise ValueError("Required exact-head governed checks are unresolved")
+    return latest
