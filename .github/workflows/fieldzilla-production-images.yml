@@ -30,6 +30,7 @@ on:
 
 permissions:
   actions: read
+  checks: read
   contents: read
   deployments: write
   id-token: write
@@ -58,6 +59,7 @@ jobs:
     timeout-minutes: 65
     permissions:
       actions: read
+      checks: read
       contents: read
       deployments: read
       id-token: write
