@@ -143,3 +143,20 @@ or tasks. It is production-managed infrastructure, not an implicitly approved
 isolated target. Do not borrow staging or treat unused production capacity as
 rehearsal authorization. A scoped target/resource/cost approval is still required.
 No registry publication, isolated AWS rehearsal or production deployment has run.
+
+## Production execution increment
+
+The production-only execution kind in `fieldzilla-production-application.yml`
+requires a separate `rollout` manifest and unused exact owner approval. Before
+assuming `SynergieFieldzillaProductionApplicationDeploy`, it verifies the
+current main caller, protected immutable executor source and merged exact
+application candidate. The runner rechecks the candidate's governed exact-head
+QA and active review records before each mutation. The existing engine verifies
+the named encrypted manual production snapshot, empty production writer set,
+target identities and candidate ECR digests before consuming approval. It then
+registers digest-pinned definitions, runs only the scoped migration family,
+starts API/Admin and checks target health. It cannot change listeners, DNS,
+staging, IAM or a database outside the task's reviewed secret. A successful run
+reports `production_live=false` until the separately governed routing cutover
+and authenticated acceptance have passed. This source preparation requires a
+new immutable executor release because rc235 rejects production.

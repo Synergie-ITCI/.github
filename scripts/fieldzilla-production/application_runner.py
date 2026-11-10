@@ -21,7 +21,7 @@ from execution_artifact import read_manifest_artifact
 from execution_gate import REPOSITORY
 from issued_windows import verify_issued_windows
 from qa_policy_evidence import verify_qa_policy_evidence
-from rehearsal_context import verify_rehearsal_context
+from rehearsal_context import verify_production_context, verify_rehearsal_context
 
 
 def github_api(path, method="GET", payload=None):
@@ -63,11 +63,14 @@ class ContextBoundReceipt:
 
 
 def validate(raw, manifest, args, *, api, environment, central_sha):
-    if manifest.get("operation") != "rehearsal":
-        raise ValueError("Only the separately authorized isolated rehearsal is wired")
+    production = getattr(args, "execution_kind", "rehearsal") == "production"
+    operation = "rollout" if production else "rehearsal"
+    if manifest.get("operation") != operation:
+        raise ValueError("Execution operation differs from the selected target")
     if manifest.get("expires_at") != args.expires_at:
         raise ValueError("Manifest and approval expiry differ")
-    verify_rehearsal_context(
+    context = verify_production_context if production else verify_rehearsal_context
+    context(
         manifest=manifest,
         environment=environment,
         api=api,
@@ -78,7 +81,7 @@ def validate(raw, manifest, args, *, api, environment, central_sha):
     receipt = ApprovalReceipt(
         api=api,
         raw_manifest=raw,
-        operation="rehearsal",
+        operation=operation,
         promotion_pr=manifest["promotion_pr"],
         comment_id=args.approval_comment_id,
         expires_at=args.expires_at,
@@ -88,7 +91,7 @@ def validate(raw, manifest, args, *, api, environment, central_sha):
     )
 
     def current_authority():
-        checks = verify_rehearsal_context(
+        checks = context(
             manifest=manifest,
             environment=environment,
             api=api,
@@ -136,9 +139,41 @@ def execute_infrastructure(manifest, receipt, journal, *, aws, executor=Executor
         engine.close()
 
 
+def execute_production(manifest, receipt, journal, *, aws, executor=Executor):
+    if manifest.get("scope") != "production" or manifest.get("operation") != "rollout":
+        raise ValueError("Only a separately approved production rollout is allowed")
+    # The engine checks exact target, image digests, empty writer set and the
+    # available encrypted production snapshot before approval is consumed.
+    engine = executor(manifest, aws=aws, authorize=receipt.verify, journal=journal)
+    try:
+        engine.preflight()
+        receipt.consume()
+        engine.prepare()
+        engine.migrate()
+        engine.start()
+        services = engine.wait_runtime()
+        report = {
+            "status": "PRODUCTION_RUNTIME_READY_CUTOVER_AND_ACCEPTANCE_REQUIRED",
+            "source_sha": manifest["application"]["source_sha"],
+            "scope": "production",
+            "services": services,
+            "production_live": False,
+            "remaining": [
+                "governed production-only routing cutover",
+                "authenticated API/Admin and existing-client sync readback",
+                "staging unchanged readback",
+            ],
+        }
+        engine.record("production_runtime_prepared", **report)
+        return report
+    finally:
+        engine.close()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("validate", "execute-infrastructure"))
+    parser.add_argument("mode", choices=("validate", "execute-infrastructure", "execute-production"))
+    parser.add_argument("--execution-kind", choices=("rehearsal", "production"), default="rehearsal")
     parser.add_argument("--artifact-id", type=int, required=True)
     parser.add_argument("--artifact-run-id", type=int, required=True)
     parser.add_argument("--manifest-sha256", required=True)
@@ -148,6 +183,8 @@ def main():
     parser.add_argument("--journal", type=Path, required=True)
     parser.add_argument("--report", type=Path, required=True)
     args = parser.parse_args()
+    if args.mode != "validate" and args.mode != ("execute-production" if args.execution_kind == "production" else "execute-infrastructure"):
+        raise ValueError("Execution mode and target differ")
     metadata = github_api(f"repos/{REPOSITORY}/actions/artifacts/{args.artifact_id}")
     if metadata.get("size_in_bytes", 1024 * 1024 + 1) > 1024 * 1024:
         raise ValueError("Execution artifact exceeds the bounded manifest limit")
@@ -183,7 +220,8 @@ def main():
             "Exact isolated execution artifact, refs and approval verified; no mutation"
         )
         return
-    report = execute_infrastructure(manifest, receipt, args.journal, aws=Aws())
+    execute = execute_production if args.execution_kind == "production" else execute_infrastructure
+    report = execute(manifest, receipt, args.journal, aws=Aws())
     with args.report.open("x", encoding="utf-8") as output:
         json.dump(report, output, indent=2)
         output.write("\n")

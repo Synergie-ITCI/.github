@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/fieldzilla-production"))
 sys.path.insert(0, str(ROOT / "pr-qa"))
-from application_runner import ContextBoundReceipt, execute_infrastructure, validate
+from application_runner import ContextBoundReceipt, execute_infrastructure, execute_production, validate
 from pr_qa import parse_workflow_yaml
 
 
@@ -90,6 +90,20 @@ class RunnerTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.execute()
         self.assertEqual(self.calls, [])
+
+    def test_production_is_separately_bound_and_does_not_claim_cutover(self):
+        self.manifest.update(scope="production", operation="rollout")
+        with tempfile.TemporaryDirectory() as folder:
+            report = execute_production(
+                self.manifest, self.receipt, Path(folder) / "journal",
+                aws=lambda *args: None, executor=self.engine,
+            )
+        self.assertEqual(
+            self.calls,
+            ["constructed", "preflight", "consume", "prepare", "migrate", "start", "wait_runtime", "record", "close"],
+        )
+        self.assertIs(report["production_live"], False)
+        self.assertIn("CUTOVER_AND_ACCEPTANCE_REQUIRED", report["status"])
 
     def test_failure_does_not_retry_migration_or_silently_recover(self):
         for failure in ("preflight", "consume", "prepare", "migrate", "wait_runtime"):
@@ -188,10 +202,10 @@ class WorkflowTests(unittest.TestCase):
             if step.get("uses", "").startswith("aws-actions/")
         )
         self.assertLess(verify, credentials)
-        self.assertEqual(
-            steps[credentials]["with"]["role-to-assume"],
-            "arn:aws:iam::918870682888:role/SynergieFieldzillaProductionRehearsalApplicationDeploy",
-        )
+        role = steps[credentials]["with"]["role-to-assume"]
+        self.assertIn("SynergieFieldzillaProductionRehearsalApplicationDeploy", role)
+        self.assertIn("SynergieFieldzillaProductionApplicationDeploy", role)
+        self.assertIn("inputs.execution-kind == 'production'", role)
         checkouts = [
             step
             for step in steps

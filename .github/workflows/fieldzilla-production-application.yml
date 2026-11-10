@@ -1,8 +1,11 @@
-name: FieldZilla isolated application infrastructure rehearsal
+name: FieldZilla governed application execution
 
 on:
   workflow_call:
     inputs:
+      execution-kind:
+        type: string
+        required: true
       workflow-tag:
         type: string
         required: true
@@ -48,6 +51,7 @@ jobs:
     environment: synergie-app-production
     timeout-minutes: 45
     env:
+      EXECUTION_KIND: ${{ inputs.execution-kind }}
       AWS_REGION: ap-south-1
       GH_TOKEN: ${{ github.token }}
       CENTRAL_WORKFLOW_REF: Synergie-ITCI/.github/.github/workflows/fieldzilla-production-application.yml@refs/tags/${{ inputs.workflow-tag }}
@@ -69,6 +73,7 @@ jobs:
           assert os.environ['GITHUB_REF'] == 'refs/heads/main'
           assert os.environ['GITHUB_EVENT_NAME'] == 'workflow_dispatch'
           assert os.environ['GITHUB_RUN_ATTEMPT'] == '1'
+          assert os.environ['EXECUTION_KIND'] in {'rehearsal', 'production'}
           assert os.environ['GITHUB_SHA'] == os.environ['CALLER_SHA']
           assert re.fullmatch(r'pr-qa-v1-rc[1-9][0-9]*', os.environ['WORKFLOW_TAG'])
           for key in ('CALLER_SHA', 'CENTRAL_SHA'):
@@ -118,22 +123,29 @@ jobs:
         run: |
           set -euo pipefail
           python3 .central-framework/scripts/fieldzilla-production/application_runner.py validate \
+            --execution-kind "${EXECUTION_KIND}" \
             --artifact-id "${ARTIFACT_ID}" --artifact-run-id "${ARTIFACT_RUN_ID}" \
             --manifest-sha256 "${MANIFEST_SHA}" --approval-comment-id "${APPROVAL_COMMENT}" \
             --expires-at "${APPROVAL_EXPIRY}" --central-sha "${CENTRAL_SHA}" \
             --journal "${RUNNER_TEMP}/fieldzilla-execution.jsonl" --report "${RUNNER_TEMP}/fieldzilla-execution.json"
 
-      - name: Assume only the separately approved isolated rehearsal identity
+      - name: Assume only the separately approved target identity
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::918870682888:role/SynergieFieldzillaProductionRehearsalApplicationDeploy
+          role-to-assume: ${{ inputs.execution-kind == 'production' && 'arn:aws:iam::918870682888:role/SynergieFieldzillaProductionApplicationDeploy' || 'arn:aws:iam::918870682888:role/SynergieFieldzillaProductionRehearsalApplicationDeploy' }}
           aws-region: ap-south-1
           role-duration-seconds: 3600
 
-      - name: Revalidate, consume authorization, migrate and verify isolated runtime
+      - name: Revalidate, consume authorization, migrate and verify target runtime
         run: |
           set -euo pipefail
-          python3 .central-framework/scripts/fieldzilla-production/application_runner.py execute-infrastructure \
+          case "${EXECUTION_KIND}" in
+            production) execution_command=execute-production ;;
+            rehearsal) execution_command=execute-infrastructure ;;
+            *) exit 1 ;;
+          esac
+          python3 .central-framework/scripts/fieldzilla-production/application_runner.py "${execution_command}" \
+            --execution-kind "${EXECUTION_KIND}" \
             --artifact-id "${ARTIFACT_ID}" --artifact-run-id "${ARTIFACT_RUN_ID}" \
             --manifest-sha256 "${MANIFEST_SHA}" --approval-comment-id "${APPROVAL_COMMENT}" \
             --expires-at "${APPROVAL_EXPIRY}" --central-sha "${CENTRAL_SHA}" \

@@ -49,6 +49,82 @@ def verify_image_context(*, manifest, environment, api, central_checkout_sha):
     )
 
 
+def verify_production_context(*, manifest, environment, api, central_checkout_sha):
+    """Require a merged Gate C candidate at the current protected main caller."""
+    if manifest.get("scope") != "production" or manifest.get("operation") != "rollout":
+        raise ValueError("Production execution requires an exact rollout manifest")
+    caller = manifest.get("caller_sha", "")
+    source = manifest.get("application", {}).get("source_sha", "")
+    central = manifest.get("central_sha", "")
+    tag = manifest.get("central_tag", "")
+    promotion = manifest.get("promotion_pr")
+    if (
+        any(not re.fullmatch(r"[0-9a-f]{40}", value) for value in (caller, source, central))
+        or not re.fullmatch(r"pr-qa-v1-rc[1-9][0-9]*", str(tag))
+        or type(promotion) is not int
+        or promotion < 1
+    ):
+        raise ValueError("Production refs must bind exact commits and a release")
+    expected_ref = (
+        "Synergie-ITCI/.github/.github/workflows/fieldzilla-production-application.yml@refs/tags/"
+        + tag
+    )
+    if (
+        environment.get("GITHUB_REPOSITORY") != REPOSITORY
+        or environment.get("GITHUB_REF") != "refs/heads/main"
+        or environment.get("GITHUB_SHA") != caller
+        or environment.get("GITHUB_EVENT_NAME") != "workflow_dispatch"
+        or environment.get("GITHUB_RUN_ATTEMPT") != "1"
+        or environment.get("CENTRAL_WORKFLOW_REF") != expected_ref
+        or central_checkout_sha != central
+        or api(f"repos/{REPOSITORY}/git/ref/heads/main").get("object", {}).get("sha") != caller
+    ):
+        raise ValueError("Production caller or executing release changed")
+    pr = api(f"repos/{REPOSITORY}/pulls/{promotion}")
+    merge = pr.get("merge_commit_sha", "")
+    if (
+        pr.get("state") != "closed"
+        or not pr.get("merged_at")
+        or pr.get("head", {}).get("sha") != source
+        or pr.get("head", {}).get("repo", {}).get("full_name") != REPOSITORY
+        or pr.get("base", {}).get("ref") != "main"
+        or not re.fullmatch(r"[0-9a-f]{40}", merge)
+    ):
+        raise ValueError("Exact candidate has not passed Gate C")
+    lineage = api(f"repos/{REPOSITORY}/compare/{merge}...{caller}")
+    if lineage.get("status") not in {"identical", "ahead"}:
+        raise ValueError("Gate C merge is not in the executing main")
+    ref = api(f"repos/Synergie-ITCI/.github/git/ref/tags/{tag}").get("object", {})
+    if ref.get("type") != "tag" or not re.fullmatch(r"[0-9a-f]{40}", ref.get("sha", "")):
+        raise ValueError("Production executor release is not annotated")
+    release = api("repos/Synergie-ITCI/.github/git/tags/" + ref["sha"])
+    if release.get("object", {}).get("type") != "commit" or release.get("object", {}).get("sha") != central:
+        raise ValueError("Production executor release source differs")
+    latest = {}
+    for page in range(1, 101):
+        rows = api(f"repos/{REPOSITORY}/commits/{source}/check-runs?per_page=100&page={page}").get("check_runs")
+        if not isinstance(rows, list):
+            raise TypeError("Gate C exact-head checks unavailable")
+        for row in rows:
+            if row.get("name") in REQUIRED_CHECKS and (
+                row["name"] not in latest or row.get("id", 0) > latest[row["name"]].get("id", 0)
+            ):
+                latest[row["name"]] = row
+        if len(rows) < 100:
+            break
+    else:
+        raise ValueError("Gate C check history exceeds bounded readback")
+    if set(latest) != REQUIRED_CHECKS or any(
+        row.get("head_sha") != source
+        or row.get("status") != "completed"
+        or row.get("conclusion") != "success"
+        or row.get("app", {}).get("slug") != "github-actions"
+        for row in latest.values()
+    ):
+        raise ValueError("Gate C exact-head checks are not current successes")
+    return latest
+
+
 def _verify_context(
     *, manifest, environment, api, central_checkout_sha, scope, workflow
 ):

@@ -8,6 +8,7 @@ sys.path.insert(0, str(ROOT / "scripts/fieldzilla-production"))
 from rehearsal_context import (
     REQUIRED_CHECKS,
     verify_image_context,
+    verify_production_context,
     verify_rehearsal_context,
 )
 
@@ -55,6 +56,8 @@ class RehearsalContextTests(unittest.TestCase):
         self.release = "c" * 40
 
     def api(self, path):
+        if "/compare/" in path:
+            return {"status": getattr(self, "lineage", "ahead")}
         if path.endswith("/git/ref/heads/main"):
             return {"object": {"sha": self.main}}
         if path.endswith("/pulls/712"):
@@ -113,6 +116,26 @@ class RehearsalContextTests(unittest.TestCase):
 
     def test_exact_immutable_source_and_current_head_checks(self):
         self.verify()
+
+    def test_production_requires_merged_gate_c_and_main_lineage(self):
+        self.manifest.update(scope="production", operation="rollout")
+        self.pr.update(
+            state="closed", merged_at="2026-11-11T00:00:00Z",
+            merge_commit_sha="e" * 40,
+        )
+        def verify():
+            return verify_production_context(
+                manifest=self.manifest, environment=self.environment,
+                api=self.api, central_checkout_sha="c" * 40,
+            )
+        self.assertEqual(set(verify()), REQUIRED_CHECKS)
+        self.lineage = "diverged"
+        with self.assertRaises(ValueError):
+            verify()
+        self.lineage = "ahead"
+        self.pr["merged_at"] = None
+        with self.assertRaises(ValueError):
+            verify()
 
     def test_staging_production_or_non_main_dispatch_cannot_enter(self):
         for scope in ("staging", "production"):
