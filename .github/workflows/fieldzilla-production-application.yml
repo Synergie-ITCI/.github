@@ -30,6 +30,7 @@ on:
 
 permissions:
   actions: read
+  checks: read
   contents: read
   deployments: write
   id-token: write
