@@ -124,7 +124,9 @@ Partial or ambiguous pushes stop without retry.
 apply IAM. Uploads are restricted to the existing production API/Admin repositories.
 Registry-token access is region restricted because that action has no repository
 resource scope. Trust requires the immutable repository/owner IDs, main ref and
-existing production environment. AWS Access Analyzer found no permission-policy
+existing production environment and exact immutable reusable-workflow tag.
+The final trust cannot be issued until that tag is separately approved and
+verified; the current tag does not contain the new publisher. AWS Access Analyzer found no permission-policy
 findings. After adding main/ID/environment trust constraints, its only remaining
 trust suggestion was confirmation that audience is single-valued; StringEquals is
 already used without a set qualifier. No IAM role has been created.

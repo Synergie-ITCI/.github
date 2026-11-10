@@ -90,7 +90,7 @@ def verify_local_image(reply, config_digest, source):
         raise ValueError("Local image source, platform or config digest differs")
 
 
-def publisher_trust():
+def publisher_trust(workflow_tag):
     """Review-only trust for the existing protected production environment.
 
     AWS validates audience, immutable repository IDs, main and environment.
@@ -98,6 +98,8 @@ def publisher_trust():
     workflow identity, main ref and exact caller SHA before assuming this role.
     No new OIDC provider, shared trust, or human credential is introduced.
     """
+    if not re.fullmatch(r"pr-qa-v1-rc[1-9][0-9]*", str(workflow_tag)):
+        raise ValueError("Trust requires an approved immutable publisher tag")
     return {
         "Version": "2012-10-17",
         "Statement": [
@@ -114,6 +116,10 @@ def publisher_trust():
                         "token.actions.githubusercontent.com:repository_owner_id": "209829096",
                         "token.actions.githubusercontent.com:ref": "refs/heads/main",
                         "token.actions.githubusercontent.com:environment": "synergie-app-production",
+                        "token.actions.githubusercontent.com:job_workflow_ref": (
+                            "Synergie-ITCI/.github/.github/workflows/fieldzilla-production-images.yml@refs/tags/"
+                            + workflow_tag
+                        ),
                         "token.actions.githubusercontent.com:sub": "repo:Synergie-ITCI@209829096/programme-management-platform@1315697868:environment:synergie-app-production",
                     }
                 },
