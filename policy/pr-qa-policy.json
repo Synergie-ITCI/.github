@@ -1370,6 +1370,153 @@
       "relaxations": [
         "diff_size"
       ]
+    },
+    {
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "repository_id": 1315697868,
+      "pr_number": 712,
+      "head_ref": "release/fieldzilla-production-application",
+      "base_ref": "main",
+      "expected_head_sha": "f34956e640faaf82d712eff74ae7c195e3d01f87",
+      "expected_base_sha": "c8aee71a61059392f17343eac434d2a73dfb3b4c",
+      "issued_at": "2026-11-10T07:04:04Z",
+      "enabled": true,
+      "authorization_id": "69daf55c-854f-47e6-a19e-9fc84c129717",
+      "expires_after": "2026-11-11T07:04:04Z",
+      "allowed_effective_additions": 148759,
+      "allowed_changed_files": 844,
+      "minimum_changed_files": 844,
+      "required_pr_body_marker": "FIELDZILLA-PR712-EXACT-REVIEW-69daf55c-854f-47e6-a19e-9fc84c129717",
+      "purpose": "Classify only the exact reviewed source plus bounded governance overlay for PR712. No size, scanner or other relaxation. No execution authorization.",
+      "relaxations": [],
+      "source_overlay": {
+        "approved_application_source_sha": "9a199f332165fd825e186b8aa6273532f0987efc",
+        "allowed_paths": [
+          ".github/CODEOWNERS",
+          ".github/workflows/architecture-governance.yml",
+          ".github/workflows/fieldzilla-production-hosting.yml",
+          ".github/workflows/pr-qa.yml",
+          ".gitleaksignore",
+          "apps/api/tests/architecture/test_mobile_backend_integration_contracts.py",
+          "apps/api/tests/architecture/test_p0a_domain_contracts.py",
+          "apps/api/tests/architecture/test_production_application_plan.py",
+          "deploy/production/application_plan.py",
+          "deploy/production/hosting/.gitignore",
+          "deploy/production/hosting/PLAN.md",
+          "deploy/production/hosting/README.md",
+          "deploy/production/hosting/backend.hcl",
+          "deploy/production/hosting/compute.tf",
+          "deploy/production/hosting/database.tf",
+          "deploy/production/hosting/ingress.tf",
+          "deploy/production/hosting/outputs.tf",
+          "deploy/production/hosting/security.tf",
+          "deploy/production/hosting/test_verify_plan.py",
+          "deploy/production/hosting/uploads.tf",
+          "deploy/production/hosting/variables.tf",
+          "deploy/production/hosting/verify_plan.py",
+          "deploy/production/hosting/versions.tf"
+        ],
+        "paths": {
+          ".github/CODEOWNERS": {
+            "source": "present",
+            "candidate": "base"
+          },
+          ".github/workflows/architecture-governance.yml": {
+            "source": "present",
+            "candidate": "reviewed_sha256",
+            "candidate_sha256": "c354a9e26a49da61a34549f55cfb1c6cf195285548573333fbd46278f0cb9f03"
+          },
+          ".github/workflows/fieldzilla-production-hosting.yml": {
+            "source": "absent",
+            "candidate": "base"
+          },
+          ".github/workflows/pr-qa.yml": {
+            "source": "present",
+            "candidate": "base"
+          },
+          ".gitleaksignore": {
+            "source": "present",
+            "candidate": "reviewed_sha256",
+            "candidate_sha256": "ef3eb75388b217b8ee13563ea0ef6e0fd2ad7da36025a9f947d75cdf310ad59f"
+          },
+          "apps/api/tests/architecture/test_mobile_backend_integration_contracts.py": {
+            "source": "present",
+            "candidate": "reviewed_sha256",
+            "candidate_sha256": "86f11e1a96d689dc11e241d58ce2651f81257f6f943e863218a88b8e0f8a802d"
+          },
+          "apps/api/tests/architecture/test_p0a_domain_contracts.py": {
+            "source": "present",
+            "candidate": "reviewed_sha256",
+            "candidate_sha256": "dbe8fe480feecbae10675296d01ddfc7844fae8063ebe69c3f87d055581f64e1"
+          },
+          "apps/api/tests/architecture/test_production_application_plan.py": {
+            "source": "absent",
+            "candidate": "reviewed_sha256",
+            "candidate_sha256": "098fc677e43822affa3d1a7c64edde23810674a02a22a89e217e93b8712021aa"
+          },
+          "deploy/production/application_plan.py": {
+            "source": "absent",
+            "candidate": "reviewed_sha256",
+            "candidate_sha256": "34fdad8c40e131bd04fd540451403324fdc7876a09dd68420aef1831abfd7dbd"
+          },
+          "deploy/production/hosting/.gitignore": {
+            "source": "absent",
+            "candidate": "base"
+          },
+          "deploy/production/hosting/PLAN.md": {
+            "source": "absent",
+            "candidate": "base"
+          },
+          "deploy/production/hosting/README.md": {
+            "source": "absent",
+            "candidate": "base"
+          },
+          "deploy/production/hosting/backend.hcl": {
+            "source": "absent",
+            "candidate": "base"
+          },
+          "deploy/production/hosting/compute.tf": {
+            "source": "absent",
+            "candidate": "base"
+          },
+          "deploy/production/hosting/database.tf": {
+            "source": "absent",
+            "candidate": "base"
+          },
+          "deploy/production/hosting/ingress.tf": {
+            "source": "absent",
+            "candidate": "base"
+          },
+          "deploy/production/hosting/outputs.tf": {
+            "source": "absent",
+            "candidate": "base"
+          },
+          "deploy/production/hosting/security.tf": {
+            "source": "absent",
+            "candidate": "base"
+          },
+          "deploy/production/hosting/test_verify_plan.py": {
+            "source": "absent",
+            "candidate": "base"
+          },
+          "deploy/production/hosting/uploads.tf": {
+            "source": "absent",
+            "candidate": "base"
+          },
+          "deploy/production/hosting/variables.tf": {
+            "source": "absent",
+            "candidate": "base"
+          },
+          "deploy/production/hosting/verify_plan.py": {
+            "source": "absent",
+            "candidate": "base"
+          },
+          "deploy/production/hosting/versions.tf": {
+            "source": "absent",
+            "candidate": "base"
+          }
+        }
+      }
     }
   ]
 }
