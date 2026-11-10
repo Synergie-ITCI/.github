@@ -65,6 +65,18 @@ class ReleasePinTests(unittest.TestCase):
         verify.assert_called_once()
         self.assertEqual(self.manifest["consumer_release_selection"]["default"]["release"], "pr-qa-v1-rc216")
 
+    def test_fieldzilla_uses_only_exact_issued_rc228(self):
+        selected = self.manifest["consumer_release_selection"]["repositories"]["Synergie-ITCI/programme-management-platform"]
+        self.assertEqual(selected, {"release": "pr-qa-v1-rc228", "commit": "812084ade2727c5702c9ccf8e3e7c771d956d169"})
+        with patch("release_pin.verify_bound_release") as verify:
+            release, entry = resolve_consumer_release(self.manifest, "Synergie-ITCI/programme-management-platform")
+        self.assertEqual((release, entry["commit"]), (selected["release"], selected["commit"]))
+        verify.assert_called_once_with(selected["release"], selected["commit"], self.manifest,
+                                       unittest.mock.ANY, unittest.mock.ANY)
+        self.assertEqual(self.manifest["consumer_release_selection"]["default"]["release"], "pr-qa-v1-rc216")
+        self.assertEqual(self.manifest["consumer_release_selection"]["repositories"]["Synergie-ITCI/BDPP"]["release"], "pr-qa-v1-rc218")
+        self.assertEqual(self.manifest["consumer_release_selection"]["repositories"]["Synergie-ITCI/csr-intelligence-engine"]["release"], "pr-qa-v1-rc227")
+
     def test_approved_pilot_selection_and_rollback_are_central_only(self):
         pilot = {"release": "pr-qa-v1-rc217", "commit": "a" * 40}
         self.manifest["consumer_release_selection"]["repositories"]["Synergie-ITCI/BDPP"] = pilot
