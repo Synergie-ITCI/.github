@@ -115,7 +115,10 @@ class WorkflowTests(unittest.TestCase):
             ROOT / ".github/workflows/fieldzilla-production-application.yml"
         ).read_text()
         workflow = parse_workflow_yaml(source)
-        self.assertEqual(set(workflow["on"]), {"workflow_call"})
+        # The central loader supports optional PyYAML (YAML 1.1, where `on`
+        # is True) and its dependency-free fallback. GitHub accepts this key.
+        triggers = workflow.get("on", workflow.get(True))
+        self.assertEqual(set(triggers), {"workflow_call"})
         self.assertEqual(
             workflow["concurrency"],
             {
