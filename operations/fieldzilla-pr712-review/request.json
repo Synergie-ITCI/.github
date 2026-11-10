@@ -8,8 +8,8 @@
     "pr_number": 712,
     "head_ref": "release/fieldzilla-production-application",
     "base_ref": "main",
-    "head_sha": "f3071101ad93c5e2ff19ae1ea63abdb69e22d5e9",
-    "base_sha": "f4c19ac165b09f2704ec06231ad7e0b0952cd6fb",
+    "head_sha": "f34956e640faaf82d712eff74ae7c195e3d01f87",
+    "base_sha": "c8aee71a61059392f17343eac434d2a73dfb3b4c",
     "comparison_source_sha": "9a199f332165fd825e186b8aa6273532f0987efc"
   },
   "observed_framework": {
@@ -17,10 +17,10 @@
     "commit": "aca405da1f2b8e7da1d3494c2f1926f8fca16c40"
   },
   "scope": {
-    "raw_patch_sha256": "74f827c5b56f27dc9e9597a62c32c7e023fb82573a9d6a83f693a1961bcbe274",
+    "raw_patch_sha256": "38aa235f6591469d9f59cd36c6dbc73bc75169d5a39142eb55e153694674490d",
     "git_changed_paths": 903,
     "qa_changed_files": 844,
-    "effective_additions": 148749,
+    "effective_additions": 148759,
     "deployment_findings": [
       {
         "path": ".github/workflows/architecture-governance.yml",
@@ -308,6 +308,7 @@
       ".github/workflows/architecture-governance.yml",
       ".github/workflows/fieldzilla-production-hosting.yml",
       ".github/workflows/pr-qa.yml",
+      ".gitleaksignore",
       "apps/api/tests/architecture/test_mobile_backend_integration_contracts.py",
       "apps/api/tests/architecture/test_p0a_domain_contracts.py",
       "apps/api/tests/architecture/test_production_application_plan.py",
@@ -404,7 +405,7 @@
     }
   },
   "observed_qa_run": {
-    "pr_qa": 42763550060,
+    "pr_qa": 42769489647,
     "scope": "static snapshot at exact application head; not a PASS"
   }
 }

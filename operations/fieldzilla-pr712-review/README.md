@@ -8,8 +8,8 @@ package and must never be reused as an issued authorization UUID.
 ## Observed application
 
 PR712 is open against main at
-`f3071101ad93c5e2ff19ae1ea63abdb69e22d5e9`, base
-`f4c19ac165b09f2704ec06231ad7e0b0952cd6fb`, in
+`f34956e640faaf82d712eff74ae7c195e3d01f87`, base
+`c8aee71a61059392f17343eac434d2a73dfb3b4c`, in
 `Synergie-ITCI/programme-management-platform` (repository ID1315697868).
 The comparison source is development
 `9a199f332165fd825e186b8aa6273532f0987efc`. Source equivalence is evidence for
@@ -17,10 +17,9 @@ review, not a new authorization. Exact Git objects, file hashes, raw patch hash,
 all source-tree differences, and the SQL DELETE fingerprints are in request.json.
 Any head/base/path/byte change invalidates this snapshot for issuance.
 
-The consumer executes rc225. Its current-head static snapshot is application run42763550060 (BLOCKED).
-The earlier fb578da head passed Architecture Governance42760076720; that PASS
-is not transferred to f307110, which needs its own fresh governed results. Opening this central proposal runs
-normal central QA; it cannot make the application PR green by itself.
+The consumer executes rc225. Exact-head static run42769489647 reports Secrets PASS (zero findings), Deployment Risk FAIL and Migration Risk FAIL. Architecture Governance is tracked separately and is not inferred from this static report. Opening/updating this central proposal runs normal central QA; it cannot make the application PR green by itself.
+
+PR713 has merged with separate owner approval; it added only CODEOWNERS coverage. The application candidate adds two verified exact Podfile checksum fingerprints using the existing process. Its disposable scanner regressions pass: baseline clean; changed checksum, secret-shaped content in the same file, and identical content in another file all remain detected. No secret value is reproduced here.
 
 ## Bounded inherited-content review
 
@@ -33,7 +32,7 @@ paths are candidates for inherited classification. Two do not match:
 - `deploy/production/application_plan.py` is newly authored preparation code,
   absent from that source, and must remain a new finding.
 
-At f307110 the renderer also fixes the missing migration-bootstrap context-key
+The renderer also fixes the missing migration-bootstrap context-key
 reference. Its focused regression first failed and now passes;21 local tests and
 14 subtests pass. No configuration value was retrieved or provisioned. Matching
 strong context values and live behavior still need the governed preflight; this
@@ -73,14 +72,9 @@ remain required. This proposal authorizes none of those steps or SQL execution.
 
 ## Dependencies and order
 
-1. The application repository's single-file ownership proposal [PR713](https://github.com/Synergie-ITCI/programme-management-platform/pull/713),
-   head1661e208d637ae169a247ff72374c64e46d5790a, must pass
-   its own QA and receive exact-head merge approval before main changes.
-2. Exact Podfile checksum dispositions require their own reviewed action; this
-   package adds no scan exception and no credential has been rotated by it.
-3. Updating ownership/checksum content changes the final application head/base.
-   Rebuild this evidence and recheck the live PR before any issuance. Do not issue
-   an immediately stale authorization for the snapshot above.
+1. Ownership PR713 is merged at main c8aee71a61059392f17343eac434d2a73dfb3b4c after its exact-head approval and passing checks. No deployment was triggered.
+2. Exact Podfile checksum dispositions are committed in application f34956e. Fresh governed Secrets PASS and local adversarial regressions PASS. This central package grants no scan exception.
+3. This evidence binds the current application head/base. Any further content/head/base change invalidates it for issuance; refresh before recording an authorization.
 4. Resolve the two fresh deployment changes without broadening inherited scope.
 5. Prepare final bounded records through the existing central mechanisms only,
    after independent review. Validate rejection on drift, expired/overlong windows,
