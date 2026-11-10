@@ -19,6 +19,7 @@ from application_plan import render
 from approval_receipts import ApprovalReceipt
 from execution_artifact import read_manifest_artifact
 from execution_gate import REPOSITORY
+from issued_windows import verify_issued_windows
 from rehearsal_context import verify_rehearsal_context
 
 
@@ -84,15 +85,17 @@ def validate(raw, manifest, args, *, api, environment, central_sha):
         run_id=environment["GITHUB_RUN_ID"],
         run_attempt=environment["GITHUB_RUN_ATTEMPT"],
     )
-    bound = ContextBoundReceipt(
-        receipt,
-        lambda: verify_rehearsal_context(
+
+    def current_authority():
+        verify_rehearsal_context(
             manifest=manifest,
             environment=environment,
             api=api,
             central_checkout_sha=central_sha,
-        ),
-    )
+        )
+        verify_issued_windows(manifest, api=api)
+
+    bound = ContextBoundReceipt(receipt, current_authority)
     bound.verify()
     return bound
 

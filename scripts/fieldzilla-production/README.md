@@ -75,11 +75,20 @@ a matching tag reference alone is insufficient.
 roles or applies IAM. ECS task discovery includes the exact approved container
 instance in the request and policy, with the exact cluster condition. Its supported
 resource mapping follows the [AWS ECS authorization reference](https://docs.aws.amazon.com/service-authorization/latest/reference/list_ecs.html).
-No live IAM simulation or grant is claimed. Migration log reads are restricted
+IAM logic simulations on synthetic identities do not prove live execution
+permission; no grant is applied. Migration log reads are restricted
 to candidate-source streams; PassRole is restricted to four reviewed ECS task
 identities. Registration is restricted to three target families and candidate
 tags. Secrets, IAM mutation and listener changes are excluded.
 
 Validation: `python3 -m unittest discover -s tests -p 'test_production_*.py'`.
-The 58 deterministic checks and Ruff cover the prepared source only. They cannot
+The 62 deterministic checks and Ruff cover the prepared source only. They cannot
 replace governed exact-head QA, an actual AWS rehearsal or authenticated acceptance.
+
+Execution manifests must bind `review_authorizations.baseline` and
+`review_authorizations.sql` to the issued UUIDs. Before each mutation,
+`issued_windows.py` checks their exact source/base/PR bindings, enabled state,
+and complete execution window against both live central policy and the executing
+immutable release. An old green QA result cannot extend an expired decision;
+main-only issuance cannot activate a new or extended record. No policy record,
+expiry, scanner or consumer selection is changed by this guard.
