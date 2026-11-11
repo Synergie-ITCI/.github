@@ -78,6 +78,8 @@ def require_identity(args):
         remaining = (expires - datetime.now(timezone.utc)).total_seconds()
         if not 0 < remaining <= 4 * 3600:
             fail("rehearsal expiry must be within four hours and in the future")
+        if args.phase != "phase1" and not re.fullmatch(r"20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", args.resource_expires_at or ""):
+            fail("cleanup must bind original resource expiry")
 
 
 def check_plan(path, phase):
@@ -125,7 +127,7 @@ def check_plan(path, phase):
     print(json.dumps({"phase": phase, "creates": creates, "unchanged": unchanged, "shared_alb_additions": shared}, sort_keys=True))
 
 
-def check_rehearsal_plan(path):
+def check_rehearsal_plan(path, phase="phase1"):
     doc = json.loads(Path(path).read_text())
     changes = [c for c in doc.get("resource_changes", []) if c.get("mode") == "managed"]
     creates = 0
@@ -133,20 +135,26 @@ def check_rehearsal_plan(path):
         "aws_vpc.rehearsal", "aws_db_instance.rehearsal",
         "aws_s3_bucket.attachments", "aws_s3_bucket_logging.attachments",
         "aws_lb.rehearsal", "aws_ecs_cluster.rehearsal",
+        "aws_cloudwatch_log_group.container_insights",
     }
     addresses = {c["address"].split("[")[0] for c in changes}
-    if not required.issubset(addresses):
+    if phase == "phase1" and not required.issubset(addresses):
         fail("isolated rehearsal target is incomplete")
     for change in changes:
         address = change["address"]
         actions = change["change"]["actions"]
-        if actions not in (["create"], ["no-op"]):
-            fail(f"rehearsal cannot mutate existing resources: {address}: {actions}")
+        allowed = {
+            "phase1": (["create"], ["no-op"]),
+            "cleanup-protection": (["update"], ["no-op"]),
+            "cleanup-destroy": (["delete"],),
+        }[phase]
+        if actions not in allowed:
+            fail(f"rehearsal phase cannot perform this action: {address}: {actions}")
         if change.get("previous_address") or change["change"].get("importing"):
             fail(f"rehearsal state move or import: {address}")
         if actions == ["no-op"] and change["change"].get("before") != change["change"].get("after"):
             fail(f"inconsistent rehearsal no-op: {address}")
-        after = json.dumps(change["change"].get("after"), sort_keys=True).lower()
+        after = json.dumps(change["change"].get("after") if phase != "cleanup-destroy" else change["change"].get("before"), sort_keys=True).lower()
         # Production-rehearsal names are allowed; standalone production and all
         # staging references are forbidden in managed resource values.
         isolated = after.replace("production-rehearsal", "rehearsal").replace("productionrehearsal", "rehearsal")
@@ -154,9 +162,16 @@ def check_rehearsal_plan(path):
             fail(f"rehearsal references staging or production: {address}")
         if actions == ["create"]:
             creates += 1
-    if creates == 0:
+        if phase == "cleanup-protection" and actions == ["update"]:
+            if address != "aws_db_instance.rehearsal" or change["change"]["before"].get("deletion_protection") is not True or change["change"]["after"].get("deletion_protection") is not False:
+                fail("cleanup protection must only disable isolated RDS deletion protection")
+    if phase == "phase1" and creates == 0:
         fail("rehearsal plan has no isolated additions")
-    print(json.dumps({"target": "rehearsal", "creates": creates, "managed": len(changes)}, sort_keys=True))
+    if phase == "cleanup-protection" and sum(c["change"]["actions"] == ["update"] for c in changes) != 1:
+        fail("cleanup protection plan must have exactly one RDS update")
+    if phase == "cleanup-destroy" and not required.issubset(addresses):
+        fail("cleanup destroy must own the complete isolated target")
+    print(json.dumps({"target": "rehearsal", "phase": phase, "creates": creates, "managed": len(changes)}, sort_keys=True))
 
 
 def verify_artifact(args):
@@ -187,6 +202,7 @@ def verify_artifact(args):
     if args.target == "rehearsal":
         required["target"] = "rehearsal"
         required["expires_at"] = args.expires_at
+        required["resource_expires_at"] = args.resource_expires_at or ""
     if any(metadata.get(key) != value for key, value in required.items()):
         fail("artifact metadata mismatch")
     lock = Path(args.artifact_dir) / ".terraform.lock.hcl"
@@ -229,7 +245,7 @@ def verify_owner_approval(args):
     if comment.get("issue_url") != f"https://api.github.com/repos/{REPOSITORY}/issues/{issue}":
         fail("approval must be on the exact target PR")
     state_key = REHEARSAL_STATE_KEY if target == "rehearsal" else STATE_KEY
-    title = "PRODUCTION REHEARSAL" if target == "rehearsal" else f"PRODUCTION HOSTING {args.phase}"
+    title = ("PRODUCTION REHEARSAL" + (" " + args.phase.upper() if args.phase != "phase1" else "")) if target == "rehearsal" else f"PRODUCTION HOSTING {args.phase}"
     expected = (
         f"APPROVE FIELDZILLA {title}\n"
         f"Source: {args.source_sha}\nCaller: {args.caller_sha}\n"
@@ -239,6 +255,8 @@ def verify_owner_approval(args):
     )
     if target == "rehearsal":
         expected += f"\nExpires at: {args.expires_at}\nBudget USD: 5"
+        if args.phase != "phase1":
+            expected += f"\nOriginal resource expiry: {args.resource_expires_at}"
     if comment["body"].strip() != expected:
         fail("owner approval does not match this exact release")
     created = datetime.fromisoformat(comment["created_at"].replace("Z", "+00:00"))
@@ -272,9 +290,10 @@ def main():
     parser.add_argument("--source-sha", required=True)
     parser.add_argument("--caller-sha", required=True)
     parser.add_argument("--workflow-tag", required=True)
-    parser.add_argument("--phase", required=True, choices=["phase1", "phase2"])
+    parser.add_argument("--phase", required=True, choices=["phase1", "phase2", "cleanup-protection", "cleanup-destroy"])
     parser.add_argument("--target", choices=["production", "rehearsal"], default="production")
     parser.add_argument("--expires-at")
+    parser.add_argument("--resource-expires-at")
     parser.add_argument("--plan-json")
     parser.add_argument("--plan-run-id", type=int)
     parser.add_argument("--artifact-id", type=int)
@@ -285,18 +304,20 @@ def main():
     parser.add_argument("--approval-comment-id", type=int, default=0)
     args = parser.parse_args()
     require_identity(args)
-    if args.target == "rehearsal" and (args.phase != "phase1" or not args.expires_at):
-        fail("rehearsal requires phase1 and an exact expiry")
+    if args.target == "rehearsal" and (args.phase == "phase2" or not args.expires_at):
+        fail("rehearsal requires an isolated phase and an exact expiry")
+    if args.target == "production" and args.phase not in {"phase1", "phase2"}:
+        fail("production hosting cannot run rehearsal cleanup")
     if args.mode == "probe":
         probe_owner_comment(args)
         return
     if args.mode == "plan":
-        (check_rehearsal_plan(args.plan_json) if args.target == "rehearsal" else check_plan(args.plan_json, args.phase))
+        (check_rehearsal_plan(args.plan_json, args.phase) if args.target == "rehearsal" else check_plan(args.plan_json, args.phase))
         return
     if not SHA256.fullmatch(args.plan_sha256 or "") or not SHA256.fullmatch(args.artifact_digest or ""):
         fail("exact plan and artifact digests required")
     verify_artifact(args)
-    (check_rehearsal_plan(args.plan_json) if args.target == "rehearsal" else check_plan(args.plan_json, args.phase))
+    (check_rehearsal_plan(args.plan_json, args.phase) if args.target == "rehearsal" else check_plan(args.plan_json, args.phase))
     marker = verify_owner_approval(args)
     if args.mode == "consume":
         api(f"repos/{REPOSITORY}/deployments", "POST", {
