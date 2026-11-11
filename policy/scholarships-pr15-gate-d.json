@@ -1,0 +1,33 @@
+{
+  "files": {
+    ".github/synergie-governance.yml": "83744feadd34b35dc0803b1f7cd9cd96f432c5e07ba79c373d78a79bbd6b0e4c",
+    ".github/workflows/scholarships-gate-d-release.yml": "72c1fa5cc1acac3a8f85de6573fb729e28087d94d22bd5f50eff4ffc46da7684",
+    "deploy/GATE_D_ACTIVATION.md": "6bcf9b09e035604ae4185433bd4f9ec1bdf85729bee2e2b67c6836e437f70445",
+    "deploy/README.md": "da4b40b173e3e85cb0c41ac06ea4fe2b70352fae117c02ebb366b6759e3bb6a6",
+    "deploy/apache-private-documents.conf": "2b356136235c856858af3b8f56e57088c50eb180760cd103d7eb96cd7849bbf1",
+    "deploy/compile-ssm-document.py": "1fdf281e9625aaee08267f82e9d6e71ed3b135e25eabb6a842c1ca2773015fd9",
+    "deploy/compile-ssm-runtime-certifier.py": "bbecbe91a8d1d77be37befe84e350ebabc835095d7b8a21a7dd57edf2b7cf757",
+    "deploy/gate-d-approval.py": "0f61c2a622fed54851374cfc144a4e5d09a80b454e1977a8c9f9d090829a479b",
+    "deploy/github-production-environment-v1.json": "4b3b4c1054bd2ff230c87da8a3c10c5b1603128f6242ca06e49e95cb35cd1125",
+    "deploy/private-storage.sh": "e8e3320654f991901ef4c71fe690b64d0b4b782433ceffa75fb3a3a2f1f95699",
+    "deploy/production-release.sh": "47430896c37983131f66b48d7aa7a30e5d1c1c63ef0033b79361d51147740d1d",
+    "deploy/rollback.sh": "9cbfc1a582cdd4b797ff7761256ed282ad90109b6f8b10008cabab01f3bddacc",
+    "deploy/runtime-certifier-governance.yml": "d977e7bdac986fd23851b3d2acbb442d3eaae866d5670c3a60f166f79adc1493",
+    "deploy/scholarships-gate-d-certifier-role-policy-v1.json": "c4d878a529b9375bd882c3db3fb446eb45437558562e5930c24abc17ea8efd83",
+    "deploy/scholarships-gate-d-certifier-trust-v1.json": "d80d74421a218b59235fc3f38162263616f9f51d529e24f32d430b1194455079",
+    "deploy/scholarships-gate-d-disable-policy-v1.json": "9fdfdd0b2f98ddf212572f91789df986dfbac3c5fd8dd496eacadfe02b5049f9",
+    "deploy/scholarships-gate-d-production-command-v1.json": "5947890230bd839ca61f20ff90264a56a36b361aecd82ef769bddcaac93d1310",
+    "deploy/scholarships-gate-d-role-policy-v1.json": "040834353e20c523ab611db9c662ac94e50401ca196bb2771e32d12c013721c5",
+    "deploy/scholarships-gate-d-runtime-certifier-v1.json": "4ba0590c080ea9329df4132cdbc9cc223a3e64991d780b9ce76b86f40b94b62f",
+    "deploy/scholarships-gate-d-trust-v1.json": "c213ac46b2761b60995b20097bb8ab9cbadee6f26ec7888e9dea417764d6b920",
+    "deploy/ssm-bootstrap.sh": "e96badf87b4d799e9cf1a4f8d88d51d9a67eaca3d29b1345b93302b04de7bb41",
+    "deploy/ssm-runtime-certifier.sh": "806fc71df2f4e6dc57baf018bcc602493a4ab9c4ee85051487f6ac7dcbbbec8b",
+    "tests/gate_d_contract.py": "513ab549456156d6a108390ab7b2f9cff6c6570838b91fa78be1106754fa8e10",
+    "tests/gate_d_rollback.sh": "bf9777687a44d0ab573f89722c0d279732f9b8fb8c15863c63a42186aaa7845d",
+    "tests/private_storage_release.sh": "a40836f1b476d58e672388181a0b81dd7b61dbd27689018c9ac8736c6ed8d27b"
+  },
+  "head_sha": "e1d967cd440f29c66e4b018fed550b730cff7a1c",
+  "pr_number": 15,
+  "repository": "Synergie-ITCI/scholarships",
+  "technical_certification_owner": "SaurabhVermaIN"
+}

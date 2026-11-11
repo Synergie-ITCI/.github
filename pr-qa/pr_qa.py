@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from adapters import ADAPTERS
+from scholarships_gate_d_contract import MANIFEST as SCHOLARSHIPS_GATE_D_MANIFEST
+from scholarships_gate_d_contract import verify as verify_scholarships_gate_d_contract
 from risk_contract import assess_risk_contracts
 from adapters.base import (
     FAIL,
@@ -3849,6 +3851,35 @@ def gate_deployment_safety(ctx: PRContext, git_context: dict[str, Any]) -> list[
             ]
     if not changed:
         return [passed("Deployment Risk", None, "No deployment-sensitive files changed.")]
+    if resolve_repository_name(ctx) == "Synergie-ITCI/scholarships":
+        try:
+            contract = read_json(SCHOLARSHIPS_GATE_D_MANIFEST)
+        except (OSError, ValueError, TypeError):
+            contract = {}
+        if any(path in contract.get("files", {}) for path in ctx.changed_files):
+            head = str(((ctx.event.get("pull_request", {}) or {}).get("head", {}) or {}).get("sha", ""))
+            evidence = fetch_github_review_policy_evidence(ctx, include_comments=True)
+            comments = evidence.get("comments", []) if evidence and evidence.get("source") == "github_api" else []
+            workflow_path = ".github/workflows/scholarships-gate-d-release.yml"
+            workflow = read_text(ctx.repo / workflow_path)
+            try:
+                failures = verify_scholarships_gate_d_contract(
+                    ctx.repo, ctx.changed_files, head, extract_pr_number(ctx.event), comments,
+                    bool(controlled_gate_d_workflow_details(workflow_path, workflow, ctx=ctx)),
+                )
+            except (OSError, ValueError, TypeError, KeyError, IndexError):
+                failures = ["certification evidence is unreadable or malformed"]
+            if failures:
+                return [failed(
+                    "Deployment Risk", None,
+                    "Scholarships privileged release contract is uncertified or changed.",
+                    failures[:30], score=20,
+                )]
+            return [warning(
+                "Deployment Risk", None,
+                "Exact Scholarships privileged release code has owner-led technical certification and bounded controls; installation and deployment remain separately gated.",
+                [f"head={head}", "technical-certification=owner-led", "live-controls=NOT_VERIFIED"],
+            )]
     governed_infra = [
         path for path in changed if governed_critical_infrastructure_authorization(ctx, path)
     ]
@@ -5505,7 +5536,7 @@ def load_review_policy_evidence(ctx: PRContext, input_path: str) -> dict[str, An
     return {"source": "unavailable", "reviews": [], "errors": ["No review policy input file, event review_policy payload, or GitHub token-backed API evidence was available."]}
 
 
-def fetch_github_review_policy_evidence(ctx: PRContext) -> dict[str, Any] | None:
+def fetch_github_review_policy_evidence(ctx: PRContext, include_comments: bool = False) -> dict[str, Any] | None:
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     repository = os.environ.get("GITHUB_REPOSITORY")
     pr_number = extract_pr_number(ctx.event)
@@ -5516,8 +5547,14 @@ def fetch_github_review_policy_evidence(ctx: PRContext) -> dict[str, Any] | None
     errors: list[str] = []
     pr_payload = github_api_get(base_url, token, errors)
     reviews_payload = github_api_get(f"{base_url}/reviews", token, errors)
+    comments_payload = (
+        github_api_get(
+            f"https://api.github.com/repos/{repository}/issues/{pr_number}/comments?per_page=100",
+            token, errors,
+        ) if include_comments else []
+    )
     if errors:
-        return {"source": "unavailable", "reviews": [], "errors": errors}
+        return {"source": "unavailable", "reviews": [], "comments": [], "errors": errors}
     reviews = reviews_payload if isinstance(reviews_payload, list) else []
     mergeable = pr_payload.get("mergeable") if isinstance(pr_payload, dict) else None
     mergeable_state = pr_payload.get("mergeable_state") if isinstance(pr_payload, dict) else ""
@@ -5526,6 +5563,7 @@ def fetch_github_review_policy_evidence(ctx: PRContext) -> dict[str, Any] | None
         "mergeable": mergeable,
         "merge_conflict": mergeable is False or mergeable_state == "dirty",
         "reviews": reviews,
+        "comments": comments_payload if isinstance(comments_payload, list) else [],
     }
 
 
