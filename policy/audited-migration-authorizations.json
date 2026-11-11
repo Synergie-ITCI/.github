@@ -75,10 +75,10 @@
     "pr_number": 712,
     "head_ref": "release/fieldzilla-production-application",
     "base_ref": "main",
-    "expected_head_sha": "523f41dd429830518c255e0ea45021f05cf8d396",
-    "expected_base_sha": "98a95bcd379995b1cf5d1a909c40205d430a09da",
-    "issued_at": "2026-11-11T08:51:29Z",
-    "authorization_id": "f61cd2b2-3537-41be-94fd-19a25493151b",
+    "expected_head_sha": "89cd5dc35f64865a1c820dbdb3129fbefe44db5a",
+    "expected_base_sha": "ebb5ef7c3f0b9f174ac1598143fbc72d2bf8cd7a",
+    "issued_at": "2026-11-11T09:35:14Z",
+    "authorization_id": "6333221f-993f-44f0-9403-7c758f8ea420",
     "expires_at": "2026-11-12T07:04:04Z",
     "migration_path": "apps/api/alembic/sql/20260910_0038.sql",
     "migration_sha256": "56d29de95cd31ae88509757f414da89a679161761da07693605e0db1a631f773",
@@ -108,6 +108,6 @@
       "login": "SaurabhVermaIN",
       "id": 52234089
     },
-    "purpose": "Carry review5837789245 for byte-identical historical SQL/five spans at exact PR712 head523f41d/base98a95bc after its exact mobile audit-contract test constants changed; no migration execution authorization."
+    "purpose": "Carry review5837789245 for byte-identical historical SQL/five spans at exact PR712 head89cd5dc/baseebb5ef7 after the rc242 caller moved application main; no migration execution authorization."
   }
 ]
