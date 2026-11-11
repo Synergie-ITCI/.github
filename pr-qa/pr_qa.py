@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from adapters import ADAPTERS
+from scholarships_gate_d_contract import MANIFEST as SCHOLARSHIPS_GATE_D_MANIFEST
+from scholarships_gate_d_contract import verify as verify_scholarships_gate_d_contract
 from risk_contract import assess_risk_contracts
 from adapters.base import (
     FAIL,
@@ -3849,6 +3851,35 @@ def gate_deployment_safety(ctx: PRContext, git_context: dict[str, Any]) -> list[
             ]
     if not changed:
         return [passed("Deployment Risk", None, "No deployment-sensitive files changed.")]
+    if resolve_repository_name(ctx) == "Synergie-ITCI/scholarships":
+        try:
+            contract = read_json(SCHOLARSHIPS_GATE_D_MANIFEST)
+        except (OSError, ValueError, TypeError):
+            contract = {}
+        if any(path in contract.get("files", {}) for path in ctx.changed_files):
+            head = str(((ctx.event.get("pull_request", {}) or {}).get("head", {}) or {}).get("sha", ""))
+            evidence = fetch_github_review_policy_evidence(ctx)
+            reviews = evidence.get("reviews", []) if evidence and evidence.get("source") == "github_api" else []
+            workflow_path = ".github/workflows/scholarships-gate-d-release.yml"
+            workflow = read_text(ctx.repo / workflow_path)
+            try:
+                failures = verify_scholarships_gate_d_contract(
+                    ctx.repo, ctx.changed_files, head, extract_pr_number(ctx.event), reviews,
+                    bool(controlled_gate_d_workflow_details(workflow_path, workflow, ctx=ctx)),
+                )
+            except (OSError, ValueError, TypeError, KeyError, IndexError):
+                failures = ["certification evidence is unreadable or malformed"]
+            if failures:
+                return [failed(
+                    "Deployment Risk", None,
+                    "Scholarships privileged release contract is uncertified or changed.",
+                    failures[:30], score=20,
+                )]
+            return [warning(
+                "Deployment Risk", None,
+                "Exact Scholarships privileged release code has independent security review and bounded controls; installation and deployment remain separately gated.",
+                [f"head={head}", "reviewer=ravisynergie", "live-controls=NOT_VERIFIED"],
+            )]
     governed_infra = [
         path for path in changed if governed_critical_infrastructure_authorization(ctx, path)
     ]
