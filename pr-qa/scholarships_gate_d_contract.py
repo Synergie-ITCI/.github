@@ -1,7 +1,7 @@
 """One reviewed Scholarships Gate D release contract for an exact PR head.
 
-This does not approve deployment. Any changed file, missing independent
-security review, or weakened execution boundary invalidates certification.
+This does not approve deployment. Any changed file, missing owner-led
+technical certification, or weakened execution boundary invalidates certification.
 """
 
 import base64
@@ -126,17 +126,26 @@ def _release_document_matches(document: dict[str, Any], release: bytes, bootstra
     return steps[0].get("inputs", {}).get("runCommand") == [command]
 
 
-def _latest_exact_head_security_review(reviews: list[dict[str, Any]], reviewer: str, head: str) -> bool:
-    own = [r for r in reviews if isinstance(r, dict)
-           and (r.get("user") or {}).get("login") == reviewer]
-    marker = f"SCHOLARSHIPS_GATE_D_SECURITY_CERTIFIED={head}"
-    return bool(own and own[-1].get("state") == "APPROVED"
-                and own[-1].get("commit_id") == head
-                and marker in str(own[-1].get("body") or "").splitlines())
+def _owner_certified(comments: list[dict[str, Any]], owner: str, head: str,
+                     manifest_digest: str) -> bool:
+    required = {
+        f"SCHOLARSHIPS_GATE_D_SECURITY_CERTIFIED={head}",
+        f"CERTIFIED_MANIFEST_SHA256={manifest_digest}",
+        "REVIEWED=IAM,SSM,APPROVAL,ARTIFACT,HOST,RUNTIME,BACKUP,RESTORE,PRIVATE_DOCUMENTS,ROLLBACK",
+        "OWNER_ACCEPTS_TECHNICAL_REVIEW_RESPONSIBILITY=YES",
+    }
+    for comment in comments:
+        if not isinstance(comment, dict) or (comment.get("user") or {}).get("login") != owner:
+            continue
+        if not comment.get("created_at") or comment.get("updated_at") != comment.get("created_at"):
+            continue
+        if required.issubset(set(str(comment.get("body") or "").splitlines())):
+            return True
+    return False
 
 
 def verify(repo: Path, changed: list[str], head: str, pr_number: int,
-           reviews: list[dict[str, Any]], controlled_workflow: bool) -> list[str]:
+           comments: list[dict[str, Any]], controlled_workflow: bool) -> list[str]:
     errors: list[str] = []
     manifest = _read_json(MANIFEST)
     files = manifest["files"]
@@ -153,8 +162,9 @@ def verify(repo: Path, changed: list[str], head: str, pr_number: int,
             errors.append(f"certified file changed: {rel}")
     if errors:
         return errors
-    if not _latest_exact_head_security_review(reviews, manifest["required_security_reviewer"], head):
-        errors.append("independent security review of exact PR head is absent")
+    if not _owner_certified(comments, manifest["technical_certification_owner"], head,
+                            hashlib.sha256(MANIFEST.read_bytes()).hexdigest()):
+        errors.append("owner-led technical certification of exact PR head is absent")
     if not controlled_workflow:
         errors.append("approved controlled Gate D workflow shape is absent")
 

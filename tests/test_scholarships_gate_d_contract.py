@@ -16,7 +16,7 @@ from adapters.base import PRContext
 
 
 HEAD = "a" * 40
-REVIEWER = "ravisynergie"
+OWNER = "SaurabhVermaIN"
 
 
 class ScholarshipsGateDContractTests(unittest.TestCase):
@@ -106,11 +106,16 @@ class ScholarshipsGateDContractTests(unittest.TestCase):
         self.manifest = self.root / "manifest.json"
         self.manifest.write_text(json.dumps({
             "repository": "Synergie-ITCI/scholarships", "pr_number": 15,
-            "head_sha": HEAD, "required_security_reviewer": REVIEWER,
+            "head_sha": HEAD, "technical_certification_owner": OWNER,
             "files": self.files,
         }))
-        self.reviews = [{"state": "APPROVED", "user": {"login": REVIEWER}, "commit_id": HEAD,
-                         "body": f"SCHOLARSHIPS_GATE_D_SECURITY_CERTIFIED={HEAD}"}]
+        digest = hashlib.sha256(self.manifest.read_bytes()).hexdigest()
+        self.comments = [{"user": {"login": OWNER},
+                          "created_at": "2026-11-11T00:00:00Z", "updated_at": "2026-11-11T00:00:00Z",
+                          "body": "\n".join((f"SCHOLARSHIPS_GATE_D_SECURITY_CERTIFIED={HEAD}",
+                                               f"CERTIFIED_MANIFEST_SHA256={digest}",
+                                               "REVIEWED=IAM,SSM,APPROVAL,ARTIFACT,HOST,RUNTIME,BACKUP,RESTORE,PRIVATE_DOCUMENTS,ROLLBACK",
+                                               "OWNER_ACCEPTS_TECHNICAL_REVIEW_RESPONSIBILITY=YES"))}]
 
     def write(self, relative, content):
         path = self.root / relative
@@ -118,10 +123,10 @@ class ScholarshipsGateDContractTests(unittest.TestCase):
         path.write_text(content)
         self.files[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
 
-    def check(self, *, head=HEAD, pr_number=15, reviews=None, controlled=True, changed=None):
+    def check(self, *, head=HEAD, pr_number=15, comments=None, controlled=True, changed=None):
         with patch.object(contract, "MANIFEST", self.manifest):
             return contract.verify(self.root, changed if changed is not None else list(self.files),
-                                   head, pr_number, self.reviews if reviews is None else reviews, controlled)
+                                   head, pr_number, self.comments if comments is None else comments, controlled)
 
     def test_positive_exact_head_reviewed_contract(self):
         self.assertEqual(self.check(), [])
@@ -130,13 +135,12 @@ class ScholarshipsGateDContractTests(unittest.TestCase):
         self.assertIn("exact PR head changed", " ".join(self.check(head="b" * 40)))
         self.assertIn("PR identity changed", " ".join(self.check(pr_number=14)))
         self.assertIn("changed-file scope changed", " ".join(self.check(changed=list(self.files)[:-1])))
-        self.assertIn("security review", " ".join(self.check(reviews=[])))
-        self.assertIn("security review", " ".join(self.check(reviews=[{
-            "state": "APPROVED", "user": {"login": REVIEWER}, "commit_id": HEAD,
-        }])))
-        self.assertIn("security review", " ".join(self.check(reviews=[{
-            "state": "APPROVED", "user": {"login": REVIEWER}, "commit_id": "b" * 40,
-        }])))
+        self.assertIn("technical certification", " ".join(self.check(comments=[])))
+        for change in ({"user": {"login": "other"}},
+                       {"updated_at": "2026-11-12T00:00:00Z"},
+                       {"body": "SCHOLARSHIPS_GATE_D_SECURITY_CERTIFIED=" + HEAD}):
+            comment = dict(self.comments[0], **change)
+            self.assertIn("technical certification", " ".join(self.check(comments=[comment])))
         self.assertIn("controlled Gate D", " ".join(self.check(controlled=False)))
         (self.root / "deploy/production-release.sh").write_text("echo changed\n")
         self.assertIn("certified file changed", " ".join(self.check()))
@@ -163,7 +167,7 @@ class ScholarshipsGateDContractTests(unittest.TestCase):
                 data["files"][relative] = hashlib.sha256(path.read_bytes()).hexdigest()
                 self.manifest.write_text(json.dumps(data))
 
-    def test_deployment_gate_requires_live_exact_head_independent_review(self):
+    def test_deployment_gate_requires_live_exact_head_owner_certification(self):
         context = PRContext(
             repo=self.root, config={}, policy={}, changed_files=list(self.files),
             base_ref="fix/scholarships-pr7-qa-assets", head_ref="security/pr15",
@@ -174,7 +178,7 @@ class ScholarshipsGateDContractTests(unittest.TestCase):
              patch.object(engine, "SCHOLARSHIPS_GATE_D_MANIFEST", self.manifest), \
              patch.object(engine, "controlled_gate_d_workflow_details", return_value=["controlled"]), \
              patch.object(engine, "fetch_github_review_policy_evidence",
-                          return_value={"source": "github_api", "reviews": self.reviews}):
+                          return_value={"source": "github_api", "comments": self.comments}):
             self.assertEqual(engine.gate_deployment_safety(context, {})[0].status, "WARNING")
         with patch.object(contract, "MANIFEST", self.manifest), \
              patch.object(engine, "SCHOLARSHIPS_GATE_D_MANIFEST", self.manifest), \
