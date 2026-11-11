@@ -1377,17 +1377,17 @@
       "pr_number": 712,
       "head_ref": "release/fieldzilla-production-application",
       "base_ref": "main",
-      "expected_head_sha": "5ee8bfc5e045ef7938149a75af0a943781def169",
+      "expected_head_sha": "523f41dd429830518c255e0ea45021f05cf8d396",
       "expected_base_sha": "98a95bcd379995b1cf5d1a909c40205d430a09da",
-      "issued_at": "2026-11-11T08:40:42Z",
+      "issued_at": "2026-11-11T08:51:29Z",
       "enabled": true,
-      "authorization_id": "bd782307-2874-41aa-bf46-11eafbc389dc",
+      "authorization_id": "88e5035b-5ea2-4ae7-b05e-6cdadcb1fca4",
       "expires_after": "2026-11-12T07:04:04Z",
       "allowed_effective_additions": 148824,
       "allowed_changed_files": 844,
       "minimum_changed_files": 844,
-      "required_pr_body_marker": "FIELDZILLA-PR712-AUDIT-FIX-bd782307-2874-41aa-bf46-11eafbc389dc",
-      "purpose": "Exact PR712 head5ee8bfc/base98a95bc rebind after the newly disclosed fast-xml-parser advisory was fixed by locked 5.12.0 and the owner renewed only the existing low-severity deepmerge tooling audit exception through 2026-11-12T07:04:04Z. Preserve 844 reviewed files, 148824 effective additions, audited SQL, base overlay and other caps. No scanner/default/scope change, APK publication or runtime authorization.",
+      "required_pr_body_marker": "FIELDZILLA-PR712-AUDIT-CONTRACT-88e5035b-5ea2-4ae7-b05e-6cdadcb1fca4",
+      "purpose": "Exact PR712 head523f41d/base98a95bc rebind after its owner-approved mobile audit remediation also updated the three exact contract-test constants. Only that test path differs from the prior reviewed head5ee8bfc; preserve 844 reviewed files, 148824 effective additions, patched fast-xml-parser 5.12.0, low-severity deepmerge expiry, audited SQL, base overlay and all other caps. No scanner/default/scope change, APK publication or runtime authorization.",
       "relaxations": [
         "changed_file_count",
         "diff_size"
@@ -1558,7 +1558,7 @@
           "apps/api/tests/architecture/test_mobile_audit_baseline.py": {
             "source": "present",
             "candidate": "reviewed_sha256",
-            "candidate_sha256": "8c0067e9bc45a7dee23283a58e7acf231d87a2326df98eba18cde67416e1f65d"
+            "candidate_sha256": "511aad14b9ea7740fd425d37d0083b58bd566e3516274d6f296dd90895af4a03"
           },
           "apps/mobile/package-lock.json": {
             "source": "present",
