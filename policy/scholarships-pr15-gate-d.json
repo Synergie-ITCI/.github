@@ -22,11 +22,11 @@
     "deploy/scholarships-gate-d-trust-v1.json": "c213ac46b2761b60995b20097bb8ab9cbadee6f26ec7888e9dea417764d6b920",
     "deploy/ssm-bootstrap.sh": "e96badf87b4d799e9cf1a4f8d88d51d9a67eaca3d29b1345b93302b04de7bb41",
     "deploy/ssm-runtime-certifier.sh": "806fc71df2f4e6dc57baf018bcc602493a4ab9c4ee85051487f6ac7dcbbbec8b",
-    "tests/gate_d_contract.py": "513ab549456156d6a108390ab7b2f9cff6c6570838b91fa78be1106754fa8e10",
+    "tests/test_gate_d_contract.py": "513ab549456156d6a108390ab7b2f9cff6c6570838b91fa78be1106754fa8e10",
     "tests/gate_d_rollback.sh": "bf9777687a44d0ab573f89722c0d279732f9b8fb8c15863c63a42186aaa7845d",
     "tests/private_storage_release.sh": "a40836f1b476d58e672388181a0b81dd7b61dbd27689018c9ac8736c6ed8d27b"
   },
-  "head_sha": "e1d967cd440f29c66e4b018fed550b730cff7a1c",
+  "head_sha": "1f06b51297edc62cee479f99f5319952cb6b445d",
   "pr_number": 15,
   "repository": "Synergie-ITCI/scholarships",
   "technical_certification_owner": "SaurabhVermaIN"
