@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = "fec8b9a4e7a80cc84ce10e0cdedae10aea85deee"
+SOURCE = "3c2fb8d74c5a66d2795af13041778426e19a3cfc"
 
 
 class FieldzillaImportSizeTests(unittest.TestCase):
@@ -15,7 +15,7 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         prior = json.loads(subprocess.check_output(
             ["git", "show", f"{SOURCE}:policy/pr-qa-policy.json"], cwd=ROOT,
         ))
-        proposed = json.loads((ROOT / "operations/fieldzilla-pr712-caller-base-issuance/proposal.json").read_text())
+        proposed = json.loads((ROOT / "operations/fieldzilla-pr712-final-base-issuance/proposal.json").read_text())
         rows = current["one_time_baseline_alignments"]
         new = [r for r in rows if r.get("repository_id") == 1315697868 and r.get("pr_number") == 712]
         self.assertEqual(new, [proposed["baseline"]])
@@ -23,17 +23,17 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         i = normalized["one_time_baseline_alignments"].index(new[0])
         normalized["one_time_baseline_alignments"][i] = proposed["previous_baseline"]
         self.assertEqual(normalized, prior)
-        self.assertEqual(new[0]["expected_head_sha"], "8c187ba9b90bba5a51b7e774a63d57784d9306f0")
-        self.assertEqual(new[0]["expected_base_sha"], "45fc0ce54058125c1dfd4e9bc38de1487232730c")
+        self.assertEqual(new[0]["expected_head_sha"], "14299cbe1dd7bbd5ee0762471ee901db39ab07fa")
+        self.assertEqual(new[0]["expected_base_sha"], "98a95bcd379995b1cf5d1a909c40205d430a09da")
         self.assertEqual(new[0]["relaxations"], ["changed_file_count", "diff_size"])
         self.assertEqual(new[0]["allowed_effective_additions"], 148823)
         self.assertEqual(new[0]["allowed_changed_files"], 844)
         self.assertEqual(new[0]["minimum_changed_files"], 844)
         self.assertEqual(new[0]["expires_after"], "2026-11-11T07:04:04Z")
-        self.assertEqual(len(new[0]["source_overlay"]["paths"]), 32)
+        self.assertEqual(len(new[0]["source_overlay"]["paths"]), 45)
 
     def test_sql_rebind_preserves_all_reviewed_bytes_and_reviewer(self):
-        p = json.loads((ROOT / "operations/fieldzilla-pr712-caller-base-issuance/proposal.json").read_text())
+        p = json.loads((ROOT / "operations/fieldzilla-pr712-final-base-issuance/proposal.json").read_text())
         current = json.loads((ROOT / "policy/audited-migration-authorizations.json").read_text())
         prior = json.loads(subprocess.check_output(
             ["git", "show", f"{SOURCE}:policy/audited-migration-authorizations.json"], cwd=ROOT,
@@ -94,4 +94,22 @@ class FieldzillaImportSizeTests(unittest.TestCase):
                 proposal["baseline"][key], proposal["previous_baseline"][key]
             )
         self.assertEqual(len(proposal["reviewed_deployment_paths_unchanged"]), 40)
+        self.assertFalse(proposal["activation_authorized"])
+
+    def test_final_rebind_adds_only_rehearsal_paths_bound_to_exact_base(self):
+        proposal = json.loads((ROOT / "operations/fieldzilla-pr712-final-base-issuance/proposal.json").read_text())
+        current = copy.deepcopy(proposal["baseline"]["source_overlay"])
+        previous = proposal["previous_baseline"]["source_overlay"]
+        extras = proposal["new_exact_base_paths"]
+        self.assertEqual(len(extras), 13)
+        self.assertEqual(extras, sorted(extras))
+        self.assertTrue(all(path.startswith("deploy/production/hosting/rehearsal/") for path in extras))
+        for path in extras:
+            self.assertEqual(current["paths"].pop(path), {"source": "absent", "candidate": "base"})
+            current["allowed_paths"].remove(path)
+        self.assertEqual(current, previous)
+        for key in ("allowed_effective_additions", "allowed_changed_files", "minimum_changed_files", "expires_after", "relaxations"):
+            self.assertEqual(proposal["baseline"][key], proposal["previous_baseline"][key])
+        self.assertEqual(proposal["sql"]["migration_sha256"], proposal["previous_sql"]["migration_sha256"])
+        self.assertEqual(proposal["sql"]["delete_fingerprints"], proposal["previous_sql"]["delete_fingerprints"])
         self.assertFalse(proposal["activation_authorized"])
