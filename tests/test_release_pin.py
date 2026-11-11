@@ -48,13 +48,21 @@ class ReleasePinTests(unittest.TestCase):
             return self.tag
         return self.ruleset
 
-    def test_non_pilot_uses_centrally_pinned_approved_release(self):
+    def test_unselected_consumer_uses_centrally_pinned_approved_release(self):
         selected = self.manifest["consumer_release_selection"]["default"]
         with patch("release_pin.verify_bound_release") as verify:
-            release, entry = resolve_consumer_release(self.manifest, "Synergie-ITCI/scholarships")
+            release, entry = resolve_consumer_release(self.manifest, "Synergie-ITCI/unselected-consumer")
         self.assertEqual((release, entry["commit"]), (selected["release"], selected["commit"]))
         verify.assert_called_once_with(selected["release"], selected["commit"], self.manifest,
                                        unittest.mock.ANY, unittest.mock.ANY)
+
+    def test_scholarships_uses_only_published_rc244(self):
+        selected = self.manifest["consumer_release_selection"]["repositories"]["Synergie-ITCI/scholarships"]
+        self.assertEqual(selected, {"release": "pr-qa-v1-rc244", "commit": "65c1d243e159fc7126df55cd0fe3ff9af78f7e9e"})
+        with patch("release_pin.verify_bound_release") as verify:
+            release, entry = resolve_consumer_release(self.manifest, "Synergie-ITCI/scholarships")
+        self.assertEqual((release, entry["commit"]), (selected["release"], selected["commit"]))
+        verify.assert_called_once()
 
     def test_csr_uses_approved_rc227_without_changing_default(self):
         selected = self.manifest["consumer_release_selection"]["repositories"]["Synergie-ITCI/csr-intelligence-engine"]
