@@ -141,6 +141,14 @@ class ScholarshipsGateDContractTests(unittest.TestCase):
                        {"body": "SCHOLARSHIPS_GATE_D_SECURITY_CERTIFIED=" + HEAD}):
             comment = dict(self.comments[0], **change)
             self.assertIn("technical certification", " ".join(self.check(comments=[comment])))
+        changed_manifest = json.loads(self.manifest.read_text())
+        changed_manifest["technical_certification_owner"] = "DifferentOwner"
+        self.manifest.write_text(json.dumps(changed_manifest))
+        self.assertIn("technical certification", " ".join(self.check()))
+        changed_manifest["technical_certification_owner"] = OWNER
+        changed_manifest["additional_policy"] = "changed"
+        self.manifest.write_text(json.dumps(changed_manifest))
+        self.assertIn("technical certification", " ".join(self.check()))
         self.assertIn("controlled Gate D", " ".join(self.check(controlled=False)))
         (self.root / "deploy/production-release.sh").write_text("echo changed\n")
         self.assertIn("certified file changed", " ".join(self.check()))
