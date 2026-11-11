@@ -132,6 +132,30 @@ class PlanSafetyTest(unittest.TestCase):
                     path.write_text(json.dumps({"resource_changes": required + [extra]}))
                     authorize.check_rehearsal_plan(path)
 
+    def test_rehearsal_cleanup_requires_only_rds_protection_then_owned_deletes(self):
+        rds = self.change("aws_db_instance.rehearsal", "aws_db_instance", actions=["update"], after={"deletion_protection": False})
+        rds["change"]["before"] = {"deletion_protection": True}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "plan.json"
+            path.write_text(json.dumps({"resource_changes": [rds]}))
+            authorize.check_rehearsal_plan(path, "cleanup-protection")
+            bad = self.change("aws_vpc.rehearsal", "aws_vpc", actions=["update"])
+            path.write_text(json.dumps({"resource_changes": [rds, bad]}))
+            with self.assertRaises(SystemExit):
+                authorize.check_rehearsal_plan(path, "cleanup-protection")
+            required = [
+                self.change(address, actions=["delete"], after={}) for address in (
+                    "aws_vpc.rehearsal", "aws_db_instance.rehearsal",
+                    "aws_s3_bucket.attachments", "aws_s3_bucket_logging.attachments",
+                    "aws_lb.rehearsal", "aws_ecs_cluster.rehearsal",
+                )
+            ]
+            path.write_text(json.dumps({"resource_changes": required}))
+            authorize.check_rehearsal_plan(path, "cleanup-destroy")
+            path.write_text(json.dumps({"resource_changes": required[:-1]}))
+            with self.assertRaises(SystemExit):
+                authorize.check_rehearsal_plan(path, "cleanup-destroy")
+
     def test_phase_one_rejects_existing_resource_mutation(self):
         with self.assertRaises(SystemExit):
             self.verify([self.change("aws_db_instance.staging", "aws_db_instance", ["update"])], "phase1")

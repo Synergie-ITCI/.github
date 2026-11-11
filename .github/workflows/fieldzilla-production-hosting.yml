@@ -13,6 +13,9 @@ on:
       expires-at:
         required: false
         type: string
+      resource-expires-at:
+        required: false
+        type: string
       phase:
         required: true
         type: string
@@ -71,6 +74,7 @@ jobs:
       ROLE_ARN: ${{ inputs.target == 'rehearsal' && 'arn:aws:iam::918870682888:role/SynergieFieldzillaProductionRehearsalInfrastructure' || 'arn:aws:iam::918870682888:role/SynergieFieldzillaProductionHostingOpenTofu' }}
       TARGET: ${{ inputs.target }}
       EXPIRES_AT: ${{ inputs.expires-at }}
+      RESOURCE_EXPIRES_AT: ${{ inputs.resource-expires-at }}
       MODE: ${{ inputs.mode }}
       PHASE: ${{ inputs.phase }}
       SOURCE_SHA: ${{ inputs.source-sha }}
@@ -97,11 +101,16 @@ jobs:
           [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
           [[ "${CALLER_SHA}" =~ ^[0-9a-f]{40}$ ]]
           [[ "${MODE}" =~ ^(probe|plan|apply)$ ]]
-          [[ "${PHASE}" =~ ^(phase1|phase2)$ ]]
+          [[ "${PHASE}" =~ ^(phase1|phase2|cleanup-protection|cleanup-destroy)$ ]]
           [[ "${TARGET}" =~ ^(production|rehearsal)$ ]]
           if [ "${TARGET}" = rehearsal ]; then
-            [ "${PHASE}" = phase1 ]
+            [ "${PHASE}" != phase2 ]
             [[ "${EXPIRES_AT}" =~ ^20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]
+            if [ "${PHASE}" != phase1 ]; then
+              [[ "${RESOURCE_EXPIRES_AT}" =~ ^20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]
+            fi
+          else
+            [[ "${PHASE}" =~ ^(phase1|phase2)$ ]]
           fi
 
       - name: Checkout exact source
@@ -153,6 +162,7 @@ jobs:
               --source-sha "${SOURCE_SHA}" --caller-sha "${CALLER_SHA}" \
               --workflow-tag "${WORKFLOW_TAG}" --phase "${PHASE}" \
               --target "${TARGET}" --expires-at "${EXPIRES_AT}" \
+              --resource-expires-at "${RESOURCE_EXPIRES_AT}" \
               --approval-comment-id "${APPROVAL_COMMENT_ID}"
           else
             if [ "${TARGET}" = rehearsal ]; then
@@ -230,6 +240,15 @@ jobs:
                   raise SystemExit(f'Exact rehearsal bootstrap drift: {expected.name}')
           PY
 
+      - name: Require isolated application shutdown before cleanup planning
+        if: ${{ inputs.mode != 'probe' && inputs.target == 'rehearsal' && inputs.phase != 'phase1' }}
+        run: |
+          set -euo pipefail
+          test "$(aws ecs list-services --cluster fieldzilla-production-rehearsal --query 'length(serviceArns)' --output text)" = 0
+          test "$(aws ecs list-tasks --cluster fieldzilla-production-rehearsal --query 'length(taskArns)' --output text)" = 0
+          aws s3api list-object-versions --bucket syn-fz-rehearsal-attachments-918870682888-aps1 --output json |
+            python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(1 if d.get("Versions") or d.get("DeleteMarkers") else 0)'
+
       - name: Verify certificate issued for phase two
         if: ${{ inputs.mode != 'probe' && inputs.target == 'production' && inputs.phase == 'phase2' }}
         run: |
@@ -273,6 +292,10 @@ jobs:
             tofu -chdir="${ROOT}" init -input=false -backend-config=backend.hcl
           fi
           tofu -chdir="${ROOT}" validate
+          if [ "${TARGET}" = rehearsal ] && [ "${PHASE}" != phase1 ]; then
+            tofu -chdir="${ROOT}" output -json target |
+              python3 -c 'import json,os,sys; d=json.load(sys.stdin); sys.exit(0 if d["source_sha"] == os.environ["SOURCE_SHA"] and d["expires_at"] == os.environ["RESOURCE_EXPIRES_AT"] else 1)'
+          fi
 
       - name: Generate exact binary plan
         if: ${{ inputs.mode == 'plan' }}
@@ -284,9 +307,15 @@ jobs:
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/plan"
           if [ "${TARGET}" = rehearsal ]; then
-            tofu -chdir="${ROOT}" plan -input=false -lock=true \
-              -var="source_sha=${SOURCE_SHA}" -var="expires_at=${EXPIRES_AT}" \
-              -out="${RUNNER_TEMP}/plan/hosting.tfplan"
+            destroy=()
+            cleanup=false
+            resource_expiry="${EXPIRES_AT}"
+            if [ "${PHASE}" != phase1 ]; then cleanup=true; fi
+            if [ "${PHASE}" != phase1 ]; then resource_expiry="${RESOURCE_EXPIRES_AT}"; fi
+            if [ "${PHASE}" = cleanup-destroy ]; then destroy=(-destroy); fi
+            tofu -chdir="${ROOT}" plan -input=false -lock=true "${destroy[@]}" \
+              -var="source_sha=${SOURCE_SHA}" -var="expires_at=${resource_expiry}" \
+              -var="cleanup_requested=${cleanup}" -out="${RUNNER_TEMP}/plan/hosting.tfplan"
           else
             attach=false
             if [ "${PHASE}" = phase2 ]; then attach=true; fi
@@ -299,11 +328,12 @@ jobs:
             --source-sha "${SOURCE_SHA}" --caller-sha "${CALLER_SHA}" \
             --workflow-tag "${WORKFLOW_TAG}" --phase "${PHASE}" \
             --target "${TARGET}" --expires-at "${EXPIRES_AT}" \
+            --resource-expires-at "${RESOURCE_EXPIRES_AT}" \
             --plan-json "${RUNNER_TEMP}/plan/hosting.plan.json"
           cp "${ROOT}/.terraform.lock.hcl" "${RUNNER_TEMP}/plan/.terraform.lock.hcl"
           plan_sha="$(sha256sum "${RUNNER_TEMP}/plan/hosting.tfplan" | cut -d' ' -f1)"
           lock_sha="$(sha256sum "${RUNNER_TEMP}/plan/.terraform.lock.hcl" | cut -d' ' -f1)"
-          SOURCE_SHA="${SOURCE_SHA}" CALLER_SHA="${CALLER_SHA}" PHASE="${PHASE}" PLAN_SHA="${plan_sha}" LOCK_SHA="${lock_sha}" python3 -c 'import json,os,pathlib; pathlib.Path(os.environ["RUNNER_TEMP"],"plan","metadata.json").write_text(json.dumps({"repository":os.environ["GITHUB_REPOSITORY"],"source_sha":os.environ["SOURCE_SHA"],"caller_sha":os.environ["CALLER_SHA"],"phase":os.environ["PHASE"],"target":os.environ["TARGET"],"expires_at":os.environ["EXPIRES_AT"],"state_key":os.environ["STATE_KEY"],"plan_sha256":os.environ["PLAN_SHA"],"provider_lock_sha256":os.environ["LOCK_SHA"]},sort_keys=True))'
+          SOURCE_SHA="${SOURCE_SHA}" CALLER_SHA="${CALLER_SHA}" PHASE="${PHASE}" PLAN_SHA="${plan_sha}" LOCK_SHA="${lock_sha}" python3 -c 'import json,os,pathlib; pathlib.Path(os.environ["RUNNER_TEMP"],"plan","metadata.json").write_text(json.dumps({"repository":os.environ["GITHUB_REPOSITORY"],"source_sha":os.environ["SOURCE_SHA"],"caller_sha":os.environ["CALLER_SHA"],"phase":os.environ["PHASE"],"target":os.environ["TARGET"],"expires_at":os.environ["EXPIRES_AT"],"resource_expires_at":os.environ["RESOURCE_EXPIRES_AT"],"state_key":os.environ["STATE_KEY"],"plan_sha256":os.environ["PLAN_SHA"],"provider_lock_sha256":os.environ["LOCK_SHA"]},sort_keys=True))'
           echo "Plan SHA-256: ${plan_sha}" >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload exact plan
@@ -327,6 +357,7 @@ jobs:
             --source-sha "${SOURCE_SHA}" --caller-sha "${CALLER_SHA}" \
             --workflow-tag "${WORKFLOW_TAG}" --phase "${PHASE}" \
             --target "${TARGET}" --expires-at "${EXPIRES_AT}" \
+            --resource-expires-at "${RESOURCE_EXPIRES_AT}" \
             --plan-run-id "${PLAN_RUN_ID}" --artifact-id "${ARTIFACT_ID}" \
             --artifact-name "${ARTIFACT_NAME}" --artifact-digest "${ARTIFACT_DIGEST}" \
             --plan-sha256 "${PLAN_SHA256}" --artifact-dir "${RUNNER_TEMP}/approved" \
@@ -343,6 +374,7 @@ jobs:
             --source-sha "${SOURCE_SHA}" --caller-sha "${CALLER_SHA}" \
             --workflow-tag "${WORKFLOW_TAG}" --phase "${PHASE}" \
             --target "${TARGET}" --expires-at "${EXPIRES_AT}" \
+            --resource-expires-at "${RESOURCE_EXPIRES_AT}" \
             --plan-run-id "${PLAN_RUN_ID}" --artifact-id "${ARTIFACT_ID}" \
             --artifact-name "${ARTIFACT_NAME}" --artifact-digest "${ARTIFACT_DIGEST}" \
             --plan-sha256 "${PLAN_SHA256}" --artifact-dir "${RUNNER_TEMP}/approved" \
