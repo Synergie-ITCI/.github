@@ -40,6 +40,9 @@ def github_api(path, method="GET", payload=None):
         check=False,
     )
     if result.returncode:
+        # Paths are limited to the two release repositories above. Emit only
+        # the failed API path, never response bodies or redirected artifact URLs.
+        print(f"GitHub release evidence read failed at {path}", file=sys.stderr)
         raise RuntimeError("GitHub release evidence unavailable; no automatic retry")
     if path.endswith(("/zip", "/logs")):
         return result.stdout
