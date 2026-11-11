@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = "6ec30f05ad547e8e6aea7613849c60bc5e4d86e3"
+SOURCE = "34de36287f22a1286316858f5bf37c32e15aefe5"
 
 
 class FieldzillaImportSizeTests(unittest.TestCase):
@@ -15,7 +15,7 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         prior = json.loads(subprocess.check_output(
             ["git", "show", f"{SOURCE}:policy/pr-qa-policy.json"], cwd=ROOT,
         ))
-        proposed = json.loads((ROOT / "operations/fieldzilla-pr712-review-renewal/proposal.json").read_text())
+        proposed = json.loads((ROOT / "operations/fieldzilla-pr712-gitleaks-head-issuance/proposal.json").read_text())
         rows = current["one_time_baseline_alignments"]
         new = [r for r in rows if r.get("repository_id") == 1315697868 and r.get("pr_number") == 712]
         self.assertEqual(new, [proposed["baseline"]])
@@ -23,7 +23,7 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         i = normalized["one_time_baseline_alignments"].index(new[0])
         normalized["one_time_baseline_alignments"][i] = proposed["previous_baseline"]
         self.assertEqual(normalized, prior)
-        self.assertEqual(new[0]["expected_head_sha"], "14299cbe1dd7bbd5ee0762471ee901db39ab07fa")
+        self.assertEqual(new[0]["expected_head_sha"], "9630b2a44560fe2eb65c7578752da4b082f018c9")
         self.assertEqual(new[0]["expected_base_sha"], "98a95bcd379995b1cf5d1a909c40205d430a09da")
         self.assertEqual(new[0]["relaxations"], ["changed_file_count", "diff_size"])
         self.assertEqual(new[0]["allowed_effective_additions"], 148823)
@@ -33,7 +33,7 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         self.assertEqual(len(new[0]["source_overlay"]["paths"]), 45)
 
     def test_sql_rebind_preserves_all_reviewed_bytes_and_reviewer(self):
-        p = json.loads((ROOT / "operations/fieldzilla-pr712-review-renewal/proposal.json").read_text())
+        p = json.loads((ROOT / "operations/fieldzilla-pr712-gitleaks-head-issuance/proposal.json").read_text())
         current = json.loads((ROOT / "policy/audited-migration-authorizations.json").read_text())
         prior = json.loads(subprocess.check_output(
             ["git", "show", f"{SOURCE}:policy/audited-migration-authorizations.json"], cwd=ROOT,
@@ -43,7 +43,7 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         self.assertEqual(normalized, prior)
         for key in ("migration_path", "migration_sha256", "delete_fingerprints", "approved_reviewer"):
             self.assertEqual(p["sql"][key], p["previous_sql"][key])
-        self.assertEqual(p["status"], "PROPOSED_NOT_APPROVED_NOT_ACTIVE")
+        self.assertEqual(p["status"], "PROPOSED_NOT_ISSUED_NOT_ACTIVE")
 
 
     def test_format_overlay_changes_only_one_existing_reviewed_hash(self):
@@ -126,4 +126,25 @@ class FieldzillaImportSizeTests(unittest.TestCase):
             self.assertEqual(current[expiry_key], "2026-11-12T07:04:04Z")
             self.assertNotEqual(current["authorization_id"], previous["authorization_id"])
         self.assertEqual(proposal["status"], "PROPOSED_NOT_APPROVED_NOT_ACTIVE")
+        self.assertFalse(proposal["activation_authorized"])
+
+    def test_gitleaks_rebind_changes_only_exact_reviewed_hash_and_head(self):
+        proposal = json.loads((ROOT / "operations/fieldzilla-pr712-gitleaks-head-issuance/proposal.json").read_text())
+        current = copy.deepcopy(proposal["baseline"])
+        previous = copy.deepcopy(proposal["previous_baseline"])
+        path = ".gitleaksignore"
+        self.assertEqual(proposal["changed_application_paths"], [path])
+        self.assertEqual(current["source_overlay"]["paths"][path]["candidate_sha256"],
+                         "df13693a489e9d5b778571a8973e89633acc79029f6154ea30f785afa6a98c77")
+        self.assertNotEqual(current["source_overlay"]["paths"][path],
+                            previous["source_overlay"]["paths"][path])
+        current["source_overlay"]["paths"][path] = previous["source_overlay"]["paths"][path]
+        for key in ("expected_head_sha", "issued_at", "authorization_id", "required_pr_body_marker", "purpose"):
+            current[key] = previous[key]
+        self.assertEqual(current, previous)
+        current_sql = copy.deepcopy(proposal["sql"])
+        previous_sql = proposal["previous_sql"]
+        for key in ("expected_head_sha", "issued_at", "authorization_id", "purpose"):
+            current_sql[key] = previous_sql[key]
+        self.assertEqual(current_sql, previous_sql)
         self.assertFalse(proposal["activation_authorized"])

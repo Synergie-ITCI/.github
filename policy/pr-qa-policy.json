@@ -1377,17 +1377,17 @@
       "pr_number": 712,
       "head_ref": "release/fieldzilla-production-application",
       "base_ref": "main",
-      "expected_head_sha": "14299cbe1dd7bbd5ee0762471ee901db39ab07fa",
+      "expected_head_sha": "9630b2a44560fe2eb65c7578752da4b082f018c9",
       "expected_base_sha": "98a95bcd379995b1cf5d1a909c40205d430a09da",
-      "issued_at": "2026-11-11T07:15:16Z",
+      "issued_at": "2026-11-11T07:49:24Z",
       "enabled": true,
-      "authorization_id": "3be7c0ec-ee50-4b92-bc5e-85cf8ed6ee20",
+      "authorization_id": "0b174921-32df-4037-86fa-1036b7a23254",
       "expires_after": "2026-11-12T07:04:04Z",
       "allowed_effective_additions": 148823,
       "allowed_changed_files": 844,
       "minimum_changed_files": 844,
-      "required_pr_body_marker": "FIELDZILLA-PR712-RENEWAL-EXACT-3be7c0ec-ee50-4b92-bc5e-85cf8ed6ee20",
-      "purpose": "Proposed time-bounded renewal for exact PR712 head14299cb/base98a95bc after the prior review expired. Preserve byte-identical promotion patch,844 files/148823 additions,40 reviewed deployment findings, audited SQL and all base-bound rehearsal paths. No scanner/default/scope change or runtime authorization.",
+      "required_pr_body_marker": "FIELDZILLA-PR712-GITLEAKS-EXACT-0b174921-32df-4037-86fa-1036b7a23254",
+      "purpose": "Exact PR712 head9630b2a/base98a95bc rebind after two verified Podfile checksum fingerprints were corrected for rewritten commit68fd7c2. The lockfile Git blob and runtime API/Admin/mobile trees are unchanged; preserve 844 files/148823 additions,40 reviewed deployment findings, audited SQL, base overlay and renewed expiry. No scanner/default/scope change or runtime authorization.",
       "relaxations": [
         "changed_file_count",
         "diff_size"
@@ -1462,7 +1462,7 @@
           ".gitleaksignore": {
             "source": "present",
             "candidate": "reviewed_sha256",
-            "candidate_sha256": "ef3eb75388b217b8ee13563ea0ef6e0fd2ad7da36025a9f947d75cdf310ad59f"
+            "candidate_sha256": "df13693a489e9d5b778571a8973e89633acc79029f6154ea30f785afa6a98c77"
           },
           "apps/api/tests/architecture/test_mobile_backend_integration_contracts.py": {
             "source": "present",
