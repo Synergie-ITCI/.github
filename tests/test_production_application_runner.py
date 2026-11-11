@@ -1,8 +1,10 @@
 """Orchestration and entry-point boundaries; not AWS rehearsal evidence."""
 
 import sys
+import io
 import tempfile
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -10,11 +12,20 @@ from unittest.mock import Mock, patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/fieldzilla-production"))
 sys.path.insert(0, str(ROOT / "pr-qa"))
-from application_runner import ContextBoundReceipt, execute_infrastructure, execute_production, validate
+from application_runner import ContextBoundReceipt, execute_infrastructure, execute_production, github_api, validate
 from pr_qa import parse_workflow_yaml
 
 
 class RunnerTests(unittest.TestCase):
+    def test_github_read_failure_names_only_bounded_path(self):
+        failure = SimpleNamespace(returncode=1, stdout=b"", stderr=b"private response body")
+        output = io.StringIO()
+        with patch("application_runner.subprocess.run", return_value=failure), redirect_stderr(output):
+            with self.assertRaisesRegex(RuntimeError, "GitHub release evidence unavailable"):
+                github_api("repos/Synergie-ITCI/.github/rulesets/25061784")
+        self.assertIn("repos/Synergie-ITCI/.github/rulesets/25061784", output.getvalue())
+        self.assertNotIn("private response body", output.getvalue())
+
     def setUp(self):
         self.calls = []
         self.failure = None
