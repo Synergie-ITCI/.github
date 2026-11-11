@@ -135,6 +135,7 @@ def check_rehearsal_plan(path, phase="phase1"):
         "aws_vpc.rehearsal", "aws_db_instance.rehearsal",
         "aws_s3_bucket.attachments", "aws_s3_bucket_logging.attachments",
         "aws_lb.rehearsal", "aws_ecs_cluster.rehearsal",
+        "aws_cloudwatch_log_group.container_insights",
     }
     addresses = {c["address"].split("[")[0] for c in changes}
     if phase == "phase1" and not required.issubset(addresses):

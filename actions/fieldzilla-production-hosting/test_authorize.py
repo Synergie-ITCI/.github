@@ -118,6 +118,7 @@ class PlanSafetyTest(unittest.TestCase):
             self.change("aws_s3_bucket_logging.attachments", "aws_s3_bucket_logging"),
             self.change("aws_lb.rehearsal", "aws_lb", after={"name": "fieldzilla-production-rehearsal"}),
             self.change("aws_ecs_cluster.rehearsal", "aws_ecs_cluster", after={"name": "fieldzilla-production-rehearsal"}),
+            self.change("aws_cloudwatch_log_group.container_insights", "aws_cloudwatch_log_group", after={"name": "/aws/ecs/containerinsights/fieldzilla-production-rehearsal/performance"}),
         ]
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "plan.json"
@@ -148,6 +149,7 @@ class PlanSafetyTest(unittest.TestCase):
                     "aws_vpc.rehearsal", "aws_db_instance.rehearsal",
                     "aws_s3_bucket.attachments", "aws_s3_bucket_logging.attachments",
                     "aws_lb.rehearsal", "aws_ecs_cluster.rehearsal",
+                    "aws_cloudwatch_log_group.container_insights",
                 )
             ]
             path.write_text(json.dumps({"resource_changes": required}))
