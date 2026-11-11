@@ -6,7 +6,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = "34de36287f22a1286316858f5bf37c32e15aefe5"
+SOURCE = "e2fce132e39d1dd6067a20a6b6e7f9f295cacb6c"
+PROPOSAL = ROOT / "operations/fieldzilla-pr712-mobile-audit-issuance/proposal.json"
 
 
 class FieldzillaImportSizeTests(unittest.TestCase):
@@ -15,7 +16,7 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         prior = json.loads(subprocess.check_output(
             ["git", "show", f"{SOURCE}:policy/pr-qa-policy.json"], cwd=ROOT,
         ))
-        proposed = json.loads((ROOT / "operations/fieldzilla-pr712-gitleaks-head-issuance/proposal.json").read_text())
+        proposed = json.loads(PROPOSAL.read_text())
         rows = current["one_time_baseline_alignments"]
         new = [r for r in rows if r.get("repository_id") == 1315697868 and r.get("pr_number") == 712]
         self.assertEqual(new, [proposed["baseline"]])
@@ -23,17 +24,17 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         i = normalized["one_time_baseline_alignments"].index(new[0])
         normalized["one_time_baseline_alignments"][i] = proposed["previous_baseline"]
         self.assertEqual(normalized, prior)
-        self.assertEqual(new[0]["expected_head_sha"], "9630b2a44560fe2eb65c7578752da4b082f018c9")
+        self.assertEqual(new[0]["expected_head_sha"], "5ee8bfc5e045ef7938149a75af0a943781def169")
         self.assertEqual(new[0]["expected_base_sha"], "98a95bcd379995b1cf5d1a909c40205d430a09da")
         self.assertEqual(new[0]["relaxations"], ["changed_file_count", "diff_size"])
-        self.assertEqual(new[0]["allowed_effective_additions"], 148823)
+        self.assertEqual(new[0]["allowed_effective_additions"], 148824)
         self.assertEqual(new[0]["allowed_changed_files"], 844)
         self.assertEqual(new[0]["minimum_changed_files"], 844)
         self.assertEqual(new[0]["expires_after"], "2026-11-12T07:04:04Z")
         self.assertEqual(len(new[0]["source_overlay"]["paths"]), 45)
 
     def test_sql_rebind_preserves_all_reviewed_bytes_and_reviewer(self):
-        p = json.loads((ROOT / "operations/fieldzilla-pr712-gitleaks-head-issuance/proposal.json").read_text())
+        p = json.loads(PROPOSAL.read_text())
         current = json.loads((ROOT / "policy/audited-migration-authorizations.json").read_text())
         prior = json.loads(subprocess.check_output(
             ["git", "show", f"{SOURCE}:policy/audited-migration-authorizations.json"], cwd=ROOT,
