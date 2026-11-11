@@ -16,6 +16,9 @@ from urllib.error import HTTPError
 from datetime import datetime, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from verify_partial_state import EXPIRY as PARTIAL_EXPIRY, EXPECTED_TAGS, PARTIAL_COUNTS, SOURCE as PARTIAL_SOURCE
+
 
 REPOSITORY = "Synergie-ITCI/programme-management-platform"
 OWNER = "SaurabhVermaIN"
@@ -127,7 +130,7 @@ def check_plan(path, phase):
     print(json.dumps({"phase": phase, "creates": creates, "unchanged": unchanged, "shared_alb_additions": shared}, sort_keys=True))
 
 
-def check_rehearsal_plan(path, phase="phase1"):
+def check_rehearsal_plan(path, phase="phase1", source=None, resource_expiry=None):
     doc = json.loads(Path(path).read_text())
     changes = [c for c in doc.get("resource_changes", []) if c.get("mode") == "managed"]
     creates = 0
@@ -140,13 +143,18 @@ def check_rehearsal_plan(path, phase="phase1"):
     addresses = {c["address"].split("[")[0] for c in changes}
     if phase == "phase1" and not required.issubset(addresses):
         fail("isolated rehearsal target is incomplete")
+    partial_counts = {}
+    if phase == "cleanup-partial" and (source != PARTIAL_SOURCE or resource_expiry != PARTIAL_EXPIRY):
+        fail("partial cleanup does not bind the exact failed source and resource expiry")
     for change in changes:
         address = change["address"]
+        base_address = address.split("[")[0]
         actions = change["change"]["actions"]
         allowed = {
             "phase1": (["create"], ["no-op"]),
             "cleanup-protection": (["update"], ["no-op"]),
             "cleanup-destroy": (["delete"],),
+            "cleanup-partial": (["delete"],),
         }[phase]
         if actions not in allowed:
             fail(f"rehearsal phase cannot perform this action: {address}: {actions}")
@@ -154,7 +162,7 @@ def check_rehearsal_plan(path, phase="phase1"):
             fail(f"rehearsal state move or import: {address}")
         if actions == ["no-op"] and change["change"].get("before") != change["change"].get("after"):
             fail(f"inconsistent rehearsal no-op: {address}")
-        after = json.dumps(change["change"].get("after") if phase != "cleanup-destroy" else change["change"].get("before"), sort_keys=True).lower()
+        after = json.dumps(change["change"].get("before") if phase in {"cleanup-destroy", "cleanup-partial"} else change["change"].get("after"), sort_keys=True).lower()
         # Production-rehearsal names are allowed; standalone production and all
         # staging references are forbidden in managed resource values.
         isolated = after.replace("production-rehearsal", "rehearsal").replace("productionrehearsal", "rehearsal")
@@ -162,6 +170,11 @@ def check_rehearsal_plan(path, phase="phase1"):
             fail(f"rehearsal references staging or production: {address}")
         if actions == ["create"]:
             creates += 1
+        if phase == "cleanup-partial":
+            partial_counts[base_address] = partial_counts.get(base_address, 0) + 1
+            tags = (change["change"].get("before") or {}).get("tags_all") or {}
+            if any(tags.get(key) != value for key, value in EXPECTED_TAGS.items()):
+                fail("partial cleanup plan resource tags differ from the failed rehearsal")
         if phase == "cleanup-protection" and actions == ["update"]:
             if address != "aws_db_instance.rehearsal" or change["change"]["before"].get("deletion_protection") is not True or change["change"]["after"].get("deletion_protection") is not False:
                 fail("cleanup protection must only disable isolated RDS deletion protection")
@@ -171,6 +184,8 @@ def check_rehearsal_plan(path, phase="phase1"):
         fail("cleanup protection plan must have exactly one RDS update")
     if phase == "cleanup-destroy" and not required.issubset(addresses):
         fail("cleanup destroy must own the complete isolated target")
+    if phase == "cleanup-partial" and partial_counts != PARTIAL_COUNTS:
+        fail("partial cleanup plan does not match the exact failed-state inventory")
     print(json.dumps({"target": "rehearsal", "phase": phase, "creates": creates, "managed": len(changes)}, sort_keys=True))
 
 
@@ -290,7 +305,7 @@ def main():
     parser.add_argument("--source-sha", required=True)
     parser.add_argument("--caller-sha", required=True)
     parser.add_argument("--workflow-tag", required=True)
-    parser.add_argument("--phase", required=True, choices=["phase1", "phase2", "cleanup-protection", "cleanup-destroy"])
+    parser.add_argument("--phase", required=True, choices=["phase1", "phase2", "cleanup-protection", "cleanup-destroy", "cleanup-partial"])
     parser.add_argument("--target", choices=["production", "rehearsal"], default="production")
     parser.add_argument("--expires-at")
     parser.add_argument("--resource-expires-at")
@@ -312,12 +327,12 @@ def main():
         probe_owner_comment(args)
         return
     if args.mode == "plan":
-        (check_rehearsal_plan(args.plan_json, args.phase) if args.target == "rehearsal" else check_plan(args.plan_json, args.phase))
+        (check_rehearsal_plan(args.plan_json, args.phase, args.source_sha, args.resource_expires_at) if args.target == "rehearsal" else check_plan(args.plan_json, args.phase))
         return
     if not SHA256.fullmatch(args.plan_sha256 or "") or not SHA256.fullmatch(args.artifact_digest or ""):
         fail("exact plan and artifact digests required")
     verify_artifact(args)
-    (check_rehearsal_plan(args.plan_json, args.phase) if args.target == "rehearsal" else check_plan(args.plan_json, args.phase))
+    (check_rehearsal_plan(args.plan_json, args.phase, args.source_sha, args.resource_expires_at) if args.target == "rehearsal" else check_plan(args.plan_json, args.phase))
     marker = verify_owner_approval(args)
     if args.mode == "consume":
         api(f"repos/{REPOSITORY}/deployments", "POST", {
