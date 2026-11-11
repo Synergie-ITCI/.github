@@ -209,6 +209,27 @@ jobs:
           test "$(aws s3api get-bucket-encryption --bucket "${STATE_BUCKET}" --query 'ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.SSEAlgorithm' --output text)" = aws:kms
           aws dynamodb describe-table --table-name "${STATE_LOCK_TABLE}" --query Table.TableStatus --output text | grep -qx ACTIVE
 
+      - name: Verify isolated rehearsal bootstrap identities and log sink
+        if: ${{ inputs.mode != 'probe' && inputs.target == 'rehearsal' }}
+        run: |
+          set -euo pipefail
+          bootstrap="${ROOT}/bootstrap"
+          aws iam get-role --role-name SynergieFieldzillaProductionRehearsalInfrastructure \
+            --query Role.AssumeRolePolicyDocument --output json > "${RUNNER_TEMP}/rehearsal-trust.json"
+          aws s3api get-bucket-policy \
+            --bucket fz-logs-918870682888-20260912185212322100000003 \
+            --query Policy --output text > "${RUNNER_TEMP}/rehearsal-log-sink.json"
+          python3 - "${bootstrap}" "${RUNNER_TEMP}" <<'PY'
+          import json, pathlib, sys
+          source, temporary = map(pathlib.Path, sys.argv[1:])
+          for expected, live in (
+              (source / 'provisioner-trust.json', temporary / 'rehearsal-trust.json'),
+              (source / 'log-sink-policy.json', temporary / 'rehearsal-log-sink.json'),
+          ):
+              if json.loads(expected.read_text()) != json.loads(live.read_text()):
+                  raise SystemExit(f'Exact rehearsal bootstrap drift: {expected.name}')
+          PY
+
       - name: Verify certificate issued for phase two
         if: ${{ inputs.mode != 'probe' && inputs.target == 'production' && inputs.phase == 'phase2' }}
         run: |
