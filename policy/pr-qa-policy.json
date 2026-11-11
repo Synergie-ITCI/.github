@@ -1377,17 +1377,17 @@
       "pr_number": 712,
       "head_ref": "release/fieldzilla-production-application",
       "base_ref": "main",
-      "expected_head_sha": "8c187ba9b90bba5a51b7e774a63d57784d9306f0",
-      "expected_base_sha": "45fc0ce54058125c1dfd4e9bc38de1487232730c",
-      "issued_at": "2026-11-10T15:54:48Z",
+      "expected_head_sha": "14299cbe1dd7bbd5ee0762471ee901db39ab07fa",
+      "expected_base_sha": "98a95bcd379995b1cf5d1a909c40205d430a09da",
+      "issued_at": "2026-11-11T04:44:02Z",
       "enabled": true,
-      "authorization_id": "c34f341a-3eb3-428e-b0ff-a5c3916d2e64",
+      "authorization_id": "0362da5b-3837-42c9-aea0-83cab863b28e",
       "expires_after": "2026-11-11T07:04:04Z",
       "allowed_effective_additions": 148823,
       "allowed_changed_files": 844,
       "minimum_changed_files": 844,
-      "required_pr_body_marker": "FIELDZILLA-PR712-CALLER-BASE-EXACT-c34f341a-3eb3-428e-b0ff-a5c3916d2e64",
-      "purpose": "Exact PR712 post-caller base rebind: byte-identical promotion patch,844 files/148823 effective additions unchanged. Carry review5837789245 only for unchanged40 deployment findings and audited SQL. Preserve separately approved PR715 caller base files with two new exact base-overlay paths. No scanner/default/expiry change or runtime authorization.",
+      "required_pr_body_marker": "FIELDZILLA-PR712-FINAL-BASE-EXACT-0362da5b-3837-42c9-aea0-83cab863b28e",
+      "purpose": "Exact PR712 final-base rebind: byte-identical promotion patch,844 files/148823 effective additions unchanged. Carry review5837789245 only for unchanged40 deployment findings and audited SQL. Preserve reviewed caller and isolated rehearsal files inherited exactly from main; 13 new rehearsal paths are base-bound. No scanner/default/expiry change or runtime authorization.",
       "relaxations": [
         "changed_file_count",
         "diff_size"
@@ -1426,7 +1426,20 @@
           "apps/mobile/package.json",
           "apps/mobile/security/mobile-audit-baseline.json",
           "deploy/production/hosting/prepare_application_manifest.py",
-          "deploy/production/hosting/test_prepare_application_manifest.py"
+          "deploy/production/hosting/test_prepare_application_manifest.py",
+          "deploy/production/hosting/rehearsal/.terraform.lock.hcl",
+          "deploy/production/hosting/rehearsal/README.md",
+          "deploy/production/hosting/rehearsal/attachments.tf",
+          "deploy/production/hosting/rehearsal/backend.hcl",
+          "deploy/production/hosting/rehearsal/bootstrap/README.md",
+          "deploy/production/hosting/rehearsal/bootstrap/log-sink-policy.json",
+          "deploy/production/hosting/rehearsal/bootstrap/provisioner-plan-only.json",
+          "deploy/production/hosting/rehearsal/bootstrap/provisioner-trust.json",
+          "deploy/production/hosting/rehearsal/main.tf",
+          "deploy/production/hosting/rehearsal/outputs.tf",
+          "deploy/production/hosting/rehearsal/task_roles.tf",
+          "deploy/production/hosting/rehearsal/variables.tf",
+          "deploy/production/hosting/rehearsal/versions.tf"
         ],
         "paths": {
           ".github/CODEOWNERS": {
@@ -1567,6 +1580,58 @@
             "candidate": "base"
           },
           "deploy/production/hosting/test_prepare_application_manifest.py": {
+            "source": "absent",
+            "candidate": "base"
+          },
+          "deploy/production/hosting/rehearsal/.terraform.lock.hcl": {
+            "source": "absent",
+            "candidate": "base"
+          },
+          "deploy/production/hosting/rehearsal/README.md": {
+            "source": "absent",
+            "candidate": "base"
+          },
+          "deploy/production/hosting/rehearsal/attachments.tf": {
+            "source": "absent",
+            "candidate": "base"
+          },
+          "deploy/production/hosting/rehearsal/backend.hcl": {
+            "source": "absent",
+            "candidate": "base"
+          },
+          "deploy/production/hosting/rehearsal/bootstrap/README.md": {
+            "source": "absent",
+            "candidate": "base"
+          },
+          "deploy/production/hosting/rehearsal/bootstrap/log-sink-policy.json": {
+            "source": "absent",
+            "candidate": "base"
+          },
+          "deploy/production/hosting/rehearsal/bootstrap/provisioner-plan-only.json": {
+            "source": "absent",
+            "candidate": "base"
+          },
+          "deploy/production/hosting/rehearsal/bootstrap/provisioner-trust.json": {
+            "source": "absent",
+            "candidate": "base"
+          },
+          "deploy/production/hosting/rehearsal/main.tf": {
+            "source": "absent",
+            "candidate": "base"
+          },
+          "deploy/production/hosting/rehearsal/outputs.tf": {
+            "source": "absent",
+            "candidate": "base"
+          },
+          "deploy/production/hosting/rehearsal/task_roles.tf": {
+            "source": "absent",
+            "candidate": "base"
+          },
+          "deploy/production/hosting/rehearsal/variables.tf": {
+            "source": "absent",
+            "candidate": "base"
+          },
+          "deploy/production/hosting/rehearsal/versions.tf": {
             "source": "absent",
             "candidate": "base"
           }
