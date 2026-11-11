@@ -18,6 +18,7 @@ from unittest.mock import patch
 spec = importlib.util.spec_from_file_location("hosting_authorize", Path(__file__).with_name("authorize.py"))
 authorize = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(authorize)
+import verify_partial_state as partial_state
 
 
 class PlanSafetyTest(unittest.TestCase):
@@ -157,6 +158,52 @@ class PlanSafetyTest(unittest.TestCase):
             path.write_text(json.dumps({"resource_changes": required[:-1]}))
             with self.assertRaises(SystemExit):
                 authorize.check_rehearsal_plan(path, "cleanup-destroy")
+
+    def test_partial_rehearsal_cleanup_is_exact_destroy_only(self):
+        changes = []
+        for base, count in partial_state.PARTIAL_COUNTS.items():
+            for index in range(count):
+                address = f'{base}["{index}"]' if count > 1 else base
+                changes.append(self.change(address, base.split(".")[0], actions=["delete"], after={}))
+                changes[-1]["change"]["before"] = {"tags_all": partial_state.EXPECTED_TAGS}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "plan.json"
+            path.write_text(json.dumps({"resource_changes": changes}))
+            authorize.check_rehearsal_plan(path, "cleanup-partial", partial_state.SOURCE, partial_state.EXPIRY)
+            for altered in (changes[:-1], changes + [self.change("aws_db_instance.production", actions=["delete"])],
+                            [{**changes[0], "change": {**changes[0]["change"], "actions": ["update"]}}, *changes[1:]]):
+                with self.assertRaises(SystemExit):
+                    path.write_text(json.dumps({"resource_changes": altered}))
+                    authorize.check_rehearsal_plan(path, "cleanup-partial", partial_state.SOURCE, partial_state.EXPIRY)
+            path.write_text(json.dumps({"resource_changes": changes}))
+            with self.assertRaises(SystemExit):
+                authorize.check_rehearsal_plan(path, "cleanup-partial", "a" * 40, partial_state.EXPIRY)
+
+    def test_partial_state_verifier_rejects_drift(self):
+        resources = []
+        for address, count in partial_state.PARTIAL_COUNTS.items():
+            typ, name = address.split(".")
+            if address == "aws_vpc_endpoint.services":
+                keys = sorted(partial_state.ENDPOINTS)
+            elif address == "aws_iam_role.execution":
+                keys = sorted(partial_state.EXECUTION_ROLES)
+            else:
+                keys = [None]
+            resources.append({"mode": "managed", "type": typ, "name": name,
+                              "instances": [{"index_key": key,
+                                             **({"status": "tainted"} if key in partial_state.TAINTED.get(address, set()) else {}),
+                                             "attributes": {"tags_all": partial_state.EXPECTED_TAGS}} for key in keys]})
+        for address in partial_state.DATA_SOURCES:
+            typ, name = address.split(".")
+            resources.append({"mode": "data", "type": typ, "name": name, "instances": [{}]})
+        state = {"lineage": partial_state.LINEAGE, "serial": partial_state.SERIAL,
+                 "outputs": {}, "resources": resources}
+        partial_state.verify(state, partial_state.SOURCE, partial_state.EXPIRY)
+        for changed in ({**state, "serial": state["serial"] + 1},
+                        {**state, "outputs": {"target": {"value": {}}}},
+                        {**state, "resources": resources[:-1]}):
+            with self.assertRaises(ValueError):
+                partial_state.verify(changed, partial_state.SOURCE, partial_state.EXPIRY)
 
     def test_phase_one_rejects_existing_resource_mutation(self):
         with self.assertRaises(SystemExit):
