@@ -339,15 +339,15 @@ class BundledMigrationAuthorizationTests(unittest.TestCase):
         # PR712 has the same audited SQL bytes, but a new exact live binding.
         self.assertIn(712, by_pr)
         r = by_pr[712]
-        self.assertEqual(r["authorization_id"], "decd1ad8-e4a5-4e90-aa81-31bb9085fa1d")
+        self.assertEqual(r["authorization_id"], "f61cd2b2-3537-41be-94fd-19a25493151b")
         self.assertEqual(r["repository_id"], 1315697868)
-        self.assertEqual(r["expected_head_sha"], "5ee8bfc5e045ef7938149a75af0a943781def169")
+        self.assertEqual(r["expected_head_sha"], "523f41dd429830518c255e0ea45021f05cf8d396")
         self.assertEqual(r["expected_base_sha"], "98a95bcd379995b1cf5d1a909c40205d430a09da")
         self.assertEqual(r["migration_path"], "apps/api/alembic/sql/20260910_0038.sql")
         self.assertEqual(r["migration_sha256"], "56d29de95cd31ae88509757f414da89a679161761da07693605e0db1a631f773")
         self.assertEqual(r["delete_fingerprints"], by_pr[118]["delete_fingerprints"])
         self.assertEqual(r["approved_reviewer"], {"login": "SaurabhVermaIN", "id": 52234089})
-        self.assertEqual(r["issued_at"], "2026-11-11T08:40:42Z")
+        self.assertEqual(r["issued_at"], "2026-11-11T08:51:29Z")
         self.assertEqual(r["expires_at"], "2026-11-12T07:04:04Z")
 
         # No unknown PRs

@@ -6,8 +6,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = "e2fce132e39d1dd6067a20a6b6e7f9f295cacb6c"
-PROPOSAL = ROOT / "operations/fieldzilla-pr712-mobile-audit-issuance/proposal.json"
+SOURCE = "563e0df1fb20d624820d75daeb2dfc88c2d4a968"
+PROPOSAL = ROOT / "operations/fieldzilla-pr712-audit-contract-issuance/proposal.json"
 
 
 class FieldzillaImportSizeTests(unittest.TestCase):
@@ -24,7 +24,7 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         i = normalized["one_time_baseline_alignments"].index(new[0])
         normalized["one_time_baseline_alignments"][i] = proposed["previous_baseline"]
         self.assertEqual(normalized, prior)
-        self.assertEqual(new[0]["expected_head_sha"], "5ee8bfc5e045ef7938149a75af0a943781def169")
+        self.assertEqual(new[0]["expected_head_sha"], "523f41dd429830518c255e0ea45021f05cf8d396")
         self.assertEqual(new[0]["expected_base_sha"], "98a95bcd379995b1cf5d1a909c40205d430a09da")
         self.assertEqual(new[0]["relaxations"], ["changed_file_count", "diff_size"])
         self.assertEqual(new[0]["allowed_effective_additions"], 148824)
@@ -32,6 +32,11 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         self.assertEqual(new[0]["minimum_changed_files"], 844)
         self.assertEqual(new[0]["expires_after"], "2026-11-12T07:04:04Z")
         self.assertEqual(len(new[0]["source_overlay"]["paths"]), 45)
+        changed = {
+            path for path, value in new[0]["source_overlay"]["paths"].items()
+            if value != proposed["previous_baseline"]["source_overlay"]["paths"][path]
+        }
+        self.assertEqual(changed, {"apps/api/tests/architecture/test_mobile_audit_baseline.py"})
 
     def test_sql_rebind_preserves_all_reviewed_bytes_and_reviewer(self):
         p = json.loads(PROPOSAL.read_text())
