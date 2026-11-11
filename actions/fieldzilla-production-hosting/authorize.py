@@ -21,6 +21,7 @@ REPOSITORY = "Synergie-ITCI/programme-management-platform"
 OWNER = "SaurabhVermaIN"
 ENVIRONMENT = "synergie-app-production"
 STATE_KEY = "programme-management-platform/fieldzilla/production/hosting/opentofu.tfstate"
+REHEARSAL_STATE_KEY = "programme-management-platform/fieldzilla/production-rehearsal/opentofu.tfstate"
 WORKFLOW = ".github/workflows/fieldzilla-production-hosting.yml"
 ALLOWED_ACTIONS = {"create", "no-op"}
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
@@ -69,6 +70,14 @@ def require_identity(args):
     expected = f"Synergie-ITCI/.github/{WORKFLOW}@{args.workflow_tag}"
     if os.environ.get("CENTRAL_WORKFLOW_REF") != expected:
         fail("central workflow identity mismatch")
+    if args.target == "rehearsal":
+        try:
+            expires = datetime.fromisoformat(args.expires_at.replace("Z", "+00:00"))
+        except (AttributeError, ValueError):
+            fail("rehearsal expiry must be exact UTC")
+        remaining = (expires - datetime.now(timezone.utc)).total_seconds()
+        if not 0 < remaining <= 4 * 3600:
+            fail("rehearsal expiry must be within four hours and in the future")
 
 
 def check_plan(path, phase):
@@ -116,6 +125,40 @@ def check_plan(path, phase):
     print(json.dumps({"phase": phase, "creates": creates, "unchanged": unchanged, "shared_alb_additions": shared}, sort_keys=True))
 
 
+def check_rehearsal_plan(path):
+    doc = json.loads(Path(path).read_text())
+    changes = [c for c in doc.get("resource_changes", []) if c.get("mode") == "managed"]
+    creates = 0
+    required = {
+        "aws_vpc.rehearsal", "aws_db_instance.rehearsal",
+        "aws_s3_bucket.attachments", "aws_s3_bucket_logging.attachments",
+        "aws_lb.rehearsal", "aws_ecs_cluster.rehearsal",
+    }
+    addresses = {c["address"].split("[")[0] for c in changes}
+    if not required.issubset(addresses):
+        fail("isolated rehearsal target is incomplete")
+    for change in changes:
+        address = change["address"]
+        actions = change["change"]["actions"]
+        if actions not in (["create"], ["no-op"]):
+            fail(f"rehearsal cannot mutate existing resources: {address}: {actions}")
+        if change.get("previous_address") or change["change"].get("importing"):
+            fail(f"rehearsal state move or import: {address}")
+        if actions == ["no-op"] and change["change"].get("before") != change["change"].get("after"):
+            fail(f"inconsistent rehearsal no-op: {address}")
+        after = json.dumps(change["change"].get("after"), sort_keys=True).lower()
+        # Production-rehearsal names are allowed; standalone production and all
+        # staging references are forbidden in managed resource values.
+        isolated = after.replace("production-rehearsal", "rehearsal").replace("productionrehearsal", "rehearsal")
+        if "staging" in address.lower() or "staging" in isolated or "production" in isolated:
+            fail(f"rehearsal references staging or production: {address}")
+        if actions == ["create"]:
+            creates += 1
+    if creates == 0:
+        fail("rehearsal plan has no isolated additions")
+    print(json.dumps({"target": "rehearsal", "creates": creates, "managed": len(changes)}, sort_keys=True))
+
+
 def verify_artifact(args):
     run = api(f"repos/{REPOSITORY}/actions/runs/{args.plan_run_id}")
     if run["conclusion"] != "success" or run["head_sha"] != args.caller_sha:
@@ -138,9 +181,12 @@ def verify_artifact(args):
         "source_sha": args.source_sha,
         "caller_sha": args.caller_sha,
         "phase": args.phase,
-        "state_key": STATE_KEY,
+        "state_key": REHEARSAL_STATE_KEY if args.target == "rehearsal" else STATE_KEY,
         "plan_sha256": args.plan_sha256,
     }
+    if args.target == "rehearsal":
+        required["target"] = "rehearsal"
+        required["expires_at"] = args.expires_at
     if any(metadata.get(key) != value for key, value in required.items()):
         fail("artifact metadata mismatch")
     lock = Path(args.artifact_dir) / ".terraform.lock.hcl"
@@ -154,11 +200,12 @@ def probe_owner_comment(args):
         fail("exact comment ID is required for the read-only probe")
     path = f"repos/{REPOSITORY}/issues/comments/{args.approval_comment_id}"
     comment = api(path)
+    target = getattr(args, "target", "production")
     if (comment.get("id") != args.approval_comment_id
             or comment["user"]["login"] != OWNER or comment["user"]["id"] != 52234089
             or comment.get("author_association") not in ("OWNER", "MEMBER", "COLLABORATOR")
-            or comment.get("issue_url") != f"https://api.github.com/repos/{REPOSITORY}/issues/674"):
-        fail("probe did not read the designated owner's comment on hosting PR 674")
+            or comment.get("issue_url") != f"https://api.github.com/repos/{REPOSITORY}/issues/{717 if target == 'rehearsal' else 674}"):
+        fail("probe did not read the designated owner's comment on the target PR")
     print(json.dumps({
         "probe": "owner_comment_read", "result": "PASS", "comment_id": comment["id"],
         "author": OWNER, "issue_url": comment["issue_url"],
@@ -168,6 +215,7 @@ def probe_owner_comment(args):
 
 
 def verify_owner_approval(args):
+    target = getattr(args, "target", "production")
     environment = api(f"repos/{REPOSITORY}/environments/{ENVIRONMENT}")
     if any(rule["type"] == "required_reviewers" for rule in environment.get("protection_rules", [])):
         fail("native environment reviewers are available; fallback must not be used")
@@ -177,15 +225,20 @@ def verify_owner_approval(args):
     if (comment["user"]["login"] != OWNER or comment["user"]["id"] != 52234089
             or comment.get("author_association") not in ("OWNER", "MEMBER", "COLLABORATOR")):
         fail("approval is not from the designated owner")
-    if comment.get("issue_url") != f"https://api.github.com/repos/{REPOSITORY}/issues/674":
-        fail("approval must be on the hosting PR 674")
+    issue = 717 if target == "rehearsal" else 674
+    if comment.get("issue_url") != f"https://api.github.com/repos/{REPOSITORY}/issues/{issue}":
+        fail("approval must be on the exact target PR")
+    state_key = REHEARSAL_STATE_KEY if target == "rehearsal" else STATE_KEY
+    title = "PRODUCTION REHEARSAL" if target == "rehearsal" else f"PRODUCTION HOSTING {args.phase}"
     expected = (
-        f"APPROVE FIELDZILLA PRODUCTION HOSTING {args.phase}\n"
+        f"APPROVE FIELDZILLA {title}\n"
         f"Source: {args.source_sha}\nCaller: {args.caller_sha}\n"
         f"Plan run: {args.plan_run_id}\nArtifact ID: {args.artifact_id}\n"
         f"Artifact SHA-256: {args.artifact_digest}\nPlan SHA-256: {args.plan_sha256}\n"
-        f"State key: {STATE_KEY}"
+        f"State key: {state_key}"
     )
+    if target == "rehearsal":
+        expected += f"\nExpires at: {args.expires_at}\nBudget USD: 5"
     if comment["body"].strip() != expected:
         fail("owner approval does not match this exact release")
     created = datetime.fromisoformat(comment["created_at"].replace("Z", "+00:00"))
@@ -193,7 +246,7 @@ def verify_owner_approval(args):
     now = datetime.now(timezone.utc)
     if updated != created or not 0 <= (now - created).total_seconds() <= 3600:
         fail("approval was edited, expired, or is future-dated")
-    marker = f"fieldzilla-hosting-approval:{args.approval_comment_id}"
+    marker = ("fieldzilla-rehearsal-hosting-approval" if target == "rehearsal" else "fieldzilla-hosting-approval") + f":{args.approval_comment_id}"
     def payload_of(deployment):
         payload = deployment.get("payload") or {}
         if isinstance(payload, str):
@@ -220,6 +273,8 @@ def main():
     parser.add_argument("--caller-sha", required=True)
     parser.add_argument("--workflow-tag", required=True)
     parser.add_argument("--phase", required=True, choices=["phase1", "phase2"])
+    parser.add_argument("--target", choices=["production", "rehearsal"], default="production")
+    parser.add_argument("--expires-at")
     parser.add_argument("--plan-json")
     parser.add_argument("--plan-run-id", type=int)
     parser.add_argument("--artifact-id", type=int)
@@ -230,16 +285,18 @@ def main():
     parser.add_argument("--approval-comment-id", type=int, default=0)
     args = parser.parse_args()
     require_identity(args)
+    if args.target == "rehearsal" and (args.phase != "phase1" or not args.expires_at):
+        fail("rehearsal requires phase1 and an exact expiry")
     if args.mode == "probe":
         probe_owner_comment(args)
         return
     if args.mode == "plan":
-        check_plan(args.plan_json, args.phase)
+        (check_rehearsal_plan(args.plan_json) if args.target == "rehearsal" else check_plan(args.plan_json, args.phase))
         return
     if not SHA256.fullmatch(args.plan_sha256 or "") or not SHA256.fullmatch(args.artifact_digest or ""):
         fail("exact plan and artifact digests required")
     verify_artifact(args)
-    check_plan(args.plan_json, args.phase)
+    (check_rehearsal_plan(args.plan_json) if args.target == "rehearsal" else check_plan(args.plan_json, args.phase))
     marker = verify_owner_approval(args)
     if args.mode == "consume":
         api(f"repos/{REPOSITORY}/deployments", "POST", {

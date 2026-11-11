@@ -110,6 +110,28 @@ class PlanSafetyTest(unittest.TestCase):
     def test_phase_one_accepts_isolated_addition(self):
         self.verify([self.change("aws_s3_bucket.production", after={"bucket": "fieldzilla-production"})], "phase1")
 
+    def test_rehearsal_requires_complete_isolated_target_and_rejects_live_changes(self):
+        required = [
+            self.change("aws_vpc.rehearsal", "aws_vpc", after={"cidr_block": "10.77.0.0/20"}),
+            self.change("aws_db_instance.rehearsal", "aws_db_instance", after={"identifier": "fieldzilla-production-rehearsal"}),
+            self.change("aws_s3_bucket.attachments", after={"bucket": "syn-fz-rehearsal-attachments-918870682888-aps1"}),
+            self.change("aws_s3_bucket_logging.attachments", "aws_s3_bucket_logging"),
+            self.change("aws_lb.rehearsal", "aws_lb", after={"name": "fieldzilla-production-rehearsal"}),
+            self.change("aws_ecs_cluster.rehearsal", "aws_ecs_cluster", after={"name": "fieldzilla-production-rehearsal"}),
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "plan.json"
+            path.write_text(json.dumps({"resource_changes": required}))
+            authorize.check_rehearsal_plan(path)
+            for extra in (
+                self.change("aws_lb_listener_rule.production", "aws_lb_listener_rule", after={"name": "fieldzilla-production"}),
+                self.change("aws_db_instance.staging", "aws_db_instance", actions=["update"]),
+                self.change("aws_s3_bucket.attachments", after={"bucket": "fieldzilla-production-live"}),
+            ):
+                with self.subTest(extra=extra["address"]), self.assertRaises(SystemExit):
+                    path.write_text(json.dumps({"resource_changes": required + [extra]}))
+                    authorize.check_rehearsal_plan(path)
+
     def test_phase_one_rejects_existing_resource_mutation(self):
         with self.assertRaises(SystemExit):
             self.verify([self.change("aws_db_instance.staging", "aws_db_instance", ["update"])], "phase1")
