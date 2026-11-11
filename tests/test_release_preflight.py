@@ -19,6 +19,14 @@ preflight = SourceFileLoader("release_preflight", str(SCRIPT)).load_module()
 
 
 class ReleasePreflightTests(unittest.TestCase):
+    def test_rehearsal_release_verifier_has_github_token(self):
+        workflow = (ROOT / ".github/workflows/fieldzilla-production-hosting.yml").read_text()
+        step = workflow.split("- name: Verify central workflow identity", 1)[1].split(
+            "- name: Verify hosting PR comment read access", 1
+        )[0]
+        self.assertIn("GH_TOKEN: ${{ github.token }}", step)
+        self.assertIn("release_pin.py --verify-bound", step)
+
     def test_framework_profile_requires_exact_verified_central_main_lineage(self):
         head = "a" * 40
         for origin, base, lineage, expected_profile in (

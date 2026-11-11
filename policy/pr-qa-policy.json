@@ -1377,17 +1377,17 @@
       "pr_number": 712,
       "head_ref": "release/fieldzilla-production-application",
       "base_ref": "main",
-      "expected_head_sha": "9630b2a44560fe2eb65c7578752da4b082f018c9",
+      "expected_head_sha": "5ee8bfc5e045ef7938149a75af0a943781def169",
       "expected_base_sha": "98a95bcd379995b1cf5d1a909c40205d430a09da",
-      "issued_at": "2026-11-11T07:49:24Z",
+      "issued_at": "2026-11-11T08:40:42Z",
       "enabled": true,
-      "authorization_id": "0b174921-32df-4037-86fa-1036b7a23254",
+      "authorization_id": "bd782307-2874-41aa-bf46-11eafbc389dc",
       "expires_after": "2026-11-12T07:04:04Z",
-      "allowed_effective_additions": 148823,
+      "allowed_effective_additions": 148824,
       "allowed_changed_files": 844,
       "minimum_changed_files": 844,
-      "required_pr_body_marker": "FIELDZILLA-PR712-GITLEAKS-EXACT-0b174921-32df-4037-86fa-1036b7a23254",
-      "purpose": "Exact PR712 head9630b2a/base98a95bc rebind after two verified Podfile checksum fingerprints were corrected for rewritten commit68fd7c2. The lockfile Git blob and runtime API/Admin/mobile trees are unchanged; preserve 844 files/148823 additions,40 reviewed deployment findings, audited SQL, base overlay and renewed expiry. No scanner/default/scope change or runtime authorization.",
+      "required_pr_body_marker": "FIELDZILLA-PR712-AUDIT-FIX-bd782307-2874-41aa-bf46-11eafbc389dc",
+      "purpose": "Exact PR712 head5ee8bfc/base98a95bc rebind after the newly disclosed fast-xml-parser advisory was fixed by locked 5.12.0 and the owner renewed only the existing low-severity deepmerge tooling audit exception through 2026-11-12T07:04:04Z. Preserve 844 reviewed files, 148824 effective additions, audited SQL, base overlay and other caps. No scanner/default/scope change, APK publication or runtime authorization.",
       "relaxations": [
         "changed_file_count",
         "diff_size"
@@ -1563,17 +1563,17 @@
           "apps/mobile/package-lock.json": {
             "source": "present",
             "candidate": "reviewed_sha256",
-            "candidate_sha256": "9bd53e16a76f2720a31c7d27cbe203f8841e8ab796ec9c5bd2679f9f0904a4a2"
+            "candidate_sha256": "6f324707f981b6d4d976726e9896be567f277096b80f0477ffdce8d0e45b1f27"
           },
           "apps/mobile/package.json": {
             "source": "present",
             "candidate": "reviewed_sha256",
-            "candidate_sha256": "b1c2c263465442f206596ccdc79d86aab4bbc0015ee8d365b4d9a2ebe5b4283c"
+            "candidate_sha256": "d7b72be52ff2f6efec3bb09d6216aced76db7b7edc63506bc94215d8f8c97d24"
           },
           "apps/mobile/security/mobile-audit-baseline.json": {
             "source": "present",
             "candidate": "reviewed_sha256",
-            "candidate_sha256": "fbb8d12a375224c2d778ad92fda079a0bae1c1db8196ac54750320b73f64a7e8"
+            "candidate_sha256": "fb361c7dbb932eeb278021a2f98e18b14d3a3e1f3d270e809865d0e48e2a4f13"
           },
           "deploy/production/hosting/prepare_application_manifest.py": {
             "source": "absent",

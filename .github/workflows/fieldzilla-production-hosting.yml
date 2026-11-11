@@ -141,6 +141,7 @@ jobs:
       - name: Verify central workflow identity
         env:
           EXPECTED_TAG: ${{ inputs.workflow-tag }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           [[ "${EXPECTED_TAG}" =~ ^refs/tags/pr-qa-v1-rc[0-9]+$ ]]
