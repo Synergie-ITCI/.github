@@ -230,16 +230,8 @@ jobs:
           aws s3api get-bucket-policy \
             --bucket fz-logs-918870682888-20260912185212322100000003 \
             --query Policy --output text > "${RUNNER_TEMP}/rehearsal-log-sink.json"
-          python3 - "${bootstrap}" "${RUNNER_TEMP}" <<'PY'
-          import json, pathlib, sys
-          source, temporary = map(pathlib.Path, sys.argv[1:])
-          for expected, live in (
-              (source / 'provisioner-trust.json', temporary / 'rehearsal-trust.json'),
-              (source / 'log-sink-policy.json', temporary / 'rehearsal-log-sink.json'),
-          ):
-              if json.loads(expected.read_text()) != json.loads(live.read_text()):
-                  raise SystemExit(f'Exact rehearsal bootstrap drift: {expected.name}')
-          PY
+          python3 .central-framework/actions/fieldzilla-production-hosting/verify_bootstrap.py \
+            "${bootstrap}" "${RUNNER_TEMP}" "${CENTRAL_WORKFLOW_REF}"
 
       - name: Require isolated application shutdown before cleanup planning
         if: ${{ inputs.mode != 'probe' && inputs.target == 'rehearsal' && inputs.phase != 'phase1' }}
