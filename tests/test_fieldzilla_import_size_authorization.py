@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = "3c2fb8d74c5a66d2795af13041778426e19a3cfc"
+SOURCE = "6ec30f05ad547e8e6aea7613849c60bc5e4d86e3"
 
 
 class FieldzillaImportSizeTests(unittest.TestCase):
@@ -15,7 +15,7 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         prior = json.loads(subprocess.check_output(
             ["git", "show", f"{SOURCE}:policy/pr-qa-policy.json"], cwd=ROOT,
         ))
-        proposed = json.loads((ROOT / "operations/fieldzilla-pr712-final-base-issuance/proposal.json").read_text())
+        proposed = json.loads((ROOT / "operations/fieldzilla-pr712-review-renewal/proposal.json").read_text())
         rows = current["one_time_baseline_alignments"]
         new = [r for r in rows if r.get("repository_id") == 1315697868 and r.get("pr_number") == 712]
         self.assertEqual(new, [proposed["baseline"]])
@@ -29,11 +29,11 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         self.assertEqual(new[0]["allowed_effective_additions"], 148823)
         self.assertEqual(new[0]["allowed_changed_files"], 844)
         self.assertEqual(new[0]["minimum_changed_files"], 844)
-        self.assertEqual(new[0]["expires_after"], "2026-11-11T07:04:04Z")
+        self.assertEqual(new[0]["expires_after"], "2026-11-12T07:04:04Z")
         self.assertEqual(len(new[0]["source_overlay"]["paths"]), 45)
 
     def test_sql_rebind_preserves_all_reviewed_bytes_and_reviewer(self):
-        p = json.loads((ROOT / "operations/fieldzilla-pr712-final-base-issuance/proposal.json").read_text())
+        p = json.loads((ROOT / "operations/fieldzilla-pr712-review-renewal/proposal.json").read_text())
         current = json.loads((ROOT / "policy/audited-migration-authorizations.json").read_text())
         prior = json.loads(subprocess.check_output(
             ["git", "show", f"{SOURCE}:policy/audited-migration-authorizations.json"], cwd=ROOT,
@@ -41,9 +41,9 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         normalized = copy.deepcopy(current)
         normalized[normalized.index(p["sql"])] = p["previous_sql"]
         self.assertEqual(normalized, prior)
-        for key in ("migration_path", "migration_sha256", "delete_fingerprints", "approved_reviewer", "expires_at"):
+        for key in ("migration_path", "migration_sha256", "delete_fingerprints", "approved_reviewer"):
             self.assertEqual(p["sql"][key], p["previous_sql"][key])
-        self.assertEqual(p["status"], "PROPOSED_NOT_ISSUED_NOT_ACTIVE")
+        self.assertEqual(p["status"], "PROPOSED_NOT_APPROVED_NOT_ACTIVE")
 
 
     def test_format_overlay_changes_only_one_existing_reviewed_hash(self):
@@ -112,4 +112,18 @@ class FieldzillaImportSizeTests(unittest.TestCase):
             self.assertEqual(proposal["baseline"][key], proposal["previous_baseline"][key])
         self.assertEqual(proposal["sql"]["migration_sha256"], proposal["previous_sql"]["migration_sha256"])
         self.assertEqual(proposal["sql"]["delete_fingerprints"], proposal["previous_sql"]["delete_fingerprints"])
+        self.assertFalse(proposal["activation_authorized"])
+
+    def test_expired_review_renewal_preserves_exact_scope(self):
+        proposal = json.loads((ROOT / "operations/fieldzilla-pr712-review-renewal/proposal.json").read_text())
+        for current, previous, expiry_key in (
+            (proposal["baseline"], proposal["previous_baseline"], "expires_after"),
+            (proposal["sql"], proposal["previous_sql"], "expires_at"),
+        ):
+            stable = set(current) - {"issued_at", "authorization_id", expiry_key, "purpose", "required_pr_body_marker"}
+            self.assertEqual({key: current[key] for key in stable}, {key: previous[key] for key in stable})
+            self.assertEqual(previous[expiry_key], "2026-11-11T07:04:04Z")
+            self.assertEqual(current[expiry_key], "2026-11-12T07:04:04Z")
+            self.assertNotEqual(current["authorization_id"], previous["authorization_id"])
+        self.assertEqual(proposal["status"], "PROPOSED_NOT_APPROVED_NOT_ACTIVE")
         self.assertFalse(proposal["activation_authorized"])
