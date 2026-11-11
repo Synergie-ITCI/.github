@@ -348,13 +348,16 @@ def prepare_request(raw, args, environment):
     validate_request(manifest)
     if manifest["expires_at"] != args.expires_at:
         raise ValueError("Manifest and execution expiry differ")
+    print("Image preparation: verifying exact caller and governed checks", flush=True)
     checks = verify_image_context(
         manifest=manifest,
         environment=environment,
         api=github_api,
         central_checkout_sha=args.central_sha,
     )
+    print("Image preparation: verifying immutable QA evidence", flush=True)
     policies = verify_qa_policy_evidence(manifest, checks=checks, api=github_api)
+    print("Image preparation: verifying live review windows", flush=True)
     verify_issued_windows(manifest, api=github_api, activated_policies=policies)
     with args.output.open("xb") as output:
         os.chmod(args.output, 0o600)
