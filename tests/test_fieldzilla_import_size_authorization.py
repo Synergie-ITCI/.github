@@ -6,8 +6,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = "8c3fb8a556aabeea2c562b1921bd5420c3d449a8"
-PROPOSAL = ROOT / "operations/fieldzilla-pr712-rc262-final-review/proposal.json"
+SOURCE = "81011d44e883606b9db16fa8e3556aab9727ea0c"
+PROPOSAL = ROOT / "operations/fieldzilla-pr712-bootstrap-final-review/proposal.json"
 
 
 class FieldzillaImportSizeTests(unittest.TestCase):
@@ -36,8 +36,8 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         self.assertEqual(len(prior_scholarships), 1)
         scholarships[0]["expires_after"] = prior_scholarships[0]["expires_after"]
         self.assertEqual(normalized, prior)
-        self.assertEqual(new[0]["expected_head_sha"], "31ceb2e0e320037e2f9dbc89928b17872d7cb609")
-        self.assertEqual(new[0]["expected_base_sha"], "49cbd740c123d097875b600a7280ecb229b46202")
+        self.assertEqual(new[0]["expected_head_sha"], "38faf43fcac0e8f9e9dedd2cfe2b33900e870efd")
+        self.assertEqual(new[0]["expected_base_sha"], "3b119debc7daf28da3249abb025dbabaf6745f9c")
         self.assertEqual(new[0]["relaxations"], ["changed_file_count", "diff_size"])
         self.assertEqual(new[0]["allowed_effective_additions"], 148858)
         self.assertEqual(new[0]["allowed_changed_files"], 844)
@@ -51,7 +51,7 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         self.assertEqual(changed, {".gitleaksignore"})
         self.assertEqual(
             new[0]["source_overlay"]["paths"][".gitleaksignore"]["candidate_sha256"],
-            "78dff6b487005772e3054e3c348a4cd7eb4ec653ddc948482d38c888dc673827",
+            "41686f777309b582eac62a73b97d681424ce9e40bc4e5893769a22ce1e1d347e",
         )
         self.assertEqual(
             new[0]["source_overlay"]["paths"]["apps/api/tests/architecture/test_mobile_audit_baseline.py"]["candidate_sha256"],
