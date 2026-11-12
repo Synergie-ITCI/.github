@@ -1,58 +1,31 @@
 #!/usr/bin/env python3
-"""Bind one failed FieldZilla rehearsal state to a destroy-only recovery plan."""
+"""Bind the six-role residual rehearsal state to a destroy-only recovery plan."""
 
 import json
 import sys
 
 
 LINEAGE = "d5ba55e1-56eb-a8ce-a60d-ef29aeafe0f2"
-SERIAL = 8
+SERIAL = 13
 SOURCE = "ebb5ef7c3f0b9f174ac1598143fbc72d2bf8cd7a"
 EXPIRY = "2026-11-11T13:20:00Z"
 PARTIAL_COUNTS = {
-    "aws_db_subnet_group.rehearsal": 1,
     "aws_iam_role.application": 1,
     "aws_iam_role.execution": 3,
     "aws_iam_role.flow_logs": 1,
     "aws_iam_role.host": 1,
-    "aws_lb.rehearsal": 1,
-    "aws_lb_target_group.admin": 1,
-    "aws_lb_target_group.api": 1,
-    "aws_s3_bucket.attachments": 1,
-    "aws_security_group.alb": 1,
-    "aws_security_group.database": 1,
-    "aws_security_group.endpoints": 1,
-    "aws_security_group.host": 1,
-    "aws_subnet.rehearsal_a": 1,
-    "aws_subnet.rehearsal_b": 1,
-    "aws_vpc.rehearsal": 1,
-    "aws_vpc_endpoint.services": 13,
 }
 DATA_SOURCES = {
-    "aws_caller_identity.current",
     "aws_iam_policy_document.flow_logs_assume",
     "aws_iam_policy_document.host_assume",
-    "aws_iam_policy_document.rehearsal_kms",
     "aws_iam_policy_document.task_assume",
-    "aws_ssm_parameter.ecs_ami",
-}
-ENDPOINTS = {
-    "ecr.api", "ecr.dkr", "logs", "secretsmanager", "ssm",
-    "ssmmessages", "ec2messages", "ecs", "ecs-agent",
-    "ecs-telemetry", "s3", "sts", "kms",
 }
 EXECUTION_ROLES = {"admin", "api", "migration"}
 TAINTED = {
-    "aws_db_subnet_group.rehearsal": {None},
     "aws_iam_role.application": {None},
     "aws_iam_role.execution": EXECUTION_ROLES,
     "aws_iam_role.flow_logs": {None},
     "aws_iam_role.host": {None},
-    "aws_lb.rehearsal": {None},
-    "aws_lb_target_group.admin": {None},
-    "aws_lb_target_group.api": {None},
-    "aws_s3_bucket.attachments": {None},
-    "aws_vpc_endpoint.services": ENDPOINTS,
 }
 EXPECTED_TAGS = {
     "Application": "fieldzilla",
@@ -88,8 +61,6 @@ def verify(state, source, expiry):
             raise ValueError("Partial state has an unexpected resource address")
         counts[address] = len(instances)
         keys = {item.get("index_key") for item in instances}
-        if address == "aws_vpc_endpoint.services" and keys != ENDPOINTS:
-            raise ValueError("Partial state endpoint inventory changed")
         if address == "aws_iam_role.execution" and keys != EXECUTION_ROLES:
             raise ValueError("Partial state execution-role inventory changed")
         for instance in instances:

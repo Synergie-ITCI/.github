@@ -240,12 +240,19 @@ jobs:
           if [ "${PHASE}" = cleanup-partial ]; then
             aws ecs describe-clusters --clusters fieldzilla-production-rehearsal --output json |
               python3 -c 'import json,sys; d=json.load(sys.stdin); f=d.get("failures") or []; sys.exit(0 if d.get("clusters")==[] and len(f)==1 and f[0].get("arn")=="arn:aws:ecs:ap-south-1:918870682888:cluster/fieldzilla-production-rehearsal" and f[0].get("reason")=="MISSING" else 1)'
+            # The prior approved destroy removed this exact empty bucket. A
+            # NoSuchBucket result is required before the six-role state check.
+            if aws s3api list-object-versions --bucket syn-fz-rehearsal-attachments-918870682888-aps1 --output json > "${RUNNER_TEMP}/rehearsal-bucket.json" 2> "${RUNNER_TEMP}/rehearsal-bucket.err"; then
+              echo "Residual cleanup requires the isolated attachment bucket to be absent" >&2
+              exit 1
+            fi
+            grep -Fq 'NoSuchBucket' "${RUNNER_TEMP}/rehearsal-bucket.err"
           else
             test "$(aws ecs list-services --cluster fieldzilla-production-rehearsal --query 'length(serviceArns)' --output text)" = 0
             test "$(aws ecs list-tasks --cluster fieldzilla-production-rehearsal --query 'length(taskArns)' --output text)" = 0
+            aws s3api list-object-versions --bucket syn-fz-rehearsal-attachments-918870682888-aps1 --output json |
+              python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(1 if d.get("Versions") or d.get("DeleteMarkers") else 0)'
           fi
-          aws s3api list-object-versions --bucket syn-fz-rehearsal-attachments-918870682888-aps1 --output json |
-            python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(1 if d.get("Versions") or d.get("DeleteMarkers") else 0)'
 
       - name: Verify certificate issued for phase two
         if: ${{ inputs.mode != 'probe' && inputs.target == 'production' && inputs.phase == 'phase2' }}
