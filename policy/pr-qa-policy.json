@@ -1200,7 +1200,7 @@
       "minimum_changed_files": 356,
       "purpose": "One-time exact-head promotion of the reviewed Scholarships staging tree to main. This aligns only the file-count and diff-size gates for the existing 356-file, 98393-addition main diff; the separate exact-file Gate D certification, owner technical attestation, all other QA, production controls and deployment approval remain mandatory.",
       "issued_at": "2026-11-12T05:01:28Z",
-      "expires_after": "2026-11-15T05:01:28Z",
+      "expires_after": "2026-11-13T05:01:28Z",
       "authorization_id": "5aadd2fc-d9d6-4d9e-83d1-4a2fe20c7288",
       "required_pr_body_marker": "SCHOLARSHIPS-PR7-MAIN-SIZE-5aadd2fc",
       "relaxations": [

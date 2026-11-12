@@ -34,7 +34,7 @@ class ScholarshipsPr7SizeAuthorizationTests(unittest.TestCase):
         self.assertEqual(entry["relaxations"], ["changed_file_count", "diff_size"])
         issued = datetime.fromisoformat(entry["issued_at"].replace("Z", "+00:00"))
         expires = datetime.fromisoformat(entry["expires_after"].replace("Z", "+00:00"))
-        self.assertEqual(expires - issued, timedelta(hours=72))
+        self.assertEqual(expires - issued, timedelta(hours=24))
 
         ctx = PRContext(repo=ROOT, config={}, policy=policy, changed_files=[],
                         head_ref="staging", base_ref="main",
