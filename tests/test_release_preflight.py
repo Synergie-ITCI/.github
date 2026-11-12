@@ -53,6 +53,8 @@ class ReleasePreflightTests(unittest.TestCase):
                         patch.object(preflight.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as command:
                     self.assertTrue(preflight.run_pr_qa(ROOT, ROOT, base, "c" * 40, verified_lineage=lineage))
                 arguments = command.call_args.args[0]
+                position = arguments.index("--command-timeout-minutes")
+                self.assertEqual(arguments[position + 1], "45")
                 if expected_profile:
                     position = arguments.index("--repository-profile")
                     self.assertEqual(arguments[position + 1], "framework")
