@@ -47,18 +47,33 @@ image-only production publisher, scoped identities/resource preparation, protect
 main caller, and immutable publication remain prerequisites. Nothing here has
 been dispatched, granted, published or deployed.
 
-Rehearsal must use an authorized isolated AWS target and synthetic data, not the
-production database, staging, or Docker as a substitute. No such resource plan
-or cost commitment is authorized. Production existing roles Application and
-TaskExecution are confirmed; AdminExecution and MigrationExecution returned
-NoSuchEntity. Reuse the existing API role rather than proposing duplicate grants.
+The default rehearsal uses an authorized isolated AWS target and synthetic data,
+never staging or Docker as a substitute. For this FieldZilla release only, the
+owner may instead authorize closed-access acceptance on the already provisioned
+production target during a maintenance window. That exception must name the
+exact candidate, published image digests, production snapshot, migration identity,
+writer fence, acceptance evidence and recovery procedure. Public production
+routing must remain a fixed 503 while the migration and authenticated acceptance
+run. Acceptance must prove tenant isolation, historical-data access, attachments,
+duplicate-safe sync, existing 1.0.7 pending-work continuity and recovery that
+preserves a write accepted after migration. The separate Gate C promotion,
+one-use production execution approval and Gate D cutover approval still apply.
+The exception is not granted by this documentation or by a maintenance notice;
+the owner must approve its exact production-data risk before execution. No
+staging identity, service, database, secret or route may be changed.
+
+Existing production roles Application and TaskExecution are confirmed;
+AdminExecution and MigrationExecution returned NoSuchEntity. Reuse the existing
+API role rather than proposing duplicate grants.
 
 Bootstrap dependency: current main has only hosting and a NO_DEPLOY gate caller.
 The small new manual application caller needs its own exact preparation merge;
 it must never target staging or gain automatic push deployment. Such a main
 change also changes712's base: prepare the final rebind after that reference is
 known, and do not stretch the currently issued c92/c8 authorization to it.
-Do not silently merge application code before the required rehearsal/Gate C.
+Do not silently merge application code before Gate C. The isolated rehearsal
+normally precedes Gate C; the separately approved closed-access production
+acceptance follows Gate C and must pass before Gate D.
 
 Cutover remains in the existing hosting/IaC approval lane, scoped to production
 host routing only. Do not add listener-writing permission to this executor.
