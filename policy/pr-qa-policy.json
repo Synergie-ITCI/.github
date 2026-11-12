@@ -1399,17 +1399,17 @@
       "pr_number": 712,
       "head_ref": "release/fieldzilla-production-application",
       "base_ref": "main",
-      "expected_head_sha": "07c42b603d9f994895872e7ca92d8600d4674fbb",
+      "expected_head_sha": "4871f7e5c947cdf84feaae025b38182a0886b5c9",
       "expected_base_sha": "28cb6e7c8941e4c93365270b0dc1821ed8978b4f",
-      "issued_at": "2026-11-12T09:35:46Z",
+      "issued_at": "2026-11-12T10:41:02Z",
       "enabled": true,
-      "authorization_id": "58d7c325-77fd-4227-81f7-64ad8281be3a",
+      "authorization_id": "63272279-4eab-4436-9ce2-cdd406831b0a",
       "expires_after": "2026-11-13T05:05:32Z",
       "allowed_effective_additions": 148858,
       "allowed_changed_files": 844,
       "minimum_changed_files": 844,
-      "required_pr_body_marker": "FIELDZILLA-PR712-RC255-BASE-58d7c325-77fd-4227-81f7-64ad8281be3a",
-      "purpose": "Bind PR712 exact linear head/base after approved FieldZilla-only rc255 image caller merge #724. Exact-head QA run 43196813516 measured 844 changed files after two prior overlay paths became base-identical; both the authorized minimum and maximum are 844. Production application source, mobile audit baseline, SQL, source overlay, reviewer, effective-addition cap, expiry and scanner guards remain fixed. This grants no image publication, AWS apply, Gate C/D or production deployment authorization.",
+      "required_pr_body_marker": "FIELDZILLA-PR712-REBASE-CHECKSUMS-63272279-4eab-4436-9ce2-cdd406831b0a",
+      "purpose": "Bind PR712 exact head after owner-approved addition of only two commit-bound Gitleaks fingerprints for unchanged CocoaPods checksums at Podfile.lock lines 2265 and 2336. The file's SHA-256 and source-overlay hash are exact; the branch base, 844-file bounds, effective-addition cap, application bytes, SQL, reviewer and expiry remain fixed. No path-wide or rule-wide scanner exception, image publication, AWS apply, Gate C/D or production deployment is authorized.",
       "relaxations": [
         "changed_file_count",
         "diff_size"
@@ -1484,7 +1484,7 @@
           ".gitleaksignore": {
             "source": "present",
             "candidate": "reviewed_sha256",
-            "candidate_sha256": "df13693a489e9d5b778571a8973e89633acc79029f6154ea30f785afa6a98c77"
+            "candidate_sha256": "a89dc590daa191a5d34c36f0701628e01695fe4c37ee35c0f0eeebc8fa572b7f"
           },
           "apps/api/tests/architecture/test_mobile_backend_integration_contracts.py": {
             "source": "present",
