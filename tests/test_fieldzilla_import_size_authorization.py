@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = "63af59f396d4e99e1680f5928b3943d165141e14"
-PROPOSAL = ROOT / "operations/fieldzilla-pr712-rc255-base-review/proposal.json"
+PROPOSAL = ROOT / "operations/fieldzilla-pr712-gitleaks-rebind/proposal.json"
 
 
 class FieldzillaImportSizeTests(unittest.TestCase):
@@ -19,18 +19,7 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         proposed = json.loads(PROPOSAL.read_text())
         rows = current["one_time_baseline_alignments"]
         new = [r for r in rows if r.get("repository_id") == 1315697868 and r.get("pr_number") == 712]
-        expected = copy.deepcopy(proposed["baseline"])
-        expected["allowed_changed_files"] = 844
-        expected["minimum_changed_files"] = 844
-        expected["purpose"] = (
-            "Bind PR712 exact linear head/base after approved FieldZilla-only rc255 image caller merge #724. "
-            "Exact-head QA run 43196813516 measured 844 changed files after two prior overlay paths became "
-            "base-identical; both the authorized minimum and maximum are 844. Production application source, "
-            "mobile audit baseline, SQL, source overlay, reviewer, effective-addition cap, expiry and scanner "
-            "guards remain fixed. This grants no image publication, AWS apply, Gate C/D or production deployment "
-            "authorization."
-        )
-        self.assertEqual(new, [expected])
+        self.assertEqual(new, [proposed["baseline"]])
         normalized = copy.deepcopy(current)
         i = normalized["one_time_baseline_alignments"].index(new[0])
         normalized["one_time_baseline_alignments"][i] = proposed["previous_baseline"]
@@ -47,7 +36,7 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         self.assertEqual(len(prior_scholarships), 1)
         scholarships[0]["expires_after"] = prior_scholarships[0]["expires_after"]
         self.assertEqual(normalized, prior)
-        self.assertEqual(new[0]["expected_head_sha"], "07c42b603d9f994895872e7ca92d8600d4674fbb")
+        self.assertEqual(new[0]["expected_head_sha"], "4871f7e5c947cdf84feaae025b38182a0886b5c9")
         self.assertEqual(new[0]["expected_base_sha"], "28cb6e7c8941e4c93365270b0dc1821ed8978b4f")
         self.assertEqual(new[0]["relaxations"], ["changed_file_count", "diff_size"])
         self.assertEqual(new[0]["allowed_effective_additions"], 148858)
@@ -59,7 +48,11 @@ class FieldzillaImportSizeTests(unittest.TestCase):
             path for path, value in new[0]["source_overlay"]["paths"].items()
             if value != proposed["previous_baseline"]["source_overlay"]["paths"][path]
         }
-        self.assertEqual(changed, {"apps/api/tests/architecture/test_mobile_audit_baseline.py"})
+        self.assertEqual(changed, {"apps/api/tests/architecture/test_mobile_audit_baseline.py", ".gitleaksignore"})
+        self.assertEqual(
+            new[0]["source_overlay"]["paths"][".gitleaksignore"]["candidate_sha256"],
+            "a89dc590daa191a5d34c36f0701628e01695fe4c37ee35c0f0eeebc8fa572b7f",
+        )
         self.assertEqual(
             new[0]["source_overlay"]["paths"]["apps/api/tests/architecture/test_mobile_audit_baseline.py"]["candidate_sha256"],
             "3e6445f4c5a9f3a5d44245b15fde7b762caab8bd600be645765f03318fd2ef4f",
