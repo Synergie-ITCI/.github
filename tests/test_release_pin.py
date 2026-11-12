@@ -28,7 +28,7 @@ from release_pin import (
 
 class ReleaseReadRetryTests(unittest.TestCase):
     def test_release_read_retries_at_most_three_times(self):
-        failure = types.SimpleNamespace(returncode=1, stdout="", stderr="private response body")
+        failure = types.SimpleNamespace(returncode=1, stdout="", stderr="HTTP 502 private response body")
         success = types.SimpleNamespace(returncode=0, stdout='{"ok":true}', stderr="")
         with patch("release_pin.subprocess.run", side_effect=[failure, success]) as run, patch("release_pin.time.sleep"):
             self.assertEqual(github_json("commits/" + "a" * 40 + "/check-runs"), {"ok": True})
@@ -37,6 +37,14 @@ class ReleaseReadRetryTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Live release verification unavailable"):
                 github_json("commits/" + "a" * 40 + "/check-runs")
             self.assertEqual(run.call_count, 3)
+
+    def test_nontransient_release_read_is_not_retried(self):
+        failure = types.SimpleNamespace(returncode=1, stdout="", stderr="HTTP 403 private response body")
+        with patch("release_pin.subprocess.run", return_value=failure) as run, patch("release_pin.time.sleep") as sleep:
+            with self.assertRaisesRegex(ValueError, "Live release verification unavailable \\(unclassified\\)"):
+                github_json("commits/" + "a" * 40 + "/check-runs")
+            self.assertEqual(run.call_count, 1)
+            sleep.assert_not_called()
 
 
 class ReleasePinTests(unittest.TestCase):

@@ -18,7 +18,7 @@ from pr_qa import parse_workflow_yaml
 
 class RunnerTests(unittest.TestCase):
     def test_github_read_failure_names_only_bounded_path(self):
-        failure = SimpleNamespace(returncode=1, stdout=b"", stderr=b"private response body")
+        failure = SimpleNamespace(returncode=1, stdout=b"", stderr=b"HTTP 502 private response body")
         output = io.StringIO()
         with patch("application_runner.subprocess.run", return_value=failure) as run, patch("application_runner.time.sleep"), redirect_stderr(output):
             with self.assertRaisesRegex(RuntimeError, "GitHub release evidence unavailable"):
@@ -28,7 +28,7 @@ class RunnerTests(unittest.TestCase):
         self.assertNotIn("private response body", output.getvalue())
 
     def test_github_read_recovers_but_write_is_never_replayed(self):
-        failure = SimpleNamespace(returncode=1, stdout=b"", stderr=b"private response body")
+        failure = SimpleNamespace(returncode=1, stdout=b"", stderr=b"HTTP 502 private response body")
         success = SimpleNamespace(returncode=0, stdout=b'{"ok":true}', stderr=b"")
         path = "repos/Synergie-ITCI/.github/rulesets/25061784"
         with patch("application_runner.subprocess.run", side_effect=[failure, success]) as run, patch("application_runner.time.sleep"):
@@ -38,6 +38,14 @@ class RunnerTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "GitHub release evidence unavailable"):
                 github_api(path, method="POST", payload={"marker": "exact"})
             self.assertEqual(run.call_count, 1)
+
+    def test_github_nontransient_read_is_not_retried(self):
+        failure = SimpleNamespace(returncode=1, stdout=b"", stderr=b"HTTP 403 private response body")
+        with patch("application_runner.subprocess.run", return_value=failure) as run, patch("application_runner.time.sleep") as sleep:
+            with self.assertRaisesRegex(RuntimeError, "GitHub release evidence unavailable"):
+                github_api("repos/Synergie-ITCI/.github/rulesets/25061784")
+            self.assertEqual(run.call_count, 1)
+            sleep.assert_not_called()
 
     def setUp(self):
         self.calls = []
