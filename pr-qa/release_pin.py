@@ -9,6 +9,7 @@ import json
 import os
 import re
 import subprocess
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -199,10 +200,17 @@ def approved_wildcard_policy(release: str, entry: dict, manifest: dict | None) -
 
 
 def github_json(path: str) -> dict:
-    result = subprocess.run(
-        ["gh", "api", f"repos/{REPOSITORY}/{path}"],
-        capture_output=True, text=True, check=False,
-    )
+    # These are read-only release/provenance checks. Keep all identity
+    # comparisons, but tolerate a short-lived GitHub API read failure.
+    for attempt in range(3):
+        result = subprocess.run(
+            ["gh", "api", f"repos/{REPOSITORY}/{path}"],
+            capture_output=True, text=True, check=False,
+        )
+        if result.returncode == 0:
+            break
+        if attempt < 2:
+            time.sleep(attempt + 1)
     if result.returncode:
         raise ValueError("Live release verification unavailable")
     return json.loads(result.stdout)

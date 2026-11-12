@@ -12,6 +12,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from application_executor import Aws, Executor
@@ -32,18 +33,26 @@ def github_api(path, method="GET", payload=None):
     command = ["gh", "api", path, "--method", method]
     if payload is not None:
         command.extend(["--input", "-"])
-    result = subprocess.run(
-        command,
-        input=None if payload is None else json.dumps(payload).encode(),
-        capture_output=True,
-        timeout=60,
-        check=False,
-    )
+    # GitHub occasionally fails an individual read in a long exact-evidence
+    # chain. Retry reads only; a write must never be replayed automatically.
+    attempts = 3 if method == "GET" and payload is None else 1
+    for attempt in range(attempts):
+        result = subprocess.run(
+            command,
+            input=None if payload is None else json.dumps(payload).encode(),
+            capture_output=True,
+            timeout=60,
+            check=False,
+        )
+        if result.returncode == 0:
+            break
+        if attempt + 1 < attempts:
+            time.sleep(attempt + 1)
     if result.returncode:
         # Paths are limited to the two release repositories above. Emit only
         # the failed API path, never response bodies or redirected artifact URLs.
         print(f"GitHub release evidence read failed at {path}", file=sys.stderr)
-        raise RuntimeError("GitHub release evidence unavailable; no automatic retry")
+        raise RuntimeError("GitHub release evidence unavailable after bounded read attempts")
     if path.endswith(("/zip", "/logs")):
         return result.stdout
     return json.loads(result.stdout)
