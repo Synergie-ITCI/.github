@@ -170,6 +170,19 @@ class PlanSafetyTest(unittest.TestCase):
             path = Path(directory) / "plan.json"
             path.write_text(json.dumps({"resource_changes": changes}))
             authorize.check_rehearsal_plan(path, "cleanup-partial", partial_state.SOURCE, partial_state.EXPIRY)
+            untagged = json.loads(json.dumps(changes))
+            bucket = next(change for change in untagged if change["address"] == "aws_s3_bucket.attachments")
+            bucket["change"]["before"] = {
+                "id": "syn-fz-rehearsal-attachments-918870682888-aps1",
+                "bucket": "syn-fz-rehearsal-attachments-918870682888-aps1",
+                "tags": {}, "tags_all": {},
+            }
+            path.write_text(json.dumps({"resource_changes": untagged}))
+            authorize.check_rehearsal_plan(path, "cleanup-partial", partial_state.SOURCE, partial_state.EXPIRY)
+            bucket["change"]["before"]["id"] = "production-uploads"
+            path.write_text(json.dumps({"resource_changes": untagged}))
+            with self.assertRaises(SystemExit):
+                authorize.check_rehearsal_plan(path, "cleanup-partial", partial_state.SOURCE, partial_state.EXPIRY)
             for altered in (changes[:-1], changes + [self.change("aws_db_instance.production", actions=["delete"])],
                             [{**changes[0], "change": {**changes[0]["change"], "actions": ["update"]}}, *changes[1:]]):
                 with self.assertRaises(SystemExit):
