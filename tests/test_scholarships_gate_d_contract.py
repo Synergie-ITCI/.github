@@ -20,6 +20,19 @@ OWNER = "SaurabhVermaIN"
 
 
 class ScholarshipsGateDContractTests(unittest.TestCase):
+    def test_main_promotion_manifest_preserves_reviewed_privileged_bytes(self):
+        main = json.loads(contract.MAIN_PROMOTION_MANIFEST.read_text())
+        staging = json.loads(contract.PROMOTION_MANIFEST.read_text())
+        self.assertEqual(main["repository"], "Synergie-ITCI/scholarships")
+        self.assertEqual(main["pr_number"], 7)
+        self.assertEqual(main["head_sha"], "1379352d5ef26cc7e867e52185315083ec63eebe")
+        self.assertEqual(main["removed_paths"], [])
+        self.assertEqual(len(main["files"]), 356)
+        shared = set(main["files"]) & set(staging["files"])
+        self.assertEqual(len(shared), 138)
+        self.assertTrue(all(main["files"][path] == staging["files"][path]
+                            for path in shared))
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="scholarships-gate-d-")
         self.addCleanup(self.temp.cleanup)
@@ -154,6 +167,35 @@ class ScholarshipsGateDContractTests(unittest.TestCase):
             (self.root / "deploy/production-release.sh").write_text("echo changed\n")
             self.assertIn("certified file changed", " ".join(
                 self.check(pr_number=13, comments=[comment])))
+
+    def test_main_promotion_requires_separate_exact_review_and_no_removed_paths(self):
+        promotion = self.root / "main-promotion-manifest.json"
+        data = json.loads(self.manifest.read_text())
+        data["pr_number"] = 7
+        data["removed_paths"] = []
+        promotion.write_text(json.dumps(data))
+        digest = hashlib.sha256(promotion.read_bytes()).hexdigest()
+        comment = dict(self.comments[0], body="\n".join((
+            f"SCHOLARSHIPS_GATE_D_SECURITY_CERTIFIED={HEAD}",
+            f"CERTIFIED_MANIFEST_SHA256={digest}",
+            "REVIEWED=IAM,SSM,APPROVAL,ARTIFACT,HOST,RUNTIME,BACKUP,RESTORE,PRIVATE_DOCUMENTS,ROLLBACK",
+            "OWNER_ACCEPTS_TECHNICAL_REVIEW_RESPONSIBILITY=YES",
+        )))
+        with patch.object(contract, "MAIN_PROMOTION_MANIFEST", promotion):
+            self.assertEqual(self.check(pr_number=7, comments=[comment]), [])
+            self.assertIn("technical certification", " ".join(self.check(pr_number=7)))
+            self.assertIn("exact PR head changed", " ".join(
+                self.check(pr_number=7, head="b" * 40, comments=[comment])))
+            self.assertIn("changed-file scope changed", " ".join(
+                self.check(pr_number=7, changed=list(self.files)[:-1], comments=[comment])))
+            data.pop("removed_paths")
+            promotion.write_text(json.dumps(data))
+            self.assertIn("removed-file inventory is absent", " ".join(
+                self.check(pr_number=7, comments=[comment])))
+            data["removed_paths"] = ["assets/uploads/legacy-public-file"]
+            promotion.write_text(json.dumps(data))
+            self.assertIn("removed-file inventory is absent", " ".join(
+                self.check(pr_number=7, comments=[comment])))
 
     def test_combined_promotion_rejects_recreated_removed_file(self):
         promotion = self.root / "promotion-manifest.json"

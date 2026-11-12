@@ -1188,6 +1188,28 @@
   "one_time_baseline_alignments": [
     {
       "enabled": true,
+      "repository": "Synergie-ITCI/scholarships",
+      "repository_id": 1132519991,
+      "pr_number": 7,
+      "expected_head_sha": "1379352d5ef26cc7e867e52185315083ec63eebe",
+      "expected_base_sha": "8dfe82702349202d2eef0f16e12e6484b488cc87",
+      "head_ref": "staging",
+      "base_ref": "main",
+      "allowed_effective_additions": 98393,
+      "allowed_changed_files": 356,
+      "minimum_changed_files": 356,
+      "purpose": "One-time exact-head promotion of the reviewed Scholarships staging tree to main. This aligns only the file-count and diff-size gates for the existing 356-file, 98393-addition main diff; the separate exact-file Gate D certification, owner technical attestation, all other QA, production controls and deployment approval remain mandatory.",
+      "issued_at": "2026-11-12T05:01:28Z",
+      "expires_after": "2026-11-15T05:01:28Z",
+      "authorization_id": "5aadd2fc-d9d6-4d9e-83d1-4a2fe20c7288",
+      "required_pr_body_marker": "SCHOLARSHIPS-PR7-MAIN-SIZE-5aadd2fc",
+      "relaxations": [
+        "changed_file_count",
+        "diff_size"
+      ]
+    },
+    {
+      "enabled": true,
       "repository": "Synergie-ITCI/datamatics",
       "repository_id": 1132519015,
       "pr_number": 17,

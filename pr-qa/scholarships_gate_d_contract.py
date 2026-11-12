@@ -14,6 +14,7 @@ from typing import Any
 
 MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr15-gate-d.json"
 PROMOTION_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr13-gate-d.json"
+MAIN_PROMOTION_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr7-gate-d.json"
 HOST = "mi-04a256fa549e372a8"
 ACCOUNT = "918870682888"
 RELEASE_DOCUMENT = "Scholarships-GateD-Production-Command-v1"
@@ -148,17 +149,18 @@ def _owner_certified(comments: list[dict[str, Any]], owner: str, head: str,
 def verify(repo: Path, changed: list[str], head: str, pr_number: int,
            comments: list[dict[str, Any]], controlled_workflow: bool) -> list[str]:
     errors: list[str] = []
-    manifest_path = PROMOTION_MANIFEST if pr_number == 13 else MANIFEST
+    manifest_path = {7: MAIN_PROMOTION_MANIFEST, 13: PROMOTION_MANIFEST}.get(pr_number, MANIFEST)
     manifest = _read_json(manifest_path)
     files = manifest["files"]
-    if manifest.get("repository") != "Synergie-ITCI/scholarships" or manifest.get("pr_number") != pr_number or pr_number not in (13, 15):
+    if manifest.get("repository") != "Synergie-ITCI/scholarships" or manifest.get("pr_number") != pr_number or pr_number not in (7, 13, 15):
         errors.append("certified repository or PR identity changed")
     if head != manifest["head_sha"]:
         errors.append("certified exact PR head changed")
     if set(changed) != set(files):
         errors.append("certified changed-file scope changed")
     removed = manifest.get("removed_paths", [])
-    if not isinstance(removed, list) or (pr_number == 13 and not removed):
+    if (not isinstance(removed, list) or (pr_number in (7, 13) and "removed_paths" not in manifest)
+            or (pr_number == 13 and not removed) or (pr_number == 7 and removed)):
         errors.append("certified removed-file inventory is absent")
         removed = []
     for rel in removed:
