@@ -19,6 +19,7 @@ spec = importlib.util.spec_from_file_location("hosting_authorize", Path(__file__
 authorize = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(authorize)
 import verify_partial_state as partial_state
+import verify_interrupted_state as interrupted_state
 
 
 class PlanSafetyTest(unittest.TestCase):
@@ -270,6 +271,34 @@ class PlanSafetyTest(unittest.TestCase):
             path.write_text(json.dumps({"resource_changes": changes}))
             with self.assertRaises(SystemExit):
                 authorize.check_rehearsal_plan(path, "cleanup-partial", "a" * 40, partial_state.EXPIRY)
+
+    def test_interrupted_cleanup_is_bound_to_full_inventory_and_deletes_only(self):
+        changes = []
+        for base, count in interrupted_state.COUNTS.items():
+            for index in range(count):
+                address = f'{base}["{index}"]' if count > 1 else base
+                changes.append(self.change(address, base.split(".")[0], actions=["delete"], after={}))
+                changes[-1]["change"]["before"] = {"tags_all": interrupted_state.TAGS}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "plan.json"
+            def check(rows, source=interrupted_state.SOURCE):
+                path.write_text(json.dumps({"resource_changes": rows}))
+                with patch.object(authorize, "identity_digest", return_value=interrupted_state.ID_SHA256):
+                    authorize.check_rehearsal_plan(path, "cleanup-interrupted", source, interrupted_state.EXPIRY)
+            check(changes)
+            path.write_text(json.dumps({"resource_changes": changes}))
+            with self.assertRaises(SystemExit):
+                authorize.check_rehearsal_plan(path, "cleanup-interrupted", interrupted_state.SOURCE, interrupted_state.EXPIRY)
+            for rows in (
+                changes[:-1],
+                changes + [self.change("aws_db_instance.production", actions=["delete"])],
+                [{**changes[0], "change": {**changes[0]["change"], "actions": ["update"]}}, *changes[1:]],
+                [{**changes[0], "change": {**changes[0]["change"], "before": {"tags_all": {}}}}, *changes[1:]],
+            ):
+                with self.assertRaises(SystemExit):
+                    check(rows)
+            with self.assertRaises(SystemExit):
+                check(changes, "a" * 40)
 
     def test_partial_state_verifier_rejects_drift(self):
         resources = []

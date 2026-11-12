@@ -101,7 +101,7 @@ jobs:
           [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
           [[ "${CALLER_SHA}" =~ ^[0-9a-f]{40}$ ]]
           [[ "${MODE}" =~ ^(probe|plan|apply)$ ]]
-          [[ "${PHASE}" =~ ^(phase1|phase2|production-bootstrap|production-network-repair|production-routing|cleanup-protection|cleanup-destroy|cleanup-partial)$ ]]
+          [[ "${PHASE}" =~ ^(phase1|phase2|production-bootstrap|production-network-repair|production-routing|cleanup-protection|cleanup-destroy|cleanup-partial|cleanup-interrupted)$ ]]
           [[ "${TARGET}" =~ ^(production|rehearsal)$ ]]
           if [ "${TARGET}" = rehearsal ]; then
             [ "${PHASE}" != phase2 ]
@@ -237,16 +237,21 @@ jobs:
         if: ${{ inputs.mode != 'probe' && inputs.target == 'rehearsal' && inputs.phase != 'phase1' }}
         run: |
           set -euo pipefail
-          if [ "${PHASE}" = cleanup-partial ]; then
+          if [ "${PHASE}" = cleanup-partial ] || [ "${PHASE}" = cleanup-interrupted ]; then
             aws ecs describe-clusters --clusters fieldzilla-production-rehearsal --output json |
               python3 -c 'import json,sys; d=json.load(sys.stdin); f=d.get("failures") or []; sys.exit(0 if d.get("clusters")==[] and len(f)==1 and f[0].get("arn")=="arn:aws:ecs:ap-south-1:918870682888:cluster/fieldzilla-production-rehearsal" and f[0].get("reason")=="MISSING" else 1)'
-            # The prior approved destroy removed this exact empty bucket. A
-            # NoSuchBucket result is required before the six-role state check.
-            if aws s3api list-object-versions --bucket syn-fz-rehearsal-attachments-918870682888-aps1 --output json > "${RUNNER_TEMP}/rehearsal-bucket.json" 2> "${RUNNER_TEMP}/rehearsal-bucket.err"; then
-              echo "Residual cleanup requires the isolated attachment bucket to be absent" >&2
-              exit 1
+            if [ "${PHASE}" = cleanup-partial ]; then
+              # The earlier six-role residual state has no bucket.
+              if aws s3api list-object-versions --bucket syn-fz-rehearsal-attachments-918870682888-aps1 --output json > "${RUNNER_TEMP}/rehearsal-bucket.json" 2> "${RUNNER_TEMP}/rehearsal-bucket.err"; then
+                echo "Residual cleanup requires the isolated attachment bucket to be absent" >&2
+                exit 1
+              fi
+              grep -Fq 'NoSuchBucket' "${RUNNER_TEMP}/rehearsal-bucket.err"
+            else
+              # The interrupted serial-29 state owns this bucket; it must be empty.
+              aws s3api list-object-versions --bucket syn-fz-rehearsal-attachments-918870682888-aps1 --output json |
+                python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(1 if d.get("Versions") or d.get("DeleteMarkers") else 0)'
             fi
-            grep -Fq 'NoSuchBucket' "${RUNNER_TEMP}/rehearsal-bucket.err"
           else
             test "$(aws ecs list-services --cluster fieldzilla-production-rehearsal --query 'length(serviceArns)' --output text)" = 0
             test "$(aws ecs list-tasks --cluster fieldzilla-production-rehearsal --query 'length(taskArns)' --output text)" = 0
@@ -300,6 +305,11 @@ jobs:
           if [ "${TARGET}" = rehearsal ] && [ "${PHASE}" = cleanup-partial ]; then
             tofu -chdir="${ROOT}" state pull |
               python3 .central-framework/actions/fieldzilla-production-hosting/verify_partial_state.py "${SOURCE_SHA}" "${RESOURCE_EXPIRES_AT}"
+          elif [ "${TARGET}" = rehearsal ] && [ "${PHASE}" = cleanup-interrupted ]; then
+            state_version="$(aws s3api head-object --bucket "${STATE_BUCKET}" --key "${STATE_KEY}" --query VersionId --output text)"
+            test "${state_version}" = nBarifpRPSS8L8B1sm5wVXIihLhhLneD
+            tofu -chdir="${ROOT}" state pull |
+              python3 .central-framework/actions/fieldzilla-production-hosting/verify_interrupted_state.py "${SOURCE_SHA}" "${RESOURCE_EXPIRES_AT}"
           elif [ "${TARGET}" = rehearsal ] && [ "${PHASE}" != phase1 ]; then
             tofu -chdir="${ROOT}" output -json target |
               python3 -c 'import json,os,sys; d=json.load(sys.stdin); sys.exit(0 if d["source_sha"] == os.environ["SOURCE_SHA"] and d["expires_at"] == os.environ["RESOURCE_EXPIRES_AT"] else 1)'
@@ -320,7 +330,7 @@ jobs:
             resource_expiry="${EXPIRES_AT}"
             if [ "${PHASE}" != phase1 ]; then cleanup=true; fi
             if [ "${PHASE}" != phase1 ]; then resource_expiry="${RESOURCE_EXPIRES_AT}"; fi
-            if [ "${PHASE}" = cleanup-destroy ] || [ "${PHASE}" = cleanup-partial ]; then destroy=(-destroy); fi
+            if [ "${PHASE}" = cleanup-destroy ] || [ "${PHASE}" = cleanup-partial ] || [ "${PHASE}" = cleanup-interrupted ]; then destroy=(-destroy); fi
             tofu -chdir="${ROOT}" plan -input=false -lock=true "${destroy[@]}" \
               -var="source_sha=${SOURCE_SHA}" -var="expires_at=${resource_expiry}" \
               -var="cleanup_requested=${cleanup}" -out="${RUNNER_TEMP}/plan/hosting.tfplan"
@@ -401,3 +411,34 @@ jobs:
         run: |
           set -euo pipefail
           tofu -chdir="${ROOT}" apply -input=false -lock=true "${RUNNER_TEMP}/approved/hosting.tfplan"
+
+      - name: Verify interrupted rehearsal cleanup result
+        if: ${{ inputs.mode == 'apply' && inputs.target == 'rehearsal' && inputs.phase == 'cleanup-interrupted' }}
+        run: |
+          set -euo pipefail
+          tofu -chdir="${ROOT}" state pull |
+            python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(1 if d.get("lineage")!="d5ba55e1-56eb-a8ce-a60d-ef29aeafe0f2" or d.get("outputs") or any(r.get("mode")=="managed" and r.get("instances") for r in d.get("resources",[])) else 0)'
+          aws ecs describe-clusters --clusters fieldzilla-production-rehearsal --output json |
+            python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(1 if d.get("clusters") or len(d.get("failures") or [])!=1 or d["failures"][0].get("reason")!="MISSING" else 0)'
+          if aws s3api head-bucket --bucket syn-fz-rehearsal-attachments-918870682888-aps1 2> "${RUNNER_TEMP}/rehearsal-bucket.err"; then
+            echo 'Rehearsal attachment bucket remains after cleanup' >&2
+            exit 1
+          fi
+          grep -Fq '404' "${RUNNER_TEMP}/rehearsal-bucket.err"
+          if aws ec2 describe-vpcs --vpc-ids vpc-0a5724c52f47fee61 > /dev/null 2> "${RUNNER_TEMP}/rehearsal-vpc.err"; then
+            echo 'Rehearsal VPC remains after cleanup' >&2
+            exit 1
+          fi
+          grep -Fq 'InvalidVpcID.NotFound' "${RUNNER_TEMP}/rehearsal-vpc.err"
+          if aws elbv2 describe-load-balancers --load-balancer-arns arn:aws:elasticloadbalancing:ap-south-1:918870682888:loadbalancer/app/fieldzilla-production-rehearsal/8bc1fd46612a0893 > /dev/null 2> "${RUNNER_TEMP}/rehearsal-alb.err"; then
+            echo 'Rehearsal load balancer remains after cleanup' >&2
+            exit 1
+          fi
+          grep -Fq 'LoadBalancerNotFound' "${RUNNER_TEMP}/rehearsal-alb.err"
+          for role in SynergieFieldzillaProductionRehearsalApplication SynergieFieldzillaProductionRehearsalFlowLogs SynergieFieldzillaProductionRehearsalHost; do
+            if aws iam get-role --role-name "${role}" > /dev/null 2> "${RUNNER_TEMP}/rehearsal-role.err"; then
+              echo "Rehearsal role remains after cleanup: ${role}" >&2
+              exit 1
+            fi
+            grep -Fq 'NoSuchEntity' "${RUNNER_TEMP}/rehearsal-role.err"
+          done
