@@ -1,4 +1,4 @@
-"""One reviewed Scholarships Gate D release contract for an exact PR head.
+"""Reviewed Scholarships Gate D release contracts for exact PR heads.
 
 This does not approve deployment. Any changed file, missing owner-led
 technical certification, or weakened execution boundary invalidates certification.
@@ -13,6 +13,7 @@ from typing import Any
 
 
 MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr15-gate-d.json"
+PROMOTION_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr13-gate-d.json"
 HOST = "mi-04a256fa549e372a8"
 ACCOUNT = "918870682888"
 RELEASE_DOCUMENT = "Scholarships-GateD-Production-Command-v1"
@@ -147,14 +148,24 @@ def _owner_certified(comments: list[dict[str, Any]], owner: str, head: str,
 def verify(repo: Path, changed: list[str], head: str, pr_number: int,
            comments: list[dict[str, Any]], controlled_workflow: bool) -> list[str]:
     errors: list[str] = []
-    manifest = _read_json(MANIFEST)
+    manifest_path = PROMOTION_MANIFEST if pr_number == 13 else MANIFEST
+    manifest = _read_json(manifest_path)
     files = manifest["files"]
-    if manifest.get("repository") != "Synergie-ITCI/scholarships" or manifest.get("pr_number") != pr_number or pr_number != 15:
+    if manifest.get("repository") != "Synergie-ITCI/scholarships" or manifest.get("pr_number") != pr_number or pr_number not in (13, 15):
         errors.append("certified repository or PR identity changed")
     if head != manifest["head_sha"]:
         errors.append("certified exact PR head changed")
     if set(changed) != set(files):
         errors.append("certified changed-file scope changed")
+    removed = manifest.get("removed_paths", [])
+    if not isinstance(removed, list) or (pr_number == 13 and not removed):
+        errors.append("certified removed-file inventory is absent")
+        removed = []
+    for rel in removed:
+        if (not isinstance(rel, str) or Path(rel).is_absolute()
+                or ".." in Path(rel).parts or rel in files or (repo / rel).exists()
+                or (repo / rel).is_symlink()):
+            errors.append(f"certified removed file changed: {rel}")
     for rel, digest in files.items():
         path = repo / rel
         if (not path.is_file() or path.is_symlink() or path.stat().st_size > 1_000_000
@@ -163,7 +174,7 @@ def verify(repo: Path, changed: list[str], head: str, pr_number: int,
     if errors:
         return errors
     if not _owner_certified(comments, manifest["technical_certification_owner"], head,
-                            hashlib.sha256(MANIFEST.read_bytes()).hexdigest()):
+                            hashlib.sha256(manifest_path.read_bytes()).hexdigest()):
         errors.append("owner-led technical certification of exact PR head is absent")
     if not controlled_workflow:
         errors.append("approved controlled Gate D workflow shape is absent")

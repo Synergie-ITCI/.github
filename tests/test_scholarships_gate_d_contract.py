@@ -131,6 +131,48 @@ class ScholarshipsGateDContractTests(unittest.TestCase):
     def test_positive_exact_head_reviewed_contract(self):
         self.assertEqual(self.check(), [])
 
+    def test_combined_promotion_requires_its_own_exact_certification(self):
+        promotion = self.root / "promotion-manifest.json"
+        data = json.loads(self.manifest.read_text())
+        data["pr_number"] = 13
+        data["removed_paths"] = ["assets/uploads/legacy-public-file"]
+        promotion.write_text(json.dumps(data))
+        digest = hashlib.sha256(promotion.read_bytes()).hexdigest()
+        comment = dict(self.comments[0], body="\n".join((
+            f"SCHOLARSHIPS_GATE_D_SECURITY_CERTIFIED={HEAD}",
+            f"CERTIFIED_MANIFEST_SHA256={digest}",
+            "REVIEWED=IAM,SSM,APPROVAL,ARTIFACT,HOST,RUNTIME,BACKUP,RESTORE,PRIVATE_DOCUMENTS,ROLLBACK",
+            "OWNER_ACCEPTS_TECHNICAL_REVIEW_RESPONSIBILITY=YES",
+        )))
+        with patch.object(contract, "PROMOTION_MANIFEST", promotion):
+            self.assertEqual(self.check(pr_number=13, comments=[comment]), [])
+            self.assertIn("technical certification", " ".join(self.check(pr_number=13)))
+            self.assertIn("exact PR head changed", " ".join(
+                self.check(pr_number=13, head="b" * 40, comments=[comment])))
+            self.assertIn("changed-file scope changed", " ".join(
+                self.check(pr_number=13, changed=list(self.files)[:-1], comments=[comment])))
+            (self.root / "deploy/production-release.sh").write_text("echo changed\n")
+            self.assertIn("certified file changed", " ".join(
+                self.check(pr_number=13, comments=[comment])))
+
+    def test_combined_promotion_rejects_recreated_removed_file(self):
+        promotion = self.root / "promotion-manifest.json"
+        data = json.loads(self.manifest.read_text())
+        data["pr_number"] = 13
+        data["removed_paths"] = ["assets/uploads/legacy-public-file"]
+        promotion.write_text(json.dumps(data))
+        digest = hashlib.sha256(promotion.read_bytes()).hexdigest()
+        comment = dict(self.comments[0], body=self.comments[0]["body"].replace(
+            f"CERTIFIED_MANIFEST_SHA256={hashlib.sha256(self.manifest.read_bytes()).hexdigest()}",
+            f"CERTIFIED_MANIFEST_SHA256={digest}"))
+        with patch.object(contract, "PROMOTION_MANIFEST", promotion):
+            self.assertEqual(self.check(pr_number=13, comments=[comment]), [])
+            path = self.root / data["removed_paths"][0]
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("unexpected public content")
+            self.assertIn("certified removed file changed", " ".join(
+                self.check(pr_number=13, comments=[comment])))
+
     def test_head_scope_hash_and_review_invalidation(self):
         self.assertIn("exact PR head changed", " ".join(self.check(head="b" * 40)))
         self.assertIn("PR identity changed", " ".join(self.check(pr_number=14)))
