@@ -71,6 +71,9 @@ class QAPolicyTests(unittest.TestCase):
             + b"d" * 40
             + b"\n"
         )
+        self.log_api_failure = False
+        self.run_log_override = None
+        self.run_log_reads = 0
         self.report = {
             "summary": {
                 "repository": "Synergie-ITCI/programme-management-platform",
@@ -135,7 +138,21 @@ class QAPolicyTests(unittest.TestCase):
         if "/jobs?" in path:
             return {"jobs": self.jobs}
         if path.endswith("/jobs/34/logs"):
+            if self.log_api_failure:
+                raise RuntimeError("per-job log API unavailable")
             return self.logs
+        if path.endswith("/runs/11/logs"):
+            self.run_log_reads += 1
+            if self.run_log_override is not None:
+                return self.run_log_override
+            output = io.BytesIO()
+            with zipfile.ZipFile(
+                output, "w", compression=zipfile.ZIP_DEFLATED
+            ) as zipped:
+                zipped.writestr(
+                    "1_pr-qa _ Detect repository technologies.txt", self.logs
+                )
+            return output.getvalue()
         if path.endswith("/artifacts/22"):
             return self.artifact
         if path.endswith("/artifacts/22/zip"):
@@ -203,6 +220,52 @@ class QAPolicyTests(unittest.TestCase):
                 self.logs = logs
                 with self.assertRaises(ValueError):
                     self.verify()
+
+    def test_exact_run_archive_can_supply_only_failed_per_job_log_read(self):
+        self.log_api_failure = True
+        self.verify()
+        self.assertEqual(self.run_log_reads, 1)
+        self.logs = self.logs.replace(b"rc233", b"rc232")
+        with self.assertRaises(ValueError):
+            self.verify()
+
+        self.log_api_failure = False
+        self.run_log_reads = 0
+        with self.assertRaises(ValueError):
+            self.verify()
+        self.assertEqual(self.run_log_reads, 0)
+
+    def test_run_archive_fallback_rejects_missing_duplicate_and_oversized_log(self):
+        self.log_api_failure = True
+        name = "1_pr-qa _ Detect repository technologies.txt"
+        for entries in (
+            {"other.txt": self.logs},
+            {name: self.logs + b"x" * (4 * 1024 * 1024)},
+        ):
+            with self.subTest(entries=list(entries)):
+                output = io.BytesIO()
+                with zipfile.ZipFile(
+                    output, "w", compression=zipfile.ZIP_DEFLATED
+                ) as zipped:
+                    for path, payload in entries.items():
+                        zipped.writestr(path, payload)
+                self.run_log_override = output.getvalue()
+                with self.assertRaises(ValueError):
+                    self.verify()
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w") as zipped:
+            zipped.writestr(name, self.logs)
+            import warnings
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", UserWarning)
+                zipped.writestr(name, self.logs)
+        self.run_log_override = output.getvalue()
+        with self.assertRaises(ValueError):
+            self.verify()
+        self.run_log_override = b"not a ZIP"
+        with self.assertRaises(ValueError):
+            self.verify()
 
     def test_phase1_expired_wrong_origin_and_wrong_attempt_artifacts_are_rejected(self):
         for key, value in (
