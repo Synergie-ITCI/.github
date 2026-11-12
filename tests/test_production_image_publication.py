@@ -16,7 +16,11 @@ from image_publication import Publisher, publisher_policy, validate_request
 class PublicationTests(unittest.TestCase):
     def setUp(self):
         self.source = "a" * 40
-        self.configs = {"api": "sha256:" + "b" * 64, "admin-web": "sha256:" + "c" * 64}
+        self.config_blobs = {"api": "sha256:" + "b" * 64, "admin-web": "sha256:" + "c" * 64}
+        self.configs = {
+            kind: self.image(kind)["imageId"]["imageDigest"]
+            for kind in self.config_blobs
+        }
         self.request = {
             "operation": "prepare",
             "scope": "production-images",
@@ -50,7 +54,7 @@ class PublicationTests(unittest.TestCase):
         body = {
             "schemaVersion": 2,
             "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
-            "config": {"digest": self.configs[kind]},
+            "config": {"digest": self.config_blobs[kind]},
             "layers": [{"digest": "sha256:" + "f" * 64}],
         }
         raw = json.dumps(body)
@@ -144,6 +148,7 @@ class PublicationTests(unittest.TestCase):
         )
 
     def test_registry_acknowledges_both_exact_images_without_deployment(self):
+        self.assertNotEqual(self.configs["api"], self.config_blobs["api"])
         with tempfile.TemporaryDirectory() as folder:
             engine = self.engine(folder)
             try:
@@ -252,6 +257,25 @@ class PublicationTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     engine.preflight()
                 self.assertNotIn(("docker", "push"), self.calls)
+            finally:
+                engine.close()
+
+    def test_retagged_manifest_with_different_config_is_not_accepted(self):
+        image = self.image("api")
+        body = json.loads(image["imageManifest"])
+        body["config"]["digest"] = "sha256:" + "0" * 64
+        image["imageManifest"] = json.dumps(body)
+        image["imageId"]["imageDigest"] = "sha256:" + hashlib.sha256(
+            image["imageManifest"].encode()
+        ).hexdigest()
+        self.images["api"] = image
+        self.request["existing_images"]["api"] = image["imageId"]["imageDigest"]
+        with tempfile.TemporaryDirectory() as folder:
+            engine = self.engine(folder)
+            try:
+                with self.assertRaises(ValueError):
+                    engine.preflight()
+                self.assertEqual(self.consumed, 0)
             finally:
                 engine.close()
 
