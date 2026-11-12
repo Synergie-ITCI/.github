@@ -19,7 +19,18 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         proposed = json.loads(PROPOSAL.read_text())
         rows = current["one_time_baseline_alignments"]
         new = [r for r in rows if r.get("repository_id") == 1315697868 and r.get("pr_number") == 712]
-        self.assertEqual(new, [proposed["baseline"]])
+        expected = copy.deepcopy(proposed["baseline"])
+        expected["allowed_changed_files"] = 844
+        expected["minimum_changed_files"] = 844
+        expected["purpose"] = (
+            "Bind PR712 exact linear head/base after approved FieldZilla-only rc255 image caller merge #724. "
+            "Exact-head QA run 43196813516 measured 844 changed files after two prior overlay paths became "
+            "base-identical; both the authorized minimum and maximum are 844. Production application source, "
+            "mobile audit baseline, SQL, source overlay, reviewer, effective-addition cap, expiry and scanner "
+            "guards remain fixed. This grants no image publication, AWS apply, Gate C/D or production deployment "
+            "authorization."
+        )
+        self.assertEqual(new, [expected])
         normalized = copy.deepcopy(current)
         i = normalized["one_time_baseline_alignments"].index(new[0])
         normalized["one_time_baseline_alignments"][i] = proposed["previous_baseline"]
@@ -40,8 +51,8 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         self.assertEqual(new[0]["expected_base_sha"], "28cb6e7c8941e4c93365270b0dc1821ed8978b4f")
         self.assertEqual(new[0]["relaxations"], ["changed_file_count", "diff_size"])
         self.assertEqual(new[0]["allowed_effective_additions"], 148858)
-        self.assertEqual(new[0]["allowed_changed_files"], 846)
-        self.assertEqual(new[0]["minimum_changed_files"], 846)
+        self.assertEqual(new[0]["allowed_changed_files"], 844)
+        self.assertEqual(new[0]["minimum_changed_files"], 844)
         self.assertEqual(new[0]["expires_after"], "2026-11-13T05:05:32Z")
         self.assertEqual(len(new[0]["source_overlay"]["paths"]), 45)
         changed = {

@@ -1406,10 +1406,10 @@
       "authorization_id": "58d7c325-77fd-4227-81f7-64ad8281be3a",
       "expires_after": "2026-11-13T05:05:32Z",
       "allowed_effective_additions": 148858,
-      "allowed_changed_files": 846,
-      "minimum_changed_files": 846,
+      "allowed_changed_files": 844,
+      "minimum_changed_files": 844,
       "required_pr_body_marker": "FIELDZILLA-PR712-RC255-BASE-58d7c325-77fd-4227-81f7-64ad8281be3a",
-      "purpose": "Bind PR712 exact linear head/base after approved FieldZilla-only rc255 image caller merge #724. The candidate tree changes only that base-identical image caller from prior green head; production application source, mobile audit baseline, SQL, source overlay, reviewer, size caps, expiry and scanner guards remain fixed. This grants no image publication, AWS apply, Gate C/D or production deployment authorization.",
+      "purpose": "Bind PR712 exact linear head/base after approved FieldZilla-only rc255 image caller merge #724. Exact-head QA run 43196813516 measured 844 changed files after two prior overlay paths became base-identical; both the authorized minimum and maximum are 844. Production application source, mobile audit baseline, SQL, source overlay, reviewer, effective-addition cap, expiry and scanner guards remain fixed. This grants no image publication, AWS apply, Gate C/D or production deployment authorization.",
       "relaxations": [
         "changed_file_count",
         "diff_size"
