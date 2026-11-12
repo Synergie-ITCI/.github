@@ -1,0 +1,627 @@
+{
+  "status": "PROPOSED_NOT_APPROVED_NOT_ACTIVE",
+  "central_source_sha": "7548f4cd99def2e5568de3ba123c7b0cd46fa679",
+  "application_pr": 712,
+  "application_head_sha": "79afdbe56e9875ff5e137d426822ecd9658103f0",
+  "application_base_sha": "1ce9d8855844823bc9e4f04e23dbb81633dd42ae",
+  "application_tree_unchanged_from": "ed3b3d20e0cb59da0248964fb4b7a950e5ae3527",
+  "baseline": {
+    "repository": "Synergie-ITCI/programme-management-platform",
+    "repository_id": 1315697868,
+    "pr_number": 712,
+    "head_ref": "release/fieldzilla-production-application",
+    "base_ref": "main",
+    "expected_head_sha": "79afdbe56e9875ff5e137d426822ecd9658103f0",
+    "expected_base_sha": "1ce9d8855844823bc9e4f04e23dbb81633dd42ae",
+    "issued_at": "2026-11-12T05:41:40Z",
+    "enabled": true,
+    "authorization_id": "73274830-6c5d-4750-b6bd-359e9579dae3",
+    "expires_after": "2026-11-13T05:05:32Z",
+    "allowed_effective_additions": 148858,
+    "allowed_changed_files": 846,
+    "minimum_changed_files": 846,
+    "required_pr_body_marker": "FIELDZILLA-PR712-LINEAR-HEAD-73274830-6c5d-4750-b6bd-359e9579dae3",
+    "purpose": "Bind exact PR712 linear head after removing one zero-file-change merge commit rejected by governed QA. The application tree, final main base, source overlay, audited SQL, mobile audit, scanner scope, review expiry and relaxations are unchanged. The linear branch has exactly 846 nondeleted paths and 148858 effective additions against its historical merge base. No APK, image publication, IAM, AWS apply, Gate C/D or production deployment authorization.",
+    "relaxations": [
+      "changed_file_count",
+      "diff_size"
+    ],
+    "source_overlay": {
+      "approved_application_source_sha": "9a199f332165fd825e186b8aa6273532f0987efc",
+      "allowed_paths": [
+        ".github/CODEOWNERS",
+        ".github/workflows/architecture-governance.yml",
+        ".github/workflows/fieldzilla-production-hosting.yml",
+        ".github/workflows/pr-qa.yml",
+        ".gitleaksignore",
+        "apps/api/tests/architecture/test_mobile_backend_integration_contracts.py",
+        "apps/api/tests/architecture/test_p0a_domain_contracts.py",
+        "apps/api/tests/architecture/test_production_application_plan.py",
+        "deploy/production/application_plan.py",
+        "deploy/production/hosting/.gitignore",
+        "deploy/production/hosting/PLAN.md",
+        "deploy/production/hosting/README.md",
+        "deploy/production/hosting/backend.hcl",
+        "deploy/production/hosting/compute.tf",
+        "deploy/production/hosting/database.tf",
+        "deploy/production/hosting/ingress.tf",
+        "deploy/production/hosting/outputs.tf",
+        "deploy/production/hosting/security.tf",
+        "deploy/production/hosting/test_verify_plan.py",
+        "deploy/production/hosting/uploads.tf",
+        "deploy/production/hosting/variables.tf",
+        "deploy/production/hosting/verify_plan.py",
+        "deploy/production/hosting/versions.tf",
+        "apps/admin-web/package-lock.json",
+        "apps/admin-web/package.json",
+        "apps/admin-web/src/App.test.tsx",
+        "apps/api/tests/architecture/test_mobile_audit_baseline.py",
+        "apps/mobile/package-lock.json",
+        "apps/mobile/package.json",
+        "apps/mobile/security/mobile-audit-baseline.json",
+        "deploy/production/hosting/prepare_application_manifest.py",
+        "deploy/production/hosting/test_prepare_application_manifest.py",
+        "deploy/production/hosting/rehearsal/.terraform.lock.hcl",
+        "deploy/production/hosting/rehearsal/README.md",
+        "deploy/production/hosting/rehearsal/attachments.tf",
+        "deploy/production/hosting/rehearsal/backend.hcl",
+        "deploy/production/hosting/rehearsal/bootstrap/README.md",
+        "deploy/production/hosting/rehearsal/bootstrap/log-sink-policy.json",
+        "deploy/production/hosting/rehearsal/bootstrap/provisioner-plan-only.json",
+        "deploy/production/hosting/rehearsal/bootstrap/provisioner-trust.json",
+        "deploy/production/hosting/rehearsal/main.tf",
+        "deploy/production/hosting/rehearsal/outputs.tf",
+        "deploy/production/hosting/rehearsal/task_roles.tf",
+        "deploy/production/hosting/rehearsal/variables.tf",
+        "deploy/production/hosting/rehearsal/versions.tf"
+      ],
+      "paths": {
+        ".github/CODEOWNERS": {
+          "source": "present",
+          "candidate": "base"
+        },
+        ".github/workflows/architecture-governance.yml": {
+          "source": "present",
+          "candidate": "reviewed_sha256",
+          "candidate_sha256": "c354a9e26a49da61a34549f55cfb1c6cf195285548573333fbd46278f0cb9f03"
+        },
+        ".github/workflows/fieldzilla-production-hosting.yml": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        ".github/workflows/pr-qa.yml": {
+          "source": "present",
+          "candidate": "base"
+        },
+        ".gitleaksignore": {
+          "source": "present",
+          "candidate": "reviewed_sha256",
+          "candidate_sha256": "df13693a489e9d5b778571a8973e89633acc79029f6154ea30f785afa6a98c77"
+        },
+        "apps/api/tests/architecture/test_mobile_backend_integration_contracts.py": {
+          "source": "present",
+          "candidate": "reviewed_sha256",
+          "candidate_sha256": "86f11e1a96d689dc11e241d58ce2651f81257f6f943e863218a88b8e0f8a802d"
+        },
+        "apps/api/tests/architecture/test_p0a_domain_contracts.py": {
+          "source": "present",
+          "candidate": "reviewed_sha256",
+          "candidate_sha256": "dbe8fe480feecbae10675296d01ddfc7844fae8063ebe69c3f87d055581f64e1"
+        },
+        "apps/api/tests/architecture/test_production_application_plan.py": {
+          "source": "absent",
+          "candidate": "reviewed_sha256",
+          "candidate_sha256": "098fc677e43822affa3d1a7c64edde23810674a02a22a89e217e93b8712021aa"
+        },
+        "deploy/production/application_plan.py": {
+          "source": "absent",
+          "candidate": "reviewed_sha256",
+          "candidate_sha256": "34fdad8c40e131bd04fd540451403324fdc7876a09dd68420aef1831abfd7dbd"
+        },
+        "deploy/production/hosting/.gitignore": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/PLAN.md": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/README.md": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/backend.hcl": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/compute.tf": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/database.tf": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/ingress.tf": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/outputs.tf": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/security.tf": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/test_verify_plan.py": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/uploads.tf": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/variables.tf": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/verify_plan.py": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/versions.tf": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "apps/admin-web/package-lock.json": {
+          "source": "present",
+          "candidate": "reviewed_sha256",
+          "candidate_sha256": "a1f2ac248f68730e6809e05424ca05c739ad49b693d8ff78a86b8bf0a0e674c0"
+        },
+        "apps/admin-web/package.json": {
+          "source": "present",
+          "candidate": "reviewed_sha256",
+          "candidate_sha256": "d1113bd81d5f24587e60ea26ed534daef385c77c2ad52437e2f6b6820d26d302"
+        },
+        "apps/admin-web/src/App.test.tsx": {
+          "source": "present",
+          "candidate": "reviewed_sha256",
+          "candidate_sha256": "2a5cb53d1e25d640329f8e6a3fad7cadd292e8ee9e8616f2793fa4f05937719b"
+        },
+        "apps/api/tests/architecture/test_mobile_audit_baseline.py": {
+          "source": "present",
+          "candidate": "reviewed_sha256",
+          "candidate_sha256": "511aad14b9ea7740fd425d37d0083b58bd566e3516274d6f296dd90895af4a03"
+        },
+        "apps/mobile/package-lock.json": {
+          "source": "present",
+          "candidate": "reviewed_sha256",
+          "candidate_sha256": "6f324707f981b6d4d976726e9896be567f277096b80f0477ffdce8d0e45b1f27"
+        },
+        "apps/mobile/package.json": {
+          "source": "present",
+          "candidate": "reviewed_sha256",
+          "candidate_sha256": "d7b72be52ff2f6efec3bb09d6216aced76db7b7edc63506bc94215d8f8c97d24"
+        },
+        "apps/mobile/security/mobile-audit-baseline.json": {
+          "source": "present",
+          "candidate": "reviewed_sha256",
+          "candidate_sha256": "fb361c7dbb932eeb278021a2f98e18b14d3a3e1f3d270e809865d0e48e2a4f13"
+        },
+        "deploy/production/hosting/prepare_application_manifest.py": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/test_prepare_application_manifest.py": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/rehearsal/.terraform.lock.hcl": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/rehearsal/README.md": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/rehearsal/attachments.tf": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/rehearsal/backend.hcl": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/rehearsal/bootstrap/README.md": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/rehearsal/bootstrap/log-sink-policy.json": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/rehearsal/bootstrap/provisioner-plan-only.json": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/rehearsal/bootstrap/provisioner-trust.json": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/rehearsal/main.tf": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/rehearsal/outputs.tf": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/rehearsal/task_roles.tf": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/rehearsal/variables.tf": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/rehearsal/versions.tf": {
+          "source": "absent",
+          "candidate": "base"
+        }
+      }
+    }
+  },
+  "previous_baseline": {
+    "repository": "Synergie-ITCI/programme-management-platform",
+    "repository_id": 1315697868,
+    "pr_number": 712,
+    "head_ref": "release/fieldzilla-production-application",
+    "base_ref": "main",
+    "expected_head_sha": "ed3b3d20e0cb59da0248964fb4b7a950e5ae3527",
+    "expected_base_sha": "1ce9d8855844823bc9e4f04e23dbb81633dd42ae",
+    "issued_at": "2026-11-12T05:05:32Z",
+    "enabled": true,
+    "authorization_id": "b8e32af8-365f-454f-b3d7-287e23170c95",
+    "expires_after": "2026-11-13T05:05:32Z",
+    "allowed_effective_additions": 148824,
+    "allowed_changed_files": 844,
+    "minimum_changed_files": 844,
+    "required_pr_body_marker": "FIELDZILLA-PR712-FINAL-RC249-b8e32af8-365f-454f-b3d7-287e23170c95",
+    "purpose": "Final exact PR712 head/base review after merged #723 selected verified rc249 and the candidate merged protected main with zero file changes. The review covers 844 nondeleted paths and 148824 effective additions; source overlay, audited SQL, mobile audit and scanner scope remain unchanged. Renew the bounded review for 24 hours. No APK, image publication, IAM, AWS apply, Gate C/D or production deployment authorization.",
+    "relaxations": [
+      "changed_file_count",
+      "diff_size"
+    ],
+    "source_overlay": {
+      "approved_application_source_sha": "9a199f332165fd825e186b8aa6273532f0987efc",
+      "allowed_paths": [
+        ".github/CODEOWNERS",
+        ".github/workflows/architecture-governance.yml",
+        ".github/workflows/fieldzilla-production-hosting.yml",
+        ".github/workflows/pr-qa.yml",
+        ".gitleaksignore",
+        "apps/api/tests/architecture/test_mobile_backend_integration_contracts.py",
+        "apps/api/tests/architecture/test_p0a_domain_contracts.py",
+        "apps/api/tests/architecture/test_production_application_plan.py",
+        "deploy/production/application_plan.py",
+        "deploy/production/hosting/.gitignore",
+        "deploy/production/hosting/PLAN.md",
+        "deploy/production/hosting/README.md",
+        "deploy/production/hosting/backend.hcl",
+        "deploy/production/hosting/compute.tf",
+        "deploy/production/hosting/database.tf",
+        "deploy/production/hosting/ingress.tf",
+        "deploy/production/hosting/outputs.tf",
+        "deploy/production/hosting/security.tf",
+        "deploy/production/hosting/test_verify_plan.py",
+        "deploy/production/hosting/uploads.tf",
+        "deploy/production/hosting/variables.tf",
+        "deploy/production/hosting/verify_plan.py",
+        "deploy/production/hosting/versions.tf",
+        "apps/admin-web/package-lock.json",
+        "apps/admin-web/package.json",
+        "apps/admin-web/src/App.test.tsx",
+        "apps/api/tests/architecture/test_mobile_audit_baseline.py",
+        "apps/mobile/package-lock.json",
+        "apps/mobile/package.json",
+        "apps/mobile/security/mobile-audit-baseline.json",
+        "deploy/production/hosting/prepare_application_manifest.py",
+        "deploy/production/hosting/test_prepare_application_manifest.py",
+        "deploy/production/hosting/rehearsal/.terraform.lock.hcl",
+        "deploy/production/hosting/rehearsal/README.md",
+        "deploy/production/hosting/rehearsal/attachments.tf",
+        "deploy/production/hosting/rehearsal/backend.hcl",
+        "deploy/production/hosting/rehearsal/bootstrap/README.md",
+        "deploy/production/hosting/rehearsal/bootstrap/log-sink-policy.json",
+        "deploy/production/hosting/rehearsal/bootstrap/provisioner-plan-only.json",
+        "deploy/production/hosting/rehearsal/bootstrap/provisioner-trust.json",
+        "deploy/production/hosting/rehearsal/main.tf",
+        "deploy/production/hosting/rehearsal/outputs.tf",
+        "deploy/production/hosting/rehearsal/task_roles.tf",
+        "deploy/production/hosting/rehearsal/variables.tf",
+        "deploy/production/hosting/rehearsal/versions.tf"
+      ],
+      "paths": {
+        ".github/CODEOWNERS": {
+          "source": "present",
+          "candidate": "base"
+        },
+        ".github/workflows/architecture-governance.yml": {
+          "source": "present",
+          "candidate": "reviewed_sha256",
+          "candidate_sha256": "c354a9e26a49da61a34549f55cfb1c6cf195285548573333fbd46278f0cb9f03"
+        },
+        ".github/workflows/fieldzilla-production-hosting.yml": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        ".github/workflows/pr-qa.yml": {
+          "source": "present",
+          "candidate": "base"
+        },
+        ".gitleaksignore": {
+          "source": "present",
+          "candidate": "reviewed_sha256",
+          "candidate_sha256": "df13693a489e9d5b778571a8973e89633acc79029f6154ea30f785afa6a98c77"
+        },
+        "apps/api/tests/architecture/test_mobile_backend_integration_contracts.py": {
+          "source": "present",
+          "candidate": "reviewed_sha256",
+          "candidate_sha256": "86f11e1a96d689dc11e241d58ce2651f81257f6f943e863218a88b8e0f8a802d"
+        },
+        "apps/api/tests/architecture/test_p0a_domain_contracts.py": {
+          "source": "present",
+          "candidate": "reviewed_sha256",
+          "candidate_sha256": "dbe8fe480feecbae10675296d01ddfc7844fae8063ebe69c3f87d055581f64e1"
+        },
+        "apps/api/tests/architecture/test_production_application_plan.py": {
+          "source": "absent",
+          "candidate": "reviewed_sha256",
+          "candidate_sha256": "098fc677e43822affa3d1a7c64edde23810674a02a22a89e217e93b8712021aa"
+        },
+        "deploy/production/application_plan.py": {
+          "source": "absent",
+          "candidate": "reviewed_sha256",
+          "candidate_sha256": "34fdad8c40e131bd04fd540451403324fdc7876a09dd68420aef1831abfd7dbd"
+        },
+        "deploy/production/hosting/.gitignore": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/PLAN.md": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/README.md": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/backend.hcl": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/compute.tf": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/database.tf": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/ingress.tf": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/outputs.tf": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/security.tf": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/test_verify_plan.py": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/uploads.tf": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/variables.tf": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/verify_plan.py": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/versions.tf": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "apps/admin-web/package-lock.json": {
+          "source": "present",
+          "candidate": "reviewed_sha256",
+          "candidate_sha256": "a1f2ac248f68730e6809e05424ca05c739ad49b693d8ff78a86b8bf0a0e674c0"
+        },
+        "apps/admin-web/package.json": {
+          "source": "present",
+          "candidate": "reviewed_sha256",
+          "candidate_sha256": "d1113bd81d5f24587e60ea26ed534daef385c77c2ad52437e2f6b6820d26d302"
+        },
+        "apps/admin-web/src/App.test.tsx": {
+          "source": "present",
+          "candidate": "reviewed_sha256",
+          "candidate_sha256": "2a5cb53d1e25d640329f8e6a3fad7cadd292e8ee9e8616f2793fa4f05937719b"
+        },
+        "apps/api/tests/architecture/test_mobile_audit_baseline.py": {
+          "source": "present",
+          "candidate": "reviewed_sha256",
+          "candidate_sha256": "511aad14b9ea7740fd425d37d0083b58bd566e3516274d6f296dd90895af4a03"
+        },
+        "apps/mobile/package-lock.json": {
+          "source": "present",
+          "candidate": "reviewed_sha256",
+          "candidate_sha256": "6f324707f981b6d4d976726e9896be567f277096b80f0477ffdce8d0e45b1f27"
+        },
+        "apps/mobile/package.json": {
+          "source": "present",
+          "candidate": "reviewed_sha256",
+          "candidate_sha256": "d7b72be52ff2f6efec3bb09d6216aced76db7b7edc63506bc94215d8f8c97d24"
+        },
+        "apps/mobile/security/mobile-audit-baseline.json": {
+          "source": "present",
+          "candidate": "reviewed_sha256",
+          "candidate_sha256": "fb361c7dbb932eeb278021a2f98e18b14d3a3e1f3d270e809865d0e48e2a4f13"
+        },
+        "deploy/production/hosting/prepare_application_manifest.py": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/test_prepare_application_manifest.py": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/rehearsal/.terraform.lock.hcl": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/rehearsal/README.md": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/rehearsal/attachments.tf": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/rehearsal/backend.hcl": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/rehearsal/bootstrap/README.md": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/rehearsal/bootstrap/log-sink-policy.json": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/rehearsal/bootstrap/provisioner-plan-only.json": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/rehearsal/bootstrap/provisioner-trust.json": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/rehearsal/main.tf": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/rehearsal/outputs.tf": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/rehearsal/task_roles.tf": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/rehearsal/variables.tf": {
+          "source": "absent",
+          "candidate": "base"
+        },
+        "deploy/production/hosting/rehearsal/versions.tf": {
+          "source": "absent",
+          "candidate": "base"
+        }
+      }
+    }
+  },
+  "sql": {
+    "repository": "Synergie-ITCI/programme-management-platform",
+    "repository_id": 1315697868,
+    "pr_number": 712,
+    "head_ref": "release/fieldzilla-production-application",
+    "base_ref": "main",
+    "expected_head_sha": "79afdbe56e9875ff5e137d426822ecd9658103f0",
+    "expected_base_sha": "1ce9d8855844823bc9e4f04e23dbb81633dd42ae",
+    "issued_at": "2026-11-12T05:41:40Z",
+    "authorization_id": "4a07d4cf-d7c4-4d05-bfe7-68001d1a2e47",
+    "expires_at": "2026-11-13T05:05:32Z",
+    "migration_path": "apps/api/alembic/sql/20260910_0038.sql",
+    "migration_sha256": "56d29de95cd31ae88509757f414da89a679161761da07693605e0db1a631f773",
+    "delete_fingerprints": [
+      {
+        "line": 375,
+        "sha256": "9965fa9be54aa737fb8b2de3167134d1148f3fca0ccea81b6f21d86036b5f975"
+      },
+      {
+        "line": 388,
+        "sha256": "f1e2b02f94b888158ad1996fd9d40177b26f0f47a5b227c3b7f909a87c3301bf"
+      },
+      {
+        "line": 389,
+        "sha256": "01d56dbe5d8adebe70a5cef76b0d18e5bf0246ed670c013631b4a9b5ff119151"
+      },
+      {
+        "line": 390,
+        "sha256": "e1d8239a68dab277024cc8d943bfd433eb9fd848fa708ca74a09125afc4239a0"
+      },
+      {
+        "line": 391,
+        "sha256": "9cd66159aa692b88d51f8ca09d4ea8baffac76de0bfe5726d091fc1f4d4d48ee"
+      }
+    ],
+    "approved_reviewer": {
+      "login": "SaurabhVermaIN",
+      "id": 52234089
+    },
+    "purpose": "Carry the prior owner-reviewed, byte-identical historical SQL and five DELETE fingerprints to exact PR712 linear head after removing one zero-file-change merge commit rejected by governed QA. Final main base, review expiry and SQL scope are unchanged; no migration execution authorization."
+  },
+  "previous_sql": {
+    "repository": "Synergie-ITCI/programme-management-platform",
+    "repository_id": 1315697868,
+    "pr_number": 712,
+    "head_ref": "release/fieldzilla-production-application",
+    "base_ref": "main",
+    "expected_head_sha": "ed3b3d20e0cb59da0248964fb4b7a950e5ae3527",
+    "expected_base_sha": "1ce9d8855844823bc9e4f04e23dbb81633dd42ae",
+    "issued_at": "2026-11-12T05:05:32Z",
+    "authorization_id": "21501170-7284-494b-af56-5a74c1cf567f",
+    "expires_at": "2026-11-13T05:05:32Z",
+    "migration_path": "apps/api/alembic/sql/20260910_0038.sql",
+    "migration_sha256": "56d29de95cd31ae88509757f414da89a679161761da07693605e0db1a631f773",
+    "delete_fingerprints": [
+      {
+        "line": 375,
+        "sha256": "9965fa9be54aa737fb8b2de3167134d1148f3fca0ccea81b6f21d86036b5f975"
+      },
+      {
+        "line": 388,
+        "sha256": "f1e2b02f94b888158ad1996fd9d40177b26f0f47a5b227c3b7f909a87c3301bf"
+      },
+      {
+        "line": 389,
+        "sha256": "01d56dbe5d8adebe70a5cef76b0d18e5bf0246ed670c013631b4a9b5ff119151"
+      },
+      {
+        "line": 390,
+        "sha256": "e1d8239a68dab277024cc8d943bfd433eb9fd848fa708ca74a09125afc4239a0"
+      },
+      {
+        "line": 391,
+        "sha256": "9cd66159aa692b88d51f8ca09d4ea8baffac76de0bfe5726d091fc1f4d4d48ee"
+      }
+    ],
+    "approved_reviewer": {
+      "login": "SaurabhVermaIN",
+      "id": 52234089
+    },
+    "purpose": "Carry the prior owner-reviewed, byte-identical historical SQL and five DELETE fingerprints to exact PR712 head/base after merged #723 and the zero-file-change protected-main merge. Renew the bounded review for 24 hours; no migration execution authorization."
+  },
+  "activation_authorized": false,
+  "image_publication_authorized": false,
+  "aws_apply_authorized": false
+}
