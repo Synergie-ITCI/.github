@@ -87,6 +87,19 @@ jobs:
           assert os.environ['GITHUB_SHA'] == os.environ['CALLER_SHA']
           assert re.fullmatch(r'pr-qa-v1-rc[1-9][0-9]*', os.environ['WORKFLOW_TAG'])
           assert re.fullmatch(r'[0-9a-f]{40}', os.environ['CENTRAL_SHA'])
+          release_url = 'https://api.github.com/repos/Synergie-ITCI/.github/git/'
+          def release_api(path):
+              request = urllib.request.Request(release_url + path, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  return json.load(response)
+          release_ref = release_api('ref/tags/' + os.environ['WORKFLOW_TAG']).get('object', {})
+          tag_object_sha = release_ref.get('sha', '')
+          if release_ref.get('type') != 'tag' or not re.fullmatch(r'[0-9a-f]{40}', tag_object_sha):
+              raise SystemExit('Image build release tag object is unavailable')
+          release_tag = release_api('tags/' + tag_object_sha)
+          target = release_tag.get('object', {})
+          if release_tag.get('tag') != os.environ['WORKFLOW_TAG'] or target.get('type') != 'commit' or target.get('sha') != os.environ['CENTRAL_SHA']:
+              raise SystemExit('Image build release tag source differs')
           audience = 'fieldzilla-production-image-build'
           url = os.environ['ACTIONS_ID_TOKEN_REQUEST_URL']
           url += ('&' if '?' in url else '?') + urllib.parse.urlencode({'audience': audience})
@@ -95,7 +108,7 @@ jobs:
               token = json.load(response)['value']
           payload = token.split('.')[1]
           claims = json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
-          expected = {'aud': audience, 'repository_id': '1315697868', 'repository_owner_id': '209829096', 'ref': 'refs/heads/main', 'sha': os.environ['CALLER_SHA'], 'job_workflow_ref': os.environ['CENTRAL_WORKFLOW_REF'], 'job_workflow_sha': os.environ['CENTRAL_SHA']}
+          expected = {'aud': audience, 'repository_id': '1315697868', 'repository_owner_id': '209829096', 'ref': 'refs/heads/main', 'sha': os.environ['CALLER_SHA'], 'job_workflow_ref': os.environ['CENTRAL_WORKFLOW_REF'], 'job_workflow_sha': tag_object_sha}
           mismatched = [k for k, v in expected.items() if str(claims.get(k)) != v]
           if claims.get('environment') is not None:
               mismatched.append('environment')
@@ -195,6 +208,19 @@ jobs:
           assert os.environ['GITHUB_SHA'] == os.environ['CALLER_SHA']
           assert re.fullmatch(r'pr-qa-v1-rc[1-9][0-9]*', os.environ['WORKFLOW_TAG'])
           assert re.fullmatch(r'[0-9a-f]{40}', os.environ['CENTRAL_SHA'])
+          release_url = 'https://api.github.com/repos/Synergie-ITCI/.github/git/'
+          def release_api(path):
+              request = urllib.request.Request(release_url + path, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  return json.load(response)
+          release_ref = release_api('ref/tags/' + os.environ['WORKFLOW_TAG']).get('object', {})
+          tag_object_sha = release_ref.get('sha', '')
+          if release_ref.get('type') != 'tag' or not re.fullmatch(r'[0-9a-f]{40}', tag_object_sha):
+              raise SystemExit('Image publisher release tag object is unavailable')
+          release_tag = release_api('tags/' + tag_object_sha)
+          target = release_tag.get('object', {})
+          if release_tag.get('tag') != os.environ['WORKFLOW_TAG'] or target.get('type') != 'commit' or target.get('sha') != os.environ['CENTRAL_SHA']:
+              raise SystemExit('Image publisher release tag source differs')
           url = os.environ['ACTIONS_ID_TOKEN_REQUEST_URL']
           url += ('&' if '?' in url else '?') + urllib.parse.urlencode({'audience': 'sts.amazonaws.com'})
           req = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + os.environ['ACTIONS_ID_TOKEN_REQUEST_TOKEN']})
@@ -202,7 +228,7 @@ jobs:
               token = json.load(response)['value']
           payload = token.split('.')[1]
           claims = json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
-          expected = {'aud': 'sts.amazonaws.com', 'repository_id': '1315697868', 'repository_owner_id': '209829096', 'ref': 'refs/heads/main', 'sha': os.environ['CALLER_SHA'], 'environment': 'synergie-app-production', 'sub': 'repo:Synergie-ITCI@209829096/programme-management-platform@1315697868:environment:synergie-app-production', 'job_workflow_ref': os.environ['CENTRAL_WORKFLOW_REF'], 'job_workflow_sha': os.environ['CENTRAL_SHA']}
+          expected = {'aud': 'sts.amazonaws.com', 'repository_id': '1315697868', 'repository_owner_id': '209829096', 'ref': 'refs/heads/main', 'sha': os.environ['CALLER_SHA'], 'environment': 'synergie-app-production', 'sub': 'repo:Synergie-ITCI@209829096/programme-management-platform@1315697868:environment:synergie-app-production', 'job_workflow_ref': os.environ['CENTRAL_WORKFLOW_REF'], 'job_workflow_sha': tag_object_sha}
           mismatched = [k for k, v in expected.items() if str(claims.get(k)) != v]
           if mismatched:
               # Keep the same fail-closed checks without logging token or claim values.
