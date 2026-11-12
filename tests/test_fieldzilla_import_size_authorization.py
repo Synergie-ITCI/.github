@@ -6,8 +6,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = "7a3adee2b417c2baca323f38dffb7941598e7da8"
-PROPOSAL = ROOT / "operations/fieldzilla-pr712-rc245-base-issuance/proposal.json"
+SOURCE = "613eac938f15bafd343c340bd41d8813f51fa480"
+PROPOSAL = ROOT / "operations/fieldzilla-pr712-final-rc249-issuance/proposal.json"
 
 
 class FieldzillaImportSizeTests(unittest.TestCase):
@@ -24,13 +24,13 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         i = normalized["one_time_baseline_alignments"].index(new[0])
         normalized["one_time_baseline_alignments"][i] = proposed["previous_baseline"]
         self.assertEqual(normalized, prior)
-        self.assertEqual(new[0]["expected_head_sha"], "da10689db18dcb79a570b052172eb54525474d84")
-        self.assertEqual(new[0]["expected_base_sha"], "d10aad208a15ecdb18c3d00c108286ac590f2c3b")
+        self.assertEqual(new[0]["expected_head_sha"], "ed3b3d20e0cb59da0248964fb4b7a950e5ae3527")
+        self.assertEqual(new[0]["expected_base_sha"], "1ce9d8855844823bc9e4f04e23dbb81633dd42ae")
         self.assertEqual(new[0]["relaxations"], ["changed_file_count", "diff_size"])
-        self.assertEqual(new[0]["allowed_effective_additions"], 148847)
-        self.assertEqual(new[0]["allowed_changed_files"], 846)
-        self.assertEqual(new[0]["minimum_changed_files"], 846)
-        self.assertEqual(new[0]["expires_after"], "2026-11-12T07:04:04Z")
+        self.assertEqual(new[0]["allowed_effective_additions"], 148824)
+        self.assertEqual(new[0]["allowed_changed_files"], 844)
+        self.assertEqual(new[0]["minimum_changed_files"], 844)
+        self.assertEqual(new[0]["expires_after"], "2026-11-13T05:05:32Z")
         self.assertEqual(len(new[0]["source_overlay"]["paths"]), 45)
         changed = {
             path for path, value in new[0]["source_overlay"]["paths"].items()
@@ -49,7 +49,7 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         self.assertEqual(normalized, prior)
         for key in ("migration_path", "migration_sha256", "delete_fingerprints", "approved_reviewer"):
             self.assertEqual(p["sql"][key], p["previous_sql"][key])
-        self.assertEqual(p["status"], "PROPOSED_NOT_ISSUED_NOT_ACTIVE")
+        self.assertEqual(p["status"], "PROPOSED_NOT_APPROVED_NOT_ACTIVE")
 
 
     def test_format_overlay_changes_only_one_existing_reviewed_hash(self):
