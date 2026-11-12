@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pr-qa"))
 from release_pin import (
     EVIDENCE_HEADER,
+    github_json,
     evidence_from_annotated_tag,
     resolve_active_release,
     resolve_consumer_release,
@@ -23,6 +24,27 @@ from release_pin import (
     verify_live_release,
     wildcard_policy_snapshot,
 )
+
+
+class ReleaseReadRetryTests(unittest.TestCase):
+    def test_release_read_retries_at_most_three_times(self):
+        failure = types.SimpleNamespace(returncode=1, stdout="", stderr="HTTP 502 private response body")
+        success = types.SimpleNamespace(returncode=0, stdout='{"ok":true}', stderr="")
+        with patch("release_pin.subprocess.run", side_effect=[failure, success]) as run, patch("release_pin.time.sleep"):
+            self.assertEqual(github_json("commits/" + "a" * 40 + "/check-runs"), {"ok": True})
+            self.assertEqual(run.call_count, 2)
+        with patch("release_pin.subprocess.run", return_value=failure) as run, patch("release_pin.time.sleep"):
+            with self.assertRaisesRegex(ValueError, "Live release verification unavailable"):
+                github_json("commits/" + "a" * 40 + "/check-runs")
+            self.assertEqual(run.call_count, 3)
+
+    def test_nontransient_release_read_is_not_retried(self):
+        failure = types.SimpleNamespace(returncode=1, stdout="", stderr="HTTP 403 private response body")
+        with patch("release_pin.subprocess.run", return_value=failure) as run, patch("release_pin.time.sleep") as sleep:
+            with self.assertRaisesRegex(ValueError, "Live release verification unavailable \\(unclassified\\)"):
+                github_json("commits/" + "a" * 40 + "/check-runs")
+            self.assertEqual(run.call_count, 1)
+            sleep.assert_not_called()
 
 
 class ReleasePinTests(unittest.TestCase):

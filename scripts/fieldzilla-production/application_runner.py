@@ -10,8 +10,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from application_executor import Aws, Executor
@@ -24,6 +26,16 @@ from qa_policy_evidence import verify_qa_policy_evidence
 from rehearsal_context import verify_production_context, verify_rehearsal_context
 
 
+def _read_failure_category(stderr):
+    message = stderr.decode(errors="replace") if isinstance(stderr, bytes) else str(stderr)
+    match = re.search(r"\bHTTP (429|500|502|503|504)\b", message)
+    if match:
+        return "HTTP " + match[1], True
+    if any(value in message.lower() for value in ("connection reset", "connection timed out", "tls handshake timeout")):
+        return "transport", True
+    return "unclassified", False
+
+
 def github_api(path, method="GET", payload=None):
     # gh handles GitHub's artifact redirect without transporting our OAuth token
     # in a URL or exposing a private artifact download URL to shared output.
@@ -32,18 +44,35 @@ def github_api(path, method="GET", payload=None):
     command = ["gh", "api", path, "--method", method]
     if payload is not None:
         command.extend(["--input", "-"])
-    result = subprocess.run(
-        command,
-        input=None if payload is None else json.dumps(payload).encode(),
-        capture_output=True,
-        timeout=60,
-        check=False,
-    )
-    if result.returncode:
+    # Retry only identified transient read failures. Identity, approval and
+    # content mismatches are evaluated after a successful response, not retried.
+    attempts = 3 if method == "GET" and payload is None else 1
+    category = "unclassified"
+    for attempt in range(attempts):
+        try:
+            result = subprocess.run(
+                command,
+                input=None if payload is None else json.dumps(payload).encode(),
+                capture_output=True,
+                timeout=20,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            category, transient = "timeout", True
+            result = None
+        else:
+            category, transient = _read_failure_category(result.stderr)
+        if result is not None and result.returncode == 0:
+            break
+        if not transient or attempt + 1 == attempts:
+            break
+        if attempt + 1 < attempts:
+            time.sleep(attempt + 1)
+    if result is None or result.returncode:
         # Paths are limited to the two release repositories above. Emit only
         # the failed API path, never response bodies or redirected artifact URLs.
-        print(f"GitHub release evidence read failed at {path}", file=sys.stderr)
-        raise RuntimeError("GitHub release evidence unavailable; no automatic retry")
+        print(f"GitHub release evidence read failed at {path} ({category})", file=sys.stderr)
+        raise RuntimeError("GitHub release evidence unavailable after bounded read attempts")
     if path.endswith(("/zip", "/logs")):
         return result.stdout
     return json.loads(result.stdout)

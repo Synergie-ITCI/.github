@@ -9,6 +9,7 @@ import json
 import os
 import re
 import subprocess
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -199,12 +200,34 @@ def approved_wildcard_policy(release: str, entry: dict, manifest: dict | None) -
 
 
 def github_json(path: str) -> dict:
-    result = subprocess.run(
-        ["gh", "api", f"repos/{REPOSITORY}/{path}"],
-        capture_output=True, text=True, check=False,
-    )
-    if result.returncode:
-        raise ValueError("Live release verification unavailable")
+    # These are read-only release/provenance checks. Retry only a recognized
+    # transient HTTP/transport failure, never an identity/content mismatch.
+    category = "unclassified"
+    for attempt in range(3):
+        try:
+            result = subprocess.run(
+                ["gh", "api", f"repos/{REPOSITORY}/{path}"],
+                capture_output=True, text=True, timeout=20, check=False,
+            )
+        except subprocess.TimeoutExpired:
+            category, transient = "timeout", True
+            result = None
+        else:
+            match = re.search(r"\bHTTP (429|500|502|503|504)\b", result.stderr)
+            if match:
+                category, transient = "HTTP " + match[1], True
+            elif any(value in result.stderr.lower() for value in ("connection reset", "connection timed out", "tls handshake timeout")):
+                category, transient = "transport", True
+            else:
+                category, transient = "unclassified", False
+        if result is not None and result.returncode == 0:
+            break
+        if transient and attempt < 2:
+            time.sleep(attempt + 1)
+        else:
+            break
+    if result is None or result.returncode:
+        raise ValueError("Live release verification unavailable (" + category + ")")
     return json.loads(result.stdout)
 
 
