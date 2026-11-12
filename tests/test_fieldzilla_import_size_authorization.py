@@ -6,8 +6,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = "63af59f396d4e99e1680f5928b3943d165141e14"
-PROPOSAL = ROOT / "operations/fieldzilla-pr712-gitleaks-rebind/proposal.json"
+SOURCE = "38ff8c36120a4c5fc9a7b515e0dea8532d32f6d9"
+PROPOSAL = ROOT / "operations/fieldzilla-pr712-rc260-final-review/proposal.json"
 
 
 class FieldzillaImportSizeTests(unittest.TestCase):
@@ -36,8 +36,8 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         self.assertEqual(len(prior_scholarships), 1)
         scholarships[0]["expires_after"] = prior_scholarships[0]["expires_after"]
         self.assertEqual(normalized, prior)
-        self.assertEqual(new[0]["expected_head_sha"], "4871f7e5c947cdf84feaae025b38182a0886b5c9")
-        self.assertEqual(new[0]["expected_base_sha"], "28cb6e7c8941e4c93365270b0dc1821ed8978b4f")
+        self.assertEqual(new[0]["expected_head_sha"], "2b90c804c163ac9fa1bdb29dd866ca7c229425b5")
+        self.assertEqual(new[0]["expected_base_sha"], "3f185623144db7c268d77968a8d2e28207db611f")
         self.assertEqual(new[0]["relaxations"], ["changed_file_count", "diff_size"])
         self.assertEqual(new[0]["allowed_effective_additions"], 148858)
         self.assertEqual(new[0]["allowed_changed_files"], 844)
@@ -48,10 +48,10 @@ class FieldzillaImportSizeTests(unittest.TestCase):
             path for path, value in new[0]["source_overlay"]["paths"].items()
             if value != proposed["previous_baseline"]["source_overlay"]["paths"][path]
         }
-        self.assertEqual(changed, {"apps/api/tests/architecture/test_mobile_audit_baseline.py", ".gitleaksignore"})
+        self.assertEqual(changed, {".gitleaksignore"})
         self.assertEqual(
             new[0]["source_overlay"]["paths"][".gitleaksignore"]["candidate_sha256"],
-            "a89dc590daa191a5d34c36f0701628e01695fe4c37ee35c0f0eeebc8fa572b7f",
+            "94c943a8d16caed6da8835a7f21f420891625cc744dee1c0206d0bcdc0446aa9",
         )
         self.assertEqual(
             new[0]["source_overlay"]["paths"]["apps/api/tests/architecture/test_mobile_audit_baseline.py"]["candidate_sha256"],
