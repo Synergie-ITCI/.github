@@ -72,6 +72,41 @@ def read_final_report(archive, digest):
         )
 
 
+def read_detector_run_log_archive(archive):
+    """Read only the unique detector log from the exact QA run's bounded archive.
+
+    GitHub offers both per-job logs and a run-log ZIP under Actions: read. This
+    equivalent source is used only when the per-job API read itself fails.
+    Neither path accepts a different run or substitutes another job's log.
+    """
+    if not isinstance(archive, bytes) or len(archive) > 8 * 1024 * 1024:
+        raise ValueError("QA run-log archive is unavailable or oversized")
+    try:
+        with zipfile.ZipFile(io.BytesIO(archive)) as zipped:
+            files = zipped.infolist()
+            names = [item.filename for item in files]
+            if (
+                len(files) > 256
+                or len(names) != len(set(names))
+                or any(item.flag_bits & 1 for item in files)
+                or sum(item.file_size for item in files) > 32 * 1024 * 1024
+            ):
+                raise ValueError("QA run-log archive shape differs")
+            detector_name = DETECTOR.replace("/", "_")
+            matches = [
+                item
+                for item in files
+                if re.fullmatch(
+                    r"[0-9]+_" + re.escape(detector_name) + r"\.txt", item.filename
+                )
+            ]
+            if len(matches) != 1 or matches[0].file_size > 4 * 1024 * 1024:
+                raise ValueError("Unique detector run log is unavailable or oversized")
+            return zipped.read(matches[0])
+    except zipfile.BadZipFile as error:
+        raise ValueError("QA run-log archive is invalid") from error
+
+
 def verify_qa_policy_evidence(
     manifest, *, checks, api, resolver=resolve_consumer_release
 ):
@@ -171,7 +206,12 @@ def verify_qa_policy_evidence(
         for row in [*quality, *detectors]
     ):
         raise ValueError("QA job identities are malformed")
-    logs = api(f"repos/{REPOSITORY}/actions/jobs/{detectors[0]['id']}/logs")
+    try:
+        logs = api(f"repos/{REPOSITORY}/actions/jobs/{detectors[0]['id']}/logs")
+    except RuntimeError:
+        logs = read_detector_run_log_archive(
+            api(f"repos/{REPOSITORY}/actions/runs/{proof['run_id']}/logs")
+        )
     if not isinstance(logs, bytes) or len(logs) > 4 * 1024 * 1024:
         raise ValueError("Detector evidence is unavailable or oversized")
     identities = re.findall(
