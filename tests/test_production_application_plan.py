@@ -90,6 +90,10 @@ class PlanTests(unittest.TestCase):
             api_refs["APP_DATABASE_CONTEXT_SECRET"],
             inputs["runtime_secret"] + ":APP_DATABASE_CONTEXT_SECRET::",
         )
+        self.assertEqual(
+            api_refs["APP_FIELD_ENCRYPTION_LEGACY_KEYS"],
+            inputs["runtime_secret"] + ":APP_FIELD_ENCRYPTION_LEGACY_KEYS::",
+        )
         self.assertTrue(
             all(
                 value.startswith(inputs["migration_secret"] + ":")
@@ -169,6 +173,7 @@ class RehearsalPlanTests(unittest.TestCase):
             )
             for secret in container.get("secrets", []):
                 self.assertIn("/production-rehearsal/", secret["valueFrom"])
+                self.assertNotEqual(secret["name"], "APP_FIELD_ENCRYPTION_LEGACY_KEYS")
             self.assertNotIn(
                 "https://fieldzilla.synergieinsights.in",
                 str(container.get("environment", [])),
