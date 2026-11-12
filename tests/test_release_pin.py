@@ -56,9 +56,9 @@ class ReleasePinTests(unittest.TestCase):
         verify.assert_called_once_with(selected["release"], selected["commit"], self.manifest,
                                        unittest.mock.ANY, unittest.mock.ANY)
 
-    def test_scholarships_uses_only_published_rc249(self):
+    def test_scholarships_uses_only_published_rc251(self):
         selected = self.manifest["consumer_release_selection"]["repositories"]["Synergie-ITCI/scholarships"]
-        self.assertEqual(selected, {"release": "pr-qa-v1-rc249", "commit": "0861853a22e8028ac3dce668445453d969212f59"})
+        self.assertEqual(selected, {"release": "pr-qa-v1-rc251", "commit": "5878230edc95f07387e41ccc04b45ea02c025003"})
         with patch("release_pin.verify_bound_release") as verify:
             release, entry = resolve_consumer_release(self.manifest, "Synergie-ITCI/scholarships")
         self.assertEqual((release, entry["commit"]), (selected["release"], selected["commit"]))
