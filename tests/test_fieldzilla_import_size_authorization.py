@@ -23,6 +23,13 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         normalized = copy.deepcopy(current)
         i = normalized["one_time_baseline_alignments"].index(new[0])
         normalized["one_time_baseline_alignments"][i] = proposed["previous_baseline"]
+        scholarships = [row for row in normalized["one_time_baseline_alignments"]
+                        if row.get("repository") == "Synergie-ITCI/scholarships"
+                        and row.get("pr_number") == 7]
+        self.assertEqual(len(scholarships), 1)
+        self.assertEqual(scholarships[0]["expected_head_sha"],
+                         "1379352d5ef26cc7e867e52185315083ec63eebe")
+        normalized["one_time_baseline_alignments"].remove(scholarships[0])
         self.assertEqual(normalized, prior)
         self.assertEqual(new[0]["expected_head_sha"], "ed3b3d20e0cb59da0248964fb4b7a950e5ae3527")
         self.assertEqual(new[0]["expected_base_sha"], "1ce9d8855844823bc9e4f04e23dbb81633dd42ae")

@@ -32,3 +32,19 @@ Gate D approval and successful runtime certification.
 
 The current legacy PHP 7 service cannot use this recurring release contract.
 See [the separate first-transition proposal](scholarships-first-runtime-transition.md).
+
+## Main promotion
+
+Scholarships PR #7 has a separate, exact-head certification manifest at
+`policy/scholarships-pr7-gate-d.json`. Its 356 changed paths have been compared
+with the live PR file list and all present bytes are SHA-256 bound; the 138
+paths shared with PR #13, including privileged release files, have identical
+digests. PR #13's owner comment does not certify PR #7. The owner must review
+PR #7's complete main diff and post a new, unedited four-line Conversation
+comment using PR #7's exact head and this manifest's digest.
+
+The one-time PR #7 size alignment is separately bound to its repository ID,
+PR number, head and base commits, staging-to-main refs, 356-file count,
+98,393 raw additions, body marker and expiry. It relaxes only file-count and
+diff-size checks. Deployment Risk, all other QA, protected merge and the
+separate live-control and cutover approvals remain mandatory.
