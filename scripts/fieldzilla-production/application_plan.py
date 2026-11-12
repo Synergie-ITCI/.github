@@ -111,10 +111,10 @@ def render(manifest: dict, *, scope: str = "production") -> dict:
                 {"name": "APP_ENVIRONMENT", "value": "production"}
             ]
             if kind == "api":
-                for key in (
-                    "APP_SECRET_KEY",
-                    "APP_FIELD_ENCRYPTION_MASTER_KEY",
-                ):
+                key_names = ["APP_SECRET_KEY", "APP_FIELD_ENCRYPTION_MASTER_KEY"]
+                if scope == "production":
+                    key_names.append("APP_FIELD_ENCRYPTION_LEGACY_KEYS")
+                for key in key_names:
                     container["secrets"].append(
                         {"name": key, "valueFrom": secret + ":" + key + "::"}
                     )
@@ -150,7 +150,11 @@ def render(manifest: dict, *, scope: str = "production") -> dict:
                     },
                 ]
             else:
-                container["command"] = ["alembic", "upgrade", "fieldzilla_pr119@head"]
+                container["command"] = (
+                    ["python", "scripts/production_historical_migrate.py"]
+                    if scope == "production"
+                    else ["alembic", "upgrade", "fieldzilla_pr119@head"]
+                )
         definition = {
             "family": "fieldzilla-" + scope + "-" + kind,
             "networkMode": "bridge",

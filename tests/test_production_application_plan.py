@@ -64,6 +64,11 @@ class PlanTests(unittest.TestCase):
         self.assertNotIn("taskRoleArn", plan["task_definitions"][2])
         for task in plan["task_definitions"]:
             self.assertIn("@sha256:", task["containerDefinitions"][0]["image"])
+        migration = plan["task_definitions"][2]["containerDefinitions"][0]
+        self.assertEqual(
+            migration["command"],
+            ["python", "scripts/production_historical_migrate.py"],
+        )
 
     def test_migration_bootstrap_context_without_api_credential_access(self):
         inputs = manifest()
@@ -84,6 +89,10 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(
             api_refs["APP_DATABASE_CONTEXT_SECRET"],
             inputs["runtime_secret"] + ":APP_DATABASE_CONTEXT_SECRET::",
+        )
+        self.assertEqual(
+            api_refs["APP_FIELD_ENCRYPTION_LEGACY_KEYS"],
+            inputs["runtime_secret"] + ":APP_FIELD_ENCRYPTION_LEGACY_KEYS::",
         )
         self.assertTrue(
             all(
@@ -149,6 +158,10 @@ class RehearsalPlanTests(unittest.TestCase):
                 "pmp-production-", "pmp-production-rehearsal-"
             )
         plan = render(inputs, scope="production-rehearsal")
+        self.assertEqual(
+            plan["task_definitions"][2]["containerDefinitions"][0]["command"],
+            ["alembic", "upgrade", "fieldzilla_pr119@head"],
+        )
         for definition in plan["task_definitions"]:
             self.assertTrue(
                 definition["family"].startswith("fieldzilla-production-rehearsal-")
@@ -160,6 +173,7 @@ class RehearsalPlanTests(unittest.TestCase):
             )
             for secret in container.get("secrets", []):
                 self.assertIn("/production-rehearsal/", secret["valueFrom"])
+                self.assertNotEqual(secret["name"], "APP_FIELD_ENCRYPTION_LEGACY_KEYS")
             self.assertNotIn(
                 "https://fieldzilla.synergieinsights.in",
                 str(container.get("environment", [])),
