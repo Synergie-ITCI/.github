@@ -1399,17 +1399,17 @@
       "pr_number": 712,
       "head_ref": "release/fieldzilla-production-application",
       "base_ref": "main",
-      "expected_head_sha": "1eb3732b0d10e977f5aaf93a4671d4a0cd3b396a",
+      "expected_head_sha": "9a24f1a54f8c7c561fe41844b91e28f5e2cc7c3b",
       "expected_base_sha": "1ce9d8855844823bc9e4f04e23dbb81633dd42ae",
-      "issued_at": "2026-11-12T07:14:00Z",
+      "issued_at": "2026-11-12T07:59:43Z",
       "enabled": true,
-      "authorization_id": "d7ba13e4-0bb1-473a-af29-ed4aeda1a1cb",
+      "authorization_id": "20bad170-dabc-4b99-b146-c11dfbbd2817",
       "expires_after": "2026-11-13T05:05:32Z",
       "allowed_effective_additions": 148858,
       "allowed_changed_files": 846,
       "minimum_changed_files": 846,
-      "required_pr_body_marker": "FIELDZILLA-PR712-AUDIT-RENEWAL-d7ba13e4-0bb1-473a-af29-ed4aeda1a1cb",
-      "purpose": "Bind exact PR712 head after owner-approved renewal of its existing low-severity deepmerge mobile tooling audit baseline through 2026-11-13T07:04:04Z. Only apps/mobile/security/mobile-audit-baseline.json changed from the prior reviewed head. The final main base, 846 nondeleted paths, 148858 effective additions, audited SQL, lockfile, caller files, scanner guards, relaxations and review expiry remain fixed. This grants no APK, image publication, IAM, AWS apply, Gate C/D or production deployment authorization.",
+      "required_pr_body_marker": "FIELDZILLA-PR712-AUDIT-TEST-20bad170-dabc-4b99-b146-c11dfbbd2817",
+      "purpose": "Bind exact PR712 head after correcting only the two stale architecture-test constants for the owner-approved low-severity deepmerge mobile tooling audit baseline renewal. The baseline JSON, lockfile, SQL, caller files, review scope, caps, expiry and scanner guards remain fixed. This grants no APK, image publication, IAM, AWS apply, Gate C/D or production deployment authorization.",
       "relaxations": [
         "changed_file_count",
         "diff_size"
@@ -1580,7 +1580,7 @@
           "apps/api/tests/architecture/test_mobile_audit_baseline.py": {
             "source": "present",
             "candidate": "reviewed_sha256",
-            "candidate_sha256": "511aad14b9ea7740fd425d37d0083b58bd566e3516274d6f296dd90895af4a03"
+            "candidate_sha256": "3e6445f4c5a9f3a5d44245b15fde7b762caab8bd600be645765f03318fd2ef4f"
           },
           "apps/mobile/package-lock.json": {
             "source": "present",
