@@ -29,7 +29,12 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         self.assertEqual(len(scholarships), 1)
         self.assertEqual(scholarships[0]["expected_head_sha"],
                          "1379352d5ef26cc7e867e52185315083ec63eebe")
-        self.assertIn(scholarships[0], prior["one_time_baseline_alignments"])
+        self.assertEqual(scholarships[0]["expires_after"], "2026-11-13T05:01:28Z")
+        prior_scholarships = [row for row in prior["one_time_baseline_alignments"]
+                              if row.get("repository") == "Synergie-ITCI/scholarships"
+                              and row.get("pr_number") == 7]
+        self.assertEqual(len(prior_scholarships), 1)
+        scholarships[0]["expires_after"] = prior_scholarships[0]["expires_after"]
         self.assertEqual(normalized, prior)
         self.assertEqual(new[0]["expected_head_sha"], "79afdbe56e9875ff5e137d426822ecd9658103f0")
         self.assertEqual(new[0]["expected_base_sha"], "1ce9d8855844823bc9e4f04e23dbb81633dd42ae")
