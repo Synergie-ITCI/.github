@@ -150,7 +150,11 @@ def render(manifest: dict, *, scope: str = "production") -> dict:
                     },
                 ]
             else:
-                container["command"] = ["alembic", "upgrade", "fieldzilla_pr119@head"]
+                container["command"] = (
+                    ["python", "scripts/production_historical_migrate.py"]
+                    if scope == "production"
+                    else ["alembic", "upgrade", "fieldzilla_pr119@head"]
+                )
         definition = {
             "family": "fieldzilla-" + scope + "-" + kind,
             "networkMode": "bridge",
