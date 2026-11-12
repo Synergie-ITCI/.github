@@ -14,19 +14,23 @@ on:
         required: true
       artifact-id:
         type: string
-        required: true
+        required: false
       artifact-run-id:
         type: string
-        required: true
+        required: false
       manifest-sha256:
         type: string
-        required: true
+        required: false
       approval-comment-id:
         type: string
-        required: true
+        required: false
       expires-at:
         type: string
-        required: true
+        required: false
+      diagnostic-only:
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   actions: read
@@ -100,10 +104,15 @@ jobs:
               raise SystemExit('Image build identity mismatch (' + ', '.join(mismatched) + '); no AWS role may be assumed')
           print('Exact immutable build identity verified without a production environment')
           PY
+      - name: Initialize isolated image build config
+        if: ${{ !inputs.diagnostic-only }}
+        run: |
+          set -euo pipefail
           image_build_config="${RUNNER_TEMP}/fieldzilla-build-docker-config"
           mkdir -m 700 "${image_build_config}"
           printf 'DOCKER_CONFIG=%s\n' "${image_build_config}" >> "${GITHUB_ENV}"
       - name: Checkout actual immutable executor
+        if: ${{ !inputs.diagnostic-only }}
         uses: actions/checkout@v4
         with:
           repository: Synergie-ITCI/.github
@@ -111,6 +120,7 @@ jobs:
           path: .central-framework
           persist-credentials: false
       - name: Verify release and unused exact source approval
+        if: ${{ !inputs.diagnostic-only }}
         id: request
         run: |
           set -euo pipefail
@@ -122,6 +132,7 @@ jobs:
             --expires-at "${APPROVAL_EXPIRY}" --central-sha "${CENTRAL_SHA}" \
             --output "${RUNNER_TEMP}/fieldzilla-images"
       - name: Checkout only the approved private application commit
+        if: ${{ !inputs.diagnostic-only }}
         uses: actions/checkout@v4
         with:
           repository: Synergie-ITCI/programme-management-platform
@@ -129,12 +140,15 @@ jobs:
           path: .candidate
           persist-credentials: false
       - name: Enable ARM64 emulation without AWS credentials
+        if: ${{ !inputs.diagnostic-only }}
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
       - name: Set up credential-free builder
+        if: ${{ !inputs.diagnostic-only }}
         uses: docker/setup-buildx-action@v3
       - name: Build and bind exact reviewed images without AWS
+        if: ${{ !inputs.diagnostic-only }}
         run: |
           set -euo pipefail
           python3 .central-framework/scripts/fieldzilla-production/image_runner.py build \
@@ -143,6 +157,7 @@ jobs:
             --expires-at "${APPROVAL_EXPIRY}" --central-sha "${CENTRAL_SHA}" \
             --candidate "${GITHUB_WORKSPACE}/.candidate" --output "${RUNNER_TEMP}/fieldzilla-images"
       - name: Preserve only same-run image data and provenance metadata
+        if: ${{ !inputs.diagnostic-only }}
         id: archive
         uses: actions/upload-artifact@v4
         with:
@@ -158,6 +173,7 @@ jobs:
   publish:
     name: Publish and acknowledge named ECR images only
     needs: build
+    if: ${{ !inputs.diagnostic-only }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment: synergie-app-production
