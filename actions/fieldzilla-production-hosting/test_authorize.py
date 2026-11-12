@@ -111,6 +111,40 @@ class PlanSafetyTest(unittest.TestCase):
     def test_phase_one_accepts_isolated_addition(self):
         self.verify([self.change("aws_s3_bucket.production", after={"bucket": "fieldzilla-production"})], "phase1")
 
+    def test_production_bootstrap_adds_only_six_identities_and_two_dark_targets(self):
+        def rule(kind, priority, host, target):
+            return self.change(
+                f"aws_lb_listener_rule.private_validation_{kind}[0]", "aws_lb_listener_rule",
+                after={
+                    "priority": priority,
+                    "listener_arn": "arn:aws:elasticloadbalancing:ap-south-1:918870682888:listener/app/fieldzilla/abd764c361a9627c/a6e9b94e09bf76f8",
+                    "action": [{"type": "forward", "target_group_arn": target}],
+                    "condition": [
+                        {"host_header": [{"values": [host]}]},
+                        {"source_ip": [{"values": ["192.0.2.1/32"]}]},
+                    ],
+                },
+            )
+        api = rule("api", 302, "api.fieldzilla-validation.invalid", "arn:aws:elasticloadbalancing:ap-south-1:918870682888:targetgroup/pmp-production-api/07cce0ebb89838ce")
+        admin = rule("admin", 303, "admin.fieldzilla-validation.invalid", "arn:aws:elasticloadbalancing:ap-south-1:918870682888:targetgroup/pmp-production-admin/25d953f6c0365619")
+        bootstrap = [self.change(address, address.split(".")[0]) for address in (
+            "aws_secretsmanager_secret.migration",
+            "aws_iam_role.admin_execution",
+            "aws_iam_role_policy_attachment.admin_execution",
+            "aws_iam_role.migration_execution",
+            "aws_iam_role_policy_attachment.migration_execution",
+            "aws_iam_role_policy.migration_secret",
+        )]
+        self.verify([api, admin, *bootstrap], "production-bootstrap")
+        for unsafe in (
+            [api, admin, *bootstrap[:-1]],
+            [api, admin, *bootstrap, self.change("aws_iam_role.production", "aws_iam_role")],
+            [{**api, "change": {**api["change"], "after": {**api["change"]["after"], "priority": 299}}}, admin, *bootstrap],
+            [{**api, "change": {**api["change"], "after": {**api["change"]["after"], "condition": [{"host_header": [{"values": ["fieldzilla.synergieinsights.in"]}]}, {"source_ip": [{"values": ["0.0.0.0/0"]}]}]}}}, admin, *bootstrap],
+        ):
+            with self.assertRaises(SystemExit):
+                self.verify(unsafe, "production-bootstrap")
+
     def test_rehearsal_requires_complete_isolated_target_and_rejects_live_changes(self):
         required = [
             self.change("aws_vpc.rehearsal", "aws_vpc", after={"cidr_block": "10.77.0.0/20"}),
