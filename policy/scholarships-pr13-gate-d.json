@@ -99,7 +99,6 @@
     "package-lock.json": "0a58d335abef8e5c0b3765d773a5c4b8f5e815d4c3c1cb1800782e5bd372a75c",
     "package.json": "45d02c4ba06cda9cec0cec7beac700b4082a2d808a1eb169a86c42e92401f10d",
     "release/README.md": "60eb03c97b8377899169366601e866c4fc2053260b7fe7ae74d950dcc5d267ae",
-    "release/runtime-assets.json": "11235abab3a4ee3742dd4572112823c7e97331f768eafdd9e188c15a92aff7e8",
     "scripts/run_migrations.php": "cb342ce02570163fe629ef9f6b30c90449def60e40972d68ac598d5d9597e769",
     "staging/README.md": "6c0677aebf39a8b0f55187341668649150e5bf99397dbcb2cafb7a9955611ddf",
     "system/core/Common.php": "4485f083695047ce03e0045eb09009cf006907877ab6632d746888c46a1b3618",
@@ -140,7 +139,7 @@
     "tests/private_storage_release.sh": "a40836f1b476d58e672388181a0b81dd7b61dbd27689018c9ac8736c6ed8d27b",
     "tests/test_gate_d_contract.py": "aaf3eb32a6ece1275375fcf01dbdd84563e48f75aa75069a73622207ac293a6e"
   },
-  "head_sha": "e76125e8789a314fefac2cd7121df97ed587b6d9",
+  "head_sha": "4fc5040f5eebabe75c981909b6613907e6412cd6",
   "pr_number": 13,
   "removed_paths": [
     "GuardianDeclaration.docx",
