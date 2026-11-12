@@ -156,9 +156,9 @@ def check_plan(path, phase):
             fail("production bootstrap must add only the reviewed initial or residual resources")
         if residual:
             existing = (bootstrap | set(expected)) - added
-            noops = {c["address"].split("[")[0] for c in changes
-                     if c["change"]["actions"] == ["no-op"]}
-            if not existing <= noops:
+            noops = [c["address"].split("[")[0] for c in changes
+                     if c["change"]["actions"] == ["no-op"]]
+            if not existing <= set(noops) or any(noops.count(address) != 1 for address in existing):
                 fail("residual bootstrap is missing a previously created resource")
             role_names = {
                 "aws_iam_role.admin_execution": "SynergieFieldzillaProductionAdminExecution",
