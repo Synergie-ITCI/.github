@@ -339,10 +339,10 @@ class BundledMigrationAuthorizationTests(unittest.TestCase):
         # PR712 has the same audited SQL bytes, but a new exact live binding.
         self.assertIn(712, by_pr)
         r = by_pr[712]
-        self.assertEqual(r["authorization_id"], "bbf06ba0-6364-43d3-952a-16fea86a7a35")
+        self.assertEqual(r["authorization_id"], "e23486da-d0ed-4dfb-8883-f0fecf52906e")
         self.assertEqual(r["repository_id"], 1315697868)
-        self.assertEqual(r["expected_head_sha"], "f85d034736522cf8a28f5a417b66f7e14d2ecae7")
-        self.assertEqual(r["expected_base_sha"], "edc4d3aa6cc6ff55f90c933163ca1e1aca951659")
+        self.assertEqual(r["expected_head_sha"], "eb1e279bb316b9cfa25c4e7cb28b8db26f329c60")
+        self.assertEqual(r["expected_base_sha"], "fa5a093e7259973fe08ccae15e5bf53fe9e24cc0")
         self.assertEqual(r["migration_path"], "apps/api/alembic/sql/20260910_0038.sql")
         self.assertEqual(r["migration_sha256"], "56d29de95cd31ae88509757f414da89a679161761da07693605e0db1a631f773")
         self.assertEqual(r["delete_fingerprints"], by_pr[118]["delete_fingerprints"])

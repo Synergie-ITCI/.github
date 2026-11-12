@@ -75,10 +75,10 @@
     "pr_number": 712,
     "head_ref": "release/fieldzilla-production-application",
     "base_ref": "main",
-    "expected_head_sha": "f85d034736522cf8a28f5a417b66f7e14d2ecae7",
-    "expected_base_sha": "edc4d3aa6cc6ff55f90c933163ca1e1aca951659",
+    "expected_head_sha": "eb1e279bb316b9cfa25c4e7cb28b8db26f329c60",
+    "expected_base_sha": "fa5a093e7259973fe08ccae15e5bf53fe9e24cc0",
     "issued_at": "2026-11-12T18:42:42Z",
-    "authorization_id": "bbf06ba0-6364-43d3-952a-16fea86a7a35",
+    "authorization_id": "e23486da-d0ed-4dfb-8883-f0fecf52906e",
     "expires_at": "2026-11-13T05:05:32Z",
     "migration_path": "apps/api/alembic/sql/20260910_0038.sql",
     "migration_sha256": "56d29de95cd31ae88509757f414da89a679161761da07693605e0db1a631f773",
@@ -108,6 +108,6 @@
       "login": "SaurabhVermaIN",
       "id": 52234089
     },
-    "purpose": "Bind unchanged audited migration SQL and five DELETE fingerprints only to #712 head f85d034736522cf8a28f5a417b66f7e14d2ecae7 on final residual-bootstrap caller base edc4d3aa6cc6ff55f90c933163ca1e1aca951659."
+    "purpose": "Bind unchanged audited migration SQL and five DELETE fingerprints only to #712 head eb1e279bb316b9cfa25c4e7cb28b8db26f329c60 on final rc265 image caller base fa5a093e7259973fe08ccae15e5bf53fe9e24cc0."
   }
 ]
