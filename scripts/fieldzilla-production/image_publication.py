@@ -241,7 +241,11 @@ class Publisher:
             or identity.get("imageDigest") != digest
             or body.get("schemaVersion") != 2
             or body.get("mediaType") not in MEDIA
-            or body.get("config", {}).get("digest") != self.configs[kind]
+            # Docker's loaded OCI image Id is the manifest digest for this
+            # build. Match the whole registry manifest, including its config
+            # and layers, rather than comparing that Id to the inner config.
+            or digest != self.configs[kind]
+            or not DIGEST.fullmatch(str(body.get("config", {}).get("digest")))
             or not isinstance(body.get("layers"), list)
             or any(
                 not isinstance(layer, dict)
