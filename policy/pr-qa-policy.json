@@ -1399,17 +1399,17 @@
       "pr_number": 712,
       "head_ref": "release/fieldzilla-production-application",
       "base_ref": "main",
-      "expected_head_sha": "38faf43fcac0e8f9e9dedd2cfe2b33900e870efd",
-      "expected_base_sha": "3b119debc7daf28da3249abb025dbabaf6745f9c",
-      "issued_at": "2026-11-12T17:42:56Z",
+      "expected_head_sha": "f85d034736522cf8a28f5a417b66f7e14d2ecae7",
+      "expected_base_sha": "edc4d3aa6cc6ff55f90c933163ca1e1aca951659",
+      "issued_at": "2026-11-12T18:42:42Z",
       "enabled": true,
-      "authorization_id": "15356e4f-713a-46b8-aba0-8362c9b87300",
+      "authorization_id": "5a223e15-a4a7-4c96-a989-25d153c93170",
       "expires_after": "2026-11-13T05:05:32Z",
       "allowed_effective_additions": 148858,
       "allowed_changed_files": 844,
       "minimum_changed_files": 844,
-      "required_pr_body_marker": "FIELDZILLA-PR712-BOOTSTRAP-FINAL-15356e4f-713a-46b8-aba0-8362c9b87300",
-      "purpose": "Bind #712 linear head and exact base after production bootstrap caller fixes #729/#730 and owner-approved two-fingerprint Podfile.lock checksum correction. Preserve 844-file and 148858 effective-addition caps, source scope, SQL, reviewer and expiry; no APK, image publication, AWS apply, Gate C/D or deployment approval.",
+      "required_pr_body_marker": "FIELDZILLA-PR712-RESIDUAL-FINAL-5a223e15-a4a7-4c96-a989-25d153c93170",
+      "purpose": "Bind #712 linear head and exact base after merged rc263 residual bootstrap caller #731 and owner-approved two-fingerprint Podfile.lock checksum correction; preserve scope, 844-file and 148858 effective-addition caps, SQL, reviewer and expiry. No APK, image publication, AWS apply, Gate C/D or deployment approval.",
       "relaxations": [
         "changed_file_count",
         "diff_size"
@@ -1484,7 +1484,7 @@
           ".gitleaksignore": {
             "source": "present",
             "candidate": "reviewed_sha256",
-            "candidate_sha256": "41686f777309b582eac62a73b97d681424ce9e40bc4e5893769a22ce1e1d347e"
+            "candidate_sha256": "aad7ae6476c0e3683ed089a26798a23d77564e3a1f2e695928084eb6fae670e5"
           },
           "apps/api/tests/architecture/test_mobile_backend_integration_contracts.py": {
             "source": "present",
