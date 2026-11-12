@@ -127,6 +127,57 @@ def check_plan(path, phase):
         fail("phase 1 cannot change the shared ALB")
     if phase == "phase2" and (set(shared) != expected_shared or creates != 3):
         fail("phase 2 shared ALB additions differ from reviewed allowlist")
+    if phase == "production-bootstrap":
+        expected = {
+            "aws_lb_listener_rule.private_validation_api": (
+                302, "api.fieldzilla-validation.invalid",
+                "arn:aws:elasticloadbalancing:ap-south-1:918870682888:targetgroup/pmp-production-api/07cce0ebb89838ce",
+            ),
+            "aws_lb_listener_rule.private_validation_admin": (
+                303, "admin.fieldzilla-validation.invalid",
+                "arn:aws:elasticloadbalancing:ap-south-1:918870682888:targetgroup/pmp-production-admin/25d953f6c0365619",
+            ),
+        }
+        bootstrap = {
+            "aws_secretsmanager_secret.migration",
+            "aws_iam_role.admin_execution",
+            "aws_iam_role_policy_attachment.admin_execution",
+            "aws_iam_role.migration_execution",
+            "aws_iam_role_policy_attachment.migration_execution",
+            "aws_iam_role_policy.migration_secret",
+        }
+        added = {c["address"].split("[")[0] for c in changes if c["change"]["actions"] == ["create"]}
+        if set(shared) != set(expected) or len(shared) != 2 or added != bootstrap | set(expected) or creates != 8:
+            fail("production bootstrap must add only six scoped identities and two dark target associations")
+        for change in changes:
+            if change["change"]["actions"] != ["create"] or change["address"].split("[")[0] not in expected:
+                continue
+            base = change["address"].split("[")[0]
+            priority, hostname, target = expected[base]
+            after = change["change"].get("after") or {}
+            actions = after.get("action") or []
+            conditions = after.get("condition") or []
+            if (after.get("priority") != priority
+                    or after.get("listener_arn") != "arn:aws:elasticloadbalancing:ap-south-1:918870682888:listener/app/fieldzilla/abd764c361a9627c/a6e9b94e09bf76f8"
+                    or len(actions) != 1 or actions[0].get("type") != "forward"
+                    or actions[0].get("target_group_arn") != target
+                    or len(conditions) != 2):
+                fail(f"private validation listener identity differs: {base}")
+            observed = []
+            for condition in conditions:
+                populated = {key: value for key, value in condition.items() if value not in (None, [], {}, "")}
+                populated.pop("field", None)
+                if set(populated) == {"host_header"}:
+                    observed.append(("host", populated["host_header"]))
+                elif set(populated) == {"source_ip"}:
+                    observed.append(("source", populated["source_ip"]))
+                else:
+                    fail(f"private validation has an unexpected condition: {base}")
+            if sorted(observed, key=str) != sorted([
+                ("host", [{"values": [hostname]}]),
+                ("source", [{"values": ["192.0.2.1/32"]}]),
+            ], key=str):
+                fail(f"private validation conditions differ: {base}")
     print(json.dumps({"phase": phase, "creates": creates, "unchanged": unchanged, "shared_alb_additions": shared}, sort_keys=True))
 
 
@@ -315,7 +366,7 @@ def main():
     parser.add_argument("--source-sha", required=True)
     parser.add_argument("--caller-sha", required=True)
     parser.add_argument("--workflow-tag", required=True)
-    parser.add_argument("--phase", required=True, choices=["phase1", "phase2", "cleanup-protection", "cleanup-destroy", "cleanup-partial"])
+    parser.add_argument("--phase", required=True, choices=["phase1", "phase2", "production-bootstrap", "cleanup-protection", "cleanup-destroy", "cleanup-partial"])
     parser.add_argument("--target", choices=["production", "rehearsal"], default="production")
     parser.add_argument("--expires-at")
     parser.add_argument("--resource-expires-at")
@@ -331,7 +382,7 @@ def main():
     require_identity(args)
     if args.target == "rehearsal" and (args.phase == "phase2" or not args.expires_at):
         fail("rehearsal requires an isolated phase and an exact expiry")
-    if args.target == "production" and args.phase not in {"phase1", "phase2"}:
+    if args.target == "production" and args.phase not in {"phase1", "phase2", "production-bootstrap"}:
         fail("production hosting cannot run rehearsal cleanup")
     if args.mode == "probe":
         probe_owner_comment(args)
