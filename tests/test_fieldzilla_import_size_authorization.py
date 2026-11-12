@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = "63af59f396d4e99e1680f5928b3943d165141e14"
-PROPOSAL = ROOT / "operations/fieldzilla-pr712-audit-test-rebind/proposal.json"
+PROPOSAL = ROOT / "operations/fieldzilla-pr712-rc255-base-review/proposal.json"
 
 
 class FieldzillaImportSizeTests(unittest.TestCase):
@@ -36,8 +36,8 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         self.assertEqual(len(prior_scholarships), 1)
         scholarships[0]["expires_after"] = prior_scholarships[0]["expires_after"]
         self.assertEqual(normalized, prior)
-        self.assertEqual(new[0]["expected_head_sha"], "9a24f1a54f8c7c561fe41844b91e28f5e2cc7c3b")
-        self.assertEqual(new[0]["expected_base_sha"], "1ce9d8855844823bc9e4f04e23dbb81633dd42ae")
+        self.assertEqual(new[0]["expected_head_sha"], "07c42b603d9f994895872e7ca92d8600d4674fbb")
+        self.assertEqual(new[0]["expected_base_sha"], "28cb6e7c8941e4c93365270b0dc1821ed8978b4f")
         self.assertEqual(new[0]["relaxations"], ["changed_file_count", "diff_size"])
         self.assertEqual(new[0]["allowed_effective_additions"], 148858)
         self.assertEqual(new[0]["allowed_changed_files"], 846)
