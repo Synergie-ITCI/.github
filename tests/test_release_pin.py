@@ -73,9 +73,9 @@ class ReleasePinTests(unittest.TestCase):
         verify.assert_called_once()
         self.assertEqual(self.manifest["consumer_release_selection"]["default"]["release"], "pr-qa-v1-rc216")
 
-    def test_fieldzilla_uses_only_exact_issued_rc253(self):
+    def test_fieldzilla_uses_only_exact_issued_rc254(self):
         selected = self.manifest["consumer_release_selection"]["repositories"]["Synergie-ITCI/programme-management-platform"]
-        self.assertEqual(selected, {"release": "pr-qa-v1-rc253", "commit": "2db5aac67345cbd536239a1c62c4055fd9112d2c"})
+        self.assertEqual(selected, {"release": "pr-qa-v1-rc254", "commit": "0c2b7fcf216fff814e08f1885b9389edd7e51881"})
         with patch("release_pin.verify_bound_release") as verify:
             release, entry = resolve_consumer_release(self.manifest, "Synergie-ITCI/programme-management-platform")
         self.assertEqual((release, entry["commit"]), (selected["release"], selected["commit"]))
