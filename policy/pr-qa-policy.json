@@ -1399,17 +1399,17 @@
       "pr_number": 712,
       "head_ref": "release/fieldzilla-production-application",
       "base_ref": "main",
-      "expected_head_sha": "79afdbe56e9875ff5e137d426822ecd9658103f0",
+      "expected_head_sha": "1eb3732b0d10e977f5aaf93a4671d4a0cd3b396a",
       "expected_base_sha": "1ce9d8855844823bc9e4f04e23dbb81633dd42ae",
-      "issued_at": "2026-11-12T05:41:40Z",
+      "issued_at": "2026-11-12T07:14:00Z",
       "enabled": true,
-      "authorization_id": "73274830-6c5d-4750-b6bd-359e9579dae3",
+      "authorization_id": "d7ba13e4-0bb1-473a-af29-ed4aeda1a1cb",
       "expires_after": "2026-11-13T05:05:32Z",
       "allowed_effective_additions": 148858,
       "allowed_changed_files": 846,
       "minimum_changed_files": 846,
-      "required_pr_body_marker": "FIELDZILLA-PR712-LINEAR-HEAD-73274830-6c5d-4750-b6bd-359e9579dae3",
-      "purpose": "Bind exact PR712 linear head after removing one zero-file-change merge commit rejected by governed QA. The application tree, final main base, source overlay, audited SQL, mobile audit, scanner scope, review expiry and relaxations are unchanged. The linear branch has exactly 846 nondeleted paths and 148858 effective additions against its historical merge base. No APK, image publication, IAM, AWS apply, Gate C/D or production deployment authorization.",
+      "required_pr_body_marker": "FIELDZILLA-PR712-AUDIT-RENEWAL-d7ba13e4-0bb1-473a-af29-ed4aeda1a1cb",
+      "purpose": "Bind exact PR712 head after owner-approved renewal of its existing low-severity deepmerge mobile tooling audit baseline through 2026-11-13T07:04:04Z. Only apps/mobile/security/mobile-audit-baseline.json changed from the prior reviewed head. The final main base, 846 nondeleted paths, 148858 effective additions, audited SQL, lockfile, caller files, scanner guards, relaxations and review expiry remain fixed. This grants no APK, image publication, IAM, AWS apply, Gate C/D or production deployment authorization.",
       "relaxations": [
         "changed_file_count",
         "diff_size"
@@ -1595,7 +1595,7 @@
           "apps/mobile/security/mobile-audit-baseline.json": {
             "source": "present",
             "candidate": "reviewed_sha256",
-            "candidate_sha256": "fb361c7dbb932eeb278021a2f98e18b14d3a3e1f3d270e809865d0e48e2a4f13"
+            "candidate_sha256": "38bd540ac773330d4d504432c25b8ed43ba7a40ef5a6f227082326edcc9253b0"
           },
           "deploy/production/hosting/prepare_application_manifest.py": {
             "source": "absent",
