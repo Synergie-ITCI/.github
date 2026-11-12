@@ -145,6 +145,37 @@ class PlanSafetyTest(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 self.verify(unsafe, "production-bootstrap")
 
+        # A failed first apply may leave exactly six reviewed resources in state.
+        # The follow-up may create only the secret and its scoped role policy.
+        existing = []
+        for change in [api, admin, *bootstrap[1:5]]:
+            copy = json.loads(json.dumps(change))
+            address = copy["address"].split("[")[0]
+            after = copy["change"]["after"]
+            if address == "aws_iam_role.admin_execution":
+                after["name"] = "SynergieFieldzillaProductionAdminExecution"
+            if address == "aws_iam_role.migration_execution":
+                after["name"] = "SynergieFieldzillaProductionMigrationExecution"
+            if address.startswith("aws_iam_role_policy_attachment."):
+                suffix = address.split(".")[1]
+                after["role"] = ("SynergieFieldzillaProductionAdminExecution" if suffix == "admin_execution"
+                                 else "SynergieFieldzillaProductionMigrationExecution")
+                after["policy_arn"] = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+            copy["change"]["actions"] = ["no-op"]
+            copy["change"]["before"] = json.loads(json.dumps(after))
+            existing.append(copy)
+        residual = [bootstrap[0], bootstrap[5], *existing]
+        self.verify(residual, "production-bootstrap")
+        for unsafe in (
+            [bootstrap[0], *existing],
+            [*residual, self.change("aws_iam_role.unexpected", "aws_iam_role")],
+            [*residual[:-1]],
+            [{**existing[0], "change": {**existing[0]["change"], "after": {
+                **existing[0]["change"]["after"], "priority": 301}}}, *residual[:2], *existing[1:]],
+        ):
+            with self.assertRaises(SystemExit):
+                self.verify(unsafe, "production-bootstrap")
+
     def test_rehearsal_requires_complete_isolated_target_and_rejects_live_changes(self):
         required = [
             self.change("aws_vpc.rehearsal", "aws_vpc", after={"cidr_block": "10.77.0.0/20"}),

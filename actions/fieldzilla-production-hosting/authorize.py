@@ -147,10 +147,37 @@ def check_plan(path, phase):
             "aws_iam_role_policy.migration_secret",
         }
         added = {c["address"].split("[")[0] for c in changes if c["change"]["actions"] == ["create"]}
-        if set(shared) != set(expected) or len(shared) != 2 or added != bootstrap | set(expected) or creates != 8:
-            fail("production bootstrap must add only six scoped identities and two dark target associations")
+        initial = (set(shared) == set(expected) and len(shared) == 2
+                   and added == bootstrap | set(expected) and creates == 8)
+        residual = (not shared and added == {
+            "aws_secretsmanager_secret.migration", "aws_iam_role_policy.migration_secret"
+        } and creates == 2)
+        if not initial and not residual:
+            fail("production bootstrap must add only the reviewed initial or residual resources")
+        if residual:
+            existing = (bootstrap | set(expected)) - added
+            noops = [c["address"].split("[")[0] for c in changes
+                     if c["change"]["actions"] == ["no-op"]]
+            if not existing <= set(noops) or any(noops.count(address) != 1 for address in existing):
+                fail("residual bootstrap is missing a previously created resource")
+            role_names = {
+                "aws_iam_role.admin_execution": "SynergieFieldzillaProductionAdminExecution",
+                "aws_iam_role.migration_execution": "SynergieFieldzillaProductionMigrationExecution",
+            }
+            for change in changes:
+                base = change["address"].split("[")[0]
+                if base in role_names and change["change"]["actions"] == ["no-op"]:
+                    if (change["change"].get("after") or {}).get("name") != role_names[base]:
+                        fail(f"residual bootstrap role identity differs: {base}")
+                if base in {"aws_iam_role_policy_attachment.admin_execution",
+                            "aws_iam_role_policy_attachment.migration_execution"} and change["change"]["actions"] == ["no-op"]:
+                    after = change["change"].get("after") or {}
+                    if (after.get("role") != role_names[base.replace("aws_iam_role_policy_attachment", "aws_iam_role")]
+                            or after.get("policy_arn") != "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"):
+                        fail(f"residual bootstrap task policy attachment differs: {base}")
         for change in changes:
-            if change["change"]["actions"] != ["create"] or change["address"].split("[")[0] not in expected:
+            if (change["change"]["actions"] not in (["create"], ["no-op"])
+                    or change["address"].split("[")[0] not in expected):
                 continue
             base = change["address"].split("[")[0]
             priority, hostname, target = expected[base]
