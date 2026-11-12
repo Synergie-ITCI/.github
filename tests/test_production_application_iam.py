@@ -66,6 +66,8 @@ class PolicyTests(unittest.TestCase):
     def test_recovery_scaling_does_not_require_changing_task_definition(self):
         rows = {row["Sid"]: row for row in deployment_policy(self.inputs)["Statement"]}
         self.assertIn("ArnLikeIfExists", rows["UpdateOnlyTargetServices"]["Condition"])
+        self.assertEqual(rows["RegisterOnlyTargetFamilies"]["Condition"]["StringEqualsIfExists"]["ecs:privileged"], "false")
+        self.assertNotIn("BoolIfExists", rows["RegisterOnlyTargetFamilies"]["Condition"])
         self.assertIn("ArnLike", rows["CreateOnlyTargetServices"]["Condition"])
         self.assertEqual(len(rows["RunOnlyMigrationFamily"]["Resource"]), 1)
         self.assertIn("-migration:", rows["RunOnlyMigrationFamily"]["Resource"][0])

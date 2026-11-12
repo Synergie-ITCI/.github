@@ -6,3 +6,4 @@
 - Podfile.lock is byte-identical. Only its two commit-bound checksum fingerprints were rebound; redacted candidate scan and regression tests passed.
 - SQL file hash and five DELETE fingerprints are unchanged. Reviewer remains SaurabhVermaIN. New exact authorization IDs and window `2026-11-12T21:55:45Z`–`2026-11-13T21:54:45Z`; marker `FIELDZILLA-PR712-HISTORICAL-f143997b-c085-4e9f-85bc-d6398d43686d`.
 - Proposed, not active. No release selection, image publication, AWS apply, Gate C or Gate D is authorized by this record. Scholarships records are untouched.
+- The production-only deploy-policy renderer now uses the IAM String condition type for `ecs:privileged`; the prior Bool type produced an AWS Access Analyzer TYPE_MISMATCH warning. The corrected exact source-bound policy is 5,223 compact IAM characters (under 6,144) and Access Analyzer has zero findings. This is review-only policy rendering; the rc267 deployment workflow and FieldZilla caller remain unchanged.

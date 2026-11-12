@@ -69,7 +69,7 @@ def deployment_policy(manifest: dict) -> dict:
                 "aws:RequestTag/environment": scope,
                 "aws:RequestTag/source-sha": plan["source_sha"],
             },
-            "BoolIfExists": {"ecs:privileged": "false"},
+            "StringEqualsIfExists": {"ecs:privileged": "false"},
         },
     )
     allow(
