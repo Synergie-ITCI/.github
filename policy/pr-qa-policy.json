@@ -1399,17 +1399,17 @@
       "pr_number": 712,
       "head_ref": "release/fieldzilla-production-application",
       "base_ref": "main",
-      "expected_head_sha": "eb1e279bb316b9cfa25c4e7cb28b8db26f329c60",
-      "expected_base_sha": "fa5a093e7259973fe08ccae15e5bf53fe9e24cc0",
-      "issued_at": "2026-11-12T18:42:42Z",
+      "expected_head_sha": "31d5986ed69ba68f453b1b10cfc04cb161f2bd19",
+      "expected_base_sha": "8ae3caaa067b3698713e514e1a834412781a93dc",
+      "issued_at": "2026-11-12T21:55:45Z",
       "enabled": true,
-      "authorization_id": "2ed2bb1a-c5ed-413c-91cf-5ad6b8dc6ef6",
-      "expires_after": "2026-11-13T05:05:32Z",
-      "allowed_effective_additions": 148858,
-      "allowed_changed_files": 844,
-      "minimum_changed_files": 844,
-      "required_pr_body_marker": "FIELDZILLA-PR712-RC265-FINAL-2ed2bb1a-c5ed-413c-91cf-5ad6b8dc6ef6",
-      "purpose": "Bind #712 linear head and exact base after merged rc265 image caller #732 and owner-approved two-fingerprint Podfile.lock checksum correction; preserve source scope, size caps, SQL, reviewer and expiry. No image publication, AWS apply, Gate C/D or deployment approval.",
+      "authorization_id": "f143997b-c085-4e9f-85bc-d6398d43686d",
+      "expires_after": "2026-11-13T21:54:45Z",
+      "allowed_effective_additions": 149054,
+      "allowed_changed_files": 905,
+      "minimum_changed_files": 905,
+      "required_pr_body_marker": "FIELDZILLA-PR712-HISTORICAL-f143997b-c085-4e9f-85bc-d6398d43686d",
+      "purpose": "Bind final #712 head/base after merged rc267 production caller and scoped historical migration; exact 905-file/149054 effective-addition bounds, 47-path overlay and reviewed two-fingerprint Podfile allowlist. No image, AWS apply, Gate C/D or deployment approval.",
       "relaxations": [
         "changed_file_count",
         "diff_size"
@@ -1461,7 +1461,9 @@
           "deploy/production/hosting/rehearsal/outputs.tf",
           "deploy/production/hosting/rehearsal/task_roles.tf",
           "deploy/production/hosting/rehearsal/variables.tf",
-          "deploy/production/hosting/rehearsal/versions.tf"
+          "deploy/production/hosting/rehearsal/versions.tf",
+          "apps/api/scripts/production_historical_migrate.py",
+          "apps/api/tests/architecture/test_production_historical_migrate.py"
         ],
         "paths": {
           ".github/CODEOWNERS": {
@@ -1484,7 +1486,7 @@
           ".gitleaksignore": {
             "source": "present",
             "candidate": "reviewed_sha256",
-            "candidate_sha256": "08310741bd4f1716131f78e6512bec8af404789d7aa56a418db1df149c55087f"
+            "candidate_sha256": "3f0d4a1d7003c681f8d357f2f4fafdbb0014fa08df71b905adcd1b77a1b0c639"
           },
           "apps/api/tests/architecture/test_mobile_backend_integration_contracts.py": {
             "source": "present",
@@ -1499,12 +1501,12 @@
           "apps/api/tests/architecture/test_production_application_plan.py": {
             "source": "absent",
             "candidate": "reviewed_sha256",
-            "candidate_sha256": "098fc677e43822affa3d1a7c64edde23810674a02a22a89e217e93b8712021aa"
+            "candidate_sha256": "4fba036f5a9ea783f9289f7098ae22ca21bdda5d5bd7898229a3c66817518fea"
           },
           "deploy/production/application_plan.py": {
             "source": "absent",
             "candidate": "reviewed_sha256",
-            "candidate_sha256": "34fdad8c40e131bd04fd540451403324fdc7876a09dd68420aef1831abfd7dbd"
+            "candidate_sha256": "a56bece5db1bcc0866a62ff10df2ef233f6cff71e9e074a82bd09ca8e1d26356"
           },
           "deploy/production/hosting/.gitignore": {
             "source": "absent",
@@ -1656,6 +1658,16 @@
           "deploy/production/hosting/rehearsal/versions.tf": {
             "source": "absent",
             "candidate": "base"
+          },
+          "apps/api/scripts/production_historical_migrate.py": {
+            "source": "absent",
+            "candidate": "reviewed_sha256",
+            "candidate_sha256": "99cc7b6cc211c6d224c19d1ffe944878c197d0c36adaa6cfd4ec88123bb404a7"
+          },
+          "apps/api/tests/architecture/test_production_historical_migrate.py": {
+            "source": "absent",
+            "candidate": "reviewed_sha256",
+            "candidate_sha256": "342cfbda422efe7c45dc67529d2d4e4321298e836882153d1aa1f64be961800b"
           }
         }
       }
