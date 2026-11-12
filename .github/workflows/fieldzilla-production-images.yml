@@ -92,8 +92,12 @@ jobs:
           payload = token.split('.')[1]
           claims = json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
           expected = {'aud': audience, 'repository_id': '1315697868', 'repository_owner_id': '209829096', 'ref': 'refs/heads/main', 'sha': os.environ['CALLER_SHA'], 'job_workflow_ref': os.environ['CENTRAL_WORKFLOW_REF'], 'job_workflow_sha': os.environ['CENTRAL_SHA']}
-          if any(str(claims.get(k)) != v for k, v in expected.items()) or claims.get('environment') is not None:
-              raise SystemExit('Image build identity mismatch; no AWS role may be assumed')
+          mismatched = [k for k, v in expected.items() if str(claims.get(k)) != v]
+          if claims.get('environment') is not None:
+              mismatched.append('environment')
+          if mismatched:
+              # Report claim names only. Never print the OIDC token or claim values.
+              raise SystemExit('Image build identity mismatch (' + ', '.join(mismatched) + '); no AWS role may be assumed')
           print('Exact immutable build identity verified without a production environment')
           PY
           image_build_config="${RUNNER_TEMP}/fieldzilla-build-docker-config"
@@ -183,8 +187,10 @@ jobs:
           payload = token.split('.')[1]
           claims = json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
           expected = {'aud': 'sts.amazonaws.com', 'repository_id': '1315697868', 'repository_owner_id': '209829096', 'ref': 'refs/heads/main', 'sha': os.environ['CALLER_SHA'], 'environment': 'synergie-app-production', 'sub': 'repo:Synergie-ITCI@209829096/programme-management-platform@1315697868:environment:synergie-app-production', 'job_workflow_ref': os.environ['CENTRAL_WORKFLOW_REF'], 'job_workflow_sha': os.environ['CENTRAL_SHA']}
-          if any(str(claims.get(k)) != v for k, v in expected.items()):
-              raise SystemExit('Named image publisher identity mismatch')
+          mismatched = [k for k, v in expected.items() if str(claims.get(k)) != v]
+          if mismatched:
+              # Keep the same fail-closed checks without logging token or claim values.
+              raise SystemExit('Named image publisher identity mismatch (' + ', '.join(mismatched) + ')')
           print('Exact production image publisher identity verified; no AWS role assumed yet')
           PY
       - name: Checkout only trusted immutable publisher code
