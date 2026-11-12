@@ -1554,6 +1554,10 @@ def run_pr_qa(root: Path, framework: Path, base: str, base_sha: str, release: st
                 base,
                 "--head-ref",
                 head_ref,
+                # Local release publication runs the full central regression on
+                # slower workstations; keep every test while allowing it to finish.
+                "--command-timeout-minutes",
+                "45",
                 *profile_args,
                 "--out",
                 str(tmp_path / "pr-quality-report.md"),
