@@ -1671,6 +1671,23 @@
           }
         }
       }
+    },
+    {
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "repository_id": 1315697868,
+      "pr_number": 744,
+      "head_ref": "fix/fieldzilla-optional-otp-response",
+      "base_ref": "main",
+      "expected_head_sha": "328f281e27e5cb6b774ed6109c1e7b35e5f883ba",
+      "expected_base_sha": "19dc417c640b3a310252c40ad14a107458174f88",
+      "issued_at": "2026-11-13T17:35:29Z",
+      "enabled": true,
+      "authorization_id": "8560c220-c559-42fc-bcd1-4fd3abec26c2",
+      "expires_after": "2026-11-14T16:35:29Z",
+      "allowed_effective_additions": 9,
+      "allowed_changed_files": 3,
+      "purpose": "Exact-source production image review binding for PR #744 optional OTP API response correction; no baseline gate relaxation, no migration execution, ECS mutation, routing or deployment approval.",
+      "relaxations": []
     }
   ]
 }
