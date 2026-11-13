@@ -22,6 +22,7 @@ from qa_policy_evidence import (
 class QAPolicyTests(unittest.TestCase):
     def setUp(self):
         self.manifest = {
+            "scope": "production",
             "promotion_pr": 712,
             "application": {"source_sha": "a" * 40},
             "base_sha": "b" * 40,
@@ -54,6 +55,13 @@ class QAPolicyTests(unittest.TestCase):
             "pull_requests": [
                 {"number": 712, "head": {"sha": "a" * 40}, "base": {"sha": "b" * 40}}
             ],
+        }
+        self.pr = {
+            "number": 712,
+            "state": "closed",
+            "merged_at": "2026-11-10T10:30:00Z",
+            "head": {"sha": "a" * 40, "repo": {"full_name": "Synergie-ITCI/programme-management-platform"}},
+            "base": {"ref": "main", "sha": "b" * 40},
         }
         self.jobs = [
             {
@@ -135,6 +143,8 @@ class QAPolicyTests(unittest.TestCase):
             }
         if path.endswith("/actions/runs/11"):
             return self.run
+        if path.endswith("/pulls/712"):
+            return self.pr
         if "/jobs?" in path:
             return {"jobs": self.jobs}
         if path.endswith("/jobs/34/logs"):
@@ -207,6 +217,23 @@ class QAPolicyTests(unittest.TestCase):
                 finally:
                     self.run[key] = old
         self.run["pull_requests"][0]["base"]["sha"] = "f" * 40
+        with self.assertRaises(ValueError):
+            self.verify()
+
+    def test_merged_pr_can_supply_only_missing_run_pr_association(self):
+        self.run["pull_requests"] = []
+        self.verify()
+        for field, bad in (("state", "open"), ("merged_at", None), ("number", 713)):
+            old = self.pr[field]
+            self.pr[field] = bad
+            with self.assertRaises(ValueError):
+                self.verify()
+            self.pr[field] = old
+        self.pr["base"]["sha"] = "f" * 40
+        with self.assertRaises(ValueError):
+            self.verify()
+        self.pr["base"]["sha"] = "b" * 40
+        self.manifest["scope"] = "production-rehearsal"
         with self.assertRaises(ValueError):
             self.verify()
 
