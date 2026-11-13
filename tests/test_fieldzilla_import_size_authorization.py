@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = "9c2e9c85c0103e9c477eda211d305c52355b61a5"
 REVIEWED = "c60ca7a7288e09713786aaf2422c06893f5a686d"
 FAILED_PHASE_ONE = "02a48b243a111da79b740e254b77124384668458"
+PRE_RUFF_REBIND = "c4cf19b96a7672cef86dc2773b242b8982592cef"
 PROPOSAL = ROOT / "operations/fieldzilla-pr712-historical-final-review/proposal.json"
 
 
@@ -57,7 +58,9 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         reviewed = json.loads(subprocess.check_output(
             ["git", "show", f"{REVIEWED}:policy/pr-qa-policy.json"], cwd=ROOT,
         ))
-        current = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())
+        current = json.loads(subprocess.check_output(
+            ["git", "show", f"{PRE_RUFF_REBIND}:policy/pr-qa-policy.json"], cwd=ROOT,
+        ))
         old = next(row for row in reviewed["one_time_baseline_alignments"]
                    if row.get("repository_id") == 1315697868 and row.get("pr_number") == 712)
         new = next(row for row in current["one_time_baseline_alignments"]
@@ -91,9 +94,45 @@ class FieldzillaImportSizeTests(unittest.TestCase):
             failed_row["source_overlay"]["paths"][path]["source"] = "present"
         self.assertEqual(failed_row, new)
 
+    def test_ruff_rebind_changes_only_exact_head_and_three_reviewed_hashes(self):
+        previous = json.loads(subprocess.check_output(
+            ["git", "show", f"{PRE_RUFF_REBIND}:policy/pr-qa-policy.json"], cwd=ROOT,
+        ))
+        current = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())
+        old = next(row for row in previous["one_time_baseline_alignments"]
+                   if row.get("repository_id") == 1315697868 and row.get("pr_number") == 712)
+        new = next(row for row in current["one_time_baseline_alignments"]
+                   if row.get("repository_id") == 1315697868 and row.get("pr_number") == 712)
+        self.assertEqual((new["expected_head_sha"], new["expected_base_sha"]),
+                         ("56e565b6e4c729ce139e4f88243a03db6674bab3",
+                          "8ae3caaa067b3698713e514e1a834412781a93dc"))
+        self.assertEqual((new["allowed_changed_files"], new["minimum_changed_files"],
+                          new["allowed_effective_additions"]), (846, 846, 149054))
+        self.assertEqual(new["source_overlay"]["paths"]["apps/api/scripts/production_historical_migrate.py"]["candidate_sha256"],
+                         "a24c1a33733de79de72aa4d1b9edda0edf491ac192f4f7a64d8271f573df079f")
+        self.assertEqual(new["source_overlay"]["paths"]["apps/api/tests/architecture/test_production_historical_migrate.py"]["candidate_sha256"],
+                         "a622292b9650c8040baef2ba2b71cb2fda8bfa506b50c712555c42c54c4aed6c")
+        self.assertEqual(new["source_overlay"]["paths"]["apps/api/tests/architecture/test_production_application_plan.py"]["candidate_sha256"],
+                         "a5789126f1a08eb7bd52d15de61b5a4a8645f264d2a92d7d2e8708ef9040682f")
+        self.assertEqual(new["expires_after"], old["expires_after"])
+        normalized = copy.deepcopy(new)
+        for field in ("expected_head_sha", "authorization_id", "required_pr_body_marker", "purpose"):
+            normalized[field] = old[field]
+        for path in (
+            "apps/api/scripts/production_historical_migrate.py",
+            "apps/api/tests/architecture/test_production_historical_migrate.py",
+            "apps/api/tests/architecture/test_production_application_plan.py",
+        ):
+            normalized["source_overlay"]["paths"][path] = old["source_overlay"]["paths"][path]
+        self.assertEqual(normalized, old)
+        current["one_time_baseline_alignments"] = previous["one_time_baseline_alignments"]
+        self.assertEqual(current, previous)
+
     def test_historical_sql_review_preserves_audited_bytes_and_reviewer(self):
         proposed = json.loads(PROPOSAL.read_text())
-        current = json.loads((ROOT / "policy/audited-migration-authorizations.json").read_text())
+        current = json.loads(subprocess.check_output(
+            ["git", "show", f"{PRE_RUFF_REBIND}:policy/audited-migration-authorizations.json"], cwd=ROOT,
+        ))
         prior = json.loads(subprocess.check_output(
             ["git", "show", f"{SOURCE}:policy/audited-migration-authorizations.json"], cwd=ROOT,
         ))
