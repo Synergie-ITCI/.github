@@ -19,18 +19,50 @@ sys.path.insert(0, str(ROOT / "pr-qa"))
 from baseline_authorization import schema_errors
 
 
+def verify_no_changed_sql(manifest, *, api):
+    """Allow an image-only request to omit SQL review only for a SQL-free PR."""
+    if manifest.get("scope") != "production-images":
+        raise ValueError("Only image publication may omit SQL review")
+    for page in range(1, 11):
+        rows = api(
+            f"repos/{REPOSITORY}/pulls/{manifest['promotion_pr']}/files"
+            f"?per_page=100&page={page}"
+        )
+        if not isinstance(rows, list) or len(rows) > 100:
+            raise ValueError("Exact PR changed-file evidence is unavailable")
+        if page == 1 and not rows:
+            raise ValueError("Exact PR changed-file evidence is empty")
+        for row in rows:
+            if not isinstance(row, dict):
+                raise ValueError("Exact PR changed-file evidence is malformed")
+            for key in ("filename", "previous_filename"):
+                path = row.get(key)
+                if path is None and key == "previous_filename":
+                    continue
+                if not isinstance(path, str) or not path or len(path) > 1024:
+                    raise ValueError("Exact PR changed-file path is malformed")
+                if path.lower().endswith(".sql") or path.lower().startswith("apps/api/alembic/"):
+                    raise ValueError("Changed SQL or migration requires exact SQL review")
+        if len(rows) < 100:
+            return
+    raise ValueError("Exact PR changed-file evidence exceeds the bounded read")
+
+
 def verify_issued_windows(manifest, *, api, activated_policies, now=None):
     expected = manifest.get("review_authorizations", {})
     if (
         not isinstance(expected, dict)
         or set(expected) != {"baseline", "sql"}
-        or any(
-            not isinstance(value, str)
-            or not re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", value)
-            for value in expected.values()
-        )
+        or not isinstance(expected["baseline"], str)
+        or not re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", expected["baseline"])
+        or (expected["sql"] is not None and (
+            not isinstance(expected["sql"], str)
+            or not re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", expected["sql"])
+        ))
     ):
-        raise ValueError("Both exact central review identities must be bound")
+        raise ValueError("Exact central review identities must be bound")
+    if expected["sql"] is None:
+        verify_no_changed_sql(manifest, api=api)
     main = (
         api("repos/Synergie-ITCI/.github/git/ref/heads/main")
         .get("object", {})
@@ -46,6 +78,8 @@ def verify_issued_windows(manifest, *, api, activated_policies, now=None):
         ("baseline", "policy/pr-qa-policy.json", "expires_after"),
         ("sql", "policy/audited-migration-authorizations.json", "expires_at"),
     ):
+        if kind == "sql" and expected["sql"] is None:
+            continue
         content = api(f"repos/Synergie-ITCI/.github/contents/{path}?ref={main}")
         if content.get("type") != "file" or content.get("encoding") != "base64":
             raise ValueError("Live central review records unavailable")

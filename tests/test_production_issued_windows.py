@@ -54,10 +54,13 @@ class IssuedWindowTests(unittest.TestCase):
             "delete_fingerprints": [],
             "approved_reviewer": {"login": "synthetic-reviewer", "id": 1},
         }
+        self.changed_files = [{"filename": "apps/api/app/modules/submissions/service.py"}]
 
     def api(self, path):
         if path.endswith("/git/ref/heads/main"):
             return {"object": {"sha": "c" * 40}}
+        if "/pulls/712/files?" in path:
+            return self.changed_files
         self.assertTrue(path.endswith("?ref=" + "c" * 40))
         payload = (
             {"version": 1, "one_time_baseline_alignments": [self.baseline]}
@@ -144,3 +147,30 @@ class IssuedWindowTests(unittest.TestCase):
                     }
                 },
             )
+
+    def test_image_only_request_can_omit_sql_review_for_sql_free_pr(self):
+        self.manifest["scope"] = "production-images"
+        self.manifest["review_authorizations"]["sql"] = None
+        self.verify()
+
+    def test_sql_review_cannot_be_omitted_for_changed_or_renamed_sql(self):
+        self.manifest["scope"] = "production-images"
+        self.manifest["review_authorizations"]["sql"] = None
+        for row in (
+            {"filename": "apps/api/alembic/sql/changed.sql"},
+            {"filename": "apps/api/app/service.py", "previous_filename": "old/query.sql"},
+            {"filename": "apps/api/alembic/versions/new.py"},
+        ):
+            self.changed_files = [row]
+            with self.subTest(row=row), self.assertRaisesRegex(ValueError, "SQL or migration"):
+                self.verify()
+
+    def test_sql_review_omission_fails_closed_outside_images_and_without_file_evidence(self):
+        self.manifest["review_authorizations"]["sql"] = None
+        with self.assertRaisesRegex(ValueError, "Only image publication"):
+            self.verify()
+        self.manifest["scope"] = "production-images"
+        for rows in (None, []):
+            self.changed_files = rows
+            with self.subTest(rows=rows), self.assertRaisesRegex(ValueError, "changed-file evidence"):
+                self.verify()

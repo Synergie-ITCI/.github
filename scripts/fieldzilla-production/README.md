@@ -100,8 +100,11 @@ Validation: `python3 -m unittest discover -s tests -p 'test_production_*.py'`.
 The focused deterministic checks and Ruff cover the prepared source only. They cannot
 replace governed exact-head QA, an actual AWS rehearsal or authenticated acceptance.
 
-Execution manifests must bind `review_authorizations.baseline` and
-`review_authorizations.sql` to the issued UUIDs. Before each mutation,
+Execution manifests bind `review_authorizations.baseline` to an issued UUID.
+Production rollout manifests also bind `review_authorizations.sql` to an issued
+UUID. An image-only request may set `sql` to null only when a fresh, bounded
+GitHub PR changed-file read shows no SQL file or Alembic path changed; malformed,
+missing, or oversized evidence fails closed. Before each mutation,
 `issued_windows.py` checks their exact source/base/PR bindings, enabled state,
 and complete execution window against both live central policy and the activated
 immutable QA policy release that actually passed for this candidate. An old green QA result cannot extend an expired decision;
