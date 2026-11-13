@@ -6,12 +6,12 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = "190443f7ab0423f01db8ba1df825d7a481e637c7"
-PROPOSAL = ROOT / "operations/fieldzilla-pr712-rc265-final-review/proposal.json"
+SOURCE = "9c2e9c85c0103e9c477eda211d305c52355b61a5"
+PROPOSAL = ROOT / "operations/fieldzilla-pr712-historical-final-review/proposal.json"
 
 
 class FieldzillaImportSizeTests(unittest.TestCase):
-    def test_only_one_exact_record_changes_and_defaults_are_preserved(self):
+    def test_historical_review_changes_only_exact_fieldzilla_record(self):
         current = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())
         prior = json.loads(subprocess.check_output(
             ["git", "show", f"{SOURCE}:policy/pr-qa-policy.json"], cwd=ROOT,
@@ -21,56 +21,48 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         new = [r for r in rows if r.get("repository_id") == 1315697868 and r.get("pr_number") == 712]
         self.assertEqual(new, [proposed["baseline"]])
         normalized = copy.deepcopy(current)
-        i = normalized["one_time_baseline_alignments"].index(new[0])
-        normalized["one_time_baseline_alignments"][i] = proposed["previous_baseline"]
-        scholarships = [row for row in normalized["one_time_baseline_alignments"]
-                        if row.get("repository") == "Synergie-ITCI/scholarships"
-                        and row.get("pr_number") == 7]
-        self.assertEqual(len(scholarships), 1)
-        self.assertEqual(scholarships[0]["expected_head_sha"],
-                         "1379352d5ef26cc7e867e52185315083ec63eebe")
-        self.assertEqual(scholarships[0]["expires_after"], "2026-11-13T05:01:28Z")
-        prior_scholarships = [row for row in prior["one_time_baseline_alignments"]
-                              if row.get("repository") == "Synergie-ITCI/scholarships"
-                              and row.get("pr_number") == 7]
-        self.assertEqual(len(prior_scholarships), 1)
-        scholarships[0]["expires_after"] = prior_scholarships[0]["expires_after"]
+        normalized["one_time_baseline_alignments"][rows.index(new[0])] = proposed["previous_baseline"]
         self.assertEqual(normalized, prior)
-        self.assertEqual(new[0]["expected_head_sha"], "eb1e279bb316b9cfa25c4e7cb28b8db26f329c60")
-        self.assertEqual(new[0]["expected_base_sha"], "fa5a093e7259973fe08ccae15e5bf53fe9e24cc0")
-        self.assertEqual(new[0]["relaxations"], ["changed_file_count", "diff_size"])
-        self.assertEqual(new[0]["allowed_effective_additions"], 148858)
-        self.assertEqual(new[0]["allowed_changed_files"], 844)
-        self.assertEqual(new[0]["minimum_changed_files"], 844)
-        self.assertEqual(new[0]["expires_after"], "2026-11-13T05:05:32Z")
-        self.assertEqual(len(new[0]["source_overlay"]["paths"]), 45)
-        changed = {
-            path for path, value in new[0]["source_overlay"]["paths"].items()
-            if value != proposed["previous_baseline"]["source_overlay"]["paths"][path]
-        }
-        self.assertEqual(changed, {".gitleaksignore"})
-        self.assertEqual(
-            new[0]["source_overlay"]["paths"][".gitleaksignore"]["candidate_sha256"],
-            "08310741bd4f1716131f78e6512bec8af404789d7aa56a418db1df149c55087f",
-        )
-        self.assertEqual(
-            new[0]["source_overlay"]["paths"]["apps/api/tests/architecture/test_mobile_audit_baseline.py"]["candidate_sha256"],
-            "3e6445f4c5a9f3a5d44245b15fde7b762caab8bd600be645765f03318fd2ef4f",
-        )
+        review = new[0]
+        self.assertEqual((review["expected_head_sha"], review["expected_base_sha"]),
+                         ("31d5986ed69ba68f453b1b10cfc04cb161f2bd19",
+                          "8ae3caaa067b3698713e514e1a834412781a93dc"))
+        self.assertEqual((review["allowed_changed_files"], review["minimum_changed_files"],
+                          review["allowed_effective_additions"]), (905, 905, 149054))
+        self.assertEqual(review["relaxations"], ["changed_file_count", "diff_size"])
+        overlay = review["source_overlay"]
+        previous = proposed["previous_baseline"]["source_overlay"]
+        self.assertEqual(len(overlay["paths"]), 47)
+        self.assertEqual(set(overlay["paths"]) - set(previous["paths"]), {
+            "apps/api/scripts/production_historical_migrate.py",
+            "apps/api/tests/architecture/test_production_historical_migrate.py",
+        })
+        self.assertEqual(set(overlay["paths"]), set(overlay["allowed_paths"]))
+        changed = {path for path in previous["paths"]
+                   if overlay["paths"][path] != previous["paths"][path]}
+        self.assertEqual(changed, {
+            ".gitleaksignore",
+            "apps/api/tests/architecture/test_production_application_plan.py",
+            "deploy/production/application_plan.py",
+        })
+        self.assertEqual(overlay["paths"][".gitleaksignore"]["candidate_sha256"],
+                         "3f0d4a1d7003c681f8d357f2f4fafdbb0014fa08df71b905adcd1b77a1b0c639")
+        self.assertFalse(proposed["activation_authorized"])
 
-    def test_sql_rebind_preserves_all_reviewed_bytes_and_reviewer(self):
-        p = json.loads(PROPOSAL.read_text())
+    def test_historical_sql_review_preserves_audited_bytes_and_reviewer(self):
+        proposed = json.loads(PROPOSAL.read_text())
         current = json.loads((ROOT / "policy/audited-migration-authorizations.json").read_text())
         prior = json.loads(subprocess.check_output(
             ["git", "show", f"{SOURCE}:policy/audited-migration-authorizations.json"], cwd=ROOT,
         ))
         normalized = copy.deepcopy(current)
-        normalized[normalized.index(p["sql"])] = p["previous_sql"]
+        normalized[normalized.index(proposed["sql"])] = proposed["previous_sql"]
         self.assertEqual(normalized, prior)
         for key in ("migration_path", "migration_sha256", "delete_fingerprints", "approved_reviewer"):
-            self.assertEqual(p["sql"][key], p["previous_sql"][key])
-        self.assertEqual(p["status"], "PROPOSED_NOT_APPROVED_NOT_ACTIVE")
-
+            self.assertEqual(proposed["sql"][key], proposed["previous_sql"][key])
+        self.assertEqual(proposed["sql"]["expected_head_sha"], proposed["application_head_sha"])
+        self.assertEqual(proposed["sql"]["expected_base_sha"], proposed["application_base_sha"])
+        self.assertEqual(proposed["status"], "PROPOSED_NOT_APPROVED_NOT_ACTIVE")
 
     def test_format_overlay_changes_only_one_existing_reviewed_hash(self):
         proposal = json.loads((ROOT / "operations/fieldzilla-pr712-format-issuance/proposal.json").read_text())
