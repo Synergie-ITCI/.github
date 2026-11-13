@@ -101,7 +101,7 @@ jobs:
           [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
           [[ "${CALLER_SHA}" =~ ^[0-9a-f]{40}$ ]]
           [[ "${MODE}" =~ ^(probe|plan|apply)$ ]]
-          [[ "${PHASE}" =~ ^(phase1|phase2|production-bootstrap|cleanup-protection|cleanup-destroy|cleanup-partial)$ ]]
+          [[ "${PHASE}" =~ ^(phase1|phase2|production-bootstrap|production-network-repair|cleanup-protection|cleanup-destroy|cleanup-partial)$ ]]
           [[ "${TARGET}" =~ ^(production|rehearsal)$ ]]
           if [ "${TARGET}" = rehearsal ]; then
             [ "${PHASE}" != phase2 ]
@@ -110,7 +110,7 @@ jobs:
               [[ "${RESOURCE_EXPIRES_AT}" =~ ^20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]
             fi
           else
-            [[ "${PHASE}" =~ ^(phase1|phase2|production-bootstrap)$ ]]
+            [[ "${PHASE}" =~ ^(phase1|phase2|production-bootstrap|production-network-repair)$ ]]
           fi
 
       - name: Checkout exact source
@@ -255,7 +255,7 @@ jobs:
           fi
 
       - name: Verify certificate issued for phase two
-        if: ${{ inputs.mode != 'probe' && inputs.target == 'production' && (inputs.phase == 'phase2' || inputs.phase == 'production-bootstrap') }}
+        if: ${{ inputs.mode != 'probe' && inputs.target == 'production' && (inputs.phase == 'phase2' || inputs.phase == 'production-bootstrap' || inputs.phase == 'production-network-repair') }}
         run: |
           set -euo pipefail
           arn="$(aws acm list-certificates --certificate-statuses ISSUED --query "CertificateSummaryList[?DomainName=='fieldzilla.synergieinsights.in'].CertificateArn | [0]" --output text)"
@@ -326,9 +326,9 @@ jobs:
               -var="cleanup_requested=${cleanup}" -out="${RUNNER_TEMP}/plan/hosting.tfplan"
           else
             attach=false
-            if [ "${PHASE}" = phase2 ] || [ "${PHASE}" = production-bootstrap ]; then attach=true; fi
+            if [ "${PHASE}" = phase2 ] || [ "${PHASE}" = production-bootstrap ] || [ "${PHASE}" = production-network-repair ]; then attach=true; fi
             private_validation=false
-            if [ "${PHASE}" = production-bootstrap ]; then private_validation=true; fi
+            if [ "${PHASE}" = production-bootstrap ] || [ "${PHASE}" = production-network-repair ]; then private_validation=true; fi
             tofu -chdir="${ROOT}" plan -input=false -lock=true \
               -var="attach_validated_certificate=${attach}" \
               -var="attach_private_validation_targets=${private_validation}" \

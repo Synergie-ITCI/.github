@@ -205,6 +205,28 @@ def check_plan(path, phase):
                 ("source", [{"values": ["192.0.2.1/32"]}]),
             ], key=str):
                 fail(f"private validation conditions differ: {base}")
+    if phase == "production-network-repair":
+        expected_ports = {
+            "aws_vpc_security_group_egress_rule.production_admin_from_alb": 80,
+            "aws_vpc_security_group_egress_rule.production_api_from_alb": 8000,
+        }
+        added = [c for c in changes if c["change"]["actions"] == ["create"]]
+        if set(shared) or {c["address"] for c in added} != set(expected_ports) or creates != 2:
+            fail("network repair must add only the two production ALB egress rules")
+        for change in added:
+            after = change["change"].get("after") or {}
+            port = expected_ports[change["address"]]
+            if (
+                after.get("security_group_id") != "sg-0d86252daff26172b"
+                or after.get("referenced_security_group_id") != "sg-0d9cdc2a3d5ef9243"
+                or after.get("ip_protocol") != "tcp"
+                or after.get("from_port") != port
+                or after.get("to_port") != port
+                or after.get("cidr_ipv4") not in (None, "")
+                or after.get("cidr_ipv6") not in (None, "")
+                or after.get("prefix_list_id") not in (None, "")
+            ):
+                fail("network repair target or port differs from the reviewed boundary")
     print(json.dumps({"phase": phase, "creates": creates, "unchanged": unchanged, "shared_alb_additions": shared}, sort_keys=True))
 
 
@@ -393,7 +415,7 @@ def main():
     parser.add_argument("--source-sha", required=True)
     parser.add_argument("--caller-sha", required=True)
     parser.add_argument("--workflow-tag", required=True)
-    parser.add_argument("--phase", required=True, choices=["phase1", "phase2", "production-bootstrap", "cleanup-protection", "cleanup-destroy", "cleanup-partial"])
+    parser.add_argument("--phase", required=True, choices=["phase1", "phase2", "production-bootstrap", "production-network-repair", "cleanup-protection", "cleanup-destroy", "cleanup-partial"])
     parser.add_argument("--target", choices=["production", "rehearsal"], default="production")
     parser.add_argument("--expires-at")
     parser.add_argument("--resource-expires-at")
@@ -409,7 +431,7 @@ def main():
     require_identity(args)
     if args.target == "rehearsal" and (args.phase == "phase2" or not args.expires_at):
         fail("rehearsal requires an isolated phase and an exact expiry")
-    if args.target == "production" and args.phase not in {"phase1", "phase2", "production-bootstrap"}:
+    if args.target == "production" and args.phase not in {"phase1", "phase2", "production-bootstrap", "production-network-repair"}:
         fail("production hosting cannot run rehearsal cleanup")
     if args.mode == "probe":
         probe_owner_comment(args)
