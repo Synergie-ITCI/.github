@@ -233,6 +233,26 @@ class QAPolicyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.verify()
         self.pr["base"]["sha"] = "b" * 40
+        self.manifest["scope"] = "production-images"
+        self.verify()
+        self.manifest["scope"] = "production-rehearsal"
+        with self.assertRaises(ValueError):
+            self.verify()
+
+    def test_ordinary_sql_free_image_qa_needs_exact_pass_without_relaxations(self):
+        self.manifest["scope"] = "production-images"
+        binding = self.report["summary"]["baseline_alignment"]
+        binding.update(requested=False, authorized=False, relaxed_checks=[])
+        self.rebuild_archive()
+        self.verify()
+        for field, invalid in (("requested", True), ("relaxed_checks", ["diff_size"])):
+            original = binding[field]
+            binding[field] = invalid
+            self.rebuild_archive()
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                self.verify()
+            binding[field] = original
+        self.rebuild_archive()
         self.manifest["scope"] = "production-rehearsal"
         with self.assertRaises(ValueError):
             self.verify()

@@ -46,6 +46,7 @@ def verify_image_context(*, manifest, environment, api, central_checkout_sha):
         central_checkout_sha=central_checkout_sha,
         scope="production-images",
         workflow="fieldzilla-production-images.yml",
+        allow_merged=True,
     )
 
 
@@ -126,7 +127,8 @@ def verify_production_context(*, manifest, environment, api, central_checkout_sh
 
 
 def _verify_context(
-    *, manifest, environment, api, central_checkout_sha, scope, workflow
+    *, manifest, environment, api, central_checkout_sha, scope, workflow,
+    allow_merged=False,
 ):
     if manifest.get("scope") != scope:
         raise ValueError("Execution purpose does not match the exact trusted workflow")
@@ -164,21 +166,32 @@ def _verify_context(
             "Unexpected rehearsal caller, workflow or executing code identity"
         )
     main = api(f"repos/{REPOSITORY}/git/ref/heads/main")
-    if main.get("object", {}).get("sha") != caller or caller != base:
+    if main.get("object", {}).get("sha") != caller:
         raise ValueError(
-            "Protected caller/base advanced; reprepare the exact rehearsal"
+            "Protected caller advanced; reprepare the exact request"
         )
     pr = api(f"repos/{REPOSITORY}/pulls/{promotion}")
     if (
-        pr.get("state") != "open"
-        or pr.get("draft") is not False
+        pr.get("draft") is not False
         or pr.get("head", {}).get("sha") != source
         or pr.get("head", {}).get("repo", {}).get("full_name") != REPOSITORY
         or pr.get("base", {}).get("ref") != "main"
         or pr.get("base", {}).get("sha") != base
         or pr.get("base", {}).get("repo", {}).get("full_name") != REPOSITORY
     ):
-        raise ValueError("Exact main-targeted rehearsal candidate changed")
+        raise ValueError("Exact main-targeted candidate changed")
+    if pr.get("state") == "open":
+        if caller != base or pr.get("merged_at"):
+            raise ValueError("Open candidate no longer has the exact main base")
+    elif allow_merged and pr.get("state") == "closed" and pr.get("merged_at"):
+        merge = pr.get("merge_commit_sha", "")
+        if not re.fullmatch(r"[0-9a-f]{40}", merge):
+            raise ValueError("Merged candidate identity is unavailable")
+        lineage = api(f"repos/{REPOSITORY}/compare/{merge}...{caller}")
+        if lineage.get("status") not in {"identical", "ahead"}:
+            raise ValueError("Merged candidate is absent from the executing main")
+    else:
+        raise ValueError("Candidate is neither open at its base nor merged into main")
     ref = api(f"repos/Synergie-ITCI/.github/git/ref/tags/{tag}")
     tagged = ref.get("object", {})
     if tagged.get("type") != "tag" or not re.fullmatch(
