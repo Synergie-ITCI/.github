@@ -90,6 +90,9 @@ def check_plan(path, phase):
     changes = [c for c in doc.get("resource_changes", []) if c.get("mode") == "managed"]
     if not changes:
         fail("empty managed-resource plan")
+    if phase == "production-routing":
+        check_production_routing_plan(changes)
+        return
     shared = []
     creates = 0
     unchanged = 0
@@ -228,6 +231,81 @@ def check_plan(path, phase):
             ):
                 fail("network repair target or port differs from the reviewed boundary")
     print(json.dumps({"phase": phase, "creates": creates, "unchanged": unchanged, "shared_alb_additions": shared}, sort_keys=True))
+
+
+def check_production_routing_plan(changes):
+    """Allow only the reviewed production-host API addition and Admin cutover."""
+    listener = "arn:aws:elasticloadbalancing:ap-south-1:918870682888:listener/app/fieldzilla/abd764c361a9627c/a6e9b94e09bf76f8"
+    api_target = "arn:aws:elasticloadbalancing:ap-south-1:918870682888:targetgroup/pmp-production-api/07cce0ebb89838ce"
+    admin_target = "arn:aws:elasticloadbalancing:ap-south-1:918870682888:targetgroup/pmp-production-admin/25d953f6c0365619"
+    expected = {
+        "aws_lb_listener_rule.application_api[0]": ["create"],
+        "aws_lb_listener_rule.application_pending[0]": ["update"],
+    }
+    changed = {}
+    for change in changes:
+        address = change["address"]
+        actions = change["change"]["actions"]
+        if change.get("previous_address") or change["change"].get("importing"):
+            fail(f"routing plan contains a state move or import: {address}")
+        if actions == ["no-op"]:
+            if change["change"].get("before") != change["change"].get("after"):
+                fail(f"inconsistent routing no-op: {address}")
+            continue
+        if address not in expected or actions != expected[address] or address in changed:
+            fail(f"unreviewed production routing action: {address}: {actions}")
+        changed[address] = change
+    if set(changed) != set(expected):
+        fail("routing plan must contain exactly the API addition and Admin cutover")
+
+    def conditions(after):
+        observed = []
+        for condition in after.get("condition") or []:
+            populated = {key: value for key, value in condition.items() if value not in (None, [], {}, "")}
+            if set(populated) == {"host_header"}:
+                observed.append(("host", populated["host_header"]))
+            elif set(populated) == {"path_pattern"}:
+                observed.append(("path", populated["path_pattern"]))
+            else:
+                fail("routing rule has an unexpected condition")
+        return observed
+
+    def forward(after, target):
+        actions = after.get("action") or []
+        return (len(actions) == 1 and actions[0].get("type") == "forward"
+                and actions[0].get("target_group_arn") == target
+                and not actions[0].get("fixed_response")
+                and not actions[0].get("redirect")
+                and not actions[0].get("authenticate_oidc")
+                and not actions[0].get("authenticate_cognito"))
+
+    api = changed["aws_lb_listener_rule.application_api[0]"]["change"]["after"] or {}
+    if (api.get("listener_arn") != listener or api.get("priority") != 299
+            or not forward(api, api_target)
+            or conditions(api) != [
+                ("host", [{"values": ["fieldzilla.synergieinsights.in"]}]),
+                ("path", [{"values": ["/api/v1/*"]}]),
+            ]):
+        fail("production API routing identity differs")
+
+    cutover = changed["aws_lb_listener_rule.application_pending[0]"]["change"]
+    before, after = cutover.get("before") or {}, cutover.get("after") or {}
+    if (before.get("listener_arn") != listener or after.get("listener_arn") != listener
+            or before.get("priority") != 301 or after.get("priority") != 301
+            or conditions(before) != [("host", [{"values": ["fieldzilla.synergieinsights.in"]}])]
+            or conditions(after) != conditions(before)
+            or len(before.get("action") or []) != 1
+            or before["action"][0].get("type") != "fixed-response"
+            or before["action"][0].get("fixed_response") != [{
+                "content_type": "text/plain",
+                "message_body": "FieldZilla team application not deployed",
+                "status_code": "503",
+            }]
+            or not forward(after, admin_target)
+            or {key: value for key, value in before.items() if key != "action"}
+               != {key: value for key, value in after.items() if key != "action"}):
+        fail("production Admin cutover changes more than the reviewed 503 action")
+    print(json.dumps({"phase": "production-routing", "creates": 1, "updates": 1}, sort_keys=True))
 
 
 def check_rehearsal_plan(path, phase="phase1", source=None, resource_expiry=None):
@@ -418,7 +496,7 @@ def main():
     parser.add_argument("--source-sha", required=True)
     parser.add_argument("--caller-sha", required=True)
     parser.add_argument("--workflow-tag", required=True)
-    parser.add_argument("--phase", required=True, choices=["phase1", "phase2", "production-bootstrap", "production-network-repair", "cleanup-protection", "cleanup-destroy", "cleanup-partial"])
+    parser.add_argument("--phase", required=True, choices=["phase1", "phase2", "production-bootstrap", "production-network-repair", "production-routing", "cleanup-protection", "cleanup-destroy", "cleanup-partial"])
     parser.add_argument("--target", choices=["production", "rehearsal"], default="production")
     parser.add_argument("--expires-at")
     parser.add_argument("--resource-expires-at")
@@ -434,7 +512,7 @@ def main():
     require_identity(args)
     if args.target == "rehearsal" and (args.phase == "phase2" or not args.expires_at):
         fail("rehearsal requires an isolated phase and an exact expiry")
-    if args.target == "production" and args.phase not in {"phase1", "phase2", "production-bootstrap", "production-network-repair"}:
+    if args.target == "production" and args.phase not in {"phase1", "phase2", "production-bootstrap", "production-network-repair", "production-routing"}:
         fail("production hosting cannot run rehearsal cleanup")
     if args.mode == "probe":
         probe_owner_comment(args)
