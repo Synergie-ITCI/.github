@@ -7,12 +7,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = "9c2e9c85c0103e9c477eda211d305c52355b61a5"
+REVIEWED = "c60ca7a7288e09713786aaf2422c06893f5a686d"
 PROPOSAL = ROOT / "operations/fieldzilla-pr712-historical-final-review/proposal.json"
 
 
 class FieldzillaImportSizeTests(unittest.TestCase):
     def test_historical_review_changes_only_exact_fieldzilla_record(self):
-        current = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())
+        current = json.loads(subprocess.check_output(
+            ["git", "show", f"{REVIEWED}:policy/pr-qa-policy.json"], cwd=ROOT,
+        ))
         prior = json.loads(subprocess.check_output(
             ["git", "show", f"{SOURCE}:policy/pr-qa-policy.json"], cwd=ROOT,
         ))
@@ -48,6 +51,36 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         self.assertEqual(overlay["paths"][".gitleaksignore"]["candidate_sha256"],
                          "3f0d4a1d7003c681f8d357f2f4fafdbb0014fa08df71b905adcd1b77a1b0c639")
         self.assertFalse(proposed["activation_authorized"])
+
+    def test_phase_one_accounting_correction_preserves_exact_review(self):
+        reviewed = json.loads(subprocess.check_output(
+            ["git", "show", f"{REVIEWED}:policy/pr-qa-policy.json"], cwd=ROOT,
+        ))
+        current = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())
+        old = next(row for row in reviewed["one_time_baseline_alignments"]
+                   if row.get("repository_id") == 1315697868 and row.get("pr_number") == 712)
+        new = next(row for row in current["one_time_baseline_alignments"]
+                   if row.get("repository_id") == 1315697868 and row.get("pr_number") == 712)
+        self.assertEqual((old["minimum_changed_files"], old["allowed_changed_files"]), (905, 905))
+        self.assertEqual((new["minimum_changed_files"], new["allowed_changed_files"]), (846, 846))
+        self.assertEqual(new["allowed_effective_additions"], 149054)
+        source_absent = {
+            ".github/CODEOWNERS",
+            ".github/workflows/architecture-governance.yml",
+            ".github/workflows/pr-qa.yml",
+            "apps/api/tests/architecture/test_p0a_domain_contracts.py",
+        }
+        for path in source_absent:
+            self.assertEqual(old["source_overlay"]["paths"][path]["source"], "present")
+            self.assertEqual(new["source_overlay"]["paths"][path]["source"], "absent")
+        normalized = copy.deepcopy(new)
+        normalized["minimum_changed_files"] = 905
+        normalized["allowed_changed_files"] = 905
+        for path in source_absent:
+            normalized["source_overlay"]["paths"][path]["source"] = "present"
+        self.assertEqual(normalized, old)
+        current["one_time_baseline_alignments"] = reviewed["one_time_baseline_alignments"]
+        self.assertEqual(current, reviewed)
 
     def test_historical_sql_review_preserves_audited_bytes_and_reviewer(self):
         proposed = json.loads(PROPOSAL.read_text())
