@@ -408,6 +408,12 @@ class PlanSafetyTest(unittest.TestCase):
 
         with patch.object(authorize, "api", side_effect=fake_api):
             self.assertEqual(authorize.verify_owner_approval(args), "fieldzilla-hosting-approval:123")
+            comment["body"] = body.replace("\n", "\r\n")
+            self.assertEqual(authorize.verify_owner_approval(args), "fieldzilla-hosting-approval:123")
+            comment["body"] = comment["body"].replace("Plan run: 42", "Plan run: 44")
+            with self.assertRaises(SystemExit):
+                authorize.verify_owner_approval(args)
+            comment["body"] = body
             comment["issue_url"] = "https://api.github.com/repos/Synergie-ITCI/.github/issues/437"
             with self.assertRaises(SystemExit):
                 authorize.verify_owner_approval(args)

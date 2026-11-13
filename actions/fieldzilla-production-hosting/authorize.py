@@ -382,7 +382,10 @@ def verify_owner_approval(args):
         expected += f"\nExpires at: {args.expires_at}\nBudget USD: 5"
         if args.phase != "phase1":
             expected += f"\nOriginal resource expiry: {args.resource_expires_at}"
-    if comment["body"].strip() != expected:
+    # GitHub's comment editor can persist CRLF for an otherwise exact owner
+    # approval. Normalize only that transport representation; all fields,
+    # ordering, author, edit timestamp and single-use checks remain exact.
+    if comment["body"].replace("\r\n", "\n").strip() != expected:
         fail("owner approval does not match this exact release")
     created = datetime.fromisoformat(comment["created_at"].replace("Z", "+00:00"))
     updated = datetime.fromisoformat(comment["updated_at"].replace("Z", "+00:00"))
