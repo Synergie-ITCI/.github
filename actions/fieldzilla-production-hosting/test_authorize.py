@@ -343,6 +343,7 @@ class PlanSafetyTest(unittest.TestCase):
             }]}],
         }
         after = {**before, "action": [{
+            **before["action"][0],
             "type": "forward",
             "target_group_arn": "arn:aws:elasticloadbalancing:ap-south-1:918870682888:targetgroup/pmp-production-admin/25d953f6c0365619",
         }]}
@@ -354,6 +355,7 @@ class PlanSafetyTest(unittest.TestCase):
             [api, admin, self.change("aws_lb_listener_rule.staging", "aws_lb_listener_rule")],
             [{**api, "change": {**api["change"], "after": {**api["change"]["after"], "priority": 50}}}, admin],
             [api, {**admin, "change": {**admin["change"], "after": {**after, "priority": 50}}}],
+            [api, {**admin, "change": {**admin["change"], "after": {**after, "action": [{**after["action"][0], "fixed_response": []}]}}}],
         ):
             with self.subTest(altered=altered), self.assertRaises(SystemExit):
                 self.verify(altered, "production-routing")
