@@ -158,6 +158,27 @@ def verify_qa_policy_evidence(
         raise ValueError("QA proof is not the latest required check's run")
     base = manifest["base_sha"]
     run = api(f"repos/{REPOSITORY}/actions/runs/{proof['run_id']}")
+    run_prs = run.get("pull_requests")
+    bound_in_run = isinstance(run_prs, list) and any(
+        row.get("number") == manifest["promotion_pr"]
+        and row.get("head", {}).get("sha") == source
+        and row.get("base", {}).get("sha") == base
+        for row in run_prs
+    )
+    # GitHub may remove a completed run's pull_requests association after the
+    # exact PR merges. Only that empty-array case may use the merged PR's exact
+    # identity; the run and artifact checks below remain required.
+    if run_prs == [] and manifest.get("scope") == "production":
+        pr = api(f"repos/{REPOSITORY}/pulls/{manifest['promotion_pr']}")
+        bound_in_run = (
+            pr.get("number") == manifest["promotion_pr"]
+            and pr.get("state") == "closed"
+            and bool(pr.get("merged_at"))
+            and pr.get("head", {}).get("sha") == source
+            and pr.get("head", {}).get("repo", {}).get("full_name") == REPOSITORY
+            and pr.get("base", {}).get("ref") == "main"
+            and pr.get("base", {}).get("sha") == base
+        )
     if (
         run.get("id") != proof["run_id"]
         or run.get("head_sha") != source
@@ -165,12 +186,7 @@ def verify_qa_policy_evidence(
         or run.get("conclusion") != "success"
         or run.get("event") != "pull_request"
         or run.get("path") != ".github/workflows/pr-qa.yml"
-        or not any(
-            row.get("number") == manifest["promotion_pr"]
-            and row.get("head", {}).get("sha") == source
-            and row.get("base", {}).get("sha") == base
-            for row in run.get("pull_requests", [])
-        )
+        or not bound_in_run
     ):
         raise ValueError("Final QA run source, base or PR binding differs")
     jobs = []
