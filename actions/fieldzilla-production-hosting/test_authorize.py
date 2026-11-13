@@ -111,6 +111,28 @@ class PlanSafetyTest(unittest.TestCase):
     def test_phase_one_accepts_isolated_addition(self):
         self.verify([self.change("aws_s3_bucket.production", after={"bucket": "fieldzilla-production"})], "phase1")
 
+    def test_production_network_repair_is_exactly_two_host_scoped_ports(self):
+        def rule(name, port):
+            return self.change(
+                f"aws_vpc_security_group_egress_rule.{name}",
+                kind="aws_vpc_security_group_egress_rule",
+                after={
+                    "security_group_id": "sg-0d86252daff26172b",
+                    "referenced_security_group_id": "sg-0d9cdc2a3d5ef9243",
+                    "ip_protocol": "tcp", "from_port": port, "to_port": port,
+                },
+            )
+
+        correct = [rule("production_admin_from_alb", 80), rule("production_api_from_alb", 8000)]
+        self.verify(correct, "production-network-repair")
+        for unsafe in (
+            [correct[0]],
+            [correct[0], rule("production_api_from_alb", 8080)],
+            [correct[0], self.change("aws_security_group_rule.staging", after={"name": "staging"})],
+        ):
+            with self.assertRaises(SystemExit):
+                self.verify(unsafe, "production-network-repair")
+
     def test_production_bootstrap_adds_only_six_identities_and_two_dark_targets(self):
         def rule(kind, priority, host, target):
             return self.change(
