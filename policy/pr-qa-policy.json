@@ -1399,17 +1399,17 @@
       "pr_number": 712,
       "head_ref": "release/fieldzilla-production-application",
       "base_ref": "main",
-      "expected_head_sha": "56e565b6e4c729ce139e4f88243a03db6674bab3",
+      "expected_head_sha": "ebc473f6a169c3dd35dc534fb9e5b5ad7140d484",
       "expected_base_sha": "8ae3caaa067b3698713e514e1a834412781a93dc",
       "issued_at": "2026-11-12T21:55:45Z",
       "enabled": true,
-      "authorization_id": "fcede384-48f9-4472-82dc-a988141be8f0",
+      "authorization_id": "12c1c528-2738-4005-ba94-b8261fdf22f8",
       "expires_after": "2026-11-13T21:54:45Z",
       "allowed_effective_additions": 149054,
       "allowed_changed_files": 846,
       "minimum_changed_files": 846,
-      "required_pr_body_marker": "FIELDZILLA-PR712-HISTORICAL-fcede384-48f9-4472-82dc-a988141be8f0",
-      "purpose": "Bind #712 Ruff-corrected head after scoped historical migration; unchanged base, 846-file/149054 effective-addition caps, 47-path overlay and reviewed Podfile allowlist. No image, AWS apply, Gate C/D or deployment approval.",
+      "required_pr_body_marker": "FIELDZILLA-PR712-HISTORICAL-12c1c528-2738-4005-ba94-b8261fdf22f8",
+      "purpose": "Bind #712 head after owner-approved one-day deepmerge mobile tooling baseline renewal; unchanged base, 846-file/149054-addition caps, 47-path overlay, SQL and reviewer. No APK, image, AWS apply, Gate C/D or deployment approval.",
       "relaxations": [
         "changed_file_count",
         "diff_size"
@@ -1597,7 +1597,7 @@
           "apps/mobile/security/mobile-audit-baseline.json": {
             "source": "present",
             "candidate": "reviewed_sha256",
-            "candidate_sha256": "38bd540ac773330d4d504432c25b8ed43ba7a40ef5a6f227082326edcc9253b0"
+            "candidate_sha256": "43e47805c5008b5699cd879f2ab5b4290a5721c3904d5422208d18dd63187037"
           },
           "deploy/production/hosting/prepare_application_manifest.py": {
             "source": "absent",

@@ -10,6 +10,7 @@ SOURCE = "9c2e9c85c0103e9c477eda211d305c52355b61a5"
 REVIEWED = "c60ca7a7288e09713786aaf2422c06893f5a686d"
 FAILED_PHASE_ONE = "02a48b243a111da79b740e254b77124384668458"
 PRE_RUFF_REBIND = "c4cf19b96a7672cef86dc2773b242b8982592cef"
+PRE_MOBILE_REBIND = "eda726eabd4a207fbd88a64099be49f8a95a9d02"
 PROPOSAL = ROOT / "operations/fieldzilla-pr712-historical-final-review/proposal.json"
 
 
@@ -98,7 +99,9 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         previous = json.loads(subprocess.check_output(
             ["git", "show", f"{PRE_RUFF_REBIND}:policy/pr-qa-policy.json"], cwd=ROOT,
         ))
-        current = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())
+        current = json.loads(subprocess.check_output(
+            ["git", "show", f"{PRE_MOBILE_REBIND}:policy/pr-qa-policy.json"], cwd=ROOT,
+        ))
         old = next(row for row in previous["one_time_baseline_alignments"]
                    if row.get("repository_id") == 1315697868 and row.get("pr_number") == 712)
         new = next(row for row in current["one_time_baseline_alignments"]
@@ -127,6 +130,46 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         self.assertEqual(normalized, old)
         current["one_time_baseline_alignments"] = previous["one_time_baseline_alignments"]
         self.assertEqual(current, previous)
+
+    def test_mobile_expiry_rebind_changes_only_head_and_approved_baseline_hash(self):
+        previous = json.loads(subprocess.check_output(
+            ["git", "show", f"{PRE_MOBILE_REBIND}:policy/pr-qa-policy.json"], cwd=ROOT,
+        ))
+        current = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())
+        old = next(row for row in previous["one_time_baseline_alignments"]
+                   if row.get("repository_id") == 1315697868 and row.get("pr_number") == 712)
+        new = next(row for row in current["one_time_baseline_alignments"]
+                   if row.get("repository_id") == 1315697868 and row.get("pr_number") == 712)
+        self.assertEqual((new["expected_head_sha"], new["expected_base_sha"]),
+                         ("ebc473f6a169c3dd35dc534fb9e5b5ad7140d484",
+                          "8ae3caaa067b3698713e514e1a834412781a93dc"))
+        self.assertEqual((new["allowed_changed_files"], new["minimum_changed_files"],
+                          new["allowed_effective_additions"]), (846, 846, 149054))
+        path = "apps/mobile/security/mobile-audit-baseline.json"
+        self.assertEqual(new["source_overlay"]["paths"][path]["candidate_sha256"],
+                         "43e47805c5008b5699cd879f2ab5b4290a5721c3904d5422208d18dd63187037")
+        self.assertEqual(new["expires_after"], old["expires_after"])
+        normalized = copy.deepcopy(new)
+        for field in ("expected_head_sha", "authorization_id", "required_pr_body_marker", "purpose"):
+            normalized[field] = old[field]
+        normalized["source_overlay"]["paths"][path] = old["source_overlay"]["paths"][path]
+        self.assertEqual(normalized, old)
+        current["one_time_baseline_alignments"] = previous["one_time_baseline_alignments"]
+        self.assertEqual(current, previous)
+
+        old_sql = json.loads(subprocess.check_output(
+            ["git", "show", f"{PRE_MOBILE_REBIND}:policy/audited-migration-authorizations.json"], cwd=ROOT,
+        ))
+        new_sql = json.loads((ROOT / "policy/audited-migration-authorizations.json").read_text())
+        old_row = next(row for row in old_sql if row.get("pr_number") == 712)
+        new_row = next(row for row in new_sql if row.get("pr_number") == 712)
+        self.assertEqual(new_row["expected_head_sha"], "ebc473f6a169c3dd35dc534fb9e5b5ad7140d484")
+        normalized_sql = copy.deepcopy(new_row)
+        for field in ("expected_head_sha", "authorization_id", "purpose"):
+            normalized_sql[field] = old_row[field]
+        self.assertEqual(normalized_sql, old_row)
+        new_sql[new_sql.index(new_row)] = old_row
+        self.assertEqual(new_sql, old_sql)
 
     def test_historical_sql_review_preserves_audited_bytes_and_reviewer(self):
         proposed = json.loads(PROPOSAL.read_text())
