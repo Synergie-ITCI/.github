@@ -109,5 +109,46 @@
       "id": 52234089
     },
     "purpose": "Bind unchanged audited migration SQL and five DELETE fingerprints only to #712 fully audit-test-corrected head 973bee62d487f4b5c1bd58b269e0a358492fd5bf on unchanged rc267 caller base 8ae3caaa067b3698713e514e1a834412781a93dc."
+  },
+  {
+    "repository": "Synergie-ITCI/programme-management-platform",
+    "repository_id": 1315697868,
+    "pr_number": 744,
+    "head_ref": "fix/fieldzilla-optional-otp-response",
+    "base_ref": "main",
+    "expected_head_sha": "328f281e27e5cb6b774ed6109c1e7b35e5f883ba",
+    "expected_base_sha": "19dc417c640b3a310252c40ad14a107458174f88",
+    "issued_at": "2026-11-13T17:35:29Z",
+    "authorization_id": "7a86a8c6-ec4d-4fde-9fd3-0fbe34e36d46",
+    "expires_at": "2026-11-14T16:35:29Z",
+    "migration_path": "apps/api/alembic/sql/20260910_0038.sql",
+    "migration_sha256": "56d29de95cd31ae88509757f414da89a679161761da07693605e0db1a631f773",
+    "delete_fingerprints": [
+      {
+        "line": 375,
+        "sha256": "9965fa9be54aa737fb8b2de3167134d1148f3fca0ccea81b6f21d86036b5f975"
+      },
+      {
+        "line": 388,
+        "sha256": "f1e2b02f94b888158ad1996fd9d40177b26f0f47a5b227c3b7f909a87c3301bf"
+      },
+      {
+        "line": 389,
+        "sha256": "01d56dbe5d8adebe70a5cef76b0d18e5bf0246ed670c013631b4a9b5ff119151"
+      },
+      {
+        "line": 390,
+        "sha256": "e1d8239a68dab277024cc8d943bfd433eb9fd848fa708ca74a09125afc4239a0"
+      },
+      {
+        "line": 391,
+        "sha256": "9cd66159aa692b88d51f8ca09d4ea8baffac76de0bfe5726d091fc1f4d4d48ee"
+      }
+    ],
+    "approved_reviewer": {
+      "login": "SaurabhVermaIN",
+      "id": 52234089
+    },
+    "purpose": "Bind unchanged inherited audited migration SQL and five existing DELETE fingerprints to the exact PR #744 API-only correction. No SQL file changes or production migration are authorized."
   }
 ]

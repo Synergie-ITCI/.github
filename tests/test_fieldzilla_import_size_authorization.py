@@ -240,7 +240,10 @@ class FieldzillaImportSizeTests(unittest.TestCase):
             normalized[field] = old[field]
         normalized["source_overlay"]["paths"][path] = old["source_overlay"]["paths"][path]
         self.assertEqual(normalized, old)
-        current["one_time_baseline_alignments"] = previous["one_time_baseline_alignments"]
+        current["one_time_baseline_alignments"][current["one_time_baseline_alignments"].index(new)] = old
+        current["one_time_baseline_alignments"] = [
+            row for row in current["one_time_baseline_alignments"] if row.get("pr_number") != 744
+        ]
         self.assertEqual(current, previous)
 
         previous_sql = json.loads(subprocess.check_output(
@@ -255,7 +258,7 @@ class FieldzillaImportSizeTests(unittest.TestCase):
             normalized_sql[field] = old_sql[field]
         self.assertEqual(normalized_sql, old_sql)
         current_sql[current_sql.index(new_sql)] = old_sql
-        self.assertEqual(current_sql, previous_sql)
+        self.assertEqual([row for row in current_sql if row.get("pr_number") != 744], previous_sql)
 
     def test_historical_sql_review_preserves_audited_bytes_and_reviewer(self):
         proposed = json.loads(PROPOSAL.read_text())
