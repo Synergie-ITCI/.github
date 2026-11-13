@@ -351,7 +351,7 @@ class BundledMigrationAuthorizationTests(unittest.TestCase):
         self.assertEqual(r["expires_at"], "2026-11-13T21:54:45Z")
 
         # No unknown PRs
-        known = {118, 241, 712, 744}
+        known = {118, 241, 712}
         unknown = set(by_pr) - known
         self.assertFalse(unknown, f"unexpected migration authorization PRs: {unknown}")
         policy = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())
