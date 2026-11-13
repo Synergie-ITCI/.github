@@ -168,7 +168,7 @@ def verify_qa_policy_evidence(
     # GitHub may remove a completed run's pull_requests association after the
     # exact PR merges. Only that empty-array case may use the merged PR's exact
     # identity; the run and artifact checks below remain required.
-    if run_prs == [] and manifest.get("scope") == "production":
+    if run_prs == [] and manifest.get("scope") in {"production", "production-images"}:
         pr = api(f"repos/{REPOSITORY}/pulls/{manifest['promotion_pr']}")
         bound_in_run = (
             pr.get("number") == manifest["promotion_pr"]
@@ -272,10 +272,16 @@ def verify_qa_policy_evidence(
     binding = summary.get("baseline_alignment", {})
     if not isinstance(binding, dict):
         raise TypeError("Final QA binding must be an object")
+    ordinary_image_qa = (
+        manifest.get("scope") == "production-images"
+        and binding.get("requested") is False
+        and binding.get("authorized") is False
+        and binding.get("relaxed_checks") == []
+    )
     if (
         summary.get("repository") != REPOSITORY
         or summary.get("overall_result") != "PASS"
-        or binding.get("authorized") is not True
+        or (binding.get("authorized") is not True and not ordinary_image_qa)
         or binding.get("source_sha") != source
         or binding.get("destination_sha") != base
     ):

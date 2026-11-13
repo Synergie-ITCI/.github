@@ -138,6 +138,13 @@ builds, loads and publishes using a same-run digest-checked artifact. ECR readba
 must match both manifest and built config digests before publication is acknowledged.
 Partial or ambiguous pushes stop without retry.
 
+For image publication, the exact source PR may still be open at the caller base,
+or it may be merged with its merge commit reachable from the current protected
+main caller. The PR head/base, latest checks, QA run and artifact remain bound
+to the reviewed source. Ordinary SQL-free QA is accepted only when its final
+report is PASS, names that exact head/base and reports no baseline request or
+relaxed checks. Rehearsal and production rollout keep their original gates.
+
 `publisher_policy()` and `publisher_trust()` render review-only JSON; they never
 apply IAM. Uploads are restricted to the existing production API/Admin repositories.
 Registry-token access is region restricted because that action has no repository

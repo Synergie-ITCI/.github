@@ -104,6 +104,42 @@ class RehearsalContextTests(unittest.TestCase):
                 central_checkout_sha="c" * 40,
             )
 
+    def test_reviewed_image_source_can_be_merged_into_current_main(self):
+        self.manifest.update(scope="production-images", operation="prepare")
+        self.manifest["caller_sha"] = "e" * 40
+        self.environment["GITHUB_SHA"] = "e" * 40
+        self.environment["CENTRAL_WORKFLOW_REF"] = self.environment[
+            "CENTRAL_WORKFLOW_REF"
+        ].replace("fieldzilla-production-application.yml", "fieldzilla-production-images.yml")
+        self.main = "e" * 40
+        self.pr.update(
+            state="closed", merged_at="2026-11-13T18:31:55Z",
+            merge_commit_sha="f" * 40,
+        )
+
+        def verify():
+            return verify_image_context(
+                manifest=self.manifest, environment=self.environment,
+                api=self.api, central_checkout_sha="c" * 40,
+            )
+
+        self.assertEqual(set(verify()), REQUIRED_CHECKS)
+        self.lineage = "diverged"
+        with self.assertRaises(ValueError):
+            verify()
+        self.lineage = "ahead"
+        self.pr["merged_at"] = None
+        with self.assertRaises(ValueError):
+            verify()
+        self.pr["merged_at"] = "2026-11-13T18:31:55Z"
+        self.pr["base"]["sha"] = "d" * 40
+        with self.assertRaises(ValueError):
+            verify()
+        self.pr["base"]["sha"] = "a" * 40
+        self.pr["state"] = "open"
+        with self.assertRaises(ValueError):
+            verify()
+
     def test_rehearsal_context_cannot_impersonate_image_publication(self):
         self.manifest["operation"] = "prepare"
         with self.assertRaises(ValueError):
