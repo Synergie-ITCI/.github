@@ -81,6 +81,19 @@ jobs:
           for key in ('ARTIFACT_ID', 'ARTIFACT_RUN_ID', 'APPROVAL_COMMENT'):
               assert re.fullmatch(r'[1-9][0-9]*', os.environ[key])
           assert re.fullmatch(r'[0-9a-f]{64}', os.environ['MANIFEST_SHA'])
+          release_url = 'https://api.github.com/repos/Synergie-ITCI/.github/git/'
+          def release_api(path):
+              request = urllib.request.Request(release_url + path, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  return json.load(response)
+          release_ref = release_api('ref/tags/' + os.environ['WORKFLOW_TAG']).get('object', {})
+          tag_object_sha = release_ref.get('sha', '')
+          if release_ref.get('type') != 'tag' or not re.fullmatch(r'[0-9a-f]{40}', tag_object_sha):
+              raise SystemExit('Application execution release tag object is unavailable')
+          release_tag = release_api('tags/' + tag_object_sha)
+          target = release_tag.get('object', {})
+          if release_tag.get('tag') != os.environ['WORKFLOW_TAG'] or target.get('type') != 'commit' or target.get('sha') != os.environ['CENTRAL_SHA']:
+              raise SystemExit('Application execution release tag source differs')
           url = os.environ['ACTIONS_ID_TOKEN_REQUEST_URL']
           url += ('&' if '?' in url else '?') + urllib.parse.urlencode({'audience': 'sts.amazonaws.com'})
           request = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + os.environ['ACTIONS_ID_TOKEN_REQUEST_TOKEN']})
@@ -98,11 +111,13 @@ jobs:
               'ref': 'refs/heads/main',
               'sha': os.environ['CALLER_SHA'],
               'job_workflow_ref': os.environ['CENTRAL_WORKFLOW_REF'],
-              'job_workflow_sha': os.environ['CENTRAL_SHA'],
+              'job_workflow_sha': tag_object_sha,
           }
-          if any(str(claims.get(key)) != value for key, value in required.items()):
-              raise SystemExit('Isolated rehearsal OIDC identity mismatch')
-          print('Main-only isolated rehearsal identity verified; no AWS role assumed')
+          mismatched = [key for key, value in required.items() if str(claims.get(key)) != value]
+          if mismatched:
+              # Report claim names only. Never print token or claim values.
+              raise SystemExit('Application execution OIDC identity mismatch (' + ', '.join(mismatched) + ')')
+          print('Main-only application execution identity verified; no AWS role assumed')
           PY
 
       - name: Checkout actual immutable execution release

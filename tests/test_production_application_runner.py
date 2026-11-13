@@ -225,6 +225,11 @@ class WorkflowTests(unittest.TestCase):
             "job_workflow_sha",
         ):
             self.assertIn(value, identity)
+        self.assertIn("release_ref.get('type') != 'tag'", identity)
+        self.assertIn("target.get('sha') != os.environ['CENTRAL_SHA']", identity)
+        self.assertIn("'job_workflow_sha': tag_object_sha", identity)
+        self.assertIn("mismatched = [key for key, value in required.items()", identity)
+        self.assertNotIn("'job_workflow_sha': os.environ['CENTRAL_SHA']", identity)
         verify = next(
             i for i, step in enumerate(steps) if "unused owner" in step.get("name", "")
         )
