@@ -1399,17 +1399,17 @@
       "pr_number": 712,
       "head_ref": "release/fieldzilla-production-application",
       "base_ref": "main",
-      "expected_head_sha": "89bff181006c7fa06da54839e1b23dbed91a005c",
+      "expected_head_sha": "973bee62d487f4b5c1bd58b269e0a358492fd5bf",
       "expected_base_sha": "8ae3caaa067b3698713e514e1a834412781a93dc",
       "issued_at": "2026-11-12T21:55:45Z",
       "enabled": true,
-      "authorization_id": "eced8eb5-12ba-4365-9280-d236a1167e5e",
+      "authorization_id": "0e6928f9-9623-41c4-9023-d4fa27ba4172",
       "expires_after": "2026-11-13T21:54:45Z",
       "allowed_effective_additions": 149054,
       "allowed_changed_files": 846,
       "minimum_changed_files": 846,
-      "required_pr_body_marker": "FIELDZILLA-PR712-HISTORICAL-eced8eb5-12ba-4365-9280-d236a1167e5e",
-      "purpose": "Bind #712 head after correcting the architecture test hash for the owner-approved one-day deepmerge mobile tooling baseline renewal; unchanged base, 846-file/149054-addition caps, 47-path overlay, SQL and reviewer. No APK, image, AWS apply, Gate C/D or deployment approval.",
+      "required_pr_body_marker": "FIELDZILLA-PR712-HISTORICAL-0e6928f9-9623-41c4-9023-d4fa27ba4172",
+      "purpose": "Bind #712 head after correcting the architecture test hash and expiry assertion for the owner-approved one-day deepmerge mobile tooling baseline renewal; unchanged base, 846-file/149054-addition caps, 47-path overlay, SQL and reviewer. No APK, image, AWS apply, Gate C/D or deployment approval.",
       "relaxations": [
         "changed_file_count",
         "diff_size"
@@ -1582,7 +1582,7 @@
           "apps/api/tests/architecture/test_mobile_audit_baseline.py": {
             "source": "present",
             "candidate": "reviewed_sha256",
-            "candidate_sha256": "cd12274f813f3804e78bda293c25ca7ad0f2ea52b4b1e32f5d333eb1806787f6"
+            "candidate_sha256": "2f9a220e41811a0cd648ce22fae80401eee1d8158f24781bfed3b708c752df2f"
           },
           "apps/mobile/package-lock.json": {
             "source": "present",

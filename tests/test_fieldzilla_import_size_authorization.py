@@ -12,6 +12,7 @@ FAILED_PHASE_ONE = "02a48b243a111da79b740e254b77124384668458"
 PRE_RUFF_REBIND = "c4cf19b96a7672cef86dc2773b242b8982592cef"
 PRE_MOBILE_REBIND = "eda726eabd4a207fbd88a64099be49f8a95a9d02"
 PRE_AUDIT_TEST_REBIND = "06b87aed06be8552d01338196015f68c5b144b82"
+PRE_FINAL_AUDIT_BINDING = "070c81425ac3fded481958e7ca74ed2a00c63fb1"
 PROPOSAL = ROOT / "operations/fieldzilla-pr712-historical-final-review/proposal.json"
 
 
@@ -180,7 +181,9 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         previous = json.loads(subprocess.check_output(
             ["git", "show", f"{PRE_AUDIT_TEST_REBIND}:policy/pr-qa-policy.json"], cwd=ROOT,
         ))
-        current = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())
+        current = json.loads(subprocess.check_output(
+            ["git", "show", f"{PRE_FINAL_AUDIT_BINDING}:policy/pr-qa-policy.json"], cwd=ROOT,
+        ))
         old = next(row for row in previous["one_time_baseline_alignments"]
                    if row.get("repository_id") == 1315697868 and row.get("pr_number") == 712)
         new = next(row for row in current["one_time_baseline_alignments"]
@@ -201,6 +204,47 @@ class FieldzillaImportSizeTests(unittest.TestCase):
 
         previous_sql = json.loads(subprocess.check_output(
             ["git", "show", f"{PRE_AUDIT_TEST_REBIND}:policy/audited-migration-authorizations.json"], cwd=ROOT,
+        ))
+        current_sql = json.loads(subprocess.check_output(
+            ["git", "show", f"{PRE_FINAL_AUDIT_BINDING}:policy/audited-migration-authorizations.json"], cwd=ROOT,
+        ))
+        old_sql = next(row for row in previous_sql if row.get("pr_number") == 712)
+        new_sql = next(row for row in current_sql if row.get("pr_number") == 712)
+        self.assertEqual(new_sql["expected_head_sha"], new["expected_head_sha"])
+        normalized_sql = copy.deepcopy(new_sql)
+        for field in ("expected_head_sha", "authorization_id", "purpose"):
+            normalized_sql[field] = old_sql[field]
+        self.assertEqual(normalized_sql, old_sql)
+        current_sql[current_sql.index(new_sql)] = old_sql
+        self.assertEqual(current_sql, previous_sql)
+
+    def test_final_audit_expiry_test_binding_changes_only_exact_fieldzilla_review(self):
+        previous = json.loads(subprocess.check_output(
+            ["git", "show", f"{PRE_FINAL_AUDIT_BINDING}:policy/pr-qa-policy.json"], cwd=ROOT,
+        ))
+        current = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())
+        old = next(row for row in previous["one_time_baseline_alignments"]
+                   if row.get("repository_id") == 1315697868 and row.get("pr_number") == 712)
+        new = next(row for row in current["one_time_baseline_alignments"]
+                   if row.get("repository_id") == 1315697868 and row.get("pr_number") == 712)
+        self.assertEqual((new["expected_head_sha"], new["expected_base_sha"]),
+                         ("973bee62d487f4b5c1bd58b269e0a358492fd5bf", old["expected_base_sha"]))
+        path = "apps/api/tests/architecture/test_mobile_audit_baseline.py"
+        self.assertEqual(new["source_overlay"]["paths"][path]["candidate_sha256"],
+                         "2f9a220e41811a0cd648ce22fae80401eee1d8158f24781bfed3b708c752df2f")
+        self.assertEqual((new["allowed_changed_files"], new["minimum_changed_files"],
+                          new["allowed_effective_additions"], new["expires_after"]),
+                         (846, 846, 149054, old["expires_after"]))
+        normalized = copy.deepcopy(new)
+        for field in ("expected_head_sha", "authorization_id", "required_pr_body_marker", "purpose"):
+            normalized[field] = old[field]
+        normalized["source_overlay"]["paths"][path] = old["source_overlay"]["paths"][path]
+        self.assertEqual(normalized, old)
+        current["one_time_baseline_alignments"] = previous["one_time_baseline_alignments"]
+        self.assertEqual(current, previous)
+
+        previous_sql = json.loads(subprocess.check_output(
+            ["git", "show", f"{PRE_FINAL_AUDIT_BINDING}:policy/audited-migration-authorizations.json"], cwd=ROOT,
         ))
         current_sql = json.loads((ROOT / "policy/audited-migration-authorizations.json").read_text())
         old_sql = next(row for row in previous_sql if row.get("pr_number") == 712)
