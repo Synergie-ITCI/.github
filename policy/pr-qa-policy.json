@@ -1467,11 +1467,11 @@
         ],
         "paths": {
           ".github/CODEOWNERS": {
-            "source": "absent",
+            "source": "present",
             "candidate": "base"
           },
           ".github/workflows/architecture-governance.yml": {
-            "source": "absent",
+            "source": "present",
             "candidate": "reviewed_sha256",
             "candidate_sha256": "c354a9e26a49da61a34549f55cfb1c6cf195285548573333fbd46278f0cb9f03"
           },
@@ -1480,7 +1480,7 @@
             "candidate": "base"
           },
           ".github/workflows/pr-qa.yml": {
-            "source": "absent",
+            "source": "present",
             "candidate": "base"
           },
           ".gitleaksignore": {
@@ -1494,7 +1494,7 @@
             "candidate_sha256": "86f11e1a96d689dc11e241d58ce2651f81257f6f943e863218a88b8e0f8a802d"
           },
           "apps/api/tests/architecture/test_p0a_domain_contracts.py": {
-            "source": "absent",
+            "source": "present",
             "candidate": "reviewed_sha256",
             "candidate_sha256": "dbe8fe480feecbae10675296d01ddfc7844fae8063ebe69c3f87d055581f64e1"
           },
