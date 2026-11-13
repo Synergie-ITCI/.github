@@ -301,7 +301,12 @@ def check_production_routing_plan(changes):
                 "message_body": "FieldZilla team application not deployed",
                 "status_code": "503",
             }]
-            or not forward(after, admin_target)
+            or len(after.get("action") or []) != 1
+            or after["action"][0] != {
+                **before["action"][0],
+                "type": "forward",
+                "target_group_arn": admin_target,
+            }
             or {key: value for key, value in before.items() if key != "action"}
                != {key: value for key, value in after.items() if key != "action"}):
         fail("production Admin cutover changes more than the reviewed 503 action")
