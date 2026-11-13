@@ -11,6 +11,7 @@ REVIEWED = "c60ca7a7288e09713786aaf2422c06893f5a686d"
 FAILED_PHASE_ONE = "02a48b243a111da79b740e254b77124384668458"
 PRE_RUFF_REBIND = "c4cf19b96a7672cef86dc2773b242b8982592cef"
 PRE_MOBILE_REBIND = "eda726eabd4a207fbd88a64099be49f8a95a9d02"
+PRE_AUDIT_TEST_REBIND = "06b87aed06be8552d01338196015f68c5b144b82"
 PROPOSAL = ROOT / "operations/fieldzilla-pr712-historical-final-review/proposal.json"
 
 
@@ -135,7 +136,9 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         previous = json.loads(subprocess.check_output(
             ["git", "show", f"{PRE_MOBILE_REBIND}:policy/pr-qa-policy.json"], cwd=ROOT,
         ))
-        current = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())
+        current = json.loads(subprocess.check_output(
+            ["git", "show", f"{PRE_AUDIT_TEST_REBIND}:policy/pr-qa-policy.json"], cwd=ROOT,
+        ))
         old = next(row for row in previous["one_time_baseline_alignments"]
                    if row.get("repository_id") == 1315697868 and row.get("pr_number") == 712)
         new = next(row for row in current["one_time_baseline_alignments"]
@@ -160,7 +163,9 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         old_sql = json.loads(subprocess.check_output(
             ["git", "show", f"{PRE_MOBILE_REBIND}:policy/audited-migration-authorizations.json"], cwd=ROOT,
         ))
-        new_sql = json.loads((ROOT / "policy/audited-migration-authorizations.json").read_text())
+        new_sql = json.loads(subprocess.check_output(
+            ["git", "show", f"{PRE_AUDIT_TEST_REBIND}:policy/audited-migration-authorizations.json"], cwd=ROOT,
+        ))
         old_row = next(row for row in old_sql if row.get("pr_number") == 712)
         new_row = next(row for row in new_sql if row.get("pr_number") == 712)
         self.assertEqual(new_row["expected_head_sha"], "ebc473f6a169c3dd35dc534fb9e5b5ad7140d484")
@@ -170,6 +175,43 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         self.assertEqual(normalized_sql, old_row)
         new_sql[new_sql.index(new_row)] = old_row
         self.assertEqual(new_sql, old_sql)
+
+    def test_audit_test_hash_rebind_changes_only_exact_fieldzilla_review(self):
+        previous = json.loads(subprocess.check_output(
+            ["git", "show", f"{PRE_AUDIT_TEST_REBIND}:policy/pr-qa-policy.json"], cwd=ROOT,
+        ))
+        current = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())
+        old = next(row for row in previous["one_time_baseline_alignments"]
+                   if row.get("repository_id") == 1315697868 and row.get("pr_number") == 712)
+        new = next(row for row in current["one_time_baseline_alignments"]
+                   if row.get("repository_id") == 1315697868 and row.get("pr_number") == 712)
+        self.assertEqual(new["expected_head_sha"], "89bff181006c7fa06da54839e1b23dbed91a005c")
+        self.assertEqual(new["expected_base_sha"], old["expected_base_sha"])
+        path = "apps/api/tests/architecture/test_mobile_audit_baseline.py"
+        self.assertEqual(new["source_overlay"]["paths"][path]["candidate_sha256"],
+                         "cd12274f813f3804e78bda293c25ca7ad0f2ea52b4b1e32f5d333eb1806787f6")
+        self.assertEqual(new["expires_after"], old["expires_after"])
+        normalized = copy.deepcopy(new)
+        for field in ("expected_head_sha", "authorization_id", "required_pr_body_marker", "purpose"):
+            normalized[field] = old[field]
+        normalized["source_overlay"]["paths"][path] = old["source_overlay"]["paths"][path]
+        self.assertEqual(normalized, old)
+        current["one_time_baseline_alignments"] = previous["one_time_baseline_alignments"]
+        self.assertEqual(current, previous)
+
+        previous_sql = json.loads(subprocess.check_output(
+            ["git", "show", f"{PRE_AUDIT_TEST_REBIND}:policy/audited-migration-authorizations.json"], cwd=ROOT,
+        ))
+        current_sql = json.loads((ROOT / "policy/audited-migration-authorizations.json").read_text())
+        old_sql = next(row for row in previous_sql if row.get("pr_number") == 712)
+        new_sql = next(row for row in current_sql if row.get("pr_number") == 712)
+        self.assertEqual(new_sql["expected_head_sha"], new["expected_head_sha"])
+        normalized_sql = copy.deepcopy(new_sql)
+        for field in ("expected_head_sha", "authorization_id", "purpose"):
+            normalized_sql[field] = old_sql[field]
+        self.assertEqual(normalized_sql, old_sql)
+        current_sql[current_sql.index(new_sql)] = old_sql
+        self.assertEqual(current_sql, previous_sql)
 
     def test_historical_sql_review_preserves_audited_bytes_and_reviewer(self):
         proposed = json.loads(PROPOSAL.read_text())
