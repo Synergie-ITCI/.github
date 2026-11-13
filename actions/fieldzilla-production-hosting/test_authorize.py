@@ -325,6 +325,39 @@ class PlanSafetyTest(unittest.TestCase):
                 self.change("aws_db_instance.unreviewed", "aws_db_instance"),
             ], "phase2")
 
+    def test_production_routing_allows_only_api_path_and_admin_cutover(self):
+        listener = "arn:aws:elasticloadbalancing:ap-south-1:918870682888:listener/app/fieldzilla/abd764c361a9627c/a6e9b94e09bf76f8"
+        host = {"host_header": [{"values": ["fieldzilla.synergieinsights.in"]}]}
+        api = self.change(
+            "aws_lb_listener_rule.application_api[0]", "aws_lb_listener_rule",
+            after={
+                "listener_arn": listener, "priority": 299,
+                "action": [{"type": "forward", "target_group_arn": "arn:aws:elasticloadbalancing:ap-south-1:918870682888:targetgroup/pmp-production-api/07cce0ebb89838ce"}],
+                "condition": [host, {"path_pattern": [{"values": ["/api/v1/*"]}]}],
+            },
+        )
+        before = {
+            "listener_arn": listener, "priority": 301, "condition": [host],
+            "action": [{"type": "fixed-response", "fixed_response": [{
+                "content_type": "text/plain", "message_body": "FieldZilla team application not deployed", "status_code": "503",
+            }]}],
+        }
+        after = {**before, "action": [{
+            "type": "forward",
+            "target_group_arn": "arn:aws:elasticloadbalancing:ap-south-1:918870682888:targetgroup/pmp-production-admin/25d953f6c0365619",
+        }]}
+        admin = self.change("aws_lb_listener_rule.application_pending[0]", "aws_lb_listener_rule", ["update"], after)
+        admin["change"]["before"] = before
+        self.verify([api, admin], "production-routing")
+        for altered in (
+            [api],
+            [api, admin, self.change("aws_lb_listener_rule.staging", "aws_lb_listener_rule")],
+            [{**api, "change": {**api["change"], "after": {**api["change"]["after"], "priority": 50}}}, admin],
+            [api, {**admin, "change": {**admin["change"], "after": {**after, "priority": 50}}}],
+        ):
+            with self.subTest(altered=altered), self.assertRaises(SystemExit):
+                self.verify(altered, "production-routing")
+
     def test_partial_recovery_preserves_unchanged_production_resources(self):
         unchanged = self.change("aws_lb_target_group.api", "aws_lb_target_group", ["no-op"], {"name": "pmp-production-api"})
         unchanged["change"]["before"] = unchanged["change"]["after"].copy()
