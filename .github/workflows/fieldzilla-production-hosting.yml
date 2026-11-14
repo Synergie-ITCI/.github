@@ -368,11 +368,50 @@ jobs:
 
       - name: Upload exact plan
         if: ${{ inputs.mode == 'plan' }}
+        id: plan_upload
         uses: actions/upload-artifact@v4
         with:
           name: fieldzilla-${{ inputs.target }}-${{ inputs.phase }}-${{ inputs.source-sha }}-${{ github.run_id }}
           path: ${{ runner.temp }}/plan/
           include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Prepare exact owner approval text
+        if: ${{ inputs.mode == 'plan' }}
+        env:
+          UPLOADED_ARTIFACT_ID: ${{ steps.plan_upload.outputs.artifact-id }}
+          UPLOADED_ARTIFACT_DIGEST: ${{ steps.plan_upload.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          [[ "${UPLOADED_ARTIFACT_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          artifact_digest="${UPLOADED_ARTIFACT_DIGEST#sha256:}"
+          plan_sha="$(sha256sum "${RUNNER_TEMP}/plan/hosting.tfplan" | cut -d' ' -f1)"
+          mkdir -p "${RUNNER_TEMP}/owner-approval"
+          python3 .central-framework/actions/fieldzilla-production-hosting/authorize.py approval-template \
+            --source-sha "${SOURCE_SHA}" --caller-sha "${CALLER_SHA}" \
+            --workflow-tag "${WORKFLOW_TAG}" --phase "${PHASE}" \
+            --target "${TARGET}" --expires-at "${EXPIRES_AT}" \
+            --resource-expires-at "${RESOURCE_EXPIRES_AT}" \
+            --plan-run-id "${GITHUB_RUN_ID}" --artifact-id "${UPLOADED_ARTIFACT_ID}" \
+            --artifact-digest "${artifact_digest}" --plan-sha256 "${plan_sha}" \
+            --artifact-dir "${RUNNER_TEMP}/plan" \
+            --template-output "${RUNNER_TEMP}/owner-approval/approval.txt"
+          {
+            echo '### Exact owner approval text'
+            echo 'Review the plan artifact before posting this text as your own new, unedited comment.'
+            echo "Target PR: Synergie-ITCI/programme-management-platform#$(if [ "${TARGET}" = rehearsal ]; then echo 717; else echo 674; fi)"
+            echo '```text'
+            cat "${RUNNER_TEMP}/owner-approval/approval.txt"
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload owner approval text
+        if: ${{ inputs.mode == 'plan' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: fieldzilla-owner-approval-${{ inputs.target }}-${{ inputs.phase }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/owner-approval/approval.txt
           if-no-files-found: error
           retention-days: 1
 

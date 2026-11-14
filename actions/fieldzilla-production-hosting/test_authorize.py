@@ -535,6 +535,42 @@ class PlanSafetyTest(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 authorize.verify_owner_approval(args)
 
+    def test_plan_upload_produces_exact_rehearsal_owner_comment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan = root / "hosting.tfplan"
+            plan.write_bytes(b"reviewed binary plan")
+            plan_sha = hashlib.sha256(plan.read_bytes()).hexdigest()
+            args = SimpleNamespace(
+                target="rehearsal", phase="cleanup-kms-residual",
+                source_sha=interrupted_state.SOURCE, caller_sha="b" * 40,
+                plan_run_id=42, artifact_id=43, artifact_digest="c" * 64,
+                plan_sha256=plan_sha, expires_at="2026-11-14T15:30:00Z",
+                resource_expires_at=interrupted_state.EXPIRY,
+                artifact_dir=str(root), template_output=str(root / "approval.txt"),
+            )
+            metadata = {
+                "repository": authorize.REPOSITORY, "source_sha": args.source_sha,
+                "caller_sha": args.caller_sha, "phase": args.phase,
+                "target": args.target, "expires_at": args.expires_at,
+                "resource_expires_at": args.resource_expires_at,
+                "state_key": authorize.REHEARSAL_STATE_KEY,
+                "plan_sha256": plan_sha,
+            }
+            (root / "metadata.json").write_text(json.dumps(metadata))
+            with patch.dict(authorize.os.environ, {"GITHUB_RUN_ID": "42"}):
+                authorize.render_approval_template(args)
+                self.assertEqual((root / "approval.txt").read_text(), authorize.approval_text(args) + "\n")
+                metadata["caller_sha"] = "a" * 40
+                (root / "metadata.json").write_text(json.dumps(metadata))
+                with self.assertRaises(SystemExit):
+                    authorize.render_approval_template(args)
+                metadata["caller_sha"] = args.caller_sha
+                (root / "metadata.json").write_text(json.dumps(metadata))
+                plan.write_bytes(b"changed binary plan")
+                with self.assertRaises(SystemExit):
+                    authorize.render_approval_template(args)
+
 
 if __name__ == "__main__":
     unittest.main()
