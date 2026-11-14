@@ -166,6 +166,36 @@ jobs:
             --expires-at "${APPROVAL_EXPIRY}" --central-sha "${CENTRAL_SHA}" \
             --journal "${RUNNER_TEMP}/fieldzilla-execution.jsonl" --report "${RUNNER_TEMP}/fieldzilla-execution.json"
 
+      - name: Assess any interrupted application execution without retry
+        if: always()
+        run: |
+          set -euo pipefail
+          manifest="${RUNNER_TEMP}/fieldzilla-execution.manifest.json"
+          journal="${RUNNER_TEMP}/fieldzilla-execution.jsonl"
+          if [ -e "$manifest" ] || [ -e "$journal" ]; then
+            test -s "$manifest"
+            umask 077
+            if [ -s "$journal" ]; then
+              python3 .central-framework/scripts/fieldzilla-production/application_recovery.py \
+                --manifest "$manifest" --journal "$journal" \
+                > "${RUNNER_TEMP}/fieldzilla-recovery-assessment.json"
+            elif [ ! -e "$journal" ]; then
+              printf '%s\n' '{"phase":"before_journal_creation","automatic_retry_allowed":false,"next_step":"Inspect failed preflight; no execution journal was created"}' \
+                > "${RUNNER_TEMP}/fieldzilla-recovery-assessment.json"
+            else
+              echo 'Empty execution journal requires manual inspection' >&2
+              exit 1
+            fi
+            python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          report = json.loads((Path(os.environ['RUNNER_TEMP']) / 'fieldzilla-recovery-assessment.json').read_text())
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write('Application interruption assessment: ' + report['phase'] + '\n')
+              summary.write('Automatic retry allowed: false\n')
+          PY
+          fi
+
       - name: Preserve metadata-only execution evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -174,6 +204,7 @@ jobs:
           path: |
             ${{ runner.temp }}/fieldzilla-execution.jsonl
             ${{ runner.temp }}/fieldzilla-execution.json
+            ${{ runner.temp }}/fieldzilla-recovery-assessment.json
           retention-days: 1
           if-no-files-found: warn
 
