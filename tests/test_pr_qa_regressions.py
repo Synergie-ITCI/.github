@@ -620,6 +620,41 @@ runs:
         self.assertTrue(qa_packet["technical_validation"]["reused"])
         self.assertEqual(qa_packet["current_evidence"]["gate_statuses"]["Evidence"], "PASS")
 
+    def test_technical_setup_verifier_reuses_only_valid_current_binding(self) -> None:
+        repo, base = self.init_repo("technical-setup-verifier")
+        self.write(repo / "app.py", "def answer():\n    return 42\n")
+        self.git(repo, "add", "app.py")
+        self.git(repo, "commit", "-q", "-m", "feat: add app code")
+        baseline = repo / "technical-baseline.json"
+        code, _, _, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            extra_args=["--no-command-runs", "--technical-baseline-out", str(baseline)],
+        )
+        self.assertEqual(code, 0)
+
+        def verify(path: Path) -> str:
+            output = repo / "verify-output.txt"
+            output.unlink(missing_ok=True)
+            result = subprocess.run(
+                [
+                    "python3", str(ENGINE), "--repo", str(repo),
+                    "--event-path", str(repo / "event.json"),
+                    "--technical-baseline-in", str(path),
+                    "--technical-baseline-verify-out", str(output),
+                ],
+                cwd=repo, env=self.env, text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return output.read_text(encoding="utf-8").strip()
+
+        self.assertEqual(verify(baseline), "reusable=true")
+        stale = json.loads(baseline.read_text(encoding="utf-8"))
+        stale["status"] = "FAIL"
+        baseline.write_text(json.dumps(stale), encoding="utf-8")
+        self.assertEqual(verify(baseline), "reusable=false")
+        self.assertEqual(verify(repo / "missing-baseline.json"), "reusable=false")
+
     def test_technical_baseline_invalidates_on_content_or_policy_change(self) -> None:
         repo, base = self.init_repo("technical-baseline-invalidates")
         self.write(repo / "app.py", "def answer():\n    return 42\n")

@@ -267,6 +267,19 @@ jobs:
           path: .pr-qa-technical-baseline
           key: ${{ steps.technical-baseline.outputs.cache_key }}
 
+      - name: Verify restored baseline before technical tool setup
+        id: technical-baseline-verify
+        run: |
+          profile_args=()
+          if [ "${GITHUB_REPOSITORY}" = "Synergie-ITCI/.github" ]; then
+            profile_args=(--repository-profile framework)
+          fi
+          python3 .pr-qa-framework/pr-qa/pr_qa.py \
+            --repo "$GITHUB_WORKSPACE" \
+            --technical-baseline-in .pr-qa-technical-baseline/technical-baseline.json \
+            --technical-baseline-verify-out "$GITHUB_OUTPUT" \
+            "${profile_args[@]}"
+
       - name: Publish Phase 1 report
         if: always()
         run: |
@@ -312,24 +325,24 @@ jobs:
 
       - name: Resolve Node.js version
         id: node-version
-        if: needs.detect.outputs.node == 'true'
+        if: needs.detect.outputs.node == 'true' && steps.technical-baseline-verify.outputs.reusable != 'true'
         run: |
           python3 .pr-qa-framework/pr-qa/resolve_node_version.py "$GITHUB_WORKSPACE" >> "$GITHUB_OUTPUT"
 
       - name: Set up Node.js
-        if: needs.detect.outputs.node == 'true'
+        if: needs.detect.outputs.node == 'true' && steps.technical-baseline-verify.outputs.reusable != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: ${{ steps.node-version.outputs.node-version }}
 
       - name: Resolve PHP version
         id: php-version
-        if: needs.detect.outputs.php == 'true'
+        if: needs.detect.outputs.php == 'true' && steps.technical-baseline-verify.outputs.reusable != 'true'
         run: |
           python3 .pr-qa-framework/pr-qa/resolve_php_version.py "$GITHUB_WORKSPACE" >> "$GITHUB_OUTPUT"
 
       - name: Set up PHP
-        if: needs.detect.outputs.php == 'true'
+        if: needs.detect.outputs.php == 'true' && steps.technical-baseline-verify.outputs.reusable != 'true'
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ steps.php-version.outputs.php-version }}
@@ -337,13 +350,13 @@ jobs:
           coverage: none
 
       - name: Set up Python
-        if: needs.detect.outputs.python == 'true'
+        if: needs.detect.outputs.python == 'true' && steps.technical-baseline-verify.outputs.reusable != 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Install mandatory Python QA tools
-        if: needs.detect.outputs.python == 'true'
+        if: needs.detect.outputs.python == 'true' && steps.technical-baseline-verify.outputs.reusable != 'true'
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
@@ -352,27 +365,27 @@ jobs:
           pip-audit --version
 
       - name: Set up Go
-        if: needs.detect.outputs.go == 'true'
+        if: needs.detect.outputs.go == 'true' && steps.technical-baseline-verify.outputs.reusable != 'true'
         uses: actions/setup-go@v5
         with:
           go-version: stable
 
       - name: Set up Java
-        if: needs.detect.outputs.gradle == 'true' || needs.detect.outputs.java == 'true'
+        if: (needs.detect.outputs.gradle == 'true' || needs.detect.outputs.java == 'true') && steps.technical-baseline-verify.outputs.reusable != 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "21"
 
       - name: Set up OpenTofu
-        if: needs.detect.outputs.terraform == 'true'
+        if: needs.detect.outputs.terraform == 'true' && steps.technical-baseline-verify.outputs.reusable != 'true'
         uses: opentofu/setup-opentofu@v1
         with:
           tofu_version: ${{ env.OPENTOFU_VERSION }}
           tofu_wrapper: false
 
       - name: Install mandatory Terraform security scanner
-        if: needs.detect.outputs.terraform == 'true'
+        if: needs.detect.outputs.terraform == 'true' && steps.technical-baseline-verify.outputs.reusable != 'true'
         run: |
           set -euo pipefail
           asset="tfsec_${TFSEC_VERSION}_linux_amd64.tar.gz"
@@ -385,7 +398,7 @@ jobs:
           tfsec --version
 
       - name: Install mandatory Docker dependency scanner
-        if: contains(needs.detect.outputs.technologies, 'Docker')
+        if: contains(needs.detect.outputs.technologies, 'Docker') && steps.technical-baseline-verify.outputs.reusable != 'true'
         run: |
           set -euo pipefail
           asset="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
@@ -398,13 +411,13 @@ jobs:
           trivy --version
 
       - name: Set up .NET
-        if: needs.detect.outputs.dotnet == 'true'
+        if: needs.detect.outputs.dotnet == 'true' && steps.technical-baseline-verify.outputs.reusable != 'true'
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
 
       - name: Prepare PostgreSQL test database
-        if: needs.detect.outputs.php == 'true'
+        if: needs.detect.outputs.php == 'true' && steps.technical-baseline-verify.outputs.reusable != 'true'
         run: |
           set -euo pipefail
           psql -h 127.0.0.1 -U postgres -d telepathy_test -v ON_ERROR_STOP=1 <<'SQL'
@@ -420,7 +433,7 @@ jobs:
           SQL
 
       - name: Prepare opted-in Python test database
-        if: needs.detect.outputs.python == 'true' && github.repository != 'Synergie-ITCI/.github'
+        if: needs.detect.outputs.python == 'true' && github.repository != 'Synergie-ITCI/.github' && steps.technical-baseline-verify.outputs.reusable != 'true'
         run: |
           python3 .pr-qa-release-resolver/pr-qa/setup_test_postgres.py --repo "$GITHUB_WORKSPACE"
 

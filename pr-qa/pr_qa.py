@@ -293,6 +293,14 @@ def main() -> int:
         write_technical_baseline_key_output(args.technical_baseline_key_out, technical_baseline_binding(ctx, git_context, technologies, policy, Path(args.policy)))
         return 0
 
+    if args.technical_baseline_verify_out:
+        reusable, _ = load_reusable_technical_baseline(
+            args.technical_baseline_in, ctx, git_context, technologies, policy, Path(args.policy)
+        )
+        with Path(args.technical_baseline_verify_out).open("a", encoding="utf-8") as handle:
+            handle.write(f"reusable={'true' if reusable else 'false'}\n")
+        return 0
+
     results: list[CheckResult] = []
     results.extend(run_static_preflight(ctx, git_context, technologies, args.out))
     static_failed = any(result.is_blocking_failure() for result in results)
@@ -341,6 +349,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--emergency-override-out", default="", help="Emergency override audit record path.")
     parser.add_argument("--review-policy-input", default="", help="Optional JSON file with pull request review and mergeability evidence.")
     parser.add_argument("--technical-baseline-key-out", default="", help="GITHUB_OUTPUT path for exact-content technical baseline cache key.")
+    parser.add_argument("--technical-baseline-verify-out", default="", help="GITHUB_OUTPUT path for validated technical baseline reuse before tool setup.")
     parser.add_argument("--technical-baseline-in", default="", help="Reusable exact-content technical PASS baseline JSON path.")
     parser.add_argument("--technical-baseline-out", default="", help="Write exact-content technical PASS baseline JSON after technical validation succeeds.")
     parser.add_argument("--qa-packet-out", default="", help="Write QA packet assembled from technical baseline state and current PR evidence.")
