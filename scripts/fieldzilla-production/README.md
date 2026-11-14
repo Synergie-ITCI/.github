@@ -19,6 +19,14 @@ stop-writers recovery that never restores/downgrades the database. AWS retries
 are disabled; ambiguous outcomes require inspection. Source-only fake-AWS tests
 are not runtime evidence. No AWS mutation or secret-value retrieval has occurred.
 
+For new execution journals, `application_recovery.py --manifest <exact-manifest>
+--journal <private-journal>` gives a read-only interruption assessment. The
+journal start record binds to the manifest SHA-256, and each task launch records
+its phase before the AWS call. The assessment always forbids automatic retry;
+an uncertain migration still requires live ECS and database reconciliation and
+a separately reviewed recovery. Keep the private journal restricted to the
+execution owner. Older journals without manifest binding require manual review.
+
 Use the existing application-caller / central-reusable-workflow OIDC model.
 Both deployment and hosting must share fieldzilla-production-hosting concurrency
 (cancel-in-progress false) in the caller repository. A direct central dispatch

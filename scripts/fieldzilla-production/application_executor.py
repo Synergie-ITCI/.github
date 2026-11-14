@@ -114,7 +114,12 @@ class Executor:
             json.dumps(manifest, sort_keys=True).encode()
         ).hexdigest()
         self.tasks: dict[str, str] = {}
-        self.record("started", scope=self.scope, source=self.plan["source_sha"])
+        self.record(
+            "started",
+            scope=self.scope,
+            source=self.plan["source_sha"],
+            manifest_sha256=self.digest,
+        )
 
     def close(self):
         self.stream.close()
@@ -310,6 +315,7 @@ class Executor:
             request["overrides"] = {
                 "containerOverrides": [{"name": kind, "command": command}]
             }
+        self.record("task_launch_requested", kind=kind, phase=phase)
         reply = self.mutate("run-task", request)
         rows = reply.get("tasks", [])
         if reply.get("failures") or len(rows) != 1:
