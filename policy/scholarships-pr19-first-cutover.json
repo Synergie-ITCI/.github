@@ -11,7 +11,7 @@
     "deploy/first-cutover-approval-cli.py": "e79e4d4c7a7698f34d3f51ee182a6059737cbeea30ab80ccf3f610e8ca4142ee",
     "deploy/first-cutover.sh": "d3a0c23dfd4e139dc0171407bb5c132ea9dc043feb560c80e7f2b6b1ec84cd37",
     "deploy/first-restore-test.py": "27a0e28ece831f3ea759bae072237db209e725d8005a1e975ac1501e79c353b0",
-    "deploy/first-transfer-coordinator.py": "19a69d4e8a72bb373f0149ad3600f57584c75a0bd7355f2c9b9fb7f8c140e71c",
+    "deploy/first-transfer-coordinator.py": "2dd59a487ead4f7a73a088cad123e3a2c78655a29f102e9608b48ea6b2c53dad",
     "deploy/first-upload.py": "6b48c7653edfc5985b88edfe12b92640176c5964d2300b2e22e5052e5659158a",
     "deploy/first_cutover_approval.py": "2198b9db4610f8d37f9fc1776b7efabdd3b1a7af41e889672f56646517c153ad",
     "deploy/github-production-owner-receipt-v1.json": "4e1a1a716b6b64dda20640d0ce8c17953d20602f4e84b807aa97cf984f81f9b3",
@@ -30,7 +30,7 @@
     "tests/test_first_cutover_approval.py": "818d3dbf61436198e56956cf0c40c41f7416e3433f5327493e8a25f3f14e3f6f",
     "tests/test_gate_d_contract.py": "2f7e3c70557905562cb0d2d0991642c6306b88307738aacac7299b81117ccf76"
   },
-  "head_sha": "5a96c1ef2cc280f4e749fab321bd88f7631ece96",
+  "head_sha": "a446c420262df9f3f1885d4a5b721739e4442363",
   "pr_number": 19,
   "removed_paths": [],
   "repository": "Synergie-ITCI/scholarships",
