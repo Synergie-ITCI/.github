@@ -1,1 +1,28 @@
-[]
+[
+  {
+    "authorization_id": "b686aa8c-a94d-4160-aa43-2d82e43e7985",
+    "repository": "Synergie-ITCI/programme-management-platform",
+    "repository_id": 1315697868,
+    "pr_number": 762,
+    "head_ref": "test/sql-review-content-stable-pilot",
+    "base_ref": "main",
+    "expected_head_sha": "f26f088aac6b0aeab5c64e67f250cddd3430b9fe",
+    "expected_base_sha": "fd934f3f051cbbc569de7cd01e7001a102381ef7",
+    "binding_mode": "content_stable",
+    "migration_path": "test_fixtures/ci_sql_review_content_stable_pilot.sql",
+    "migration_sha256": "18401f40ef71d1b5c7e1159d9a7cca03aaf344233187a959be435bec1a3d7f20",
+    "delete_fingerprints": [
+      {
+        "line": 1,
+        "sha256": "b169ea84f1d35a853d7cf8e958259c46962992c1ffcde1e51ad275a3c61136ea"
+      }
+    ],
+    "approved_reviewer": {
+      "login": "SaurabhVermaIN",
+      "id": 52234089
+    },
+    "issued_at": "2026-11-14T14:00:52.099374Z",
+    "expires_at": "2026-11-14T16:00:52.099374Z",
+    "purpose": "CI-only content-stable SQL review binding pilot; non-executable fixture outside migrations"
+  }
+]
