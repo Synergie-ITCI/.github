@@ -27,7 +27,9 @@ from release_pin import (  # noqa: E402
     PROTECTION_MODE_WILDCARD_NAMESPACE,
     REPOSITORY,
     approved_wildcard_policy,
+    evidence_from_annotated_tag,
     ruleset_config_fingerprint,
+    verify_bound_release,
     verify_release_provenance,
 )
 
@@ -259,6 +261,34 @@ def remote_tag_object(release: str) -> str | None:
     return output.split()[0] if output else None
 
 
+def recover_published(release: str, commit: str, ruleset_id: int) -> None:
+    """Verify a completed tag push after its final acknowledgement was lost.
+
+    This path is read only. It does not infer success from a tag name or a local
+    object, and it never repeats provenance dispatch or tag publication.
+    """
+    if not RELEASE.fullmatch(release) or not SHA.fullmatch(commit) or ruleset_id < 1:
+        raise ValueError("Recovery requires an exact release, commit and ruleset")
+    if command("git", "remote", "get-url", "origin").stdout.strip() != ORIGIN:
+        raise ValueError("Recovery checkout is not the central repository")
+    if command("git", "status", "--porcelain").stdout.strip():
+        raise ValueError("Recovery checkout is not clean")
+    ref = api(f"repos/{REPOSITORY}/git/ref/tags/{release}")
+    obj = ref.get("object", {})
+    remote = remote_tag_object(release)
+    if (ref.get("ref") != f"refs/tags/{release}" or obj.get("type") != "tag"
+            or not SHA.fullmatch(str(obj.get("sha", ""))) or remote != obj["sha"]):
+        raise ValueError("Published tag object is absent or differs across GitHub reads")
+    evidence = evidence_from_annotated_tag(release, ref)
+    if evidence is None or evidence.get("commit") != commit or evidence.get("ruleset_id") != ruleset_id:
+        raise ValueError("Published tag evidence differs from the approved release")
+    manifest = json.loads((ROOT / "policy/framework-releases.json").read_text())
+    verify_bound_release(release, commit, manifest)
+    local = command("git", "rev-parse", "--verify", f"refs/tags/{release}", check=False)
+    if not local.returncode and local.stdout.strip() != remote:
+        raise ValueError("Local tag object differs from the verified published object")
+
+
 def ensure_local_active_tag(release: str, commit: str) -> None:
     """Fetch a missing verified release tag without replacing a divergent local tag."""
     if not RELEASE.fullmatch(release) or not SHA.fullmatch(commit):
@@ -295,7 +325,14 @@ def main() -> int:
     parser.add_argument("--commit", required=True)
     parser.add_argument("--ruleset-id", required=True, type=int)
     parser.add_argument("--check-only", action="store_true")
+    parser.add_argument("--recover-published", action="store_true")
     args = parser.parse_args()
+    if args.recover_published:
+        if args.check_only:
+            raise ValueError("Choose only one read-only release mode")
+        recover_published(args.release, args.commit, args.ruleset_id)
+        print(f"Verified existing published {args.release} at {args.commit}; no dispatch or tag push")
+        return 0
     actor = verify_source(args.release, args.commit)
     protection = verify_protection(args.release, args.ruleset_id)
     active = command("python3", "pr-qa/release_pin.py", "--resolve-active").stdout
