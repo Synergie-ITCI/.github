@@ -209,6 +209,39 @@ def read_live_pr(repository: str, number: int, token: str) -> dict[str, Any]:
         raise ValueError("Live GitHub PR verification unavailable") from None
 
 
+def read_live_main_sha(repository: str, token: str) -> str:
+    """Bind a staging-to-main authorization to the current protected destination."""
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
+        raise ValueError("Invalid live repository identity")
+    request = urllib.request.Request(
+        f"https://api.github.com/repos/{repository}/git/ref/heads/main",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "synergie-pr-qa",
+        },
+    )
+    try:
+        with urllib.request.build_opener(NoRedirect()).open(request, timeout=20) as response:
+            if response.status != 200:
+                raise ValueError("non-success status")
+            raw = response.read(2_000_001)
+            if len(raw) > 2_000_000:
+                raise ValueError("oversized response")
+            value = json.loads(raw)
+            obj = value.get("object") if isinstance(value, dict) else None
+            sha = obj.get("sha") if isinstance(obj, dict) and obj.get("type") == "commit" else None
+            if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
+                raise ValueError("invalid main ref")
+            return sha
+    except urllib.error.HTTPError as error:
+        error.close()
+        raise ValueError("Live GitHub main verification unavailable") from None
+    except (urllib.error.URLError, OSError, ValueError, TypeError):
+        raise ValueError("Live GitHub main verification unavailable") from None
+
+
 def validate_authorization(ctx, git_context, policy, size) -> list[str]:
     try:
         errors = schema_errors(policy, json.loads(SCHEMA_PATH.read_text()))
@@ -304,9 +337,33 @@ def validate_authorization(ctx, git_context, policy, size) -> list[str]:
         return ["destination SHA differs from authorization"]
     if len(ctx.changed_files) < policy.get("minimum_changed_files", 0):
         return ["Baseline changed-file count is below its authorized minimum"]
+    current_main_promotion = (
+        promotion is None and ctx.head_ref == "staging" and ctx.base_ref == "main"
+        and bool(policy.get("expected_base_sha"))
+    )
     try:
         live = read_live_pr(repository, current_pr, token)
         live_head, live_base = live["head"], live["base"]
+        if current_main_promotion:
+            main_sha = read_live_main_sha(repository, token)
+            old_base = live_base["sha"]
+            base_matches = (
+                main_sha == git_context.get("base_sha") == policy["expected_base_sha"]
+                and isinstance(old_base, str)
+                and re.fullmatch(r"[0-9a-f]{40}", old_base) is not None
+                and subprocess.run(
+                    ["git", "merge-base", "--is-ancestor", old_base, main_sha],
+                    cwd=ctx.repo, capture_output=True, check=False,
+                ).returncode == 0
+            )
+        else:
+            base_matches = (
+                live_base["sha"] == git_context.get("base_sha")
+                and (
+                    promotion is not None or not policy.get("expected_base_sha")
+                    or live_base["sha"] == policy["expected_base_sha"]
+                )
+            )
         matches = (
             type(live["number"]) is int
             and live["number"] == current_pr
@@ -316,17 +373,13 @@ def validate_authorization(ctx, git_context, policy, size) -> list[str]:
             and live_head["sha"] == checked_head
             and live_head["ref"] == ctx.head_ref
             and live_base["ref"] == ctx.base_ref
-            and live_base["sha"] == git_context.get("base_sha")
+            and base_matches
             and live_base["repo"]["full_name"] == repository
             and type(live_base["repo"]["id"]) is int
             and live_base["repo"]["id"] == int(repository_id)
             and live_head["repo"]["full_name"] == repository
             and type(live_head["repo"]["id"]) is int
             and live_head["repo"]["id"] == int(repository_id)
-            and (
-                promotion is not None or not policy.get("expected_base_sha")
-                or live_base["sha"] == policy["expected_base_sha"]
-            )
         )
     except (ValueError, OSError, KeyError, TypeError):
         return ["Live GitHub PR verification unavailable or malformed"]

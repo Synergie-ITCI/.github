@@ -26,7 +26,7 @@ class ScholarshipsPr7SizeAuthorizationTests(unittest.TestCase):
         self.assertEqual(schema_errors(entry, schema), [])
         self.assertEqual(entry["repository_id"], 1132519991)
         self.assertEqual(entry["expected_head_sha"], "1379352d5ef26cc7e867e52185315083ec63eebe")
-        self.assertEqual(entry["expected_base_sha"], "8dfe82702349202d2eef0f16e12e6484b488cc87")
+        self.assertEqual(entry["expected_base_sha"], "b48d1fed412f87977c75c60c69df528151f0a7cd")
         self.assertEqual((entry["head_ref"], entry["base_ref"]), ("staging", "main"))
         self.assertEqual(entry["allowed_effective_additions"], 98393)
         self.assertEqual(entry["allowed_changed_files"], 356)
