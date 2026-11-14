@@ -384,8 +384,7 @@ jobs:
           UPLOADED_ARTIFACT_DIGEST: ${{ steps.plan_upload.outputs.artifact-digest }}
         run: |
           set -euo pipefail
-          [[ "${UPLOADED_ARTIFACT_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
-          artifact_digest="${UPLOADED_ARTIFACT_DIGEST#sha256:}"
+          [[ "${UPLOADED_ARTIFACT_DIGEST}" =~ ^[0-9a-f]{64}$ ]]
           plan_sha="$(sha256sum "${RUNNER_TEMP}/plan/hosting.tfplan" | cut -d' ' -f1)"
           mkdir -p "${RUNNER_TEMP}/owner-approval"
           python3 .central-framework/actions/fieldzilla-production-hosting/authorize.py approval-template \
@@ -394,7 +393,7 @@ jobs:
             --target "${TARGET}" --expires-at "${EXPIRES_AT}" \
             --resource-expires-at "${RESOURCE_EXPIRES_AT}" \
             --plan-run-id "${GITHUB_RUN_ID}" --artifact-id "${UPLOADED_ARTIFACT_ID}" \
-            --artifact-digest "${artifact_digest}" --plan-sha256 "${plan_sha}" \
+            --artifact-digest "${UPLOADED_ARTIFACT_DIGEST}" --plan-sha256 "${plan_sha}" \
             --artifact-dir "${RUNNER_TEMP}/plan" \
             --template-output "${RUNNER_TEMP}/owner-approval/approval.txt"
           {
