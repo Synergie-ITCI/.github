@@ -137,10 +137,6 @@ class ReleasePinTests(unittest.TestCase):
             f"commits/{head}/pulls": [{"number": 768, "state": "closed", "merged_at": "2026-11-14T18:00:00Z", "base": {"ref": "main", "repo": {"full_name": "Synergie-ITCI/programme-management-platform"}}, "head": {"sha": head, "repo": {"full_name": "Synergie-ITCI/programme-management-platform"}}, "merge_commit_sha": merge}],
             f"compare/{merge}...{main}": {"status": "ahead"},
             f"contents/.github/synergie-pr-qa-release.json?ref={head}": {"sha": blob},
-            f"commits/{head}/check-runs?per_page=100&page=1": {"check_runs": [
-                {"id": index, "name": name, "head_sha": head, "status": "completed", "conclusion": "success", "app": {"slug": "github-actions"}}
-                for index, name in enumerate(("Architecture Governance", "pr-qa / Pull Request Quality Assurance"), 1)
-            ]},
             "issues/768/comments?per_page=100&page=1": [{"user": {"login": "SaurabhVermaIN", "id": 52234089}, "body": expected_comment, "created_at": "2026-11-14T18:00:00Z", "updated_at": "2026-11-14T18:00:00Z"}],
         }
         self.assertEqual(protected_consumer_release(rows.__getitem__)["release"], "pr-qa-v1-rc295")

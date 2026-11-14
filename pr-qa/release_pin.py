@@ -36,7 +36,6 @@ REQUIRED_RELEASE_CHECKS = {
 }
 DELEGATED_CONSUMER = "Synergie-ITCI/programme-management-platform"
 DELEGATED_SELECTION_PATH = ".github/synergie-pr-qa-release.json"
-DELEGATED_CHECKS = {"Architecture Governance", "pr-qa / Pull Request Quality Assurance"}
 
 
 def validate_workflow(workflow: str, manifest: dict) -> tuple[str, dict]:
@@ -277,7 +276,7 @@ def protected_consumer_release(read=github_consumer_json) -> dict[str, str]:
 
 
 def verify_consumer_selector_provenance(read, main_sha: str, blob_sha: str, selected: dict) -> None:
-    """Prove protected main received these bytes via an owner-approved, checked PR."""
+    """Prove protected main received these bytes via an owner-approved merged PR."""
     history = read(f"commits?sha={main_sha}&path={DELEGATED_SELECTION_PATH}&per_page=1")
     if not isinstance(history, list) or len(history) != 1:
         raise ValueError("Consumer selector history is unavailable")
@@ -306,27 +305,6 @@ def verify_consumer_selector_provenance(read, main_sha: str, blob_sha: str, sele
     head_file = read(f"contents/{DELEGATED_SELECTION_PATH}?ref={head}")
     if not re.fullmatch(r"[0-9a-f]{40}", str(blob_sha)) or head_file.get("sha") != blob_sha:
         raise ValueError("Consumer selector bytes differ from reviewed PR head")
-    rows = []
-    for page in range(1, 11):
-        checks = read(f"commits/{head}/check-runs?per_page=100&page={page}")
-        page_rows = checks.get("check_runs") if isinstance(checks, dict) else None
-        if not isinstance(page_rows, list):
-            raise ValueError("Consumer selector check history is unavailable")
-        rows.extend(page_rows)
-        if len(page_rows) < 100:
-            break
-    else:
-        raise ValueError("Consumer selector check history exceeds bounded readback")
-    latest = {}
-    for row in rows:
-        if row.get("name") in DELEGATED_CHECKS and row.get("id", 0) > latest.get(row["name"], {}).get("id", 0):
-            latest[row["name"]] = row
-    if set(latest) != DELEGATED_CHECKS or any(
-        row.get("head_sha") != head or row.get("status") != "completed"
-        or row.get("conclusion") != "success" or (row.get("app") or {}).get("slug") != "github-actions"
-        for row in latest.values()
-    ):
-        raise ValueError("Consumer selector exact-head governance is not successful")
     number = pr.get("number")
     if type(number) is not int or number < 1:
         raise ValueError("Consumer selector PR number is invalid")

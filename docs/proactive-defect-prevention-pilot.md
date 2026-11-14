@@ -9,8 +9,9 @@ The central reusable workflow now resolves consumer releases from `consumer_rele
 An opt-in FieldZilla path can remove later central-main selector merges after
 the centrally approved release floor and critical-path policy are active. Its
 selector lives at `.github/synergie-pr-qa-release.json` on FieldZilla's current
-main. The central resolver verifies the file's exact main blob, its last
-merged PR and current-head Architecture Governance and PR-QA results, a new
+main. The central resolver verifies the file's exact main blob and its last
+merged PR. GitHub's protected-main merge gate requires current-head Architecture
+Governance and PR-QA before accepting that PR. The resolver also requires a new
 unedited owner comment bound to the PR head and release tuple, the central
 minimum release number, and the protected immutable tag and provenance.
 An unmerged, directly pushed, unapproved, stale-head, or below-floor selector
