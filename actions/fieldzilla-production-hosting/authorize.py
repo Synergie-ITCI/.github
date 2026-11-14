@@ -19,6 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from verify_partial_state import EXPIRY as PARTIAL_EXPIRY, EXPECTED_TAGS, PARTIAL_COUNTS, SOURCE as PARTIAL_SOURCE
 from verify_interrupted_state import COUNTS as INTERRUPTED_COUNTS, EXPIRY as INTERRUPTED_EXPIRY, ID_SHA256 as INTERRUPTED_ID_SHA256, SOURCE as INTERRUPTED_SOURCE, TAGS as INTERRUPTED_TAGS, identity_digest
+from verify_kms_residual_state import ALIAS as KMS_RESIDUAL_ALIAS, COUNTS as KMS_RESIDUAL_COUNTS, EXPIRY as KMS_RESIDUAL_EXPIRY, ID_SHA256 as KMS_RESIDUAL_ID_SHA256, KEY_ID as KMS_RESIDUAL_KEY_ID, SOURCE as KMS_RESIDUAL_SOURCE, TAGS as KMS_RESIDUAL_TAGS
 
 
 REPOSITORY = "Synergie-ITCI/programme-management-platform"
@@ -333,6 +334,8 @@ def check_rehearsal_plan(path, phase="phase1", source=None, resource_expiry=None
         fail("partial cleanup does not bind the exact failed source and resource expiry")
     if phase == "cleanup-interrupted" and (source != INTERRUPTED_SOURCE or resource_expiry != INTERRUPTED_EXPIRY):
         fail("interrupted cleanup does not bind the exact failed source and resource expiry")
+    if phase == "cleanup-kms-residual" and (source != KMS_RESIDUAL_SOURCE or resource_expiry != KMS_RESIDUAL_EXPIRY):
+        fail("KMS residual cleanup does not bind the exact failed source and resource expiry")
     for change in changes:
         address = change["address"]
         base_address = address.split("[")[0]
@@ -343,6 +346,7 @@ def check_rehearsal_plan(path, phase="phase1", source=None, resource_expiry=None
             "cleanup-destroy": (["delete"],),
             "cleanup-partial": (["delete"],),
             "cleanup-interrupted": (["delete"],),
+            "cleanup-kms-residual": (["delete"],),
         }[phase]
         if actions not in allowed:
             fail(f"rehearsal phase cannot perform this action: {address}: {actions}")
@@ -350,7 +354,7 @@ def check_rehearsal_plan(path, phase="phase1", source=None, resource_expiry=None
             fail(f"rehearsal state move or import: {address}")
         if actions == ["no-op"] and change["change"].get("before") != change["change"].get("after"):
             fail(f"inconsistent rehearsal no-op: {address}")
-        after = json.dumps(change["change"].get("before") if phase in {"cleanup-destroy", "cleanup-partial", "cleanup-interrupted"} else change["change"].get("after"), sort_keys=True).lower()
+        after = json.dumps(change["change"].get("before") if phase in {"cleanup-destroy", "cleanup-partial", "cleanup-interrupted", "cleanup-kms-residual"} else change["change"].get("after"), sort_keys=True).lower()
         # Production-rehearsal names are allowed; standalone production and all
         # staging references are forbidden in managed resource values.
         isolated = after.replace("production-rehearsal", "rehearsal").replace("productionrehearsal", "rehearsal")
@@ -380,6 +384,17 @@ def check_rehearsal_plan(path, phase="phase1", source=None, resource_expiry=None
             tags = before.get("tags_all")
             if tags is not None and any(tags.get(key) != value for key, value in INTERRUPTED_TAGS.items()):
                 fail(f"interrupted cleanup plan resource tags differ: {address}")
+        if phase == "cleanup-kms-residual":
+            partial_counts[base_address] = partial_counts.get(base_address, 0) + 1
+            before = change["change"].get("before") or {}
+            interrupted_identities.append((base_address, change.get("index"), before.get("id")))
+            if base_address == "aws_kms_alias.rehearsal":
+                if (before.get("id"), before.get("name"), before.get("target_key_id")) != (KMS_RESIDUAL_ALIAS, KMS_RESIDUAL_ALIAS, KMS_RESIDUAL_KEY_ID):
+                    fail("KMS residual alias identity differs from exact state")
+            elif base_address == "aws_kms_key.rehearsal":
+                if (before.get("id") != KMS_RESIDUAL_KEY_ID or before.get("tags_all") != KMS_RESIDUAL_TAGS
+                        or before.get("deletion_window_in_days") != 7 or before.get("is_enabled") is not True):
+                    fail("KMS residual key identity or lifecycle differs from exact state")
         if phase == "cleanup-protection" and actions == ["update"]:
             if address != "aws_db_instance.rehearsal" or change["change"]["before"].get("deletion_protection") is not True or change["change"]["after"].get("deletion_protection") is not False:
                 fail("cleanup protection must only disable isolated RDS deletion protection")
@@ -395,6 +410,10 @@ def check_rehearsal_plan(path, phase="phase1", source=None, resource_expiry=None
         fail("interrupted cleanup plan does not match the exact failed-state inventory")
     if phase == "cleanup-interrupted" and identity_digest(interrupted_identities) != INTERRUPTED_ID_SHA256:
         fail("interrupted cleanup plan resource identities differ from exact state")
+    if phase == "cleanup-kms-residual" and partial_counts != KMS_RESIDUAL_COUNTS:
+        fail("KMS residual cleanup plan does not match exact two-resource inventory")
+    if phase == "cleanup-kms-residual" and identity_digest(interrupted_identities) != KMS_RESIDUAL_ID_SHA256:
+        fail("KMS residual cleanup plan resource identities differ from exact state")
     print(json.dumps({"target": "rehearsal", "phase": phase, "creates": creates, "managed": len(changes)}, sort_keys=True))
 
 
@@ -517,7 +536,7 @@ def main():
     parser.add_argument("--source-sha", required=True)
     parser.add_argument("--caller-sha", required=True)
     parser.add_argument("--workflow-tag", required=True)
-    parser.add_argument("--phase", required=True, choices=["phase1", "phase2", "production-bootstrap", "production-network-repair", "production-routing", "cleanup-protection", "cleanup-destroy", "cleanup-partial", "cleanup-interrupted"])
+    parser.add_argument("--phase", required=True, choices=["phase1", "phase2", "production-bootstrap", "production-network-repair", "production-routing", "cleanup-protection", "cleanup-destroy", "cleanup-partial", "cleanup-interrupted", "cleanup-kms-residual"])
     parser.add_argument("--target", choices=["production", "rehearsal"], default="production")
     parser.add_argument("--expires-at")
     parser.add_argument("--resource-expires-at")

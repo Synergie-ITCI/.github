@@ -20,6 +20,7 @@ authorize = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(authorize)
 import verify_partial_state as partial_state
 import verify_interrupted_state as interrupted_state
+import verify_kms_residual_state as kms_residual_state
 
 
 class PlanSafetyTest(unittest.TestCase):
@@ -299,6 +300,58 @@ class PlanSafetyTest(unittest.TestCase):
                     check(rows)
             with self.assertRaises(SystemExit):
                 check(changes, "a" * 40)
+
+    def test_kms_residual_cleanup_requires_exact_two_deletes(self):
+        alias = self.change("aws_kms_alias.rehearsal", "aws_kms_alias", actions=["delete"], after={})
+        alias["change"]["before"] = {
+            "id": kms_residual_state.ALIAS, "name": kms_residual_state.ALIAS,
+            "target_key_id": kms_residual_state.KEY_ID,
+        }
+        key = self.change("aws_kms_key.rehearsal", "aws_kms_key", actions=["delete"], after={})
+        key["change"]["before"] = {
+            "id": kms_residual_state.KEY_ID, "tags_all": kms_residual_state.TAGS,
+            "deletion_window_in_days": 7, "is_enabled": True,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "plan.json"
+            def check(rows, source=kms_residual_state.SOURCE):
+                path.write_text(json.dumps({"resource_changes": rows}))
+                authorize.check_rehearsal_plan(path, "cleanup-kms-residual", source, kms_residual_state.EXPIRY)
+            check([alias, key])
+            for rows in ([alias], [alias, key, self.change("aws_vpc.rehearsal", "aws_vpc", actions=["delete"])],
+                         [{**alias, "change": {**alias["change"], "before": {**alias["change"]["before"], "target_key_id": "other"}}}, key],
+                         [alias, {**key, "change": {**key["change"], "actions": ["update"]}}]):
+                with self.assertRaises(SystemExit):
+                    check(rows)
+            with self.assertRaises(SystemExit):
+                check([alias, key], "a" * 40)
+
+    def test_kms_residual_state_rejects_alias_and_key_drift(self):
+        def resource(kind, name, attributes, mode="managed"):
+            return {"mode": mode, "type": kind, "name": name,
+                    "instances": [{"attributes": attributes}]}
+        state = {
+            "lineage": interrupted_state.LINEAGE, "serial": kms_residual_state.SERIAL,
+            "outputs": {}, "resources": [
+                resource("aws_kms_alias", "rehearsal", {
+                    "id": kms_residual_state.ALIAS, "name": kms_residual_state.ALIAS,
+                    "target_key_id": kms_residual_state.KEY_ID}),
+                resource("aws_kms_key", "rehearsal", {
+                    "id": kms_residual_state.KEY_ID, "tags_all": kms_residual_state.TAGS,
+                    "deletion_window_in_days": 7, "is_enabled": True}),
+                resource("aws_caller_identity", "current", {}, "data"),
+                resource("aws_iam_policy_document", "rehearsal_kms", {}, "data"),
+            ],
+        }
+        kms_residual_state.verify(state, kms_residual_state.SOURCE, kms_residual_state.EXPIRY)
+        for change in ({"serial": 36}, {"outputs": {"target": {}}},
+                       {"resources": state["resources"][:-1]}):
+            with self.assertRaises(ValueError):
+                kms_residual_state.verify({**state, **change}, kms_residual_state.SOURCE, kms_residual_state.EXPIRY)
+        altered = json.loads(json.dumps(state))
+        altered["resources"][0]["instances"][0]["attributes"]["target_key_id"] = "other"
+        with self.assertRaises(ValueError):
+            kms_residual_state.verify(altered, kms_residual_state.SOURCE, kms_residual_state.EXPIRY)
 
     def test_partial_state_verifier_rejects_drift(self):
         resources = []
