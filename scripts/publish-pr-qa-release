@@ -238,6 +238,26 @@ def remote_tag_object(release: str) -> str | None:
     return output.split()[0] if output else None
 
 
+def ensure_local_active_tag(release: str, commit: str) -> None:
+    """Fetch a missing verified release tag without replacing a divergent local tag."""
+    if not RELEASE.fullmatch(release) or not SHA.fullmatch(commit):
+        raise ValueError("Active release identity malformed")
+    remote_object = remote_tag_object(release)
+    if remote_object is None or not SHA.fullmatch(remote_object):
+        raise ValueError("Verified active release tag is unavailable remotely")
+    ref = f"refs/tags/{release}"
+    local = command("git", "rev-parse", "--verify", ref, check=False)
+    if local.returncode:
+        command("git", "fetch", "--no-tags", "origin", f"{ref}:{ref}")
+        local = command("git", "rev-parse", "--verify", ref)
+    if local.stdout.strip() != remote_object:
+        raise ValueError("Local active release tag object differs from verified remote")
+    if command("git", "cat-file", "-t", ref).stdout.strip() != "tag":
+        raise ValueError("Active release tag is not annotated")
+    if command("git", "rev-parse", f"{ref}^{{commit}}").stdout.strip() != commit:
+        raise ValueError("Local active release tag targets a different commit")
+
+
 def preflight_command(release: str, commit: str, check_only: bool) -> list[str]:
     command_line = ["python3", "scripts/release-preflight", "--base", "main",
                     "--verified-release", release, "--verified-commit", commit]
@@ -264,6 +284,7 @@ def main() -> int:
     previous = f"pr-qa-v1-rc{int(RELEASE.fullmatch(args.release).group(1)) - 1}"
     if f"Resolved active release {previous} at " not in active:
         raise ValueError("Current active release is not the immediate predecessor")
+    ensure_local_active_tag(bound.group(1), bound.group(2))
     command(*preflight_command(bound.group(1), bound.group(2), args.check_only))
     if args.check_only:
         print("Release source, protection, and preflight verified; no dispatch or tag created")
