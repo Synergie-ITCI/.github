@@ -106,6 +106,9 @@ merge history; any additional hygiene, secret, deployment, or fixture failure
 still blocks. Historical rc-specific dispositions remain limited to their
 already reviewed releases. A selected source may remain pinned while unrelated
 protected merges advance `main`.
+Active-release resolution selects the highest numbered RC ref before reading
+tag evidence. It fully verifies that newest tag, its protection, provenance,
+and required checks; invalid newest evidence blocks rather than falling back.
 
 `publish-pr-qa-release --check-only` runs both local QA and representative
 compatibility. During actual publication, local preflight reports compatibility

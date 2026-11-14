@@ -537,6 +537,39 @@ class ReleasePinTests(unittest.TestCase):
         self.assertEqual(entry["commit"], future_commit)
         self.assertNotIn(future_release, self.manifest["releases"])
 
+    def test_active_resolution_reads_only_newest_tag_evidence(self):
+        future_release, future_commit, refs, lookup, list_refs = self.future_release_fixture()
+        older = [{"ref": f"refs/tags/pr-qa-v1-rc{number}",
+                  "object": {"type": "tag", "sha": f"{number:040x}"}}
+                 for number in range(1, 101)]
+        tag_reads = []
+
+        def latest_lookup(path):
+            if path.startswith("git/tags/"):
+                tag_reads.append(path)
+            return lookup(path)
+
+        def latest_refs(path):
+            if path == "git/matching-refs/tags/pr-qa-v1-rc":
+                return older + refs
+            return list_refs(path)
+
+        release, entry = resolve_active_release(self.manifest, lookup=latest_lookup,
+                                                list_refs=latest_refs)
+        self.assertEqual((release, entry["commit"]), (future_release, future_commit))
+        self.assertEqual(tag_reads, ["git/tags/" + "1" * 40] * 2)
+
+    def test_duplicate_newest_release_ref_fails_closed(self):
+        _release, _commit, refs, lookup, list_refs = self.future_release_fixture()
+
+        def duplicated_refs(path):
+            if path == "git/matching-refs/tags/pr-qa-v1-rc":
+                return refs + [copy.deepcopy(refs[-1])]
+            return list_refs(path)
+
+        with self.assertRaisesRegex(ValueError, "reference is ambiguous"):
+            resolve_active_release(self.manifest, lookup=lookup, list_refs=duplicated_refs)
+
     def test_future_release_rejects_higher_rc_targeting_non_main_commit(self):
         def mutate_lookup(overrides, entry):
             overrides[f"compare/{entry['commit']}...main"] = {"status": "diverged"}
