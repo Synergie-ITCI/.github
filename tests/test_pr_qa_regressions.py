@@ -4954,6 +4954,31 @@ exit 0
         self.assertIn("authorized reviewers and required status checks remain mandatory", report)
         self.assertIn("PR-QA does not authorize apply or deployment", report)
 
+    def test_programme_application_preflight_source_remains_governed_with_test_change(self) -> None:
+        repo, base = self.init_repo("programme-application-preflight")
+        for path in (
+            ".github/workflows/fieldzilla-production-hosting.yml",
+            "deploy/production/application_preflight.py",
+            "deploy/production/hosting/README.md",
+            "apps/api/tests/architecture/test_production_application_preflight.py",
+        ):
+            self.write(repo / path, "Read-only production application prerequisite check.\n")
+        self.commit(repo, "ci: check production application prerequisites")
+
+        code, report, report_json, _ = self.run_engine_with_artifacts(
+            repo,
+            base,
+            static_only=True,
+            repository="Synergie-ITCI/programme-management-platform",
+        )
+
+        self.assertEqual(code, 0, report)
+        self.assertEqual(report_json["summary"]["gate_statuses"]["Deployment Risk"], "WARNING")
+        self.assertIn(
+            "deploy/production/application_preflight.py: GOVERNED_CRITICAL_INFRASTRUCTURE",
+            report,
+        )
+
     def test_governed_aws_iac_allows_required_opentofu_lockfile(self) -> None:
         repo, base = self.init_repo("programme-platform-aws-lockfile")
         self.write(
