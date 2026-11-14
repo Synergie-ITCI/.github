@@ -259,6 +259,19 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         )
         governed["paths"].remove(added)
         governed["paths"].remove(".github/synergie-pr-qa-release.json")
+        old_scholarships = next(
+            row for row in previous["one_time_baseline_alignments"]
+            if row.get("repository") == "Synergie-ITCI/scholarships" and row.get("pr_number") == 7
+        )
+        new_scholarships = next(
+            row for row in current["one_time_baseline_alignments"]
+            if row.get("repository") == "Synergie-ITCI/scholarships" and row.get("pr_number") == 7
+        )
+        normalized_scholarships = copy.deepcopy(new_scholarships)
+        for field in ("expected_base_sha", "issued_at", "expires_after", "authorization_id"):
+            normalized_scholarships[field] = old_scholarships[field]
+        self.assertEqual(normalized_scholarships, old_scholarships)
+        current["one_time_baseline_alignments"][current["one_time_baseline_alignments"].index(new_scholarships)] = old_scholarships
         self.assertEqual(current, previous)
 
         previous_sql = json.loads(subprocess.check_output(

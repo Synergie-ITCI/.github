@@ -118,6 +118,54 @@ class BaselineLiveBindingTests(unittest.TestCase):
         self.assertEqual(self.http.call_count, 2)
         self.http.assert_called_with(self.repository, 125, "fixture")
 
+    def test_staging_main_uses_live_destination_and_ancestor_pr_base(self):
+        self.ctx.head_ref = self.policy["head_ref"] = self.live["head"]["ref"] = "staging"
+        self.ctx.base_ref = self.policy["base_ref"] = self.live["base"]["ref"] = "main"
+        self.live["base"]["sha"] = "c" * 40  # GitHub retains an older PR base.
+        with mock.patch.object(binding, "read_live_main_sha", return_value=self.base) as main:
+            self.assertEqual(self.validate(), [])
+            main.assert_called_once_with(self.repository, "fixture")
+        self.assertTrue(any(call.args[0][:3] == ["git", "merge-base", "--is-ancestor"]
+                            for call in self.git.call_args_list))
+
+    def test_staging_main_rejects_stale_destination_or_unrelated_pr_base(self):
+        self.ctx.head_ref = self.policy["head_ref"] = self.live["head"]["ref"] = "staging"
+        self.ctx.base_ref = self.policy["base_ref"] = self.live["base"]["ref"] = "main"
+        self.live["base"]["sha"] = "c" * 40
+        with mock.patch.object(binding, "read_live_main_sha", return_value="d" * 40):
+            self.assertTrue(self.validate())
+        with mock.patch.object(binding, "read_live_main_sha", return_value=self.base):
+            self.git.side_effect = [
+                subprocess.CompletedProcess([], 0, self.sha + "\n", ""),
+                subprocess.CompletedProcess([], 1, "", ""),
+            ]
+            self.assertTrue(self.validate())
+            self.git.side_effect = None
+            self.live["base"]["sha"] = "invalid"
+            self.assertTrue(self.validate())
+        with mock.patch.object(binding, "read_live_main_sha", side_effect=ValueError("unavailable")):
+            self.assertTrue(self.validate())
+
+    def test_live_main_lookup_requires_a_commit_ref_and_redacts_errors(self):
+        with mock.patch.object(binding.urllib.request, "build_opener") as opener:
+            response = opener.return_value.open.return_value.__enter__.return_value
+            response.status = 200
+            response.read.return_value = json.dumps(
+                {"object": {"type": "commit", "sha": self.base}}
+            ).encode()
+            self.assertEqual(binding.read_live_main_sha(self.repository, "fixture"), self.base)
+            for value in ({"object": {"type": "tag", "sha": self.base}},
+                          {"object": {"type": "commit", "sha": "invalid"}},
+                          {"object": []}):
+                response.read.return_value = json.dumps(value).encode()
+                with self.assertRaisesRegex(ValueError, "^Live GitHub main verification unavailable$"):
+                    binding.read_live_main_sha(self.repository, "fixture")
+            opener.return_value.open.side_effect = urllib.error.HTTPError(
+                "https://api.github.com", 403, "sensitive-response", {}, None
+            )
+            with self.assertRaisesRegex(ValueError, "^Live GitHub main verification unavailable$"):
+                binding.read_live_main_sha(self.repository, "fixture")
+
     def test_live_identity_and_state_mismatches_fail(self):
         cases = [
             ("number", 126),
