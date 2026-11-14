@@ -38,6 +38,8 @@ LEGACY_BUNDLED_BINDINGS = frozenset({
 def load_authorizations():
     records = json.loads(AUTH_PATH.read_text())
     validate_records(records)
+    if any("binding_mode" in record for record in records):
+        raise ValueError("Content-stable binding requires live authorization")
     return records
 
 
@@ -72,6 +74,20 @@ def git_output(repo, *args):
     if result.returncode:
         raise ValueError("Git binding unavailable")
     return result.stdout
+
+
+def binding_matches(repo, approved_sha, current_sha, mode):
+    if not isinstance(current_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", current_sha):
+        return False
+    if current_sha == approved_sha:
+        return True
+    if mode != "content_stable":
+        return False
+    # A commit identity may change only when its complete tracked tree does not.
+    # Missing old objects or malformed refs fail closed through git_output.
+    return git_output(repo, "rev-parse", f"{approved_sha}^{{tree}}") == git_output(
+        repo, "rev-parse", f"{current_sha}^{{tree}}"
+    )
 
 
 def validate(ctx, record):
@@ -119,15 +135,16 @@ def validate(ctx, record):
         or ctx.base_ref != record["base_ref"]
     ):
         raise ValueError("Event migration binding differs")
+    mode = record.get("binding_mode")
     for side in ("head", "base"):
         if (
-            pr[side]["sha"] != record[f"expected_{side}_sha"]
+            not binding_matches(ctx.repo, record[f"expected_{side}_sha"], pr[side]["sha"], mode)
             or pr[side]["ref"] != record[f"{side}_ref"]
         ):
             raise ValueError("Event migration SHA or ref differs")
     if (
         git_output(ctx.repo, "rev-parse", "HEAD").decode().strip()
-        != record["expected_head_sha"]
+        != pr["head"]["sha"]
     ):
         raise ValueError("Checkout migration SHA differs")
     rel = record["migration_path"]
@@ -148,7 +165,7 @@ def validate(ctx, record):
     data = absolute.read_bytes()
     if (
         hashlib.sha256(data).hexdigest() != record["migration_sha256"]
-        or git_output(ctx.repo, "show", f"{record['expected_head_sha']}:{rel}") != data
+        or git_output(ctx.repo, "show", f"{pr['head']['sha']}:{rel}") != data
     ):
         raise ValueError("Migration bytes differ from approved commit and hash")
     matches = list(DELETE.finditer(data))
@@ -174,7 +191,7 @@ def validate(ctx, record):
     for side in ("head", "base"):
         ref = live[side]
         if (
-            ref["sha"] != record[f"expected_{side}_sha"]
+            ref["sha"] != pr[side]["sha"]
             or ref["ref"] != record[f"{side}_ref"]
             or type(ref["repo"]["id"]) is not int
             or ref["repo"]["id"] != record["repository_id"]

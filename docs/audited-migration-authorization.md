@@ -46,6 +46,15 @@ GitHub verification and expired windows fail closed. The lookup uses the existin
 fixed GitHub endpoint with no redirects and bounded responses; credentials and API
 response contents are not included in diagnostics.
 
+New live records may opt into `binding_mode: content_stable`. When a head or base
+commit ID changes, the old and current commits must have identical complete Git
+trees. The current checkout must equal the live PR head, and event and live PR
+identities must agree. Missing Git objects or any tracked content change fail
+closed. Existing records remain exact-SHA bound; bundled records cannot opt in.
+The 24-hour expiry, reviewer, SQL fingerprints, and protected-main revocation
+checks still apply. A base advance or rebase that changes content needs a new
+review record.
+
 This mechanism is deliberately not a SQL safety parser. A reviewer must audit the
 complete file and authorization context. Fingerprints cover exact bytes from DELETE
 through the terminating semicolon, including internal whitespace. Only those exact
