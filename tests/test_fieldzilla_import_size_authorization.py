@@ -253,8 +253,12 @@ class FieldzillaImportSizeTests(unittest.TestCase):
             if row.get("repository") == "Synergie-ITCI/programme-management-platform"
         )
         added = "deploy/production/application_preflight.py"
-        self.assertEqual(governed["paths"], governed_previous["paths"][:3] + [added] + governed_previous["paths"][3:])
+        self.assertEqual(
+            governed["paths"],
+            governed_previous["paths"][:3] + [added, ".github/synergie-pr-qa-release.json"] + governed_previous["paths"][3:],
+        )
         governed["paths"].remove(added)
+        governed["paths"].remove(".github/synergie-pr-qa-release.json")
         self.assertEqual(current, previous)
 
         previous_sql = json.loads(subprocess.check_output(

@@ -90,6 +90,7 @@
           "deploy/staging/fieldzilla-runtime/**",
           "deploy/production/hosting/**",
           "deploy/production/application_preflight.py",
+          ".github/synergie-pr-qa-release.json",
           ".github/workflows/fieldzilla-production-hosting.yml"
         ],
         "required_reviewers": [
