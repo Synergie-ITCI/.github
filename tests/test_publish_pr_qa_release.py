@@ -93,6 +93,40 @@ class PublishReleaseTests(unittest.TestCase):
         self.assertEqual(publishing[:-1], checked)
         self.assertEqual(publishing[-1], "--compatibility-via-provenance")
 
+    def test_lost_tag_push_acknowledgement_verifies_without_mutation(self) -> None:
+        name, commit, tag_object = "pr-qa-v1-rc291", "a" * 40, "b" * 40
+        calls = []
+
+        def command(*args, **_kwargs):
+            calls.append(args)
+            if args == ("git", "remote", "get-url", "origin"):
+                return subprocess.CompletedProcess(args, 0, release.ORIGIN + "\n", "")
+            if args == ("git", "status", "--porcelain"):
+                return subprocess.CompletedProcess(args, 0, "", "")
+            if args == ("git", "rev-parse", "--verify", f"refs/tags/{name}"):
+                return subprocess.CompletedProcess(args, 0, tag_object + "\n", "")
+            self.fail(f"unexpected command: {args}")
+
+        ref = {"ref": f"refs/tags/{name}", "object": {"type": "tag", "sha": tag_object}}
+        with patch.object(release, "command", side_effect=command), \
+             patch.object(release, "api", return_value=ref), \
+             patch.object(release, "remote_tag_object", return_value=tag_object), \
+             patch.object(release, "evidence_from_annotated_tag", return_value={
+                 "commit": commit, "ruleset_id": 25061784,
+             }), \
+             patch.object(release, "verify_bound_release") as verify:
+            release.recover_published(name, commit, 25061784)
+            verify.assert_called_once()
+        self.assertFalse(any(args[:2] == ("git", "push") for args in calls))
+
+        with patch.object(release, "command", side_effect=command), \
+             patch.object(release, "api", return_value=ref), \
+             patch.object(release, "remote_tag_object", return_value="c" * 40), \
+             patch.object(release, "verify_bound_release") as verify:
+            with self.assertRaisesRegex(ValueError, "differs across GitHub reads"):
+                release.recover_published(name, commit, 25061784)
+            verify.assert_not_called()
+
     def test_missing_active_tag_is_fetched_exactly_without_replacing_mismatch(self) -> None:
         tag, commit, tag_object = "pr-qa-v1-rc286", "a" * 40, "b" * 40
         ref = f"refs/tags/{tag}"
