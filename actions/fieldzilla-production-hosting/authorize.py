@@ -18,6 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from verify_partial_state import EXPIRY as PARTIAL_EXPIRY, EXPECTED_TAGS, PARTIAL_COUNTS, SOURCE as PARTIAL_SOURCE
+from verify_interrupted_state import COUNTS as INTERRUPTED_COUNTS, EXPIRY as INTERRUPTED_EXPIRY, ID_SHA256 as INTERRUPTED_ID_SHA256, SOURCE as INTERRUPTED_SOURCE, TAGS as INTERRUPTED_TAGS, identity_digest
 
 
 REPOSITORY = "Synergie-ITCI/programme-management-platform"
@@ -327,8 +328,11 @@ def check_rehearsal_plan(path, phase="phase1", source=None, resource_expiry=None
     if phase == "phase1" and not required.issubset(addresses):
         fail("isolated rehearsal target is incomplete")
     partial_counts = {}
+    interrupted_identities = []
     if phase == "cleanup-partial" and (source != PARTIAL_SOURCE or resource_expiry != PARTIAL_EXPIRY):
         fail("partial cleanup does not bind the exact failed source and resource expiry")
+    if phase == "cleanup-interrupted" and (source != INTERRUPTED_SOURCE or resource_expiry != INTERRUPTED_EXPIRY):
+        fail("interrupted cleanup does not bind the exact failed source and resource expiry")
     for change in changes:
         address = change["address"]
         base_address = address.split("[")[0]
@@ -338,6 +342,7 @@ def check_rehearsal_plan(path, phase="phase1", source=None, resource_expiry=None
             "cleanup-protection": (["update"], ["no-op"]),
             "cleanup-destroy": (["delete"],),
             "cleanup-partial": (["delete"],),
+            "cleanup-interrupted": (["delete"],),
         }[phase]
         if actions not in allowed:
             fail(f"rehearsal phase cannot perform this action: {address}: {actions}")
@@ -345,7 +350,7 @@ def check_rehearsal_plan(path, phase="phase1", source=None, resource_expiry=None
             fail(f"rehearsal state move or import: {address}")
         if actions == ["no-op"] and change["change"].get("before") != change["change"].get("after"):
             fail(f"inconsistent rehearsal no-op: {address}")
-        after = json.dumps(change["change"].get("before") if phase in {"cleanup-destroy", "cleanup-partial"} else change["change"].get("after"), sort_keys=True).lower()
+        after = json.dumps(change["change"].get("before") if phase in {"cleanup-destroy", "cleanup-partial", "cleanup-interrupted"} else change["change"].get("after"), sort_keys=True).lower()
         # Production-rehearsal names are allowed; standalone production and all
         # staging references are forbidden in managed resource values.
         isolated = after.replace("production-rehearsal", "rehearsal").replace("productionrehearsal", "rehearsal")
@@ -368,6 +373,13 @@ def check_rehearsal_plan(path, phase="phase1", source=None, resource_expiry=None
             )
             if not untagged_partial_bucket and any(tags.get(key) != value for key, value in EXPECTED_TAGS.items()):
                 fail(f"partial cleanup plan resource tags differ from the failed rehearsal: {address}")
+        if phase == "cleanup-interrupted":
+            partial_counts[base_address] = partial_counts.get(base_address, 0) + 1
+            before = change["change"].get("before") or {}
+            interrupted_identities.append((base_address, change.get("index"), before.get("id")))
+            tags = before.get("tags_all")
+            if tags is not None and any(tags.get(key) != value for key, value in INTERRUPTED_TAGS.items()):
+                fail(f"interrupted cleanup plan resource tags differ: {address}")
         if phase == "cleanup-protection" and actions == ["update"]:
             if address != "aws_db_instance.rehearsal" or change["change"]["before"].get("deletion_protection") is not True or change["change"]["after"].get("deletion_protection") is not False:
                 fail("cleanup protection must only disable isolated RDS deletion protection")
@@ -379,6 +391,10 @@ def check_rehearsal_plan(path, phase="phase1", source=None, resource_expiry=None
         fail("cleanup destroy must own the complete isolated target")
     if phase == "cleanup-partial" and partial_counts != PARTIAL_COUNTS:
         fail("partial cleanup plan does not match the exact failed-state inventory")
+    if phase == "cleanup-interrupted" and partial_counts != INTERRUPTED_COUNTS:
+        fail("interrupted cleanup plan does not match the exact failed-state inventory")
+    if phase == "cleanup-interrupted" and identity_digest(interrupted_identities) != INTERRUPTED_ID_SHA256:
+        fail("interrupted cleanup plan resource identities differ from exact state")
     print(json.dumps({"target": "rehearsal", "phase": phase, "creates": creates, "managed": len(changes)}, sort_keys=True))
 
 
@@ -501,7 +517,7 @@ def main():
     parser.add_argument("--source-sha", required=True)
     parser.add_argument("--caller-sha", required=True)
     parser.add_argument("--workflow-tag", required=True)
-    parser.add_argument("--phase", required=True, choices=["phase1", "phase2", "production-bootstrap", "production-network-repair", "production-routing", "cleanup-protection", "cleanup-destroy", "cleanup-partial"])
+    parser.add_argument("--phase", required=True, choices=["phase1", "phase2", "production-bootstrap", "production-network-repair", "production-routing", "cleanup-protection", "cleanup-destroy", "cleanup-partial", "cleanup-interrupted"])
     parser.add_argument("--target", choices=["production", "rehearsal"], default="production")
     parser.add_argument("--expires-at")
     parser.add_argument("--resource-expires-at")
