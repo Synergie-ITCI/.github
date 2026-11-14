@@ -1705,6 +1705,23 @@
       "allowed_changed_files": 3,
       "purpose": "Exact-source SQL-free production image review for PR #754, restoring tenant-scoped authorized historical evidence reads and retaining the merged Niddan parser fix. No baseline relaxation, migration, ECS update, routing, or publication approval.",
       "relaxations": []
+    },
+    {
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "repository_id": 1315697868,
+      "pr_number": 756,
+      "head_ref": "fix/fieldzilla-dynamic-invitation-outbox",
+      "base_ref": "main",
+      "expected_head_sha": "b1ad92de4d8f4ac0b48039ac81c546201e618306",
+      "expected_base_sha": "1e224f22f6ee831fd0a82833fb3c51bc8ffe4cf5",
+      "issued_at": "2026-11-14T10:40:20Z",
+      "enabled": true,
+      "authorization_id": "558b8057-b041-40ef-83c4-87d10d00cd6b",
+      "expires_after": "2026-11-15T09:40:20Z",
+      "allowed_effective_additions": 107,
+      "allowed_changed_files": 4,
+      "purpose": "Exact-source SQL-free production image review for PR #756 tenant-discovered invitation delivery and stale-invitation guard. No baseline relaxation, migration, ECS update, routing, or publication approval.",
+      "relaxations": []
     }
   ]
 }
