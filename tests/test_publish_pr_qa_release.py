@@ -200,11 +200,44 @@ class PublishReleaseTests(unittest.TestCase):
             return subprocess.CompletedProcess(args, 0, "", "")
 
         with patch.object(release, "command", side_effect=command):
-            self.assertEqual(release.provenance_branch("pr-qa-v1-rc192", selected), branch)
+            self.assertEqual(release.provenance_branch("pr-qa-v1-rc192", selected), (branch, False))
         self.assertIn(("git", "push", "origin", f"{selected}:refs/heads/{branch}"), calls)
         with patch.object(release, "command", return_value=subprocess.CompletedProcess([], 0, f"{selected}\trefs/heads/{branch}\n", "")):
-            with self.assertRaisesRegex(ValueError, "already exists"):
+            self.assertEqual(release.provenance_branch("pr-qa-v1-rc192", selected), (branch, True))
+        with patch.object(release, "command", return_value=subprocess.CompletedProcess([], 0, f"{'b' * 40}\trefs/heads/{branch}\n", "")):
+            with self.assertRaisesRegex(ValueError, "differs from approved commit"):
                 release.provenance_branch("pr-qa-v1-rc192", selected)
+
+    def test_interrupted_publication_reuses_only_exact_successful_provenance(self) -> None:
+        name, commit, actor = "pr-qa-v1-rc192", "a" * 40, "SaurabhVermaIN"
+        branch = f"pr-qa-release-source/{name}"
+        run = {
+            "id": 123, "display_title": f"PR-QA release {name} @ {commit}",
+            "head_sha": commit, "event": "workflow_dispatch",
+            "head_branch": branch,
+            "path": ".github/workflows/pr-qa-release.yml", "run_attempt": 1,
+            "actor": {"login": actor}, "created_at": "2026-10-19T12:00:01Z",
+        }
+        with patch.object(release, "api", side_effect=lambda path: (
+            {"workflow_runs": [run]} if "/runs?" in path else
+            {**run, "status": "completed", "conclusion": "success"}
+        )):
+            self.assertEqual(release.completed_provenance(name, commit, actor, branch)["id"], 123)
+        for change in ({"conclusion": "failure"}, {"status": "in_progress"},
+                       {"head_sha": "b" * 40}, {"run_attempt": 2},
+                       {"head_branch": "other"}):
+            with self.subTest(change=change), patch.object(release, "api", side_effect=lambda path: (
+                {"workflow_runs": [run]} if "/runs?" in path else
+                {**run, "status": "completed", "conclusion": "success", **change}
+            )):
+                with self.assertRaisesRegex(ValueError, "incomplete, failed, or changed"):
+                    release.completed_provenance(name, commit, actor, branch)
+        with patch.object(release, "api", return_value={"workflow_runs": [run, {**run, "id": 124}]}):
+            with self.assertRaisesRegex(ValueError, "ambiguous"):
+                release.completed_provenance(name, commit, actor, branch)
+        with patch.object(release, "api", return_value={"workflow_runs": []}):
+            with self.assertRaisesRegex(ValueError, "without matching provenance"):
+                release.completed_provenance(name, commit, actor, branch)
 
     def test_selected_source_survives_unrelated_protected_main_merge(self) -> None:
         selected, newer = "a" * 40, "b" * 40

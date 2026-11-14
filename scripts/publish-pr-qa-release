@@ -189,18 +189,39 @@ def verify_source_on_main(commit: str) -> None:
         raise ValueError("Protected main review or required PR-QA check changed")
 
 
-def provenance_branch(release: str, commit: str) -> str:
+def provenance_branch(release: str, commit: str) -> tuple[str, bool]:
     """Pin dispatch to the exact source even if protected main advances."""
     branch = f"pr-qa-release-source/{release}"
     ref = f"refs/heads/{branch}"
     existing = command("git", "ls-remote", "origin", ref).stdout.strip()
     if existing:
-        raise ValueError("Release source branch already exists; inspect prior dispatch before retrying")
+        if existing.split() != [commit, ref]:
+            raise ValueError("Existing release source branch differs from approved commit")
+        return branch, True
     command("git", "push", "origin", f"{commit}:{ref}")
     published = command("git", "ls-remote", "origin", ref).stdout.split()
     if not published or published[0] != commit:
         raise ValueError("Release source branch identity is uncertain; do not dispatch")
-    return branch
+    return branch, False
+
+
+def completed_provenance(release: str, commit: str, actor: str, branch: str) -> dict:
+    """Resume only an unambiguous successful dispatch on the exact source branch."""
+    rows = api(f"repos/{REPOSITORY}/actions/workflows/{WORKFLOW}/runs?event=workflow_dispatch&branch={branch}&per_page=100")["workflow_runs"]
+    if len(rows) >= 100:
+        raise ValueError("Provenance history is too large to prove a unique prior dispatch")
+    matching = [row for row in rows if row.get("head_branch") == branch]
+    run = matching_run(matching, release, commit, actor, datetime(1970, 1, 1, tzinfo=timezone.utc))
+    if run is None:
+        raise ValueError("Release source branch exists without matching provenance; inspect prior dispatch before retrying")
+    detail = api(f"repos/{REPOSITORY}/actions/runs/{run['id']}")
+    if (detail.get("id") != run["id"] or detail.get("head_branch") != branch
+            or detail.get("status") != "completed"
+            or detail.get("conclusion") != "success"
+            or matching_run([detail], release, commit, actor,
+                            datetime(1970, 1, 1, tzinfo=timezone.utc)) is None):
+        raise ValueError("Prior provenance is incomplete, failed, or changed; do not dispatch again")
+    return detail
 
 
 def verify_source(release: str, commit: str, *, check_main: bool = True) -> str:
@@ -291,10 +312,14 @@ def main() -> int:
         return 0
 
     started = datetime.now(timezone.utc).replace(microsecond=0)
-    branch = provenance_branch(args.release, args.commit)
-    dispatch_provenance(args.release, args.commit, branch)
-    print("One provenance dispatch submitted; waiting for its exact run", flush=True)
-    run = wait_for_provenance_run(args.release, args.commit, actor, started, branch=branch)
+    branch, existing = provenance_branch(args.release, args.commit)
+    if existing:
+        run = completed_provenance(args.release, args.commit, actor, branch)
+        print(f"Resuming verified provenance run {run['id']}; no dispatch repeated", flush=True)
+    else:
+        dispatch_provenance(args.release, args.commit, branch)
+        print("One provenance dispatch submitted; waiting for its exact run", flush=True)
+        run = wait_for_provenance_run(args.release, args.commit, actor, started, branch=branch)
 
     verify_source(args.release, args.commit, check_main=False)
     if verify_protection(args.release, args.ruleset_id) != protection:
