@@ -153,6 +153,10 @@ class ReleasePinTests(unittest.TestCase):
         changed[f"contents/.github/synergie-pr-qa-release.json?ref={main}"]["content"] = base64.b64encode(b'{"version":1,"version":1}').decode()
         with self.assertRaisesRegex(ValueError, "invalid"):
             protected_consumer_release(changed.__getitem__)
+        changed = copy.deepcopy(rows)
+        changed[f"contents/.github/synergie-pr-qa-release.json?ref={main}"]["content"] = None
+        with self.assertRaisesRegex(ValueError, "invalid"):
+            protected_consumer_release(changed.__getitem__)
 
     def test_approved_pilot_selection_and_rollback_are_central_only(self):
         pilot = {"release": "pr-qa-v1-rc217", "commit": "a" * 40}

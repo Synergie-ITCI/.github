@@ -250,7 +250,10 @@ def protected_consumer_release(read=github_consumer_json) -> dict[str, str]:
         raise ValueError("Protected consumer selector is unavailable")
     try:
         # GitHub's Contents API wraps base64 output at fixed line lengths.
-        raw = base64.b64decode(file.get("content", "").replace("\n", ""), validate=True)
+        content = file.get("content")
+        if not isinstance(content, str):
+            raise ValueError("Protected consumer selector content is unavailable")
+        raw = base64.b64decode(content.replace("\n", ""), validate=True)
         if len(raw) > 1024:
             raise ValueError("Protected consumer selector exceeds bound")
         def unique(pairs):
