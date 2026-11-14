@@ -12,11 +12,22 @@ from unittest.mock import Mock, patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/fieldzilla-production"))
 sys.path.insert(0, str(ROOT / "pr-qa"))
-from application_runner import ContextBoundReceipt, execute_infrastructure, execute_production, github_api, validate
+from application_runner import ContextBoundReceipt, execute_infrastructure, execute_production, github_api, preserve_recovery_manifest, validate
 from pr_qa import parse_workflow_yaml
 
 
 class RunnerTests(unittest.TestCase):
+    def test_recovery_manifest_is_exact_private_and_exclusive(self):
+        with tempfile.TemporaryDirectory() as folder:
+            journal = Path(folder) / "execution.jsonl"
+            raw = b'{"scope":"production"}'
+            path = preserve_recovery_manifest(raw, journal)
+            self.assertEqual(path.read_bytes(), raw)
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            with self.assertRaises(FileExistsError):
+                preserve_recovery_manifest(b"different", journal)
+            self.assertEqual(path.read_bytes(), raw)
+
     def test_github_read_failure_names_only_bounded_path(self):
         failure = SimpleNamespace(returncode=1, stdout=b"", stderr=b"HTTP 502 private response body")
         output = io.StringIO()
@@ -252,6 +263,18 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(checkouts[0]["with"]["repository"], "Synergie-ITCI/.github")
         self.assertIs(checkouts[0]["with"]["persist-credentials"], False)
         self.assertNotIn("secrets: inherit", source)
+
+    def test_read_only_recovery_assessment_precedes_artifact_upload(self):
+        source = (ROOT / ".github/workflows/fieldzilla-production-application.yml").read_text()
+        steps = parse_workflow_yaml(source)["jobs"]["isolated-infrastructure"]["steps"]
+        execution = next(i for i, step in enumerate(steps) if "consume authorization" in step.get("name", ""))
+        assessment = next(i for i, step in enumerate(steps) if "Assess any interrupted" in step.get("name", ""))
+        upload = next(i for i, step in enumerate(steps) if "Preserve metadata-only" in step.get("name", ""))
+        self.assertLess(execution, assessment)
+        self.assertLess(assessment, upload)
+        self.assertEqual(steps[assessment]["if"], "always()")
+        self.assertIn("application_recovery.py", steps[assessment]["run"])
+        self.assertIn("fieldzilla-recovery-assessment.json", steps[upload]["with"]["path"])
 
 
 class ContextBindingTests(unittest.TestCase):

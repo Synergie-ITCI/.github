@@ -26,6 +26,11 @@ its phase before the AWS call. The assessment always forbids automatic retry;
 an uncertain migration still requires live ECS and database reconciliation and
 a separately reviewed recovery. Keep the private journal restricted to the
 execution owner. Older journals without manifest binding require manual review.
+When selected by a caller, the immutable application workflow runs this
+assessment after execution and uploads its metadata-only result beside the
+private journal. A missing journal is reported as pre-execution; an empty or
+inconsistent journal fails the assessment. The exact manifest stays on the
+ephemeral runner and is not added to the execution evidence artifact.
 
 Use the existing application-caller / central-reusable-workflow OIDC model.
 Both deployment and hosting must share fieldzilla-production-hosting concurrency

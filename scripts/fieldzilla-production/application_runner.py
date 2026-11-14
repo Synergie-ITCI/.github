@@ -202,6 +202,16 @@ def execute_production(manifest, receipt, journal, *, aws, executor=Executor):
         engine.close()
 
 
+def preserve_recovery_manifest(raw: bytes, journal: Path) -> Path:
+    path = journal.with_suffix(".manifest.json")
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "wb") as output:
+        output.write(raw)
+        output.flush()
+        os.fsync(output.fileno())
+    return path
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("validate", "execute-infrastructure", "execute-production"))
@@ -252,6 +262,9 @@ def main():
             "Exact isolated execution artifact, refs and approval verified; no mutation"
         )
         return
+    # Bind the read-only interruption report to the exact reviewed artifact.
+    # An existing file stops before the one-use approval is consumed.
+    preserve_recovery_manifest(raw, args.journal)
     execute = execute_production if args.execution_kind == "production" else execute_infrastructure
     report = execute(manifest, receipt, args.journal, aws=Aws())
     with args.report.open("x", encoding="utf-8") as output:
