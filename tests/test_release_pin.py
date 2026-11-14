@@ -97,10 +97,10 @@ class ReleasePinTests(unittest.TestCase):
         verify.assert_called_once()
         self.assertEqual(self.manifest["consumer_release_selection"]["default"]["release"], "pr-qa-v1-rc216")
 
-    def test_fieldzilla_uses_only_exact_issued_rc294(self):
+    def test_fieldzilla_delegates_from_exact_issued_rc294_floor(self):
         selected = self.manifest["consumer_release_selection"]["repositories"]["Synergie-ITCI/programme-management-platform"]
-        self.assertEqual(selected, {"release": "pr-qa-v1-rc294", "commit": "cbe53c5dbc19b2adf3420aad0daf1197d0ae2cb4"})
-        with patch("release_pin.verify_bound_release") as verify:
+        self.assertEqual(selected, {"release": "pr-qa-v1-rc294", "commit": "cbe53c5dbc19b2adf3420aad0daf1197d0ae2cb4", "protected_main_selection": True})
+        with patch("release_pin.protected_consumer_release", return_value={"release": selected["release"], "commit": selected["commit"]}), patch("release_pin.verify_bound_release") as verify:
             release, entry = resolve_consumer_release(self.manifest, "Synergie-ITCI/programme-management-platform")
         self.assertEqual((release, entry["commit"]), (selected["release"], selected["commit"]))
         verify.assert_called_once_with(selected["release"], selected["commit"], self.manifest,
@@ -128,7 +128,8 @@ class ReleasePinTests(unittest.TestCase):
         merge = "e" * 40
         blob = "d" * 40
         selected = {"version": 1, "repository": "Synergie-ITCI/programme-management-platform", "release": "pr-qa-v1-rc295", "commit": "b" * 40}
-        file = {"type": "file", "encoding": "base64", "sha": blob, "content": base64.b64encode(json.dumps(selected).encode()).decode()}
+        encoded = base64.b64encode(json.dumps(selected).encode()).decode()
+        file = {"type": "file", "encoding": "base64", "sha": blob, "content": encoded[:60] + "\n" + encoded[60:] + "\n"}
         expected_comment = f"SYNERGIE_PR_QA_SELECTOR_V1 repo=Synergie-ITCI/programme-management-platform pr=768 head={head} release=pr-qa-v1-rc295 commit={'b' * 40}"
         rows = {
             "git/ref/heads/main": {"object": {"sha": main}},

@@ -6,7 +6,7 @@ This pilot extends the existing central PR-QA and read-only governance inventory
 
 The central reusable workflow now resolves consumer releases from `consumer_release_selection` in the centrally governed `policy/framework-releases.json`. The default is the currently approved `pr-qa-v1-rc216` at its exact commit. No pilot repository is selected yet. A future, separately reviewed central policy change may map BDPP to a newly published release; application PRs cannot edit this mapping or supply a framework override. The resolver verifies the selected tag, exact commit, protection and release provenance before either PR-QA job executes. The existing `--resolve-active` path remains the release-publication path and still checks the newest candidate.
 
-An opt-in FieldZilla path can remove later central-main selector merges after
+The opted-in FieldZilla path removes later central-main selector merges after
 the centrally approved release floor and critical-path policy are active. Its
 selector lives at `.github/synergie-pr-qa-release.json` on FieldZilla's current
 main. The central resolver verifies the file's exact main blob and its last
@@ -15,8 +15,8 @@ Governance and PR-QA before accepting that PR. The resolver also requires a new
 unedited owner comment bound to the PR head and release tuple, the central
 minimum release number, and the protected immutable tag and provenance.
 An unmerged, directly pushed, unapproved, stale-head, or below-floor selector
-fails closed. The opt-in is disabled until a separate central policy merge;
-all other consumers retain central selection. This avoids a central-main merge
+fails closed. FieldZilla's initial protected-main record is rc294, matching
+the central floor; all other consumers retain central selection. This avoids a central-main merge
 for each future FieldZilla QA release choice while keeping central QA as the
 executor and release verifier.
 
