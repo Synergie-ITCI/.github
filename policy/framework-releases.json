@@ -6,7 +6,7 @@
     "repositories": {
       "Synergie-ITCI/BDPP": {"release": "pr-qa-v1-rc218", "commit": "ec03dcee66773539100b286afe530f6700c0bd50"},
       "Synergie-ITCI/csr-intelligence-engine": {"release": "pr-qa-v1-rc227", "commit": "854c27f46e9c827b6d75d2dfa5282dffbbd5af92"},
-      "Synergie-ITCI/programme-management-platform": {"release": "pr-qa-v1-rc288", "commit": "5a291218c031a9127f447c04d6f60c7a862fd5ce"},
+      "Synergie-ITCI/programme-management-platform": {"release": "pr-qa-v1-rc291", "commit": "78c4cbe0a2f7c291afc721d72e66dc71a76b640c"},
       "Synergie-ITCI/scholarships": {"release": "pr-qa-v1-rc252", "commit": "0e0f8438c1abedd83716a78dc6a24b50cc6cd65a"}
     }
   },
