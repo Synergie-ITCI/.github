@@ -76,6 +76,7 @@ class MigrationAuthorizationTests(unittest.TestCase):
         self.save()
         self.addCleanup(mock.patch.stopall)
         mock.patch.object(approval, "AUTH_PATH", self.records_path).start()
+        mock.patch.object(approval, "LEGACY_BUNDLED_BINDINGS", frozenset()).start()
         mock.patch.dict(
             os.environ,
             {
@@ -143,6 +144,127 @@ class MigrationAuthorizationTests(unittest.TestCase):
         self.assertEqual(self.policy["minimum_thresholds"]["max_changed_files"], 200)
         self.ctx.changed_files = []
         self.assertEqual(self.gate().status, "PASS")
+
+    def test_live_sql_review_and_legacy_compatibility(self):
+        legacy_scope = (self.auth["repository_id"], self.auth["pr_number"])
+        with mock.patch.object(approval, "LEGACY_BUNDLED_BINDINGS", frozenset({legacy_scope})), \
+             mock.patch.dict(os.environ, {"PR_QA_LIVE_AUTHORIZATIONS": "true"}), \
+             mock.patch.object(approval, "read_live_authorizations", return_value=("c" * 40, [])):
+            self.assertEqual(self.gate().status, "WARNING")
+        self.records_path.write_text("[]")
+        with mock.patch.dict(os.environ, {"PR_QA_LIVE_AUTHORIZATIONS": "true"}), \
+             mock.patch.object(approval, "read_live_authorizations", return_value=("c" * 40, [self.auth])):
+            self.assertEqual(self.gate().status, "WARNING")
+        self.assertEqual(self.gate().status, "FAIL")  # No live mode or bundled record.
+
+    def test_one_snapshot_per_phase_and_fresh_final_revocation(self):
+        self.records_path.write_text("[]")
+        with mock.patch.dict(os.environ, {"PR_QA_LIVE_AUTHORIZATIONS": "true"}), \
+             mock.patch.object(engine, "baseline_policy", wraps=engine.baseline_policy), \
+             mock.patch("baseline_authorization.read_live_central_alignments",
+                        return_value=("c" * 40, [])) as baseline_read, \
+             mock.patch.object(approval, "read_live_authorizations",
+                               side_effect=[("c" * 40, [self.auth]), ("d" * 40, [])]) as sql_read:
+            engine.baseline_policy(self.ctx)
+            self.assertEqual(self.gate().status, "WARNING")
+            sql_read.assert_called_with("fixture", "c" * 40)
+            baseline_read.assert_called_once_with("fixture", None)
+            engine.refresh_authorization_snapshot(self.ctx)
+            self.assertEqual(self.gate().status, "FAIL")
+            sql_read.assert_called_with("fixture", None)
+
+    def test_final_governance_rechecks_live_record_after_removal(self):
+        self.records_path.write_text("[]")
+        with mock.patch.dict(os.environ, {"PR_QA_LIVE_AUTHORIZATIONS": "true"}), \
+             mock.patch.object(approval, "read_live_authorizations",
+                               side_effect=[("c" * 40, [self.auth]), ("d" * 40, [])]) as lookup:
+            self.assertEqual(self.gate().status, "WARNING")
+            with mock.patch.object(engine, "run_if_enabled", return_value=[]), \
+                 mock.patch.object(engine, "gate_release_drift", return_value=[]):
+                final = engine.run_governance(self.ctx, [], mock.Mock())
+            self.assertEqual(final[0].gate, "Migration Risk")
+            self.assertEqual(final[0].status, "FAIL")
+            self.assertEqual(lookup.call_count, 2)
+            lookup.assert_called_with("fixture", None)
+
+    def test_live_scope_cannot_shadow_then_reveal_bundled_record(self):
+        legacy_scope = (self.auth["repository_id"], self.auth["pr_number"])
+        with mock.patch.object(approval, "LEGACY_BUNDLED_BINDINGS", frozenset({legacy_scope})), \
+             mock.patch.dict(os.environ, {"PR_QA_LIVE_AUTHORIZATIONS": "true"}), \
+             mock.patch.object(approval, "read_live_authorizations",
+                               return_value=("c" * 40, [self.auth])):
+            self.assertEqual(self.gate().status, "FAIL")
+        # A reissued bundled record for the same historical scope remains valid.
+        rebound = {**self.auth,
+                   "authorization_id": "00000000-0000-4000-8000-000000000136"}
+        self.records_path.write_text(json.dumps([rebound]))
+        with mock.patch.object(approval, "LEGACY_BUNDLED_BINDINGS", frozenset({legacy_scope})), \
+             mock.patch.dict(os.environ, {"PR_QA_LIVE_AUTHORIZATIONS": "true"}), \
+             mock.patch.object(approval, "read_live_authorizations",
+                               return_value=("d" * 40, [])):
+            self.assertEqual(self.gate().status, "WARNING")
+        self.records_path.write_text("[]")
+        with mock.patch.object(approval, "LEGACY_BUNDLED_BINDINGS", frozenset({legacy_scope})), \
+             mock.patch.dict(os.environ, {"PR_QA_LIVE_AUTHORIZATIONS": "true"}), \
+             mock.patch.object(approval, "read_live_authorizations",
+                               return_value=("d" * 40, [self.auth])):
+            self.assertEqual(self.gate().status, "FAIL")
+
+        # A future executor bundle cannot add a fallback for a new live scope.
+        self.records_path.write_text(json.dumps([rebound]))
+        with mock.patch.dict(os.environ, {"PR_QA_LIVE_AUTHORIZATIONS": "true"}), \
+             mock.patch.object(approval, "read_live_authorizations",
+                               return_value=("e" * 40, [self.auth])):
+            self.assertEqual(self.gate().status, "WARNING")
+        with mock.patch.dict(os.environ, {"PR_QA_LIVE_AUTHORIZATIONS": "true"}), \
+             mock.patch.object(approval, "read_live_authorizations",
+                               return_value=("f" * 40, [])):
+            self.assertEqual(self.gate().status, "FAIL")
+
+    def test_live_sql_review_revocation_failure_and_conflict(self):
+        self.records_path.write_text("[]")
+        with mock.patch.dict(os.environ, {"PR_QA_LIVE_AUTHORIZATIONS": "true"}):
+            for records in ([], [{**self.auth, "repository": "other/repo"}],
+                            [{**self.auth, "pr_number": 135}]):
+                with self.subTest(records=records), mock.patch.object(
+                    approval, "read_live_authorizations", return_value=("c" * 40, records)
+                ):
+                    self.assertEqual(self.gate().status, "FAIL")
+            with mock.patch.object(approval, "read_live_authorizations", side_effect=ValueError):
+                outcome = self.gate()
+                self.assertEqual(outcome.status, "FAIL")
+                self.assertIn("lookup unavailable or invalid", " ".join(outcome.details))
+                self.records_path.write_text(json.dumps([self.auth]))
+                with mock.patch.object(approval, "LEGACY_BUNDLED_BINDINGS",
+                                       frozenset({(self.auth["repository_id"], self.auth["pr_number"])})):
+                    self.assertEqual(self.gate().status, "FAIL")
+                self.records_path.write_text("[]")
+            expired = {**self.auth, "expires_at": (self.now - timedelta(seconds=1)).isoformat()}
+            with mock.patch.object(approval, "read_live_authorizations", return_value=("c" * 40, [expired])):
+                self.assertEqual(self.gate().status, "FAIL")
+            with mock.patch.object(approval, "read_live_authorizations", return_value=("c" * 40, [self.auth])):
+                (self.repo / self.rel).write_bytes(self.sql + b"\n-- changed")
+                self.assertEqual(self.gate().status, "FAIL")
+                (self.repo / self.rel).write_bytes(self.sql)
+                self.records_path.write_text(json.dumps([self.auth]))
+                legacy_scope = (self.auth["repository_id"], self.auth["pr_number"])
+                with mock.patch.object(approval, "LEGACY_BUNDLED_BINDINGS", frozenset({legacy_scope})):
+                    self.assertEqual(self.gate().status, "FAIL")  # Conflicting bundled and live records.
+
+    def test_live_sql_review_rejects_malformed_and_duplicate_records(self):
+        with mock.patch.object(approval, "read_live_central_policy_file", return_value=("c" * 40, [self.auth])):
+            self.assertEqual(approval.read_live_authorizations("fixture")[1], [self.auth])
+        for records in ([{**self.auth, "unexpected": True}],
+                        [{**self.auth, "governance": {"migration_sql_reviewers": [self.reviewer]}}],
+                        [self.auth, self.auth],
+                        [self.auth, {**self.auth, "repository_id": 78,
+                                     "authorization_id": "00000000-0000-4000-8000-000000000135"}],
+                        [{**self.auth, "repository_id": True}]):
+            with self.subTest(records=records), mock.patch.object(
+                approval, "read_live_central_policy_file", return_value=("c" * 40, records)
+            ):
+                with self.assertRaises(ValueError):
+                    approval.read_live_authorizations("fixture")
 
     def test_all_live_binding_changes_and_stale_event_replay_fail(self):
         for field, value in [

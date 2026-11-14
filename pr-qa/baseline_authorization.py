@@ -79,10 +79,17 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         )
 
 
-def read_live_central_alignments(token: str) -> tuple[str, list[dict[str, Any]]]:
-    """Read only baseline decisions from protected central main, pinned to one SHA."""
+def read_live_central_policy_file(
+    token: str, path: str, main_sha: str | None = None
+) -> tuple[str, Any]:
+    """Read one allowlisted policy file at the exact protected central main SHA."""
+    if path not in {
+        "policy/pr-qa-policy.json",
+        "policy/live-audited-migration-authorizations.json",
+    }:
+        raise ValueError("Central policy path is not authorized")
     if not token:
-        raise ValueError("Central baseline authorization token unavailable")
+        raise ValueError("Central authorization token unavailable")
 
     def get(path: str) -> dict[str, Any]:
         request = urllib.request.Request(
@@ -111,19 +118,45 @@ def read_live_central_alignments(token: str) -> tuple[str, list[dict[str, Any]]]
         except (urllib.error.URLError, OSError, ValueError, TypeError):
             raise ValueError("Live central baseline authorization unavailable") from None
 
-    ref = get("git/ref/heads/main")
-    main_object = ref.get("object")
-    main = main_object.get("sha", "") if isinstance(main_object, dict) else ""
-    if not re.fullmatch(r"[0-9a-f]{40}", main):
-        raise ValueError("Central main SHA unavailable")
-    content = get(f"contents/policy/pr-qa-policy.json?ref={main}")
+    if main_sha is None:
+        ref = get("git/ref/heads/main")
+        main_object = ref.get("object")
+        main = main_object.get("sha", "") if isinstance(main_object, dict) else ""
+        if (ref.get("ref") != "refs/heads/main"
+                or not isinstance(main_object, dict)
+                or main_object.get("type") != "commit"
+                or not re.fullmatch(r"[0-9a-f]{40}", main)):
+            raise ValueError("Central main SHA unavailable")
+    else:
+        if not re.fullmatch(r"[0-9a-f]{40}", main_sha):
+            raise ValueError("Pinned central main SHA invalid")
+        main = main_sha
+    content = get(f"contents/{path}?ref={main}")
     if content.get("type") != "file" or content.get("encoding") != "base64":
         raise ValueError("Central policy content unavailable")
     try:
-        raw = base64.b64decode(content["content"], validate=False)
+        encoded = content["content"]
+        if not isinstance(encoded, str):
+            raise TypeError("Central policy encoding malformed")
+        raw = base64.b64decode(encoded.replace("\n", ""), validate=True)
         if len(raw) > 1_000_000:
             raise ValueError("Central policy exceeds size limit")
-        policy = json.loads(raw)
+        blob = b"blob " + str(len(raw)).encode() + b"\0" + raw
+        if hashlib.sha1(blob).hexdigest() != content.get("sha"):
+            raise ValueError("Central policy blob identity differs")
+        return main, json.loads(raw)
+    except (KeyError, TypeError, ValueError, base64.binascii.Error):
+        raise ValueError("Central policy authorizations malformed") from None
+
+
+def read_live_central_alignments(
+    token: str, main_sha: str | None = None
+) -> tuple[str, list[dict[str, Any]]]:
+    """Read only baseline decisions from protected central main, pinned to one SHA."""
+    main, policy = read_live_central_policy_file(
+        token, "policy/pr-qa-policy.json", main_sha
+    )
+    try:
         if not isinstance(policy, dict):
             raise TypeError("Central policy is not an object")
         alignments = policy["one_time_baseline_alignments"]
