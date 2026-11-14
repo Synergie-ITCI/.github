@@ -482,38 +482,37 @@ def resolve_active_release(
 ) -> tuple[str, dict]:
     refs = list_refs("git/matching-refs/tags/pr-qa-v1-rc")
     candidates: list[tuple[int, str, dict]] = []
-    manifest_releases = (manifest or {}).get("releases", {}) if isinstance(manifest, dict) else {}
     for ref in refs:
         release = str(ref.get("ref", "")).removeprefix("refs/tags/")
-        match = RELEASE_RE.fullmatch(release)
-        if not match:
-            continue
-        entry = None
-        try:
-            entry = evidence_from_annotated_tag(release, ref, lookup)
-        except ValueError:
-            legacy = manifest_releases.get(release) if isinstance(manifest_releases, dict) else None
-            if not isinstance(legacy, dict):
-                candidates.append((int(match.group(1)), release, {"invalid": True}))
-                continue
-        if entry is None and isinstance(manifest_releases, dict):
-            legacy = manifest_releases.get(release)
-            if isinstance(legacy, dict):
-                entry = {**legacy, "_source": RELEASE_SOURCE_LEGACY_REGISTRY}
-        if entry is None:
-            candidates.append((int(match.group(1)), release, {"invalid": True}))
-            continue
-        candidates.append((int(match.group(1)), release, entry))
+        if match := RELEASE_RE.fullmatch(release):
+            candidates.append((int(match.group(1)), release, ref))
     if not candidates:
         raise ValueError("No verified active PR-QA release is available")
-    for _, release, entry in sorted(candidates, reverse=True):
-        if entry.get("invalid") is True:
-            raise ValueError(f"Newest PR-QA release {release} has invalid immutable evidence")
-        verify_live_release(release, entry, lookup, manifest)
-        if entry.get("_source") == RELEASE_SOURCE_ANNOTATED_TAG:
-            verify_release_provenance(release, entry, lookup, list_refs)
-        return release, entry
-    raise ValueError("No verified active PR-QA release is available")
+    newest_number = max(number for number, _, _ in candidates)
+    newest = [(release, ref) for number, release, ref in candidates
+              if number == newest_number]
+    if len(newest) != 1:
+        raise ValueError("Newest PR-QA release reference is ambiguous")
+    release, ref = newest[0]
+
+    manifest_releases = (manifest or {}).get("releases", {}) if isinstance(manifest, dict) else {}
+    entry = None
+    try:
+        entry = evidence_from_annotated_tag(release, ref, lookup)
+    except ValueError:
+        legacy = manifest_releases.get(release) if isinstance(manifest_releases, dict) else None
+        if not isinstance(legacy, dict):
+            raise ValueError(f"Newest PR-QA release {release} has invalid immutable evidence") from None
+    if entry is None and isinstance(manifest_releases, dict):
+        legacy = manifest_releases.get(release)
+        if isinstance(legacy, dict):
+            entry = {**legacy, "_source": RELEASE_SOURCE_LEGACY_REGISTRY}
+    if entry is None:
+        raise ValueError(f"Newest PR-QA release {release} has invalid immutable evidence")
+    verify_live_release(release, entry, lookup, manifest)
+    if entry.get("_source") == RELEASE_SOURCE_ANNOTATED_TAG:
+        verify_release_provenance(release, entry, lookup, list_refs)
+    return release, entry
 
 
 def verify_bound_release(
