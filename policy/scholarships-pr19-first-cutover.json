@@ -1,7 +1,7 @@
 {
   "files": {
     ".github/workflows/scholarships-first-cutover-prepare.yml": "6d5d0693c8b76df1579a8d51df86d044e09c25276cebe676874769bd4ebc7363",
-    ".github/workflows/scholarships-first-cutover.yml": "927185b83b902d3de9f3eae31d0c1c17b1ea461998fe4fb2c0de98ced9c74449",
+    ".github/workflows/scholarships-first-cutover.yml": "31aa5fbe6ab9e25c4830036e30fd053cde52d6f078e20d5d902eee9f2babf98d",
     "deploy/FIRST_CUTOVER_ACTIVATION.md": "84b3d95d80058a2ef5ff5f1dfbf39af53a9582c0b3b1266a8ef518f91e92ccd0",
     "deploy/compile-first-backup-document.py": "486f80cbdeb03c431d79dc71d73ca8da54dfe64be7d5525162e7f2318462cf94",
     "deploy/compile-first-cutover-document.py": "e3483ff0dfeec667757c88e9fb93f04a5cd96b412985594f28495de79fe91bda",
@@ -30,7 +30,7 @@
     "tests/test_first_cutover_approval.py": "818d3dbf61436198e56956cf0c40c41f7416e3433f5327493e8a25f3f14e3f6f",
     "tests/test_gate_d_contract.py": "2f7e3c70557905562cb0d2d0991642c6306b88307738aacac7299b81117ccf76"
   },
-  "head_sha": "a446c420262df9f3f1885d4a5b721739e4442363",
+  "head_sha": "c80b71a87dbec25d275bf3fbdd794b0e69e56eab",
   "pr_number": 19,
   "removed_paths": [],
   "repository": "Synergie-ITCI/scholarships",
