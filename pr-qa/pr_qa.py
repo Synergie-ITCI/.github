@@ -5463,7 +5463,11 @@ def gate_review_policy(ctx: PRContext, input_path: str = "") -> list[CheckResult
     policy = review_policy_config(ctx)
     owner_login = str(policy.get("owner_review_exception", {}).get("github_login", "SaurabhVermaIN"))
     pr_author = extract_pr_author(ctx.event)
-    evidence = load_review_policy_evidence(ctx, input_path)
+    selector_change = (
+        resolve_repository_name(ctx) == "Synergie-ITCI/programme-management-platform"
+        and ".github/synergie-pr-qa-release.json" in ctx.changed_files
+    )
+    evidence = load_review_policy_evidence(ctx, input_path, include_comments=selector_change)
     targets_main = (ctx.base_ref or "").lower() == "main"
 
     mergeable = evidence.get("mergeable")
@@ -5480,6 +5484,26 @@ def gate_review_policy(ctx: PRContext, input_path: str = "") -> list[CheckResult
                 [f"source={ctx.head_ref or 'unknown'}", f"target={ctx.base_ref or 'unknown'}"],
             )
         ]
+
+    if selector_change:
+        expected = selector_owner_approval_text(ctx)
+        comments = evidence.get("comments", [])
+        if not isinstance(comments, list):
+            comments = []
+        approved = expected and any(
+            isinstance(comment, dict)
+            and (comment.get("user") or {}).get("login") == owner_login
+            and (comment.get("user") or {}).get("id") == 52234089
+            and comment.get("body") == expected
+            and comment.get("created_at") == comment.get("updated_at")
+            for comment in comments
+        )
+        if evidence.get("source") != "github_api" or not approved:
+            return [failed(
+                "Review Policy", None,
+                "Protected consumer PR-QA release selection requires an exact unedited owner comment on this PR head.",
+                [expected or "Selector file or exact PR identity is invalid"], score=12,
+            )]
 
     if pr_author == owner_login:
         return [
@@ -5535,7 +5559,36 @@ def review_policy_config(ctx: PRContext) -> dict[str, Any]:
     return dict(governance.get("review_policy", {}) or {})
 
 
-def load_review_policy_evidence(ctx: PRContext, input_path: str) -> dict[str, Any]:
+def selector_owner_approval_text(ctx: PRContext) -> str:
+    """Bind a consumer QA authority change to its exact PR head and tag."""
+    pr = ctx.event.get("pull_request", {}) or {}
+    number = pr.get("number") or ctx.event.get("number")
+    head = (pr.get("head") or {}).get("sha", "")
+    try:
+        selected = json.loads((ctx.repo / ".github/synergie-pr-qa-release.json").read_text())
+    except (OSError, ValueError):
+        return ""
+    tag = selected.get("release", "") if isinstance(selected, dict) else ""
+    commit = selected.get("commit", "") if isinstance(selected, dict) else ""
+    if (
+        not isinstance(selected, dict)
+        or set(selected) != {"version", "repository", "release", "commit"}
+        or selected["version"] != 1
+        or selected["repository"] != "Synergie-ITCI/programme-management-platform"
+        or type(number) is not int or number < 1
+        or not re.fullmatch(r"[0-9a-f]{40}", str(head))
+        or not re.fullmatch(r"pr-qa-v1-rc[1-9][0-9]*", str(tag))
+        or not re.fullmatch(r"[0-9a-f]{40}", str(commit))
+    ):
+        return ""
+    return (
+        "SYNERGIE_PR_QA_SELECTOR_V1 "
+        f"repo=Synergie-ITCI/programme-management-platform pr={number} "
+        f"head={head} release={tag} commit={commit}"
+    )
+
+
+def load_review_policy_evidence(ctx: PRContext, input_path: str, *, include_comments: bool = False) -> dict[str, Any]:
     if input_path:
         path = Path(input_path)
         try:
@@ -5547,7 +5600,7 @@ def load_review_policy_evidence(ctx: PRContext, input_path: str) -> dict[str, An
     if "review_policy" in ctx.event and isinstance(ctx.event["review_policy"], dict):
         return dict(ctx.event["review_policy"])
 
-    live = fetch_github_review_policy_evidence(ctx)
+    live = fetch_github_review_policy_evidence(ctx, include_comments=include_comments)
     if live:
         return live
 
@@ -5565,12 +5618,21 @@ def fetch_github_review_policy_evidence(ctx: PRContext, include_comments: bool =
     errors: list[str] = []
     pr_payload = github_api_get(base_url, token, errors)
     reviews_payload = github_api_get(f"{base_url}/reviews", token, errors)
-    comments_payload = (
-        github_api_get(
-            f"https://api.github.com/repos/{repository}/issues/{pr_number}/comments?per_page=100",
-            token, errors,
-        ) if include_comments else []
-    )
+    comments_payload = []
+    if include_comments:
+        for page in range(1, 11):
+            rows = github_api_get(
+                f"https://api.github.com/repos/{repository}/issues/{pr_number}/comments?per_page=100&page={page}",
+                token, errors,
+            )
+            if not isinstance(rows, list):
+                errors.append("Selector owner comments are unavailable")
+                break
+            comments_payload.extend(rows)
+            if len(rows) < 100:
+                break
+        else:
+            errors.append("Selector owner comment history exceeds bounded readback")
     if errors:
         return {"source": "unavailable", "reviews": [], "comments": [], "errors": errors}
     reviews = reviews_payload if isinstance(reviews_payload, list) else []

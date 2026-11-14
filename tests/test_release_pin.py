@@ -1,20 +1,22 @@
 """Adversarial coverage for the governed release registry and tag protections."""
 
+import base64
 import copy
 import json
 import subprocess
 import sys
 import types
 import unittest
-from unittest.mock import patch
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pr-qa"))
 from release_pin import (
     EVIDENCE_HEADER,
-    github_json,
     evidence_from_annotated_tag,
+    github_json,
+    protected_consumer_release,
     resolve_active_release,
     resolve_consumer_release,
     ruleset_config_fingerprint,
@@ -106,6 +108,54 @@ class ReleasePinTests(unittest.TestCase):
         self.assertEqual(self.manifest["consumer_release_selection"]["default"]["release"], "pr-qa-v1-rc216")
         self.assertEqual(self.manifest["consumer_release_selection"]["repositories"]["Synergie-ITCI/BDPP"]["release"], "pr-qa-v1-rc218")
         self.assertEqual(self.manifest["consumer_release_selection"]["repositories"]["Synergie-ITCI/csr-intelligence-engine"]["release"], "pr-qa-v1-rc227")
+
+    def test_delegated_fieldzilla_release_obeys_central_floor(self):
+        entry = self.manifest["consumer_release_selection"]["repositories"]["Synergie-ITCI/programme-management-platform"]
+        entry["protected_main_selection"] = True
+        with patch("release_pin.protected_consumer_release", return_value={"release": "pr-qa-v1-rc295", "commit": "b" * 40}), patch("release_pin.verify_bound_release") as verify:
+            release, selected = resolve_consumer_release(self.manifest, "Synergie-ITCI/programme-management-platform")
+        self.assertEqual((release, selected["commit"]), ("pr-qa-v1-rc295", "b" * 40))
+        verify.assert_called_once()
+        with (
+            patch("release_pin.protected_consumer_release", return_value={"release": "pr-qa-v1-rc293", "commit": "b" * 40}),
+            self.assertRaisesRegex(ValueError, "below the central floor"),
+        ):
+            resolve_consumer_release(self.manifest, "Synergie-ITCI/programme-management-platform")
+
+    def test_delegated_selector_requires_protected_main_and_exact_file(self):
+        main = "a" * 40
+        head = "c" * 40
+        merge = "e" * 40
+        blob = "d" * 40
+        selected = {"version": 1, "repository": "Synergie-ITCI/programme-management-platform", "release": "pr-qa-v1-rc295", "commit": "b" * 40}
+        file = {"type": "file", "encoding": "base64", "sha": blob, "content": base64.b64encode(json.dumps(selected).encode()).decode()}
+        expected_comment = f"SYNERGIE_PR_QA_SELECTOR_V1 repo=Synergie-ITCI/programme-management-platform pr=768 head={head} release=pr-qa-v1-rc295 commit={'b' * 40}"
+        rows = {
+            "git/ref/heads/main": {"object": {"sha": main}},
+            f"contents/.github/synergie-pr-qa-release.json?ref={main}": file,
+            f"commits?sha={main}&path=.github/synergie-pr-qa-release.json&per_page=1": [{"sha": head}],
+            f"commits/{head}/pulls": [{"number": 768, "state": "closed", "merged_at": "2026-11-14T18:00:00Z", "base": {"ref": "main", "repo": {"full_name": "Synergie-ITCI/programme-management-platform"}}, "head": {"sha": head, "repo": {"full_name": "Synergie-ITCI/programme-management-platform"}}, "merge_commit_sha": merge}],
+            f"compare/{merge}...{main}": {"status": "ahead"},
+            f"contents/.github/synergie-pr-qa-release.json?ref={head}": {"sha": blob},
+            f"commits/{head}/check-runs?per_page=100&page=1": {"check_runs": [
+                {"id": index, "name": name, "head_sha": head, "status": "completed", "conclusion": "success", "app": {"slug": "github-actions"}}
+                for index, name in enumerate(("Architecture Governance", "pr-qa / Pull Request Quality Assurance"), 1)
+            ]},
+            "issues/768/comments?per_page=100&page=1": [{"user": {"login": "SaurabhVermaIN", "id": 52234089}, "body": expected_comment, "created_at": "2026-11-14T18:00:00Z", "updated_at": "2026-11-14T18:00:00Z"}],
+        }
+        self.assertEqual(protected_consumer_release(rows.__getitem__)["release"], "pr-qa-v1-rc295")
+        changed = copy.deepcopy(rows)
+        changed[f"commits/{head}/pulls"] = []
+        with self.assertRaisesRegex(ValueError, "governed merged PR"):
+            protected_consumer_release(changed.__getitem__)
+        changed = copy.deepcopy(rows)
+        changed["issues/768/comments?per_page=100&page=1"] = []
+        with self.assertRaisesRegex(ValueError, "owner approval"):
+            protected_consumer_release(changed.__getitem__)
+        changed = copy.deepcopy(rows)
+        changed[f"contents/.github/synergie-pr-qa-release.json?ref={main}"]["content"] = base64.b64encode(b'{"version":1,"version":1}').decode()
+        with self.assertRaisesRegex(ValueError, "invalid"):
+            protected_consumer_release(changed.__getitem__)
 
     def test_approved_pilot_selection_and_rollback_are_central_only(self):
         pilot = {"release": "pr-qa-v1-rc217", "commit": "a" * 40}

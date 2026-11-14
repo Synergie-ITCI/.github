@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import fnmatch
 import hashlib
 import json
@@ -32,6 +34,9 @@ REQUIRED_RELEASE_CHECKS = {
     "Architecture Governance",
     "pr-qa / Pull Request Quality Assurance",
 }
+DELEGATED_CONSUMER = "Synergie-ITCI/programme-management-platform"
+DELEGATED_SELECTION_PATH = ".github/synergie-pr-qa-release.json"
+DELEGATED_CHECKS = {"Architecture Governance", "pr-qa / Pull Request Quality Assurance"}
 
 
 def validate_workflow(workflow: str, manifest: dict) -> tuple[str, dict]:
@@ -199,14 +204,14 @@ def approved_wildcard_policy(release: str, entry: dict, manifest: dict | None) -
     return policy
 
 
-def github_json(path: str) -> dict:
+def github_json(path: str, *, repository: str = REPOSITORY) -> dict:
     # These are read-only release/provenance checks. Retry only a recognized
     # transient HTTP/transport failure, never an identity/content mismatch.
     category = "unclassified"
     for attempt in range(3):
         try:
             result = subprocess.run(
-                ["gh", "api", f"repos/{REPOSITORY}/{path}"],
+                ["gh", "api", f"repos/{repository}/{path}"],
                 capture_output=True, text=True, timeout=20, check=False,
             )
         except subprocess.TimeoutExpired:
@@ -229,6 +234,126 @@ def github_json(path: str) -> dict:
     if result is None or result.returncode:
         raise ValueError("Live release verification unavailable (" + category + ")")
     return json.loads(result.stdout)
+
+
+def github_consumer_json(path: str) -> dict:
+    return github_json(path, repository=DELEGATED_CONSUMER)
+
+
+def protected_consumer_release(read=github_consumer_json) -> dict[str, str]:
+    """Read only the exact protected main selector; never use PR checkout bytes."""
+    ref = read("git/ref/heads/main")
+    main_sha = (ref.get("object") or {}).get("sha", "")
+    if not re.fullmatch(r"[0-9a-f]{40}", main_sha):
+        raise ValueError("Protected consumer main identity is unavailable")
+    file = read(f"contents/{DELEGATED_SELECTION_PATH}?ref={main_sha}")
+    if file.get("encoding") != "base64" or file.get("type") != "file":
+        raise ValueError("Protected consumer selector is unavailable")
+    try:
+        raw = base64.b64decode(file.get("content", ""), validate=True)
+        if len(raw) > 1024:
+            raise ValueError("Protected consumer selector exceeds bound")
+        def unique(pairs):
+            value = {}
+            for key, item in pairs:
+                if key in value:
+                    raise ValueError("Duplicate consumer selector property")
+                value[key] = item
+            return value
+        selected = json.loads(raw, object_pairs_hook=unique)
+    except (binascii.Error, TypeError, ValueError) as exc:
+        raise ValueError("Protected consumer selector is invalid") from exc
+    if (
+        not isinstance(selected, dict)
+        or set(selected) != {"version", "repository", "release", "commit"}
+        or selected["version"] != 1
+        or selected["repository"] != DELEGATED_CONSUMER
+        or not RELEASE_RE.fullmatch(str(selected["release"]))
+        or not re.fullmatch(r"[0-9a-f]{40}", str(selected["commit"]))
+    ):
+        raise ValueError("Protected consumer selector identity is invalid")
+    verify_consumer_selector_provenance(read, main_sha, file.get("sha", ""), selected)
+    return {"release": selected["release"], "commit": selected["commit"]}
+
+
+def verify_consumer_selector_provenance(read, main_sha: str, blob_sha: str, selected: dict) -> None:
+    """Prove protected main received these bytes via an owner-approved, checked PR."""
+    history = read(f"commits?sha={main_sha}&path={DELEGATED_SELECTION_PATH}&per_page=1")
+    if not isinstance(history, list) or len(history) != 1:
+        raise ValueError("Consumer selector history is unavailable")
+    changed_sha = history[0].get("sha", "")
+    if not re.fullmatch(r"[0-9a-f]{40}", changed_sha):
+        raise ValueError("Consumer selector change commit is invalid")
+    associated = read(f"commits/{changed_sha}/pulls")
+    if not isinstance(associated, list):
+        raise ValueError("Consumer selector PR provenance is unavailable")
+    candidates = [
+        pr for pr in associated
+        if pr.get("state") == "closed" and pr.get("merged_at")
+        and (pr.get("base") or {}).get("ref") == "main"
+        and ((pr.get("base") or {}).get("repo") or {}).get("full_name") == DELEGATED_CONSUMER
+        and ((pr.get("head") or {}).get("repo") or {}).get("full_name") == DELEGATED_CONSUMER
+        and re.fullmatch(r"[0-9a-f]{40}", str(pr.get("merge_commit_sha", "")))
+        and re.fullmatch(r"[0-9a-f]{40}", str((pr.get("head") or {}).get("sha", "")))
+    ]
+    if len(candidates) != 1:
+        raise ValueError("Consumer selector lacks one governed merged PR")
+    pr = candidates[0]
+    head = pr["head"]["sha"]
+    lineage = read(f"compare/{pr['merge_commit_sha']}...{main_sha}")
+    if lineage.get("status") not in {"identical", "ahead"}:
+        raise ValueError("Consumer selector merge is absent from current main")
+    head_file = read(f"contents/{DELEGATED_SELECTION_PATH}?ref={head}")
+    if not re.fullmatch(r"[0-9a-f]{40}", str(blob_sha)) or head_file.get("sha") != blob_sha:
+        raise ValueError("Consumer selector bytes differ from reviewed PR head")
+    rows = []
+    for page in range(1, 11):
+        checks = read(f"commits/{head}/check-runs?per_page=100&page={page}")
+        page_rows = checks.get("check_runs") if isinstance(checks, dict) else None
+        if not isinstance(page_rows, list):
+            raise ValueError("Consumer selector check history is unavailable")
+        rows.extend(page_rows)
+        if len(page_rows) < 100:
+            break
+    else:
+        raise ValueError("Consumer selector check history exceeds bounded readback")
+    latest = {}
+    for row in rows:
+        if row.get("name") in DELEGATED_CHECKS and row.get("id", 0) > latest.get(row["name"], {}).get("id", 0):
+            latest[row["name"]] = row
+    if set(latest) != DELEGATED_CHECKS or any(
+        row.get("head_sha") != head or row.get("status") != "completed"
+        or row.get("conclusion") != "success" or (row.get("app") or {}).get("slug") != "github-actions"
+        for row in latest.values()
+    ):
+        raise ValueError("Consumer selector exact-head governance is not successful")
+    number = pr.get("number")
+    if type(number) is not int or number < 1:
+        raise ValueError("Consumer selector PR number is invalid")
+    expected = (
+        "SYNERGIE_PR_QA_SELECTOR_V1 "
+        f"repo={DELEGATED_CONSUMER} pr={number} head={head} "
+        f"release={selected['release']} commit={selected['commit']}"
+    )
+    comments = []
+    for page in range(1, 11):
+        page_comments = read(f"issues/{number}/comments?per_page=100&page={page}")
+        if not isinstance(page_comments, list):
+            raise ValueError("Consumer selector owner comments are unavailable")
+        comments.extend(page_comments)
+        if len(page_comments) < 100:
+            break
+    else:
+        raise ValueError("Consumer selector owner comments exceed bounded readback")
+    if not any(
+        isinstance(comment, dict)
+        and (comment.get("user") or {}).get("login") == "SaurabhVermaIN"
+        and (comment.get("user") or {}).get("id") == 52234089
+        and comment.get("body") == expected
+        and comment.get("created_at") == comment.get("updated_at")
+        for comment in comments
+    ):
+        raise ValueError("Consumer selector lacks exact unedited owner approval")
 
 
 def github_list(path: str) -> list[dict]:
@@ -559,12 +684,21 @@ def resolve_consumer_release(
         raise ValueError("Consumer repository identity is invalid")
     if not all(re.fullmatch(r"Synergie-ITCI/[A-Za-z0-9_.-]+", name) for name in repositories):
         raise ValueError("Central consumer release selection has an invalid repository")
-    for candidate in [selection["default"], *repositories.values()]:
-        if (not isinstance(candidate, dict) or set(candidate) != {"release", "commit"}
+    for name, candidate in [("default", selection["default"]), *repositories.items()]:
+        delegated = name == DELEGATED_CONSUMER and isinstance(candidate, dict) and candidate.get("protected_main_selection") is True
+        allowed = {"release", "commit", "protected_main_selection"} if delegated else {"release", "commit"}
+        if (not isinstance(candidate, dict) or set(candidate) != allowed
                 or not RELEASE_RE.fullmatch(str(candidate.get("release")))
                 or not re.fullmatch(r"[0-9a-f]{40}", str(candidate.get("commit")))):
             raise ValueError("Central consumer release selection has an invalid release")
     selected = repositories.get(consumer, selection["default"])
+    if selected.get("protected_main_selection") is True:
+        if consumer != DELEGATED_CONSUMER:
+            raise ValueError("Consumer delegation is not approved for this repository")
+        current = protected_consumer_release()
+        if release_number(current["release"]) < release_number(selected["release"]):
+            raise ValueError("Protected consumer release is below the central floor")
+        selected = current
     verify_bound_release(selected["release"], selected["commit"], manifest, lookup, list_refs)
     return selected["release"], {"commit": selected["commit"]}
 

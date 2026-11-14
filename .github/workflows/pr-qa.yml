@@ -8,6 +8,7 @@ on:
     branches: [__synergie_required_workflow_only__]
 
 permissions:
+  checks: read
   contents: read
   issues: write
   pull-requests: read
