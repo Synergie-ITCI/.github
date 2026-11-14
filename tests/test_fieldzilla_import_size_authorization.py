@@ -244,6 +244,17 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         current["one_time_baseline_alignments"] = [
             row for row in current["one_time_baseline_alignments"] if row.get("pr_number") not in (744, 754, 756)
         ]
+        governed = next(
+            row for row in current["governance"]["critical_infrastructure_paths"]
+            if row.get("repository") == "Synergie-ITCI/programme-management-platform"
+        )
+        governed_previous = next(
+            row for row in previous["governance"]["critical_infrastructure_paths"]
+            if row.get("repository") == "Synergie-ITCI/programme-management-platform"
+        )
+        added = "deploy/production/application_preflight.py"
+        self.assertEqual(governed["paths"], governed_previous["paths"][:3] + [added] + governed_previous["paths"][3:])
+        governed["paths"].remove(added)
         self.assertEqual(current, previous)
 
         previous_sql = json.loads(subprocess.check_output(
