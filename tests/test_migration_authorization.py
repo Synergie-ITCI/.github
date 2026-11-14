@@ -294,6 +294,38 @@ class MigrationAuthorizationTests(unittest.TestCase):
                 self.assertEqual(self.gate().status, "FAIL")
         self.http.return_value = self.live
 
+    def test_opt_in_live_binding_allows_only_identical_commit_trees(self):
+        self.auth["binding_mode"] = "content_stable"
+        self.records_path.write_text("[]")
+        new_head, new_base = "c" * 40, "d" * 40
+        for side, sha in (("head", new_head), ("base", new_base)):
+            self.ctx.event["pull_request"][side]["sha"] = sha
+            self.live[side]["sha"] = sha
+        self.git.side_effect = lambda repo, *args: (
+            (new_head + "\n").encode() if args == ("rev-parse", "HEAD")
+            else ("e" * 40 + "\n").encode() if args[0] == "rev-parse"
+            else self.sql
+        )
+        with mock.patch.dict(os.environ, {"PR_QA_LIVE_AUTHORIZATIONS": "true"}), mock.patch.object(
+            approval, "read_live_authorizations", return_value=("e" * 40, [self.auth])
+        ):
+            self.assertEqual(self.gate().status, "WARNING")
+            self.git.side_effect = lambda repo, *args: (
+                (new_head + "\n").encode() if args == ("rev-parse", "HEAD")
+                else ("f" * 40 + "\n").encode() if args == ("rev-parse", f"{new_base}^{{tree}}")
+                else ("e" * 40 + "\n").encode() if args[0] == "rev-parse"
+                else self.sql
+            )
+            self.assertEqual(self.gate().status, "FAIL")
+            self.auth.pop("binding_mode")
+            self.assertEqual(self.gate().status, "FAIL")
+
+    def test_bundled_record_cannot_opt_into_content_stable_binding(self):
+        self.auth["binding_mode"] = "content_stable"
+        self.save()
+        with self.assertRaises(ValueError):
+            approval.load_authorizations()
+
     def test_live_api_unavailable_or_malformed_fails_closed(self):
         for value in [None, {}, [], {"number": 134}]:
             self.http.return_value = value
