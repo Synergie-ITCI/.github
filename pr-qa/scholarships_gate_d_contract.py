@@ -15,6 +15,7 @@ from typing import Any
 MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr15-gate-d.json"
 PROMOTION_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr13-gate-d.json"
 MAIN_PROMOTION_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr7-gate-d.json"
+FIRST_CUTOVER_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr19-first-cutover.json"
 HOST = "mi-04a256fa549e372a8"
 ACCOUNT = "918870682888"
 RELEASE_DOCUMENT = "Scholarships-GateD-Production-Command-v1"
@@ -146,13 +147,65 @@ def _owner_certified(comments: list[dict[str, Any]], owner: str, head: str,
     return False
 
 
+def _verify_first_cutover(repo: Path, comments: list[dict[str, Any]], head: str,
+                          manifest_path: Path, controlled_workflow: bool) -> list[str]:
+    """Certify the exact one-time release contract, without approving activation."""
+    errors: list[str] = []
+    digest = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    if not _owner_certified(comments, "SaurabhVermaIN", head, digest):
+        errors.append("owner-led technical certification of exact PR head is absent")
+    if not controlled_workflow:
+        errors.append("existing controlled Gate D workflow shape is absent")
+    approval = (repo / "deploy/first-cutover-approval-cli.py").read_text()
+    workflow = (repo / ".github/workflows/scholarships-first-cutover.yml").read_text()
+    prepare = (repo / ".github/workflows/scholarships-first-cutover-prepare.yml").read_text()
+    if any(value not in workflow for value in (
+        "environment: production", "refs/heads/main", "python3 deploy/first-cutover-approval-cli.py consume",
+        "aws-actions/configure-aws-credentials@v4", "Scholarships-First-Cutover-v1",
+        "runtime-certifier@runtime-certifier-action-v1.10",
+    )) or not (workflow.find("python3 deploy/first-cutover-approval-cli.py consume")
+               < workflow.find("aws-actions/configure-aws-credentials@v4")):
+        errors.append("cutover approval, protected source or restricted execution order changed")
+    if "AWS-RunShellScript" in workflow or "AWS-RunShellScript" in prepare:
+        errors.append("generic SSM shell referenced by first cutover workflow")
+    if "['gh', 'api'" not in approval or "GITHUB_RUN_ID" not in approval:
+        errors.append("one-use GitHub deployment receipt contract changed")
+    if any(value not in prepare for value in (
+        "environment: production", "Scholarships-First-Backup-v1",
+        "Scholarships-First-Upload-v1", "Scholarships-First-Restore-v1",
+        "isolated", "verified-receipt.json",
+    )):
+        errors.append("backup, off-host transfer or restore sequence changed")
+    for name in ("backup", "cutover"):
+        policy = _read_json(repo / f"deploy/scholarships-first-{name}-role-policy-v1.json")
+        if not _has_generic_deny(policy):
+            errors.append(f"{name} role does not explicitly deny generic shell")
+        trust = _read_json(repo / f"deploy/scholarships-first-{name}-trust-v1.json")
+        if not _role_trust_is_bound(trust):
+            errors.append(f"{name} OIDC trust is not bound to protected production")
+    for name in ("backup", "upload", "restore", "cutover"):
+        document = _read_json(repo / f"deploy/scholarships-first-{name}-command-v1.json")
+        if document.get("schemaVersion") != "2.2" or len(document.get("mainSteps", [])) != 1:
+            errors.append(f"{name} document structure changed")
+        if any(parameter.get("interpolationType") != "ENV_VAR"
+               for parameter in document.get("parameters", {}).values()):
+            errors.append(f"{name} document parameters are not literal environment variables")
+    environment = _read_json(repo / "deploy/github-production-owner-receipt-v1.json")
+    if environment.get("deployment_branch_policy") != {
+        "protected_branches": True, "custom_branch_policies": False,
+    }:
+        errors.append("production environment protected-branch restriction changed")
+    return errors
+
+
 def verify(repo: Path, changed: list[str], head: str, pr_number: int,
            comments: list[dict[str, Any]], controlled_workflow: bool) -> list[str]:
     errors: list[str] = []
-    manifest_path = {7: MAIN_PROMOTION_MANIFEST, 13: PROMOTION_MANIFEST}.get(pr_number, MANIFEST)
+    manifest_path = {7: MAIN_PROMOTION_MANIFEST, 13: PROMOTION_MANIFEST,
+                     19: FIRST_CUTOVER_MANIFEST}.get(pr_number, MANIFEST)
     manifest = _read_json(manifest_path)
     files = manifest["files"]
-    if manifest.get("repository") != "Synergie-ITCI/scholarships" or manifest.get("pr_number") != pr_number or pr_number not in (7, 13, 15):
+    if manifest.get("repository") != "Synergie-ITCI/scholarships" or manifest.get("pr_number") != pr_number or pr_number not in (7, 13, 15, 19):
         errors.append("certified repository or PR identity changed")
     if head != manifest["head_sha"]:
         errors.append("certified exact PR head changed")
@@ -175,6 +228,8 @@ def verify(repo: Path, changed: list[str], head: str, pr_number: int,
             errors.append(f"certified file changed: {rel}")
     if errors:
         return errors
+    if pr_number == 19:
+        return _verify_first_cutover(repo, comments, head, manifest_path, controlled_workflow)
     if not _owner_certified(comments, manifest["technical_certification_owner"], head,
                             hashlib.sha256(manifest_path.read_bytes()).hexdigest()):
         errors.append("owner-led technical certification of exact PR head is absent")
