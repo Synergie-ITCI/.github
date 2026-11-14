@@ -270,6 +270,12 @@ jobs:
       - name: Verify restored baseline before technical tool setup
         id: technical-baseline-verify
         run: |
+          engine_help="$(python3 .pr-qa-framework/pr-qa/pr_qa.py --help)"
+          if ! grep -q -- '--technical-baseline-verify-out' <<< "$engine_help"; then
+            # Older approved releases still run full current-head validation.
+            echo 'reusable=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           profile_args=()
           if [ "${GITHUB_REPOSITORY}" = "Synergie-ITCI/.github" ]; then
             profile_args=(--repository-profile framework)
