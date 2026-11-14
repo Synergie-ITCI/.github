@@ -42,6 +42,15 @@ The designated owner must post this exact, unedited comment on hosting PR
 `Synergie-ITCI/programme-management-platform#674` after reviewing the artifact. Values in angle
 brackets are substituted with the verified artifact evidence:
 
+After a successful plan upload, the workflow derives that exact text from the
+uploaded plan artifact ID and digest, checked binary plan hash and metadata.
+It shows the text in the run summary and uploads a separate one-day
+`fieldzilla-owner-approval-*` artifact containing `approval.txt`. The owner can
+download that file and post it with `gh pr comment <674 or 717> --body-file
+approval.txt` after reviewing the plan. The workflow does not post or grant an
+approval for the owner; the apply gate still checks the owner-authored,
+unedited, fresh, one-use comment and exact plan artifact.
+
 ```text
 APPROVE FIELDZILLA PRODUCTION HOSTING <phase1 or phase2>
 Source: <40-character source commit>

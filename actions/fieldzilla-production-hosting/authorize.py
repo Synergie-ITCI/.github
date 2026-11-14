@@ -473,6 +473,46 @@ def probe_owner_comment(args):
     }, sort_keys=True))
 
 
+def approval_text(args):
+    target = getattr(args, "target", "production")
+    state_key = REHEARSAL_STATE_KEY if target == "rehearsal" else STATE_KEY
+    title = ("PRODUCTION REHEARSAL" + (" " + args.phase.upper() if args.phase != "phase1" else "")) if target == "rehearsal" else f"PRODUCTION HOSTING {args.phase}"
+    expected = (
+        f"APPROVE FIELDZILLA {title}\n"
+        f"Source: {args.source_sha}\nCaller: {args.caller_sha}\n"
+        f"Plan run: {args.plan_run_id}\nArtifact ID: {args.artifact_id}\n"
+        f"Artifact SHA-256: {args.artifact_digest}\nPlan SHA-256: {args.plan_sha256}\n"
+        f"State key: {state_key}"
+    )
+    if target == "rehearsal":
+        expected += f"\nExpires at: {args.expires_at}\nBudget USD: 5"
+        if args.phase != "phase1":
+            expected += f"\nOriginal resource expiry: {args.resource_expires_at}"
+    return expected
+
+
+def render_approval_template(args):
+    if args.plan_run_id != int(os.environ.get("GITHUB_RUN_ID", "0")) or not args.artifact_id or args.artifact_id < 1:
+        fail("approval template requires this plan run and uploaded artifact ID")
+    if not SHA256.fullmatch(args.artifact_digest or "") or not SHA256.fullmatch(args.plan_sha256 or ""):
+        fail("approval template requires exact artifact and plan digests")
+    artifact_dir = Path(args.artifact_dir)
+    metadata = json.loads((artifact_dir / "metadata.json").read_text())
+    expected = {
+        "repository": REPOSITORY, "source_sha": args.source_sha, "caller_sha": args.caller_sha,
+        "phase": args.phase, "target": args.target, "expires_at": args.expires_at,
+        "resource_expires_at": args.resource_expires_at,
+        "state_key": REHEARSAL_STATE_KEY if args.target == "rehearsal" else STATE_KEY,
+        "plan_sha256": args.plan_sha256,
+    }
+    if any(metadata.get(key) != value for key, value in expected.items()):
+        fail("approval template metadata differs from this exact plan")
+    actual_plan_sha = hashlib.sha256((artifact_dir / "hosting.tfplan").read_bytes()).hexdigest()
+    if actual_plan_sha != args.plan_sha256:
+        fail("approval template binary plan hash differs")
+    Path(args.template_output).write_text(approval_text(args) + "\n")
+
+
 def verify_owner_approval(args):
     target = getattr(args, "target", "production")
     environment = api(f"repos/{REPOSITORY}/environments/{ENVIRONMENT}")
@@ -487,19 +527,7 @@ def verify_owner_approval(args):
     issue = 717 if target == "rehearsal" else 674
     if comment.get("issue_url") != f"https://api.github.com/repos/{REPOSITORY}/issues/{issue}":
         fail("approval must be on the exact target PR")
-    state_key = REHEARSAL_STATE_KEY if target == "rehearsal" else STATE_KEY
-    title = ("PRODUCTION REHEARSAL" + (" " + args.phase.upper() if args.phase != "phase1" else "")) if target == "rehearsal" else f"PRODUCTION HOSTING {args.phase}"
-    expected = (
-        f"APPROVE FIELDZILLA {title}\n"
-        f"Source: {args.source_sha}\nCaller: {args.caller_sha}\n"
-        f"Plan run: {args.plan_run_id}\nArtifact ID: {args.artifact_id}\n"
-        f"Artifact SHA-256: {args.artifact_digest}\nPlan SHA-256: {args.plan_sha256}\n"
-        f"State key: {state_key}"
-    )
-    if target == "rehearsal":
-        expected += f"\nExpires at: {args.expires_at}\nBudget USD: 5"
-        if args.phase != "phase1":
-            expected += f"\nOriginal resource expiry: {args.resource_expires_at}"
+    expected = approval_text(args)
     # GitHub's comment editor can persist CRLF for an otherwise exact owner
     # approval. Normalize only that transport representation; all fields,
     # ordering, author, edit timestamp and single-use checks remain exact.
@@ -532,7 +560,7 @@ def verify_owner_approval(args):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=["probe", "plan", "apply", "consume"])
+    parser.add_argument("mode", choices=["probe", "plan", "apply", "consume", "approval-template"])
     parser.add_argument("--source-sha", required=True)
     parser.add_argument("--caller-sha", required=True)
     parser.add_argument("--workflow-tag", required=True)
@@ -547,6 +575,7 @@ def main():
     parser.add_argument("--artifact-digest")
     parser.add_argument("--plan-sha256")
     parser.add_argument("--artifact-dir")
+    parser.add_argument("--template-output")
     parser.add_argument("--approval-comment-id", type=int, default=0)
     args = parser.parse_args()
     require_identity(args)
@@ -559,6 +588,9 @@ def main():
         return
     if args.mode == "plan":
         (check_rehearsal_plan(args.plan_json, args.phase, args.source_sha, args.resource_expires_at) if args.target == "rehearsal" else check_plan(args.plan_json, args.phase))
+        return
+    if args.mode == "approval-template":
+        render_approval_template(args)
         return
     if not SHA256.fullmatch(args.plan_sha256 or "") or not SHA256.fullmatch(args.artifact_digest or ""):
         fail("exact plan and artifact digests required")
