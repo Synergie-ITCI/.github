@@ -15,28 +15,56 @@ import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 
-from baseline_authorization import read_live_pr, schema_errors
+from baseline_authorization import (
+    read_live_central_policy_file,
+    read_live_pr,
+    schema_errors,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 AUTH_PATH = ROOT / "policy/audited-migration-authorizations.json"
 SCHEMA_PATH = ROOT / "schemas/audited-migration-authorizations.schema.json"
 DELETE = re.compile(rb"\bDELETE\s+FROM\b[^;]*;", re.IGNORECASE)
+# These scopes already used bundled review when live issuance was introduced.
+# They retain the bundled path, including separately reviewed rebindings.
+# All other scopes use live records, so removal cannot expose a new bundle.
+LEGACY_BUNDLED_BINDINGS = frozenset({
+    (1315697868, 118),
+    (1315697868, 241),
+    (1315697868, 712),
+})
 
 
 def load_authorizations():
     records = json.loads(AUTH_PATH.read_text())
+    validate_records(records)
+    return records
+
+
+def validate_records(records):
     errors = schema_errors(records, json.loads(SCHEMA_PATH.read_text()))
     if errors:
-        raise ValueError("Malformed bundled migration authorization")
+        raise ValueError("Malformed migration authorization")
     identities = set()
+    names = set()
     for record in records:
         identity = (record["repository_id"], record["pr_number"])
-        if identity in identities:
+        name = (record["repository"], record["pr_number"])
+        if identity in identities or name in names:
             raise ValueError("Duplicate migration authorization binding")
         identities.add(identity)
+        names.add(name)
     if len({record["authorization_id"] for record in records}) != len(records):
         raise ValueError("Reused migration authorization UUID")
-    return records
+
+
+def read_live_authorizations(token, main_sha=None):
+    """Protected-main records grant SQL review only; deleting a record revokes it."""
+    main, records = read_live_central_policy_file(
+        token, "policy/live-audited-migration-authorizations.json", main_sha
+    )
+    validate_records(records)
+    return main, records
 
 
 def git_output(repo, *args):
@@ -166,6 +194,31 @@ def reviewed_migration_texts(ctx):
     """Unmatched consumers receive no exception; every matching use revalidates."""
     try:
         records = load_authorizations()
+        if (os.environ.get("PR_QA_LIVE_AUTHORIZATIONS") == "true"
+                and os.environ.get("GITHUB_REPOSITORY") != "Synergie-ITCI/.github"
+                and any(path.endswith(".sql") for path in ctx.changed_files)):
+            records = [record for record in records
+                       if (record["repository_id"], record["pr_number"])
+                       in LEGACY_BUNDLED_BINDINGS]
+            cache = getattr(ctx, "_stack_cache", None)
+            if cache is None:
+                cache = {}
+                setattr(ctx, "_stack_cache", cache)
+            try:
+                main, live_records = read_live_authorizations(
+                    os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or "",
+                    cache.get("central_policy_main_sha"),
+                )
+            except ValueError:
+                return {}, ["Live audited migration authorization lookup unavailable or invalid; fail closed."]
+            cache["central_policy_main_sha"] = main
+            if any((record["repository_id"], record["pr_number"])
+                   in LEGACY_BUNDLED_BINDINGS for record in live_records):
+                raise ValueError("Live migration review cannot replace a legacy bundled scope")
+            # A live issuance cannot silently replace a bundled authorization.
+            # Removal revokes a live-only record, while legacy records remain valid.
+            validate_records(records + live_records)
+            records += live_records
         repository = os.environ.get("GITHUB_REPOSITORY", "")
         event_pr = ctx.event.get("pull_request") or {}
         number = event_pr.get("number")

@@ -62,7 +62,7 @@ class LiveBaselineAuthorizationTests(unittest.TestCase):
                           return_value=("a" * 40, [self.entry])) as lookup:
             self.assertEqual(qa.baseline_policy(self.context), self.entry)
             self.assertEqual(qa.baseline_policy(self.context), self.entry)
-            lookup.assert_called_once_with("fixture")
+            lookup.assert_called_once_with("fixture", None)
         self.assertEqual(self.context.policy["one_time_baseline_alignments"], [])
 
     def test_lookup_failure_or_duplicate_scope_fails_closed(self):
@@ -96,19 +96,51 @@ class LiveBaselineAuthorizationTests(unittest.TestCase):
     def test_live_read_pins_contents_to_main_sha(self):
         main = "b" * 40
         policy = {"version": 1, "one_time_baseline_alignments": [self.entry]}
+        raw = json.dumps(policy).encode()
+        import hashlib
         payload = {"type": "file", "encoding": "base64",
-                   "content": base64.b64encode(json.dumps(policy).encode()).decode()}
+                   "sha": hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest(),
+                   "content": base64.b64encode(raw).decode()}
         urls = []
 
         class Opener:
             def open(self, request, timeout):
                 urls.append(request.full_url)
-                return Response({"object": {"sha": main}} if len(urls) == 1 else payload)
+                return Response({"ref": "refs/heads/main", "object": {"type": "commit", "sha": main}} if len(urls) == 1 else payload)
 
         with patch.object(binding.urllib.request, "build_opener", return_value=Opener()):
             self.assertEqual(binding.read_live_central_alignments("fixture"), (main, [self.entry]))
         self.assertEqual(urls[0], "https://api.github.com/repos/Synergie-ITCI/.github/git/ref/heads/main")
         self.assertEqual(urls[1], f"https://api.github.com/repos/Synergie-ITCI/.github/contents/policy/pr-qa-policy.json?ref={main}")
+
+    def test_live_read_rejects_untrusted_ref_or_content(self):
+        main = "b" * 40
+        raw = b"[]"
+        import hashlib
+        blob = hashlib.sha1(b"blob 2\0[]").hexdigest()
+        content = {"type": "file", "encoding": "base64", "sha": blob,
+                   "content": base64.b64encode(raw).decode()}
+        ref = {"ref": "refs/heads/main", "object": {"type": "commit", "sha": main}}
+
+        class Opener:
+            def __init__(self, first, second):
+                self.responses = iter((first, second))
+
+            def open(self, request, timeout):
+                return Response(next(self.responses))
+
+        for first, second in (({**ref, "ref": "refs/heads/feature"}, content),
+                              (ref, {**content, "sha": "0" * 40}),
+                              (ref, {**content, "content": "invalid%"})):
+            with self.subTest(first=first, second=second), patch.object(
+                binding.urllib.request, "build_opener", return_value=Opener(first, second)
+            ):
+                with self.assertRaises(ValueError):
+                    binding.read_live_central_policy_file(
+                        "fixture", "policy/live-audited-migration-authorizations.json"
+                    )
+        with self.assertRaises(ValueError):
+            binding.read_live_central_policy_file("fixture", "policy/other.json")
 
     def test_only_authorization_entries_are_release_neutral(self):
         pinned = {"version": 1, "defaults": {"thresholds": {"max_additions": 5000}},

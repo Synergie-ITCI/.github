@@ -1065,8 +1065,15 @@ def run_sandboxed_validation(ctx: PRContext, technologies: dict[str, dict[str, A
     return results
 
 
+def refresh_authorization_snapshot(ctx: PRContext) -> None:
+    """Start the final gate with a fresh protected-main policy snapshot."""
+    context_cache(ctx).pop("central_policy_main_sha", None)
+    context_cache(ctx).pop("live_baseline_alignments", None)
+
+
 def run_governance(ctx: PRContext, existing_results: list[CheckResult], args: argparse.Namespace) -> list[CheckResult]:
     results: list[CheckResult] = []
+    refresh_authorization_snapshot(ctx)
     if baseline_active(ctx) and context_cache(ctx).get("baseline_mode") == "baseline":
         # A PR may close or change while repository-controlled validation runs.
         # Recheck live identity before reporting PASS or reusing relaxed limits.
@@ -1305,13 +1312,15 @@ def baseline_policy(ctx: PRContext) -> dict[str, Any]:
         if "live_baseline_alignments" not in cache:
             try:
                 cache["live_baseline_alignments"] = read_live_central_alignments(
-                    os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
+                    os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or "",
+                    cache.get("central_policy_main_sha"),
                 )
             except ValueError:
                 cache["live_baseline_alignments"] = None
         live = cache["live_baseline_alignments"]
         if live is None:
             return {"enabled": False}
+        cache["central_policy_main_sha"] = live[0]
         # Only size decisions are live. Other security dispositions retain
         # their immutable-release binding.
         additional = [

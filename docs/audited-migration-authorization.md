@@ -1,16 +1,39 @@
 # Governed approval of audited runtime migration SQL
 
 The central maintainer may approve exact SQL containing runtime deletion definitions
-through a normal central policy PR, required QA, a protected release and a separate
-pin activation PR. This approval does not authorize production migration execution.
+through a normal protected central PR and required QA. Existing bundled records
+also require a protected release and separate pin activation. This approval does
+not authorize production migration execution.
 Repository config, labels, comments, event data, caller arguments and cached QA
 reports cannot create an authorization or disable migration safety.
 
-`policy/audited-migration-authorizations.json` is bundled with the executing release.
-The strict schema rejects unknown fields, duplicate bindings and reused UUIDs in the
-bundle. An approval names the reviewer by login and numeric GitHub ID; both must
-match the central `governance.migration_sql_reviewers` registry. The existing owner
-review exception applies to centrally authored policy PRs; other authors still
+`policy/audited-migration-authorizations.json` remains bundled with the executing
+release for existing consumers. A framework release containing the live reader is
+required once. After that release is selected, new SQL review records may instead
+be issued in `policy/live-audited-migration-authorizations.json` through normal
+protected central PR review and required checks. The executor reads that file
+from the exact protected central `main` commit with the existing read-only token.
+That commit and its protected review history provide provenance; no signing key
+or service is added. Removing a live record revokes it. Missing or malformed
+content, a mismatched Git blob, unavailable lookup, duplicate bindings, and
+conflicts with bundled records fail closed. Existing release-bound records,
+selectors, and callers are unchanged.
+One protected-main commit is used for live size and SQL decisions within a QA
+phase. The final governance gate reads protected `main` again and rechecks SQL
+record presence, expiry, content and live PR identity. A live record cannot
+shadow a bundled record for the same repository and PR; issuance fails closed
+before removal could reveal a bundled fallback.
+The three repository-and-PR scopes already using bundled review retain that
+path, including separately reviewed rebindings. A live record cannot be issued
+for those historical scopes. Other scopes use live records, so a later executor
+bundle cannot add a fallback for a removed live record. Bundled decisions still
+require their normal exact binding and retirement process.
+
+The strict schema rejects unknown fields, duplicate bindings and reused UUIDs
+across both record sources. An approval names the reviewer by login and numeric
+GitHub ID; both must match the central `governance.migration_sql_reviewers`
+registry. The existing owner review exception applies to centrally authored
+policy PRs; other authors still
 require independent review. The record is a governed maintainer declaration, not
 a fabricated GitHub review. All ordinary review and automated gates remain required.
 
@@ -34,8 +57,9 @@ Preflight runs before technical-cache reuse. Final governance checks the live bi
 and expiry again after repository validation. The authorization is single-PR bounded:
 repeated checks for the same unchanged open candidate are allowed within the window.
 Replaying an event after merge/closure, against a different candidate or after cleanup
-cannot reuse it. Remove the record immediately following completion, then publish and
-activate a clean release. Do not reactivate a historical authorization release.
+cannot reuse it. Remove a live record immediately after completion through protected
+central review. Bundled records retain their existing clean-release retirement process.
+Do not reactivate a historical authorization release.
 Default limits remain 5,000 effective additions and 200 changed files.
 
 ## PR 134 audit
