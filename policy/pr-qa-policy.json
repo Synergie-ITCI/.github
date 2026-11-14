@@ -1688,6 +1688,23 @@
       "allowed_changed_files": 3,
       "purpose": "Exact-source production image review binding for PR #744 optional OTP API response correction; no baseline gate relaxation, no migration execution, ECS mutation, routing or deployment approval.",
       "relaxations": []
+    },
+    {
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "repository_id": 1315697868,
+      "pr_number": 752,
+      "head_ref": "fix/fieldzilla-prod-published-form-compat",
+      "base_ref": "main",
+      "expected_head_sha": "2ed9f91af77d73da088bde0b052c7fdeff225690",
+      "expected_base_sha": "7b159e0f44dddbd8f015b7508741889dcf0a5f65",
+      "issued_at": "2026-11-14T06:58:24Z",
+      "enabled": true,
+      "authorization_id": "dc5dfc95-8e64-4364-8678-893a31c49650",
+      "expires_after": "2026-11-15T06:57:24Z",
+      "allowed_effective_additions": 48,
+      "allowed_changed_files": 2,
+      "purpose": "Exact-source production API image review binding for PR #752 published-form compatibility fix; no baseline gate relaxation, migration execution, ECS mutation, routing or deployment approval.",
+      "relaxations": []
     }
   ]
 }
