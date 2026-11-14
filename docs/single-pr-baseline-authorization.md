@@ -120,6 +120,13 @@ automatically retried.
 After live release verification, the publisher fetches a missing active tag into
 the local checkout and checks its exact remote tag object and peeled commit.
 An existing divergent local tag still stops before preflight or publication.
+If publication was interrupted after creating its pinned source branch, the
+same command may resume from that branch only when its remote SHA still matches
+the approved source and GitHub shows exactly one successful first-attempt
+provenance run for that release, commit, actor and workflow. It skips a second
+dispatch and repeats the source, ruleset and tag checks before publication.
+Missing, running, failed, retried or ambiguous provenance stops for inspection;
+the helper never guesses whether to dispatch again.
 
 On the same clean rc214-to-rc215 source, an elapsed-time local preflight before
 this change took 23.49 seconds. The final parallel provenance/check version
