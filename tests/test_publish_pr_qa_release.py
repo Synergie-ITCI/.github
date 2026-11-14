@@ -93,6 +93,101 @@ class PublishReleaseTests(unittest.TestCase):
         self.assertEqual(publishing[:-1], checked)
         self.assertEqual(publishing[-1], "--compatibility-via-provenance")
 
+    def test_missing_active_tag_is_fetched_exactly_without_replacing_mismatch(self) -> None:
+        tag, commit, tag_object = "pr-qa-v1-rc286", "a" * 40, "b" * 40
+        ref = f"refs/tags/{tag}"
+        calls = []
+        present = False
+
+        def command(*args, **_kwargs):
+            nonlocal present
+            calls.append(args)
+            if args == ("git", "rev-parse", "--verify", ref):
+                return subprocess.CompletedProcess(args, 0 if present else 1,
+                                                   tag_object + "\n" if present else "", "")
+            if args == ("git", "fetch", "--no-tags", "origin", f"{ref}:{ref}"):
+                present = True
+                return subprocess.CompletedProcess(args, 0, "", "")
+            if args == ("git", "cat-file", "-t", ref):
+                return subprocess.CompletedProcess(args, 0, "tag\n", "")
+            if args == ("git", "rev-parse", f"{ref}^{{commit}}"):
+                return subprocess.CompletedProcess(args, 0, commit + "\n", "")
+            self.fail(f"unexpected command: {args}")
+
+        with patch.object(release, "remote_tag_object", return_value=tag_object), \
+             patch.object(release, "command", side_effect=command):
+            release.ensure_local_active_tag(tag, commit)
+            self.assertIn(("git", "fetch", "--no-tags", "origin", f"{ref}:{ref}"), calls)
+            calls.clear()
+            release.ensure_local_active_tag(tag, commit)
+            self.assertFalse(any(args[:2] == ("git", "fetch") for args in calls))
+
+        with patch.object(release, "remote_tag_object", return_value="c" * 40), \
+             patch.object(release, "command", side_effect=command):
+            calls.clear()
+            with self.assertRaisesRegex(ValueError, "tag object differs"):
+                release.ensure_local_active_tag(tag, commit)
+            self.assertFalse(any(args[:2] == ("git", "fetch") for args in calls))
+
+        with patch.object(release, "remote_tag_object", return_value=None), \
+             patch.object(release, "command", side_effect=command):
+            calls.clear()
+            with self.assertRaisesRegex(ValueError, "unavailable remotely"):
+                release.ensure_local_active_tag(tag, commit)
+            self.assertEqual(calls, [])
+
+    def test_active_tag_mismatch_stops_before_release_preflight(self) -> None:
+        release_name, commit = "pr-qa-v1-rc285", "a" * 40
+        candidate = "pr-qa-v1-rc286"
+        calls = []
+
+        def command(*args, **_kwargs):
+            calls.append(args)
+            if args == ("python3", "pr-qa/release_pin.py", "--resolve-active"):
+                return subprocess.CompletedProcess(args, 0,
+                    f"Resolved active release {release_name} at {commit}\n", "")
+            self.fail(f"preflight or publication ran after tag mismatch: {args}")
+
+        with patch("sys.argv", ["publish-pr-qa-release", "--release", candidate,
+                                "--commit", "c" * 40, "--ruleset-id", "25061784",
+                                "--check-only"]), \
+             patch.object(release, "verify_source", return_value="SaurabhVermaIN"), \
+             patch.object(release, "verify_protection", return_value=("timestamp", "wildcard_namespace")), \
+             patch.object(release, "ensure_local_active_tag", side_effect=ValueError("tag object differs")), \
+             patch.object(release, "command", side_effect=command):
+            with self.assertRaisesRegex(ValueError, "tag object differs"):
+                release.main()
+        self.assertEqual(calls, [("python3", "pr-qa/release_pin.py", "--resolve-active")])
+
+    def test_active_tag_fetch_works_against_local_git_remote(self) -> None:
+        tag = "pr-qa-v1-rc286"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            remote, checkout = root / "remote.git", root / "checkout"
+            subprocess.run(["git", "init", "--bare", "-q", str(remote)], check=True)
+            checkout.mkdir()
+
+            def git(*args: str) -> str:
+                result = subprocess.run(["git", *args], cwd=checkout, check=True,
+                                        capture_output=True, text=True)
+                return result.stdout.strip()
+
+            git("init", "-q")
+            git("-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                "commit", "--allow-empty", "-qm", "source")
+            commit = git("rev-parse", "HEAD")
+            git("-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                "tag", "-a", "-m", "verified", tag)
+            tag_object = git("rev-parse", f"refs/tags/{tag}")
+            git("remote", "add", "origin", str(remote))
+            git("push", "-q", "origin", f"refs/tags/{tag}")
+            git("tag", "-d", tag)
+
+            with patch.object(release, "ROOT", checkout):
+                release.ensure_local_active_tag(tag, commit)
+                self.assertEqual(git("rev-parse", f"refs/tags/{tag}"), tag_object)
+                self.assertEqual(git("rev-parse", f"refs/tags/{tag}^{{commit}}"), commit)
+
     def test_provenance_dispatch_pins_older_source_without_touching_main(self) -> None:
         selected = "a" * 40
         branch = "pr-qa-release-source/pr-qa-v1-rc192"

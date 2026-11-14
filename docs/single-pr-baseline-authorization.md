@@ -114,6 +114,9 @@ that compatibility check at the pinned source SHA and must pass before tag
 creation. The helper then freshly checks source ancestry, tag protection,
 ruleset timestamp, and provenance. No failed dispatch or uncertain tag push is
 automatically retried.
+After live release verification, the publisher fetches a missing active tag into
+the local checkout and checks its exact remote tag object and peeled commit.
+An existing divergent local tag still stops before preflight or publication.
 
 On the same clean rc214-to-rc215 source, an elapsed-time local preflight before
 this change took 23.49 seconds. The final parallel provenance/check version
