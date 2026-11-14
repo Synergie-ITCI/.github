@@ -6807,6 +6807,7 @@ jobs:
         parser_options = set(
             re.findall(r"add_argument\(\s*['\"](--[A-Za-z0-9][A-Za-z0-9_-]*)['\"]", parser_source)
         )
+        parser_options.add("--help")  # Provided by argparse's default help action.
         missing = sorted(workflow_options - parser_options)
         self.assertEqual(missing, [])
 
