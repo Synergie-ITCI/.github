@@ -101,7 +101,7 @@ jobs:
           [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
           [[ "${CALLER_SHA}" =~ ^[0-9a-f]{40}$ ]]
           [[ "${MODE}" =~ ^(probe|plan|apply)$ ]]
-          [[ "${PHASE}" =~ ^(phase1|phase2|production-bootstrap|production-network-repair|production-routing|cleanup-protection|cleanup-destroy|cleanup-partial|cleanup-interrupted)$ ]]
+          [[ "${PHASE}" =~ ^(phase1|phase2|production-bootstrap|production-network-repair|production-routing|cleanup-protection|cleanup-destroy|cleanup-partial|cleanup-interrupted|cleanup-kms-residual)$ ]]
           [[ "${TARGET}" =~ ^(production|rehearsal)$ ]]
           if [ "${TARGET}" = rehearsal ]; then
             [ "${PHASE}" != phase2 ]
@@ -237,10 +237,10 @@ jobs:
         if: ${{ inputs.mode != 'probe' && inputs.target == 'rehearsal' && inputs.phase != 'phase1' }}
         run: |
           set -euo pipefail
-          if [ "${PHASE}" = cleanup-partial ] || [ "${PHASE}" = cleanup-interrupted ]; then
+          if [ "${PHASE}" = cleanup-partial ] || [ "${PHASE}" = cleanup-interrupted ] || [ "${PHASE}" = cleanup-kms-residual ]; then
             aws ecs describe-clusters --clusters fieldzilla-production-rehearsal --output json |
               python3 -c 'import json,sys; d=json.load(sys.stdin); f=d.get("failures") or []; sys.exit(0 if d.get("clusters")==[] and len(f)==1 and f[0].get("arn")=="arn:aws:ecs:ap-south-1:918870682888:cluster/fieldzilla-production-rehearsal" and f[0].get("reason")=="MISSING" else 1)'
-            if [ "${PHASE}" = cleanup-partial ]; then
+            if [ "${PHASE}" = cleanup-partial ] || [ "${PHASE}" = cleanup-kms-residual ]; then
               # The earlier six-role residual state has no bucket.
               if aws s3api list-object-versions --bucket syn-fz-rehearsal-attachments-918870682888-aps1 --output json > "${RUNNER_TEMP}/rehearsal-bucket.json" 2> "${RUNNER_TEMP}/rehearsal-bucket.err"; then
                 echo "Residual cleanup requires the isolated attachment bucket to be absent" >&2
@@ -310,6 +310,11 @@ jobs:
             test "${state_version}" = nBarifpRPSS8L8B1sm5wVXIihLhhLneD
             tofu -chdir="${ROOT}" state pull |
               python3 .central-framework/actions/fieldzilla-production-hosting/verify_interrupted_state.py "${SOURCE_SHA}" "${RESOURCE_EXPIRES_AT}"
+          elif [ "${TARGET}" = rehearsal ] && [ "${PHASE}" = cleanup-kms-residual ]; then
+            state_version="$(aws s3api head-object --bucket "${STATE_BUCKET}" --key "${STATE_KEY}" --query VersionId --output text)"
+            test "${state_version}" = _5D8ll2jFTMW0Nflg9u3UACnTsLaHoCx
+            tofu -chdir="${ROOT}" state pull |
+              python3 .central-framework/actions/fieldzilla-production-hosting/verify_kms_residual_state.py "${SOURCE_SHA}" "${RESOURCE_EXPIRES_AT}"
           elif [ "${TARGET}" = rehearsal ] && [ "${PHASE}" != phase1 ]; then
             tofu -chdir="${ROOT}" output -json target |
               python3 -c 'import json,os,sys; d=json.load(sys.stdin); sys.exit(0 if d["source_sha"] == os.environ["SOURCE_SHA"] and d["expires_at"] == os.environ["RESOURCE_EXPIRES_AT"] else 1)'
@@ -330,7 +335,7 @@ jobs:
             resource_expiry="${EXPIRES_AT}"
             if [ "${PHASE}" != phase1 ]; then cleanup=true; fi
             if [ "${PHASE}" != phase1 ]; then resource_expiry="${RESOURCE_EXPIRES_AT}"; fi
-            if [ "${PHASE}" = cleanup-destroy ] || [ "${PHASE}" = cleanup-partial ] || [ "${PHASE}" = cleanup-interrupted ]; then destroy=(-destroy); fi
+            if [ "${PHASE}" = cleanup-destroy ] || [ "${PHASE}" = cleanup-partial ] || [ "${PHASE}" = cleanup-interrupted ] || [ "${PHASE}" = cleanup-kms-residual ]; then destroy=(-destroy); fi
             tofu -chdir="${ROOT}" plan -input=false -lock=true "${destroy[@]}" \
               -var="source_sha=${SOURCE_SHA}" -var="expires_at=${resource_expiry}" \
               -var="cleanup_requested=${cleanup}" -out="${RUNNER_TEMP}/plan/hosting.tfplan"
@@ -413,7 +418,7 @@ jobs:
           tofu -chdir="${ROOT}" apply -input=false -lock=true "${RUNNER_TEMP}/approved/hosting.tfplan"
 
       - name: Verify interrupted rehearsal cleanup result
-        if: ${{ inputs.mode == 'apply' && inputs.target == 'rehearsal' && inputs.phase == 'cleanup-interrupted' }}
+        if: ${{ inputs.mode == 'apply' && inputs.target == 'rehearsal' && (inputs.phase == 'cleanup-interrupted' || inputs.phase == 'cleanup-kms-residual') }}
         run: |
           set -euo pipefail
           tofu -chdir="${ROOT}" state pull |
@@ -442,3 +447,9 @@ jobs:
             fi
             grep -Fq 'NoSuchEntity' "${RUNNER_TEMP}/rehearsal-role.err"
           done
+          if [ "${PHASE}" = cleanup-kms-residual ]; then
+            aws kms list-aliases --query "Aliases[?AliasName=='alias/synergie/fieldzilla/production-rehearsal']" --output json |
+              python3 -c 'import json,sys; sys.exit(1 if json.load(sys.stdin) else 0)'
+            aws kms describe-key --key-id 82e3b568-d5a0-4ea9-ac09-308d188065ee --output json |
+              python3 -c 'import json,sys; d=json.load(sys.stdin)["KeyMetadata"]; sys.exit(0 if d.get("KeyState")=="PendingDeletion" and d.get("DeletionDate") else 1)'
+          fi
