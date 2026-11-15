@@ -1,0 +1,12 @@
+{
+  "files": {
+    "deploy/first-rehearsal-preflight.py": "4029d64df884a81980f2aeee989bd8fa92177441b624652d22068dcb16e7b21e",
+    "deploy/scholarships-first-rehearsal-preflight-command-v1.json": "fa136002b0fa12c23cfb61fed7a988f0ae2baa7733e51ea55ae4e1d53947017a",
+    "tests/test_first_rehearsal_preflight.py": "9e91866e0482bcc87dbb302de9f6312cf52cc5089002a3173a379412fc5573bd"
+  },
+  "head_sha": "24ece6566c19a46b805e2e95d1e14d086d13ff5b",
+  "pr_number": 31,
+  "removed_paths": [],
+  "repository": "Synergie-ITCI/scholarships",
+  "technical_certification_owner": "SaurabhVermaIN"
+}
