@@ -1,0 +1,11 @@
+{
+  "files": {
+    "deploy/first-restore-test.py": "e19d80daaf38713210f4b8550808ae85ed035057d4ca1d9d364988f0713a1f49",
+    "deploy/scholarships-first-restore-command-v1.json": "993c32c44478cf975cf0425b295c46d9e57aab2f7b9c6654a0df6a53c3b090a1"
+  },
+  "head_sha": "c4dbae1847ea21fa44d49a9336fcc66099fbd4f9",
+  "pr_number": 23,
+  "removed_paths": [],
+  "repository": "Synergie-ITCI/scholarships",
+  "technical_certification_owner": "SaurabhVermaIN"
+}
