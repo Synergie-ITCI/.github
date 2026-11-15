@@ -47,6 +47,7 @@ class QAPolicyTests(unittest.TestCase):
         }
         self.run = {
             "id": 11,
+            "run_attempt": 1,
             "head_sha": "a" * 40,
             "status": "completed",
             "conclusion": "success",
@@ -151,7 +152,7 @@ class QAPolicyTests(unittest.TestCase):
             if self.log_api_failure:
                 raise RuntimeError("per-job log API unavailable")
             return self.logs
-        if path.endswith("/runs/11/logs"):
+        if path.endswith(f"/runs/11/attempts/{self.run['run_attempt']}/logs"):
             self.run_log_reads += 1
             if self.run_log_override is not None:
                 return self.run_log_override
@@ -272,6 +273,9 @@ class QAPolicyTests(unittest.TestCase):
         self.log_api_failure = True
         self.verify()
         self.assertEqual(self.run_log_reads, 1)
+        self.run["run_attempt"] = 2
+        self.verify()
+        self.assertEqual(self.run_log_reads, 2)
         self.logs = self.logs.replace(b"rc233", b"rc232")
         with self.assertRaises(ValueError):
             self.verify()
@@ -281,6 +285,13 @@ class QAPolicyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.verify()
         self.assertEqual(self.run_log_reads, 0)
+
+    def test_exact_run_attempt_is_required_even_when_job_logs_are_available(self):
+        for attempt in (None, 0, True, 11, "2"):
+            with self.subTest(attempt=attempt):
+                self.run["run_attempt"] = attempt
+                with self.assertRaises(ValueError):
+                    self.verify()
 
     def test_run_archive_fallback_rejects_missing_duplicate_and_oversized_log(self):
         self.log_api_failure = True

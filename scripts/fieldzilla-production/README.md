@@ -139,6 +139,8 @@ that immutable source. Unknown review schemas fail closed against the executor's
 known schemas. Live revocation, changed selection, expired review, stale checks,
 or mismatched artifacts stop execution before approval consumption or AWS mutation.
 Raw detector logs remain in memory; only the exact release identity is parsed.
+If the per-job log read fails, the fallback reads only the QA run's exact
+attempt archive, so a rerun cannot substitute an earlier attempt's detector log.
 This correction is source preparation, not activation or AWS rehearsal evidence.
 
 ## Image publication increment (prepared, not active)

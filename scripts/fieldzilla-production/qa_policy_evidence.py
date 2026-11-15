@@ -158,6 +158,9 @@ def verify_qa_policy_evidence(
         raise ValueError("QA proof is not the latest required check's run")
     base = manifest["base_sha"]
     run = api(f"repos/{REPOSITORY}/actions/runs/{proof['run_id']}")
+    attempt = run.get("run_attempt")
+    if type(attempt) is not int or not 1 <= attempt <= 10:
+        raise ValueError("Exact QA run attempt is unavailable")
     run_prs = run.get("pull_requests")
     bound_in_run = isinstance(run_prs, list) and any(
         row.get("number") == manifest["promotion_pr"]
@@ -226,7 +229,10 @@ def verify_qa_policy_evidence(
         logs = api(f"repos/{REPOSITORY}/actions/jobs/{detectors[0]['id']}/logs")
     except RuntimeError:
         logs = read_detector_run_log_archive(
-            api(f"repos/{REPOSITORY}/actions/runs/{proof['run_id']}/logs")
+            api(
+                f"repos/{REPOSITORY}/actions/runs/{proof['run_id']}"
+                f"/attempts/{attempt}/logs"
+            )
         )
     if not isinstance(logs, bytes) or len(logs) > 4 * 1024 * 1024:
         raise ValueError("Detector evidence is unavailable or oversized")
