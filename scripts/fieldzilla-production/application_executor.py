@@ -568,6 +568,31 @@ class Executor:
         })
         self.record("worker_restoration_requested")
 
+    def running_service_tasks(self) -> list[dict[str, Any]]:
+        # ECS rejects serviceName together with containerInstance. Keep the IAM
+        # restriction on the approved host and identify services after readback.
+        listing = self.aws("ecs", "list-tasks", {
+            "cluster": self.cluster,
+            "containerInstance": self.instance,
+            "desiredStatus": "RUNNING",
+        })
+        arns = listing.get("taskArns", [])
+        if not arns or listing.get("nextToken") or len(arns) != len(set(arns)):
+            raise ExecutionError("Exact running task list is unavailable")
+        reply = self.aws("ecs", "describe-tasks", {"cluster": self.cluster, "tasks": arns})
+        rows = reply.get("tasks", [])
+        groups = {"service:" + self.cluster + "-" + kind for kind in
+                  (("api", "admin-web", "worker") if self.has_worker else ("api", "admin-web"))}
+        if (reply.get("failures") or len(rows) != len(arns)
+                or {row.get("taskArn") for row in rows} != set(arns)
+                or len({row.get("group") for row in rows}) != len(rows)
+                or any(row.get("group") not in groups
+                       or row.get("containerInstanceArn") != self.instance
+                       or row.get("lastStatus") != "RUNNING"
+                       or row.get("desiredStatus") != "RUNNING" for row in rows)):
+            raise ExecutionError("Running host task identity differs")
+        return rows
+
     def wait_worker(self, *, attempts: int = 120):
         if not self.has_worker or type(attempts) is not int or not 1 <= attempts <= 120:
             raise ExecutionError("Invalid worker verification request")
@@ -584,18 +609,11 @@ class Executor:
                         or deployments[0].get("rolloutState") != "COMPLETED"
                         or deployments[0].get("taskDefinition") != expected):
                     raise ExecutionError("Restored worker rollout is not stable")
-                listing = self.aws("ecs", "list-tasks", {
-                    "cluster": self.cluster, "containerInstance": self.instance,
-                    "serviceName": name, "desiredStatus": "RUNNING",
-                })
-                arns = listing.get("taskArns", [])
-                if len(arns) != 1 or listing.get("nextToken"):
+                matches = [row for row in self.running_service_tasks()
+                           if row.get("group") == "service:" + name]
+                if len(matches) != 1:
                     raise ExecutionError("Restored worker task count differs")
-                reply = self.aws("ecs", "describe-tasks", {"cluster": self.cluster, "tasks": arns})
-                rows = reply.get("tasks", [])
-                if reply.get("failures") or len(rows) != 1:
-                    raise ExecutionError("Restored worker task readback failed")
-                row = rows[0]
+                row = matches[0]
                 containers = row.get("containers", [])
                 if (row.get("group") != "service:" + name
                         or row.get("taskDefinitionArn") != expected
@@ -606,8 +624,8 @@ class Executor:
                         or containers[0].get("lastStatus") != "RUNNING"
                         or containers[0].get("imageDigest") != self.manifest["worker_digest"]):
                     raise ExecutionError("Restored worker identity or image differs")
-                self.record("worker_verified", task=arns[0], digest=containers[0]["imageDigest"])
-                return {"task": arns[0], "digest": containers[0]["imageDigest"]}
+                self.record("worker_verified", task=row["taskArn"], digest=containers[0]["imageDigest"])
+                return {"task": row["taskArn"], "digest": containers[0]["imageDigest"]}
             if attempt + 1 < attempts:
                 self.sleep(5)
         raise ExecutionError("Worker did not recover within ten minutes")
@@ -647,29 +665,14 @@ class Executor:
                 or deployments[0].get("rolloutState") != "COMPLETED"
             ):
                 raise RuntimeNotReady("Known service rollout is still in progress")
-            listing = self.aws(
-                "ecs",
-                "list-tasks",
-                {
-                    "cluster": self.cluster,
-                    "containerInstance": self.instance,
-                    "serviceName": request["serviceName"],
-                    "desiredStatus": "RUNNING",
-                },
-            )
-            arns = listing.get("taskArns", [])
-            if len(arns) != 1 or listing.get("nextToken"):
+            matches = [row for row in self.running_service_tasks()
+                       if row.get("group") == "service:" + request["serviceName"]]
+            if len(matches) != 1:
                 raise ExecutionError("Expected exactly one service task")
-            reply = self.aws(
-                "ecs", "describe-tasks", {"cluster": self.cluster, "tasks": arns}
-            )
-            rows = reply.get("tasks", [])
-            if reply.get("failures") or len(rows) != 1:
-                raise ExecutionError("Running task readback is unavailable")
-            task = rows[0]
+            task = matches[0]
             containers = task.get("containers", [])
             if (
-                task.get("taskArn") != arns[0]
+                not re.fullmatch(rf"arn:aws:ecs:{REGION}:{ACCOUNT}:task/{self.cluster}/[0-9a-f]+", task.get("taskArn", ""))
                 or task.get("taskDefinitionArn") != self.tasks[kind]
                 or task.get("group") != "service:" + request["serviceName"]
                 or task.get("lastStatus") != "RUNNING"
@@ -741,7 +744,7 @@ class Executor:
                 raise RuntimeNotReady("Exact service target has not become healthy")
             if state != "healthy":
                 raise ExecutionError("Exact service target is in an unexpected state")
-            observed[kind] = {"task": arns[0], "digest": containers[0]["imageDigest"]}
+            observed[kind] = {"task": task["taskArn"], "digest": containers[0]["imageDigest"]}
         self.record(
             "runtime_artifacts_verified",
             services=observed,
