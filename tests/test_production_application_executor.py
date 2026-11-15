@@ -417,6 +417,15 @@ class LiveWriterFenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ExecutionError, "Worker changed"):
             engine.restore_worker()
 
+    def test_reviewed_recovery_stops_restored_worker_without_database_rollback(self):
+        engine = self.engine()
+        engine.prepare()
+        engine.restore_worker()
+        engine.hold_for_recovery()
+        self.assertEqual(self.cloud.services["fieldzilla-production-worker"]["desiredCount"], 0)
+        self.assertFalse(any(service == "rds" and action != "describe-db-snapshots"
+                             for service, action, _ in self.cloud.calls))
+
 
 class TaskCloud(Cloud):
     def __init__(self, manifest):
