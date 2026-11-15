@@ -155,6 +155,38 @@ class FirstCutoverContractTests(unittest.TestCase):
             self.write('deploy/compile-first-backup-document.py', 'set -euo pipefail\n')
             self.assertIn('certified file changed', ' '.join(verify([comment])))
 
+    def test_exact_host_compatibility_and_cleanup_require_owner(self):
+        changed = ['.github/workflows/scholarships-first-cutover-prepare.yml',
+                   'deploy/FIRST_CUTOVER_ACTIVATION.md', 'deploy/first-backup.sh',
+                   'deploy/first-upload.py', 'deploy/first-restore-test.py',
+                   'tests/test_first_backup_transfer.py', 'tests/test_first_cutover_approval.py']
+        self.write(changed[0], 'refs/heads/main\nenvironment: production\n--document-version 3\n')
+        self.write(changed[1], 'Python 3.8 backup recovery\n')
+        self.write(changed[2], 'backups/first-cutover/43694560855\n'
+                   '! -e $incomplete/manifest.json\n! -e $incomplete/verified.json\n'
+                   'rm -rf --one-file-system -- "$incomplete"\n')
+        for name in changed[3:]:
+            self.write(name, 'streaming checksum\n')
+        for name in ('backup', 'upload', 'restore'):
+            path = f'deploy/scholarships-first-{name}-command-v1.json'
+            self.write(path, json.dumps({'schemaVersion': '2.2'}))
+            changed.append(path)
+        manifest = self.root / 'host-compat.json'
+        manifest.write_text(json.dumps({'repository': 'Synergie-ITCI/scholarships',
+            'pr_number': 22, 'head_sha': HEAD, 'removed_paths': [],
+            'technical_certification_owner': 'SaurabhVermaIN',
+            'files': {name: self.files[name] for name in changed}}))
+        digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
+        comment = dict(self.comment, body=self.comment['body'].replace(
+            self.comment['body'].splitlines()[1], f'CERTIFIED_MANIFEST_SHA256={digest}'))
+        with patch.object(contract, 'FIRST_CUTOVER_HOST_COMPAT_MANIFEST', manifest):
+            verify = lambda comments: contract.verify_first_cutover_host_compat(
+                self.root, changed, HEAD, comments)
+            self.assertEqual(verify([comment]), [])
+            self.assertIn('owner-led', ' '.join(verify([])))
+            self.write(changed[2], 'unrelated cleanup\n')
+            self.assertIn('certified file changed', ' '.join(verify([comment])))
+
 
 if __name__ == '__main__':
     unittest.main()

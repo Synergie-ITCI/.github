@@ -29,6 +29,7 @@ from scholarships_gate_d_contract import verify as verify_scholarships_gate_d_co
 from scholarships_gate_d_contract import verify_first_cutover as verify_scholarships_first_cutover
 from scholarships_gate_d_contract import verify_first_cutover_followup as verify_scholarships_first_cutover_followup
 from scholarships_gate_d_contract import verify_first_cutover_ssm_repair as verify_scholarships_first_cutover_ssm_repair
+from scholarships_gate_d_contract import verify_first_cutover_host_compat as verify_scholarships_first_cutover_host_compat
 from risk_contract import assess_risk_contracts
 from adapters.base import (
     FAIL,
@@ -3875,7 +3876,7 @@ def gate_deployment_safety(ctx: PRContext, git_context: dict[str, Any]) -> list[
         return [passed("Deployment Risk", None, "No deployment-sensitive files changed.")]
     if resolve_repository_name(ctx) == "Synergie-ITCI/scholarships":
         pr_number = extract_pr_number(ctx.event)
-        if pr_number in (19, 20, 21):
+        if pr_number in (19, 20, 21, 22):
             try:
                 manifest = read_json(SCHOLARSHIPS_FIRST_CUTOVER_MANIFEST) if pr_number == 19 else None
                 head = str(((ctx.event.get("pull_request", {}) or {}).get("head", {}) or {}).get("sha", ""))
@@ -3883,7 +3884,8 @@ def gate_deployment_safety(ctx: PRContext, git_context: dict[str, Any]) -> list[
                 comments = evidence.get("comments", []) if evidence and evidence.get("source") == "github_api" else []
                 verifier = ({19: verify_scholarships_first_cutover,
                              20: verify_scholarships_first_cutover_followup,
-                             21: verify_scholarships_first_cutover_ssm_repair}[pr_number])
+                             21: verify_scholarships_first_cutover_ssm_repair,
+                             22: verify_scholarships_first_cutover_host_compat}[pr_number])
                 failures = verifier(ctx.repo, ctx.changed_files, head, comments)
             except (OSError, ValueError, TypeError, KeyError, IndexError):
                 failures = ["first-cutover certification evidence is unreadable or malformed"]

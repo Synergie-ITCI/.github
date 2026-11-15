@@ -18,6 +18,7 @@ MAIN_PROMOTION_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholars
 FIRST_CUTOVER_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr19-first-cutover.json"
 FIRST_CUTOVER_FOLLOWUP_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr20-first-cutover.json"
 FIRST_CUTOVER_SSM_REPAIR_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr21-first-cutover.json"
+FIRST_CUTOVER_HOST_COMPAT_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr22-first-cutover.json"
 HOST = "mi-04a256fa549e372a8"
 ACCOUNT = "918870682888"
 RELEASE_DOCUMENT = "Scholarships-GateD-Production-Command-v1"
@@ -147,6 +148,55 @@ def _owner_certified(comments: list[dict[str, Any]], owner: str, head: str,
         if required.issubset(set(str(comment.get("body") or "").splitlines())):
             return True
     return False
+
+
+def verify_first_cutover_host_compat(repo: Path, changed: list[str], head: str,
+                                     comments: list[dict[str, Any]]) -> list[str]:
+    """Certify exact Python 3.8 and incomplete-backup recovery in PR #22."""
+    manifest = _read_json(FIRST_CUTOVER_HOST_COMPAT_MANIFEST)
+    errors: list[str] = []
+    if (manifest.get("repository") != "Synergie-ITCI/scholarships"
+            or manifest.get("pr_number") != 22
+            or manifest.get("head_sha") != head
+            or manifest.get("technical_certification_owner") != "SaurabhVermaIN"
+            or manifest.get("removed_paths") != []):
+        errors.append("first-cutover host compatibility identity changed")
+    expected = {".github/workflows/scholarships-first-cutover-prepare.yml",
+                "deploy/FIRST_CUTOVER_ACTIVATION.md", "deploy/first-backup.sh",
+                "deploy/first-upload.py", "deploy/first-restore-test.py",
+                "tests/test_first_backup_transfer.py", "tests/test_first_cutover_approval.py"}
+    expected |= {f"deploy/scholarships-first-{name}-command-v1.json"
+                 for name in ("backup", "upload", "restore")}
+    files = manifest.get("files")
+    if not isinstance(files, dict) or set(files) != expected or set(changed) != expected:
+        errors.append("first-cutover host compatibility changed-file scope changed")
+        return errors
+    for rel, digest in files.items():
+        path = repo / rel
+        if (not re.fullmatch(r"[0-9a-f]{64}", str(digest))
+                or not path.is_file() or path.is_symlink() or path.stat().st_size > 1_000_000
+                or hashlib.sha256(path.read_bytes()).hexdigest() != digest):
+            errors.append(f"first-cutover host compatibility certified file changed: {rel}")
+    if errors:
+        return errors
+    if not _owner_certified(comments, "SaurabhVermaIN", head,
+                            hashlib.sha256(FIRST_CUTOVER_HOST_COMPAT_MANIFEST.read_bytes()).hexdigest()):
+        errors.append("owner-led first-cutover host compatibility certification is absent")
+    prepare = (repo / ".github/workflows/scholarships-first-cutover-prepare.yml").read_text()
+    if ("environment: production" not in prepare or "refs/heads/main" not in prepare
+            or "--document-version 3" not in prepare):
+        errors.append("first-cutover version-3 preparation boundary changed")
+    backup = (repo / "deploy/first-backup.sh").read_text()
+    if ("backups/first-cutover/43694560855" not in backup
+            or "! -e $incomplete/manifest.json" not in backup
+            or "! -e $incomplete/verified.json" not in backup
+            or "rm -rf --one-file-system -- \"$incomplete\"" not in backup):
+        errors.append("exact incomplete-backup cleanup boundary changed")
+    for rel in ("deploy/first-backup.sh", "deploy/first-upload.py", "deploy/first-restore-test.py"):
+        script = (repo / rel).read_text()
+        if "hashlib.file_digest" in script or ".is_relative_to(" in script:
+            errors.append(f"host Python 3.8 compatibility changed: {rel}")
+    return errors
 
 
 def verify_first_cutover_ssm_repair(repo: Path, changed: list[str], head: str,
