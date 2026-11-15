@@ -20,6 +20,7 @@ FIRST_CUTOVER_FOLLOWUP_MANIFEST = Path(__file__).resolve().parents[1] / "policy/
 FIRST_CUTOVER_SSM_REPAIR_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr21-first-cutover.json"
 FIRST_CUTOVER_HOST_COMPAT_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr22-first-cutover.json"
 FIRST_CUTOVER_MYSQL_RESTORE_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr23-first-cutover.json"
+FIRST_CUTOVER_RESTORE_PIN_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr24-first-cutover.json"
 HOST = "mi-04a256fa549e372a8"
 ACCOUNT = "918870682888"
 RELEASE_DOCUMENT = "Scholarships-GateD-Production-Command-v1"
@@ -238,6 +239,48 @@ def verify_first_cutover_mysql_restore(repo: Path, changed: list[str], head: str
     if (len(steps) != 1 or steps[0].get("action") != "aws:runShellScript"
             or "Commands" in document.get("parameters", {})):
         errors.append("fixed restore SSM document boundary changed")
+    return errors
+
+
+def verify_first_cutover_restore_pin(repo: Path, changed: list[str], head: str,
+                                     comments: list[dict[str, Any]]) -> list[str]:
+    """Certify the exact fixed-document version pin in PR #24."""
+    manifest = _read_json(FIRST_CUTOVER_RESTORE_PIN_MANIFEST)
+    errors: list[str] = []
+    if (manifest.get("repository") != "Synergie-ITCI/scholarships"
+            or manifest.get("pr_number") != 24
+            or manifest.get("head_sha") != head
+            or manifest.get("technical_certification_owner") != "SaurabhVermaIN"
+            or manifest.get("removed_paths") != []):
+        errors.append("first-cutover restore pin identity changed")
+    expected = {".github/workflows/scholarships-first-cutover-prepare.yml",
+                "deploy/FIRST_CUTOVER_ACTIVATION.md",
+                "tests/test_first_cutover_approval.py"}
+    files = manifest.get("files")
+    if not isinstance(files, dict) or set(files) != expected or set(changed) != expected:
+        errors.append("first-cutover restore pin changed-file scope changed")
+        return errors
+    for rel, digest in files.items():
+        path = repo / rel
+        if (not re.fullmatch(r"[0-9a-f]{64}", str(digest))
+                or not path.is_file() or path.is_symlink() or path.stat().st_size > 1_000_000
+                or hashlib.sha256(path.read_bytes()).hexdigest() != digest):
+            errors.append(f"first-cutover restore pin certified file changed: {rel}")
+    if errors:
+        return errors
+    if not _owner_certified(comments, "SaurabhVermaIN", head,
+                            hashlib.sha256(FIRST_CUTOVER_RESTORE_PIN_MANIFEST.read_bytes()).hexdigest()):
+        errors.append("owner-led first-cutover restore pin certification is absent")
+    workflow = (repo / ".github/workflows/scholarships-first-cutover-prepare.yml").read_text()
+    for token in ("environment: production", "refs/heads/main",
+                  "Scholarships-First-Backup-v1:scholarships-first-backup-command-v1.json:3",
+                  "Scholarships-First-Upload-v1:scholarships-first-upload-command-v1.json:3",
+                  "Scholarships-First-Restore-v1:scholarships-first-restore-command-v1.json:4",
+                  "--document-name Scholarships-First-Restore-v1 --document-version 4"):
+        if token not in workflow:
+            errors.append(f"first-cutover restore version boundary changed: {token}")
+    if "AWS-RunShellScript" in workflow:
+        errors.append("generic SSM shell used in restore preparation workflow")
     return errors
 
 
