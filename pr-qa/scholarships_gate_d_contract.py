@@ -23,6 +23,7 @@ FIRST_CUTOVER_MYSQL_RESTORE_MANIFEST = Path(__file__).resolve().parents[1] / "po
 FIRST_CUTOVER_RESTORE_PIN_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr24-first-cutover.json"
 FIRST_CUTOVER_BACKUP_CLEANUP_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr25-first-cutover.json"
 FIRST_CUTOVER_RESTORE_DIAGNOSTIC_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr26-first-cutover.json"
+FIRST_CUTOVER_MYSQL_WORKSPACE_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr27-first-cutover.json"
 HOST = "mi-04a256fa549e372a8"
 ACCOUNT = "918870682888"
 RELEASE_DOCUMENT = "Scholarships-GateD-Production-Command-v1"
@@ -371,6 +372,53 @@ def verify_first_cutover_restore_diagnostic(repo: Path, changed: list[str], head
         errors.append("fixed restore diagnostic version boundary changed")
     if "traceback.print_exc(limit=8)" not in restore or "runuser', '-u', 'mysql'" not in restore:
         errors.append("bounded restore diagnostics or MySQL isolation changed")
+    return errors
+
+
+def verify_first_cutover_mysql_workspace(repo: Path, changed: list[str], head: str,
+                                         comments: list[dict[str, Any]]) -> list[str]:
+    """Certify exact isolated MySQL workspace repair in PR #27."""
+    manifest = _read_json(FIRST_CUTOVER_MYSQL_WORKSPACE_MANIFEST)
+    errors: list[str] = []
+    if (manifest.get("repository") != "Synergie-ITCI/scholarships"
+            or manifest.get("pr_number") != 27
+            or manifest.get("head_sha") != head
+            or manifest.get("technical_certification_owner") != "SaurabhVermaIN"
+            or manifest.get("removed_paths") != []):
+        errors.append("first-cutover MySQL workspace identity changed")
+    expected = {".github/workflows/scholarships-first-cutover-prepare.yml",
+                "deploy/FIRST_CUTOVER_ACTIVATION.md", "deploy/first-restore-test.py",
+                "deploy/scholarships-first-restore-command-v1.json",
+                "tests/test_first_cutover_approval.py"}
+    files = manifest.get("files")
+    if not isinstance(files, dict) or set(files) != expected or set(changed) != expected:
+        errors.append("first-cutover MySQL workspace changed-file scope changed")
+        return errors
+    for rel, digest in files.items():
+        path = repo / rel
+        if (not re.fullmatch(r"[0-9a-f]{64}", str(digest))
+                or not path.is_file() or path.is_symlink() or path.stat().st_size > 1_000_000
+                or hashlib.sha256(path.read_bytes()).hexdigest() != digest):
+            errors.append(f"first-cutover MySQL workspace certified file changed: {rel}")
+    if errors:
+        return errors
+    if not _owner_certified(comments, "SaurabhVermaIN", head,
+                            hashlib.sha256(FIRST_CUTOVER_MYSQL_WORKSPACE_MANIFEST.read_bytes()).hexdigest()):
+        errors.append("owner-led first-cutover MySQL workspace certification is absent")
+    workflow = (repo / ".github/workflows/scholarships-first-cutover-prepare.yml").read_text()
+    restore = (repo / "deploy/first-restore-test.py").read_text()
+    if ("Scholarships-First-Restore-v1:scholarships-first-restore-command-v1.json:6" not in workflow
+            or "--document-name Scholarships-First-Restore-v1 --document-version 6" not in workflow
+            or "Scholarships-First-Backup-v1:scholarships-first-backup-command-v1.json:4" not in workflow
+            or "Scholarships-First-Upload-v1:scholarships-first-upload-command-v1.json:3" not in workflow
+            or "environment: production" not in workflow or "refs/heads/main" not in workflow
+            or "AWS-RunShellScript" in workflow):
+        errors.append("fixed restore workspace version boundary changed")
+    if ("tempfile.mkdtemp(prefix=f'scholarships-restore-mysql-{run}-'" not in restore
+            or "shutil.chown(workdir, user='mysql', group='mysql')" not in restore
+            or "shutil.rmtree(workdir, ignore_errors=True)" not in restore
+            or "traceback.print_exc(limit=8)" not in restore):
+        errors.append("isolated MySQL workspace or diagnostics changed")
     return errors
 
 
