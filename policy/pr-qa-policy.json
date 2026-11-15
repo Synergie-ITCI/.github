@@ -1741,6 +1741,23 @@
       "allowed_changed_files": 8,
       "purpose": "Exact-source SQL-free production image review for PR #772 published OTP readback and final capture publication guidance, preserving merged invitation delivery and scoped reviewer discovery. No baseline relaxation, migration, ECS update, routing, or publication approval.",
       "relaxations": []
+    },
+    {
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "repository_id": 1315697868,
+      "pr_number": 780,
+      "head_ref": "fix/fieldzilla-project-activation-readback",
+      "base_ref": "main",
+      "expected_head_sha": "7ab72476c96b853a6c18a5b91223622fbba9e173",
+      "expected_base_sha": "52ae1bedaffe089f611048e13199dfaaa769d553",
+      "issued_at": "2026-11-15T19:05:35Z",
+      "enabled": true,
+      "authorization_id": "59fbdeb7-566b-4d6a-bb40-429a7ffce165",
+      "expires_after": "2026-11-16T18:55:35Z",
+      "allowed_effective_additions": 4,
+      "allowed_changed_files": 2,
+      "purpose": "Exact-source SQL-free production image review for PR #780 activation response refresh. No baseline relaxation, migration, ECS update, routing, or publication approval.",
+      "relaxations": []
     }
   ]
 }
