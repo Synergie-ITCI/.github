@@ -16,6 +16,7 @@ MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr15-gate-
 PROMOTION_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr13-gate-d.json"
 MAIN_PROMOTION_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr7-gate-d.json"
 FIRST_CUTOVER_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr19-first-cutover.json"
+FIRST_CUTOVER_FOLLOWUP_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr20-first-cutover.json"
 HOST = "mi-04a256fa549e372a8"
 ACCOUNT = "918870682888"
 RELEASE_DOCUMENT = "Scholarships-GateD-Production-Command-v1"
@@ -145,6 +146,48 @@ def _owner_certified(comments: list[dict[str, Any]], owner: str, head: str,
         if required.issubset(set(str(comment.get("body") or "").splitlines())):
             return True
     return False
+
+
+def verify_first_cutover_followup(repo: Path, changed: list[str], head: str,
+                                  comments: list[dict[str, Any]]) -> list[str]:
+    """Certify the exact three-file PR #20 repair to the first cutover."""
+    manifest = _read_json(FIRST_CUTOVER_FOLLOWUP_MANIFEST)
+    errors: list[str] = []
+    if (manifest.get("repository") != "Synergie-ITCI/scholarships"
+            or manifest.get("pr_number") != 20
+            or manifest.get("head_sha") != head
+            or manifest.get("technical_certification_owner") != "SaurabhVermaIN"
+            or manifest.get("removed_paths") != []):
+        errors.append("first-cutover follow-up identity changed")
+    files = manifest.get("files")
+    expected = {".github/workflows/scholarships-first-cutover-prepare.yml",
+                "deploy/first_cutover_approval.py", "tests/test_first_cutover_approval.py"}
+    if not isinstance(files, dict) or set(files) != expected or set(changed) != expected:
+        errors.append("first-cutover follow-up changed-file scope changed")
+        return errors
+    for rel, digest in files.items():
+        path = repo / rel
+        if (not re.fullmatch(r"[0-9a-f]{64}", str(digest))
+                or not path.is_file() or path.is_symlink() or path.stat().st_size > 1_000_000
+                or hashlib.sha256(path.read_bytes()).hexdigest() != digest):
+            errors.append(f"first-cutover follow-up certified file changed: {rel}")
+    if errors:
+        return errors
+    if not _owner_certified(comments, "SaurabhVermaIN", head,
+                            hashlib.sha256(FIRST_CUTOVER_FOLLOWUP_MANIFEST.read_bytes()).hexdigest()):
+        errors.append("owner-led first-cutover follow-up certification is absent")
+    prepare = (repo / ".github/workflows/scholarships-first-cutover-prepare.yml").read_text()
+    approval = (repo / "deploy/first_cutover_approval.py").read_text()
+    if ("environment: production" not in prepare or "refs/heads/main" not in prepare
+            or "git merge-base --is-ancestor" not in prepare
+            or "environments/production" in prepare):
+        errors.append("backup preparation execution boundary changed")
+    if ("approval already consumed" not in approval
+            or "receipt no longer uniquely belongs to this run" not in approval
+            or "APPROVAL_ISSUE = 18" not in approval
+            or "environments/production" in approval):
+        errors.append("one-use owner receipt boundary changed")
+    return errors
 
 
 def verify_first_cutover(repo: Path, changed: list[str], head: str,
