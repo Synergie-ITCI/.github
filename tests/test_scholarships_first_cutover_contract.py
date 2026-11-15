@@ -22,6 +22,7 @@ class FirstCutoverContractTests(unittest.TestCase):
         self.files = {}
         self.write('.github/workflows/scholarships-first-cutover-prepare.yml',
                    'refs/heads/main\nenvironment: production\n'
+                   'git merge-base --is-ancestor\n'
                    'scholarships-first-cutover\naws ssm send-command\nverified-receipt.json\n')
         self.write('.github/workflows/scholarships-first-cutover.yml',
                    'refs/heads/main\nenvironment: production\n'
@@ -101,6 +102,26 @@ class FirstCutoverContractTests(unittest.TestCase):
         policy['Statement'][1]['Resource'].append('arn:aws:ssm:ap-south-1:*:document/AWS-RunShellScript')
         path.write_text(json.dumps(policy))
         self.assertIn('certified file changed', ' '.join(self.check()))
+
+    def test_exact_followup_requires_owner_and_unchanged_bytes(self):
+        changed = ['.github/workflows/scholarships-first-cutover-prepare.yml',
+                   'deploy/first_cutover_approval.py', 'tests/test_first_cutover_approval.py']
+        self.write(changed[2], 'receipt tests\n')
+        followup = self.root / 'followup.json'
+        followup.write_text(json.dumps({'repository': 'Synergie-ITCI/scholarships',
+            'pr_number': 20, 'head_sha': HEAD, 'removed_paths': [],
+            'technical_certification_owner': 'SaurabhVermaIN',
+            'files': {name: self.files[name] for name in changed}}))
+        digest = hashlib.sha256(followup.read_bytes()).hexdigest()
+        comment = dict(self.comment, body=self.comment['body'].replace(
+            self.comment['body'].splitlines()[1], f'CERTIFIED_MANIFEST_SHA256={digest}'))
+        with patch.object(contract, 'FIRST_CUTOVER_FOLLOWUP_MANIFEST', followup):
+            verify = lambda comments: contract.verify_first_cutover_followup(
+                self.root, changed, HEAD, comments)
+            self.assertEqual(verify([comment]), [])
+            self.assertIn('owner-led', ' '.join(verify([])))
+            (self.root / changed[0]).write_text('changed\n')
+            self.assertIn('certified file changed', ' '.join(verify([comment])))
 
 
 if __name__ == '__main__':
