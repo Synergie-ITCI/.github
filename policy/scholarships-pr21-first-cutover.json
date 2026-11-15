@@ -13,7 +13,7 @@
     "deploy/scholarships-first-upload-command-v1.json": "12a478fc40ece078687e6a312b591aba688decff98555d1beb14e90110e6a0bf",
     "tests/test_first_cutover_approval.py": "5bb6695071c7b94ba4755a5cf615d58bcab2e0a978c81a512b158cd1d5dba169"
   },
-  "head_sha": "54c426a6c306b8f394a457ddec73ddea9c1844a1",
+  "head_sha": "44435ed7fc976d913eacb091a74207eab709270b",
   "pr_number": 21,
   "removed_paths": [],
   "repository": "Synergie-ITCI/scholarships",
