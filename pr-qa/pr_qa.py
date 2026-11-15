@@ -24,7 +24,9 @@ from typing import Any, Callable
 
 from adapters import ADAPTERS
 from scholarships_gate_d_contract import MANIFEST as SCHOLARSHIPS_GATE_D_MANIFEST
+from scholarships_gate_d_contract import FIRST_CUTOVER_MANIFEST as SCHOLARSHIPS_FIRST_CUTOVER_MANIFEST
 from scholarships_gate_d_contract import verify as verify_scholarships_gate_d_contract
+from scholarships_gate_d_contract import verify_first_cutover as verify_scholarships_first_cutover
 from risk_contract import assess_risk_contracts
 from adapters.base import (
     FAIL,
@@ -3870,6 +3872,27 @@ def gate_deployment_safety(ctx: PRContext, git_context: dict[str, Any]) -> list[
     if not changed:
         return [passed("Deployment Risk", None, "No deployment-sensitive files changed.")]
     if resolve_repository_name(ctx) == "Synergie-ITCI/scholarships":
+        pr_number = extract_pr_number(ctx.event)
+        if pr_number == 19:
+            try:
+                manifest = read_json(SCHOLARSHIPS_FIRST_CUTOVER_MANIFEST)
+                head = str(((ctx.event.get("pull_request", {}) or {}).get("head", {}) or {}).get("sha", ""))
+                evidence = fetch_github_review_policy_evidence(ctx, include_comments=True)
+                comments = evidence.get("comments", []) if evidence and evidence.get("source") == "github_api" else []
+                failures = verify_scholarships_first_cutover(ctx.repo, ctx.changed_files, head, comments)
+            except (OSError, ValueError, TypeError, KeyError, IndexError):
+                failures = ["first-cutover certification evidence is unreadable or malformed"]
+            if failures:
+                return [failed(
+                    "Deployment Risk", None,
+                    "Scholarships first-cutover contract is uncertified or changed.",
+                    failures[:30], score=20,
+                )]
+            return [warning(
+                "Deployment Risk", None,
+                "Exact Scholarships first-cutover code has owner-led technical certification; live controls and production approval remain separately gated.",
+                [f"head={head}", "technical-certification=owner-led", "live-controls=NOT_VERIFIED"],
+            )]
         try:
             contract = read_json(SCHOLARSHIPS_GATE_D_MANIFEST)
         except (OSError, ValueError, TypeError):
