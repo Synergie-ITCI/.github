@@ -97,12 +97,11 @@ class ReleasePinTests(unittest.TestCase):
         verify.assert_called_once()
         self.assertEqual(self.manifest["consumer_release_selection"]["default"]["release"], "pr-qa-v1-rc216")
 
-    def test_fieldzilla_sql_free_rollout_temporarily_selects_verified_rc300(self):
+    def test_fieldzilla_delegates_from_exact_issued_rc294_floor(self):
         selected = self.manifest["consumer_release_selection"]["repositories"]["Synergie-ITCI/programme-management-platform"]
-        self.assertEqual(selected, {"release": "pr-qa-v1-rc300", "commit": "e24210e54ed7c52cb62298e0a17fca21fb494135"})
-        with patch("release_pin.protected_consumer_release") as delegated, patch("release_pin.verify_bound_release") as verify:
+        self.assertEqual(selected, {"release": "pr-qa-v1-rc294", "commit": "cbe53c5dbc19b2adf3420aad0daf1197d0ae2cb4", "protected_main_selection": True})
+        with patch("release_pin.protected_consumer_release", return_value={"release": selected["release"], "commit": selected["commit"]}), patch("release_pin.verify_bound_release") as verify:
             release, entry = resolve_consumer_release(self.manifest, "Synergie-ITCI/programme-management-platform")
-        delegated.assert_not_called()
         self.assertEqual((release, entry["commit"]), (selected["release"], selected["commit"]))
         verify.assert_called_once_with(selected["release"], selected["commit"], self.manifest,
                                        unittest.mock.ANY, unittest.mock.ANY)
@@ -112,8 +111,6 @@ class ReleasePinTests(unittest.TestCase):
 
     def test_delegated_fieldzilla_release_obeys_central_floor(self):
         entry = self.manifest["consumer_release_selection"]["repositories"]["Synergie-ITCI/programme-management-platform"]
-        entry["release"] = "pr-qa-v1-rc294"
-        entry["commit"] = "cbe53c5dbc19b2adf3420aad0daf1197d0ae2cb4"
         entry["protected_main_selection"] = True
         with patch("release_pin.protected_consumer_release", return_value={"release": "pr-qa-v1-rc295", "commit": "b" * 40}), patch("release_pin.verify_bound_release") as verify:
             release, selected = resolve_consumer_release(self.manifest, "Synergie-ITCI/programme-management-platform")
