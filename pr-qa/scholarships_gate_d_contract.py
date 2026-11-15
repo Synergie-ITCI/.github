@@ -29,6 +29,7 @@ FIRST_CUTOVER_RECEIPT_RESUME_MANIFEST = Path(__file__).resolve().parents[1] / "p
 FIRST_CUTOVER_REHEARSAL_PREFLIGHT_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr30-first-cutover.json"
 FIRST_CUTOVER_REHEARSAL_IDENTITY_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr31-first-cutover.json"
 FIRST_CUTOVER_REHEARSAL_NODE_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr32-first-cutover.json"
+FIRST_CUTOVER_SYNTHETIC_REHEARSAL_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr33-first-cutover.json"
 HOST = "mi-04a256fa549e372a8"
 ACCOUNT = "918870682888"
 RELEASE_DOCUMENT = "Scholarships-GateD-Production-Command-v1"
@@ -654,6 +655,68 @@ def verify_first_cutover_rehearsal_node(repo: Path, changed: list[str], head: st
             or "i-060e4ec1fd5345c30" not in source
             or any(token in source for token in ("os.system", "subprocess.Popen", "shutil.rmtree", "write_text("))):
         errors.append("fixed read-only rehearsal node boundary changed")
+    return errors
+
+
+def verify_first_cutover_synthetic_rehearsal(repo: Path, changed: list[str], head: str,
+                                              comments: list[dict[str, Any]]) -> list[str]:
+    """Certify exact PR #33 fixed SSM synthetic cutover and rollback scope."""
+    manifest = _read_json(FIRST_CUTOVER_SYNTHETIC_REHEARSAL_MANIFEST)
+    expected = {".github/workflows/scholarships-first-cutover.yml",
+                "deploy/FIRST_CUTOVER_ACTIVATION.md",
+                "deploy/compile-first-synthetic-rehearsal-document.py",
+                "deploy/first-synthetic-rehearsal.py",
+                "deploy/private-storage.sh", "deploy/production-release.sh",
+                "deploy/rollback.sh", "deploy/scholarships-first-cutover-command-v1.json",
+                "deploy/scholarships-first-synthetic-rehearsal-command-v1.json",
+                "tests/test_first_cutover_approval.py",
+                "tests/test_first_synthetic_rehearsal.py"}
+    errors: list[str] = []
+    if (manifest.get("repository") != "Synergie-ITCI/scholarships"
+            or manifest.get("pr_number") != 33 or manifest.get("head_sha") != head
+            or manifest.get("technical_certification_owner") != "SaurabhVermaIN"
+            or manifest.get("removed_paths") != []):
+        errors.append("synthetic rehearsal certification identity changed")
+    files = manifest.get("files")
+    if not isinstance(files, dict) or set(files) != expected or set(changed) != expected:
+        errors.append("synthetic rehearsal changed-file scope changed")
+        return errors
+    for rel, digest in files.items():
+        path = repo / rel
+        if (not re.fullmatch(r"[0-9a-f]{64}", str(digest))
+                or not path.is_file() or path.is_symlink() or path.stat().st_size > 1_000_000
+                or hashlib.sha256(path.read_bytes()).hexdigest() != digest):
+            errors.append(f"synthetic rehearsal certified file changed: {rel}")
+    if errors:
+        return errors
+    if not _owner_certified(comments, "SaurabhVermaIN", head,
+                            hashlib.sha256(FIRST_CUTOVER_SYNTHETIC_REHEARSAL_MANIFEST.read_bytes()).hexdigest()):
+        errors.append("owner-led synthetic rehearsal certification is absent")
+    runner = (repo / "deploy/first-synthetic-rehearsal.py").read_text()
+    release = (repo / "deploy/production-release.sh").read_text()
+    workflow = (repo / ".github/workflows/scholarships-first-cutover.yml").read_text()
+    document = _read_json(repo / "deploy/scholarships-first-synthetic-rehearsal-command-v1.json")
+    params = document.get("parameters", {})
+    steps = document.get("mainSteps", [])
+    if (set(params) != {"ArtifactUrl", "RollbackArtifactUrl"}
+            or not all(p.get("interpolationType") == "ENV_VAR" for p in params.values())
+            or "2449283b4b70f4cc00698540c88ff8dbbc939c4ae99f496d3aaf72f1a4a1bc2c" not in params["ArtifactUrl"].get("allowedPattern", "")
+            or "e6e752d9d8aef0aa7342390e1900a8ed8c17c74f963811d3f292d63b4079114e" not in params["RollbackArtifactUrl"].get("allowedPattern", "")
+            or len(steps) != 1 or steps[0].get("action") != "aws:runShellScript"
+            or "{{" in str(steps)
+            or "i-060e4ec1fd5345c30" not in runner
+            or "ec265fe7-70f0-ff7a-3d00-df5b7e29a614" not in runner
+            or "127.0.0.1:18083" not in runner
+            or "DROP DATABASE IF EXISTS" not in runner
+            or "APACHE_CONF.unlink()" not in runner
+            or "shutil.rmtree" not in runner
+            or "SCHOLARSHIPS_TEST_MODE" not in release
+            or "scholarships-first-rehearsal-????????" not in release
+            or "--document-version 3" not in workflow
+            or workflow.count('Document.DefaultVersion --output text)" = 3') != 1
+            or workflow.count('Document.LatestVersion --output text)" = 3') != 1
+            or "AWS-RunShellScript" in workflow):
+        errors.append("fixed synthetic SSM or production boundary changed")
     return errors
 
 

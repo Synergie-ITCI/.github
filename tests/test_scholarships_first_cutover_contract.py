@@ -405,6 +405,50 @@ class FirstCutoverContractTests(unittest.TestCase):
             (self.root / changed[0]).write_text('changed\n')
             self.assertIn('certified file changed', ' '.join(verify([comment])))
 
+    def test_synthetic_rehearsal_requires_exact_scope_and_owner(self):
+        changed = ['.github/workflows/scholarships-first-cutover.yml',
+                   'deploy/FIRST_CUTOVER_ACTIVATION.md',
+                   'deploy/compile-first-synthetic-rehearsal-document.py',
+                   'deploy/first-synthetic-rehearsal.py', 'deploy/private-storage.sh',
+                   'deploy/production-release.sh', 'deploy/rollback.sh',
+                   'deploy/scholarships-first-cutover-command-v1.json',
+                   'deploy/scholarships-first-synthetic-rehearsal-command-v1.json',
+                   'tests/test_first_cutover_approval.py',
+                   'tests/test_first_synthetic_rehearsal.py']
+        for rel in changed:
+            self.write(rel, 'reviewed content\n')
+        self.write(changed[0], '--document-version 3\n'
+                   'Document.DefaultVersion --output text)" = 3\n'
+                   'Document.LatestVersion --output text)" = 3\n')
+        self.write(changed[3], 'i-060e4ec1fd5345c30\n'
+                   'ec265fe7-70f0-ff7a-3d00-df5b7e29a614\n'
+                   '127.0.0.1:18083\nDROP DATABASE IF EXISTS\n'
+                   'APACHE_CONF.unlink()\nshutil.rmtree\n')
+        self.write(changed[5], 'SCHOLARSHIPS_TEST_MODE\n'
+                   'scholarships-first-rehearsal-????????\n')
+        self.write(changed[8], json.dumps({'parameters': {
+            'ArtifactUrl': {'interpolationType': 'ENV_VAR', 'allowedPattern':
+                '2449283b4b70f4cc00698540c88ff8dbbc939c4ae99f496d3aaf72f1a4a1bc2c'},
+            'RollbackArtifactUrl': {'interpolationType': 'ENV_VAR', 'allowedPattern':
+                'e6e752d9d8aef0aa7342390e1900a8ed8c17c74f963811d3f292d63b4079114e'}},
+            'mainSteps': [{'action': 'aws:runShellScript',
+                           'inputs': {'runCommand': ['fixed']}}]}))
+        manifest = self.root / 'synthetic-rehearsal.json'
+        manifest.write_text(json.dumps({'repository': 'Synergie-ITCI/scholarships',
+            'pr_number': 33, 'head_sha': HEAD, 'removed_paths': [],
+            'technical_certification_owner': 'SaurabhVermaIN',
+            'files': {name: self.files[name] for name in changed}}))
+        digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
+        comment = dict(self.comment, body=self.comment['body'].replace(
+            self.comment['body'].splitlines()[1], f'CERTIFIED_MANIFEST_SHA256={digest}'))
+        with patch.object(contract, 'FIRST_CUTOVER_SYNTHETIC_REHEARSAL_MANIFEST', manifest):
+            verify = lambda comments: contract.verify_first_cutover_synthetic_rehearsal(
+                self.root, changed, HEAD, comments)
+            self.assertEqual(verify([comment]), [])
+            self.assertIn('owner-led', ' '.join(verify([])))
+            (self.root / changed[3]).write_text('changed\n')
+            self.assertIn('certified file changed', ' '.join(verify([comment])))
+
     def test_exact_ssm_repair_requires_posix_wrapper_and_owner(self):
         names = ('backup', 'upload', 'restore', 'cutover')
         changed = ['.github/workflows/scholarships-first-cutover-prepare.yml',

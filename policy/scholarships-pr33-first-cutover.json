@@ -1,0 +1,20 @@
+{
+  "files": {
+    ".github/workflows/scholarships-first-cutover.yml": "e22923696185162d90562a4fd9a74d3c3b5aac0681d820cbf29ef372fb753400",
+    "deploy/FIRST_CUTOVER_ACTIVATION.md": "5230a7e7a75a04d41fb2a83f6d390f5ca7ce571e705885e7f3901e6ce4c206f2",
+    "deploy/compile-first-synthetic-rehearsal-document.py": "453bc907adca512bc9ede92c124a7485346144b7b238249fd7001c8bec65d2c5",
+    "deploy/first-synthetic-rehearsal.py": "8ddbb171ec98646cda7531b6d7c829b0e6dbabccc4cf02bdb5b5714e4117f069",
+    "deploy/private-storage.sh": "97cc8b09ad0d71cf62562ff8ccbf87624fe983087c58060d895cc89461741777",
+    "deploy/production-release.sh": "968c1c681a0f6336b1ad50c2dfbb51499d0f850870ed2a39ae97cc7fcb06183f",
+    "deploy/rollback.sh": "1959da4be3420b724fc75f140b43e8b34f4eb0c07d4f8eab194865d6033d4a63",
+    "deploy/scholarships-first-cutover-command-v1.json": "dcbc17a71655113c6a3748644487daec555d673327b5d55047048a20873f966e",
+    "deploy/scholarships-first-synthetic-rehearsal-command-v1.json": "8cc7630485b09bf3f67b03cbac3c263aa90574c717d489a276d229151c7d871d",
+    "tests/test_first_cutover_approval.py": "33c19086d099b4a6cddcf63f340a531f23923f6c10131f05949105e00189db1e",
+    "tests/test_first_synthetic_rehearsal.py": "77851ad1f3aecbc8a060400f5cb072622a3e8ea07ed21c8b54840ae8d8b19b58"
+  },
+  "head_sha": "555a8f8309a450a24c783bddcf1d900a57bd6f3e",
+  "pr_number": 33,
+  "removed_paths": [],
+  "repository": "Synergie-ITCI/scholarships",
+  "technical_certification_owner": "SaurabhVermaIN"
+}
