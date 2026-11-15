@@ -300,7 +300,7 @@ class LiveWorkerCloud(Cloud):
                 digest = ("changed" if self.bad_worker_digest else self.manifest["worker_digest"]) if kind == "worker" else self.manifest["application"][kind + "_digest"]
                 rows.append({"taskArn": arn, "group": "service:fieldzilla-production-" + kind,
                              "taskDefinitionArn": self.services["fieldzilla-production-" + kind]["taskDefinition"],
-                             "containerInstanceArn": self.instance, "lastStatus": "RUNNING",
+                             "containerInstanceArn": self.instance, "lastStatus": "RUNNING", "desiredStatus": "RUNNING",
                              "containers": [{"name": kind, "lastStatus": "RUNNING", "imageDigest": digest}]})
             return {"tasks": rows}
         if action == "run-task":
@@ -360,6 +360,8 @@ class LiveWriterFenceTests(unittest.TestCase):
         engine.restore_worker()
         self.assertEqual(engine.wait_worker(attempts=1)["digest"], self.manifest["worker_digest"])
         self.assertEqual(self.cloud.services["fieldzilla-production-worker"]["taskDefinition"], self.manifest["prior_tasks"]["worker"])
+        self.assertTrue(all("serviceName" not in request for _, action, request in self.cloud.calls
+                            if action == "list-tasks" and "containerInstance" in request))
 
     def test_worker_image_or_extra_task_blocks_before_approval_mutation(self):
         for defect in ("bad_worker_digest", "extra"):
@@ -561,52 +563,41 @@ class RuntimeCloud(Cloud):
             "describe-target-health",
         }:
             self.calls.append((service, action, copy.deepcopy(request)))
-            if action == "list-tasks" and "serviceName" in request:
+            if action == "list-tasks":
                 return {
                     "taskArns": [
                         "arn:aws:ecs:ap-south-1:918870682888:task/fieldzilla-production/"
-                        + ("a" if request["serviceName"].endswith("-api") else "b") * 32
+                        + letter * 32 for letter in "ab"
                     ]
                 }
             if action == "describe-tasks":
-                kind = "api" if request["tasks"][0].endswith("a" * 32) else "admin-web"
-                current = self.services["fieldzilla-production-" + kind]
-                port = current["loadBalancers"][0]["containerPort"]
-                row = {
-                    "taskArn": request["tasks"][0],
-                    "taskDefinitionArn": current["taskDefinition"],
-                    "group": "service:fieldzilla-production-" + kind,
-                    "lastStatus": "RUNNING",
-                    "desiredStatus": "RUNNING",
-                    "containerInstanceArn": self.instance,
-                    "containers": [
-                        {
-                            "name": kind,
-                            "lastStatus": "RUNNING",
-                            "imageDigest": self.manifest["application"][
-                                kind + "_digest"
-                            ],
-                            "networkBindings": [
-                                {
-                                    "containerPort": port,
-                                    "hostPort": port,
-                                    "protocol": "tcp",
-                                }
-                            ],
-                        }
-                    ],
-                }
-                if self.tamper == "digest":
-                    row["containers"][0]["imageDigest"] = "wrong"
-                if self.tamper == "group":
-                    row["group"] = "service:another"
-                if self.tamper == "port":
-                    row["containers"][0]["networkBindings"][0]["hostPort"] += 1
-                if self.tamper == "cluster":
-                    row["containerInstanceArn"] = self.instance.replace(
-                        "production/", "staging/"
-                    )
-                return {"tasks": [row]}
+                rows = []
+                for arn in request["tasks"]:
+                    kind = "api" if arn.endswith("a" * 32) else "admin-web"
+                    current = self.services["fieldzilla-production-" + kind]
+                    port = current["loadBalancers"][0]["containerPort"]
+                    row = {
+                        "taskArn": arn,
+                        "taskDefinitionArn": current["taskDefinition"],
+                        "group": "service:fieldzilla-production-" + kind,
+                        "lastStatus": "RUNNING", "desiredStatus": "RUNNING",
+                        "containerInstanceArn": self.instance,
+                        "containers": [{
+                            "name": kind, "lastStatus": "RUNNING",
+                            "imageDigest": self.manifest["application"][kind + "_digest"],
+                            "networkBindings": [{"containerPort": port, "hostPort": port, "protocol": "tcp"}],
+                        }],
+                    }
+                    if self.tamper == "digest" and kind == "api":
+                        row["containers"][0]["imageDigest"] = "wrong"
+                    if self.tamper == "group" and kind == "api":
+                        row["group"] = "service:another"
+                    if self.tamper == "port" and kind == "api":
+                        row["containers"][0]["networkBindings"][0]["hostPort"] += 1
+                    if self.tamper == "cluster" and kind == "api":
+                        row["containerInstanceArn"] = self.instance.replace("production/", "staging/")
+                    rows.append(row)
+                return {"tasks": rows}
             if action == "describe-container-instances":
                 return {
                     "containerInstances": [
@@ -681,6 +672,8 @@ class RuntimeReadbackTests(unittest.TestCase):
     def test_reads_actual_images_and_exclusive_healthy_targets_without_writes(self):
         before = len(self.cloud.calls)
         result = self.engine.verify_runtime()
+        self.assertTrue(all("serviceName" not in request for _, action, request in self.cloud.calls
+                            if action == "list-tasks" and "containerInstance" in request))
         self.assertEqual(set(result), {"api", "admin-web"})
         self.assertFalse(
             any(
