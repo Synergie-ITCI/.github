@@ -25,6 +25,7 @@ FIRST_CUTOVER_BACKUP_CLEANUP_MANIFEST = Path(__file__).resolve().parents[1] / "p
 FIRST_CUTOVER_RESTORE_DIAGNOSTIC_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr26-first-cutover.json"
 FIRST_CUTOVER_MYSQL_WORKSPACE_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr27-first-cutover.json"
 FIRST_CUTOVER_MYSQL_SHUTDOWN_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr28-first-cutover.json"
+FIRST_CUTOVER_RECEIPT_RESUME_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr29-first-cutover.json"
 HOST = "mi-04a256fa549e372a8"
 ACCOUNT = "918870682888"
 RELEASE_DOCUMENT = "Scholarships-GateD-Production-Command-v1"
@@ -471,6 +472,57 @@ def verify_first_cutover_mysql_shutdown(repo: Path, changed: list[str], head: st
             or "server.terminate()" in restore
             or "traceback.print_exc(limit=8)" not in restore):
         errors.append("least-privilege MySQL shutdown or cleanup changed")
+    return errors
+
+
+def verify_first_cutover_receipt_resume(repo: Path, changed: list[str], head: str,
+                                        comments: list[dict[str, Any]]) -> list[str]:
+    """Certify the exact one-use receipt continuation in PR #29."""
+    manifest = _read_json(FIRST_CUTOVER_RECEIPT_RESUME_MANIFEST)
+    errors: list[str] = []
+    if (manifest.get("repository") != "Synergie-ITCI/scholarships"
+            or manifest.get("pr_number") != 29
+            or manifest.get("head_sha") != head
+            or manifest.get("technical_certification_owner") != "SaurabhVermaIN"
+            or manifest.get("removed_paths") != []):
+        errors.append("first-cutover receipt continuation identity changed")
+    expected = {".github/workflows/scholarships-first-cutover-prepare.yml",
+                "deploy/FIRST_CUTOVER_ACTIVATION.md", "deploy/first-receipt-resume.py",
+                "tests/test_first_receipt_resume.py"}
+    files = manifest.get("files")
+    if not isinstance(files, dict) or set(files) != expected or set(changed) != expected:
+        errors.append("first-cutover receipt continuation scope changed")
+        return errors
+    for rel, digest in files.items():
+        path = repo / rel
+        if (not re.fullmatch(r"[0-9a-f]{64}", str(digest))
+                or not path.is_file() or path.is_symlink() or path.stat().st_size > 1_000_000
+                or hashlib.sha256(path.read_bytes()).hexdigest() != digest):
+            errors.append(f"first-cutover receipt continuation certified file changed: {rel}")
+    if errors:
+        return errors
+    if not _owner_certified(comments, "SaurabhVermaIN", head,
+                            hashlib.sha256(FIRST_CUTOVER_RECEIPT_RESUME_MANIFEST.read_bytes()).hexdigest()):
+        errors.append("owner-led first-cutover receipt continuation certification is absent")
+    workflow = (repo / ".github/workflows/scholarships-first-cutover-prepare.yml").read_text()
+    resume = (repo / "deploy/first-receipt-resume.py").read_text()
+    if ("!inputs.resume_verified_receipt" not in workflow
+            or "inputs.resume_verified_receipt" not in workflow
+            or "github.actor == 'SaurabhVermaIN'" not in workflow
+            or "github.ref == 'refs/heads/main'" not in workflow
+            or "github.run_attempt == 1" not in workflow
+            or "environment: production" not in workflow
+            or "python3 deploy/first-receipt-resume.py" not in workflow
+            or "AWS-RunShellScript" in workflow):
+        errors.append("bounded receipt workflow gate changed")
+    if ("PREFIX = 'applications/scholarships/first-cutover/43713023653'" not in resume
+            or "'restore': ('1d45ad9e-13e3-4c06-851c-205df77403a2'" not in resume
+            or "'DocumentVersion'" not in resume
+            or "ChecksumMode='ENABLED'" not in resume
+            or "IfNoneMatch='*'" not in resume
+            or "get_command_invocation" not in resume
+            or "send_command" in resume):
+        errors.append("fixed receipt evidence or one-use boundary changed")
     return errors
 
 
