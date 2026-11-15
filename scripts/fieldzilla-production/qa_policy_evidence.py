@@ -21,7 +21,7 @@ from pathlib import Path
 
 from execution_artifact import _unique_object
 from execution_gate import REPOSITORY
-from issued_windows import SQL_FREE_PRODUCTION_BASE, SQL_FREE_PRODUCTION_SOURCE
+from issued_windows import SQL_FREE_PRODUCTION_BASE, SQL_FREE_PRODUCTION_SOURCE, is_sql_free_update
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "pr-qa"))
 from release_pin import resolve_consumer_release
@@ -281,6 +281,7 @@ def verify_qa_policy_evidence(
         raise TypeError("Final QA binding must be an object")
     ordinary_qa = (
         manifest.get("scope") == "production-images"
+        or is_sql_free_update(manifest)
         or (
             manifest.get("scope") == "production"
             and manifest.get("promotion_pr") == 772

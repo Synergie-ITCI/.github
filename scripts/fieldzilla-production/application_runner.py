@@ -21,7 +21,7 @@ from application_plan import render
 from approval_receipts import ApprovalReceipt
 from execution_artifact import read_manifest_artifact
 from execution_gate import REPOSITORY
-from issued_windows import verify_issued_windows
+from issued_windows import is_sql_free_update, verify_issued_windows
 from qa_policy_evidence import verify_qa_policy_evidence
 from rehearsal_context import verify_production_context, verify_rehearsal_context
 
@@ -190,7 +190,12 @@ def execute_production(manifest, receipt, journal, *, aws, executor=Executor):
         engine.preflight()
         receipt.consume()
         engine.prepare()
-        engine.migrate()
+        if is_sql_free_update(manifest):
+            engine.attest_database("before")
+            engine.attest_database("after")
+            engine.record("migration_skipped", reason="exact_pr780_database_already_current")
+        else:
+            engine.migrate()
         engine.start()
         services = engine.wait_runtime()
         engine.restore_worker()

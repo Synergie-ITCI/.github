@@ -151,7 +151,15 @@ immutable QA policy release that actually passed for this candidate. An old gree
 main-only issuance cannot activate a new or extended record. No policy record,
 expiry, scanner or consumer selection is changed by this guard.
 
-The same exact PR #772 SQL-free rollout may use its ordinary PASS QA report with
+The exact PR #780 activation hotfix may omit SQL review only for its pinned
+source/base and unchanged production revisions `0041+0074` before and after.
+The same changed-file proof rejects any SQL or Alembic change. After the normal
+three-service writer and queue fence, the executor attests database identity,
+role, privilege and revisions twice without launching a migration. It then
+starts API and Admin and restores the unchanged Worker. This path does not
+retroactively authorize a retry of PR #772's consumed rollout approval.
+
+The exact PR #772 and PR #780 SQL-free rollouts may use their ordinary PASS QA reports with
 no requested or granted baseline relaxation. The executor still verifies the
 selected immutable QA release, exact source/base, live review window, migration
 bytes, and production preflight before any mutation. Other production rollouts
