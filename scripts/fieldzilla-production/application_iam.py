@@ -28,10 +28,13 @@ def deployment_policy(manifest: dict) -> dict:
         prefix + "task-definition/" + row["family"] + ":*"
         for row in plan["task_definitions"]
     ]
-    services = [
+    application_services = [
         prefix + f"service/fieldzilla-{scope}/" + row["serviceName"]
         for row in plan["service_preparation"]
     ]
+    services = list(application_services)
+    if scope == "production":
+        services.append(prefix + "service/fieldzilla-production/fieldzilla-production-worker")
     condition = {"ArnEquals": {"ecs:cluster": cluster}}
     statements = []
 
@@ -81,7 +84,7 @@ def deployment_policy(manifest: dict) -> dict:
     allow(
         "CreateOnlyTargetServices",
         ["ecs:CreateService"],
-        services,
+        application_services,
         {
             "ArnEquals": {"ecs:cluster": cluster},
             "ArnLike": {"ecs:task-definition": definitions[:2]},
@@ -97,7 +100,10 @@ def deployment_policy(manifest: dict) -> dict:
             "ArnLikeIfExists": {"ecs:task-definition": definitions[:2]},
         },
     )
-    allow("RunOnlyMigrationFamily", ["ecs:RunTask"], [definitions[2]], condition)
+    run_families = [definitions[2]]
+    if scope == "production":
+        run_families.append(definitions[0])  # read-only queue attestor, exact API image
+    allow("RunOnlyAttestationAndMigrationFamilies", ["ecs:RunTask"], run_families, condition)
     roles = {row["executionRoleArn"] for row in plan["task_definitions"]}
     roles.add(plan["task_definitions"][0]["taskRoleArn"])
     allow(
@@ -125,14 +131,14 @@ def deployment_policy(manifest: dict) -> dict:
             for row in plan["service_preparation"]
         ],
     )
+    log_kinds = ["migration", "api"] if scope == "production" else ["migration"]
     allow(
-        "ReadOnlyCandidateMigrationAttestations",
+        "ReadOnlyCandidateAttestations",
         ["logs:GetLogEvents"],
         [
-            (
-                f"arn:aws:logs:{REGION}:{ACCOUNT}:log-group:/synergie/fieldzilla/{scope}/migration:"
-                f"log-stream:{plan['source_sha']}/migration/*"
-            )
+            f"arn:aws:logs:{REGION}:{ACCOUNT}:log-group:/synergie/fieldzilla/{scope}/{kind}:"
+            f"log-stream:{plan['source_sha']}/{kind}/*"
+            for kind in log_kinds
         ],
     )
     if scope == "production":

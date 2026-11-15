@@ -135,7 +135,7 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(self.calls, [])
 
     def test_production_is_separately_bound_and_does_not_claim_cutover(self):
-        self.manifest.update(scope="production", operation="rollout")
+        self.manifest.update(scope="production", operation="rollout", prior_tasks={"api": None, "admin-web": None, "worker": "exact"}, worker_digest="sha256:" + "f" * 64)
         with tempfile.TemporaryDirectory() as folder:
             report = execute_production(
                 self.manifest, self.receipt, Path(folder) / "journal",
@@ -143,10 +143,18 @@ class RunnerTests(unittest.TestCase):
             )
         self.assertEqual(
             self.calls,
-            ["constructed", "preflight", "consume", "prepare", "migrate", "start", "wait_runtime", "record", "close"],
+            ["constructed", "preflight", "consume", "prepare", "migrate", "start", "wait_runtime", "restore_worker", "wait_worker", "record", "close"],
         )
         self.assertIs(report["production_live"], False)
         self.assertIn("CUTOVER_AND_ACCEPTANCE_REQUIRED", report["status"])
+
+    def test_production_missing_worker_binding_never_constructs_executor(self):
+        self.manifest.update(scope="production", operation="rollout")
+        with tempfile.TemporaryDirectory() as folder:
+            with self.assertRaisesRegex(ValueError, "prior worker"):
+                execute_production(self.manifest, self.receipt, Path(folder) / "journal",
+                                   aws=lambda *args: None, executor=self.engine)
+        self.assertEqual(self.calls, [])
 
     def test_failure_does_not_retry_migration_or_silently_recover(self):
         for failure in ("preflight", "consume", "prepare", "migrate", "wait_runtime"):

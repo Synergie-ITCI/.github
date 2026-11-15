@@ -79,6 +79,30 @@ Existing production roles Application and TaskExecution are confirmed;
 AdminExecution and MigrationExecution returned NoSuchEntity. Reuse the existing
 API role rather than proposing duplicate grants.
 
+## Existing three-service production rollout
+
+The production rollout manifest binds the prior API, Admin and Worker task
+revisions and the Worker's executing image digest. Before consuming its one-use
+approval, the executor verifies that these are the only three running tasks on
+the approved host, with no pending cluster task. After approval it registers
+the exact candidate definitions, stops API and Admin, and waits for their tasks
+to exit. A digest-pinned API one-off task then reads only tenant-scoped aggregate
+outbox counts under the same runtime role and tenant context as Worker. Worker
+is stopped only if no processing or due work remains. A second queue attestation
+after Worker stops requires zero processing claims; the cluster must then have
+zero tasks before migration. The worker is restored using its unchanged task
+revision after API and Admin target health is verified; its task, digest and
+stable service rollout are read back before infrastructure success is reported.
+
+The transactional outbox is durable, but an interrupted SES send could duplicate
+an email on lease retry. The executor therefore never assumes a stop is safe
+merely because the ECS task exited. It never clears, requeues or edits outbox
+rows. A failed queue proof, writer fence, migration or restoration stops without
+automatic replay, database rollback or old-image restart. Keep writers stopped
+and reconcile the private journal, task state, database revision and queue
+effects before a separately reviewed recovery. This is a maintenance-window
+rollout, not zero downtime.
+
 Bootstrap dependency: current main has only hosting and a NO_DEPLOY gate caller.
 The small new manual application caller needs its own exact preparation merge;
 it must never target staging or gain automatic push deployment. Such a main

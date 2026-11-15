@@ -95,6 +95,7 @@ class Executor:
     ):
         self.manifest = manifest
         self.scope = manifest["scope"]
+        self.has_worker = self.scope == "production" and "worker_digest" in manifest
         self.plan = render(manifest["application"], scope=self.scope)
         self.cluster = "fieldzilla-" + self.scope
         self.instance = manifest.get("container_instance_arn", "")
@@ -158,7 +159,8 @@ class Executor:
         return rows[0]
 
     def quiet(self):
-        for kind in ("api", "admin-web"):
+        kinds = ("api", "admin-web", "worker") if self.has_worker else ("api", "admin-web")
+        for kind in kinds:
             current = self.service(kind)
             if current and any(
                 current.get(key) != 0
@@ -231,9 +233,12 @@ class Executor:
                 raise ExecutionError(
                     "Exact encrypted manual production snapshot is not Available"
                 )
-        self.quiet()
-        if set(self.manifest["prior_tasks"]) != {"api", "admin-web"}:
-            raise ExecutionError("Both exact prior service states must be recorded")
+        if set(self.manifest["prior_tasks"]) != (
+            {"api", "admin-web", "worker"}
+            if self.has_worker
+            else {"api", "admin-web"}
+        ):
+            raise ExecutionError("Every exact prior service state must be recorded")
         for request in self.plan["service_preparation"]:
             kind = request["serviceName"].removeprefix(self.cluster + "-")
             current = self.service(kind)
@@ -246,6 +251,99 @@ class Executor:
                 or current.get("loadBalancers") != request["loadBalancers"]
             ):
                 raise ExecutionError("Prior service identity or target group changed")
+        if self.has_worker:
+            worker = self.service("worker")
+            if (
+                worker is None
+                or worker.get("taskDefinition") != self.manifest["prior_tasks"]["worker"]
+                or worker.get("loadBalancers") != []
+                or any(worker.get(key) != value for key, value in (
+                    ("desiredCount", 1), ("runningCount", 1), ("pendingCount", 0)
+                ))
+            ):
+                raise ExecutionError("Exact prior worker identity changed")
+            cluster = self.aws("ecs", "describe-clusters", {"clusters": [self.cluster]})
+            clusters = cluster.get("clusters", [])
+            if (cluster.get("failures") or len(clusters) != 1
+                    or clusters[0].get("clusterArn") != f"arn:aws:ecs:{REGION}:{ACCOUNT}:cluster/{self.cluster}"
+                    or clusters[0].get("runningTasksCount") != 3
+                    or clusters[0].get("pendingTasksCount") != 0):
+                raise ExecutionError("Production cluster writer count differs")
+            # Reject an unexpected fourth task before stopping any service.
+            listing = self.aws("ecs", "list-tasks", {
+                "cluster": self.cluster, "containerInstance": self.instance,
+                "desiredStatus": "RUNNING",
+            })
+            arns = listing.get("taskArns", [])
+            if listing.get("nextToken") or len(arns) != 3:
+                raise ExecutionError("Production writer set differs from three services")
+            tasks = self.aws("ecs", "describe-tasks", {
+                "cluster": self.cluster, "tasks": arns,
+            })
+            expected_groups = {"service:" + self.cluster + "-" + kind
+                               for kind in ("api", "admin-web", "worker")}
+            rows = tasks.get("tasks", [])
+            if (tasks.get("failures") or len(rows) != 3
+                    or {row.get("group") for row in rows} != expected_groups
+                    or any(row.get("containerInstanceArn") != self.instance
+                           or row.get("lastStatus") != "RUNNING" for row in rows)):
+                raise ExecutionError("Production task identity differs")
+            worker_task = next(row for row in rows if row["group"].endswith("-worker"))
+            containers = worker_task.get("containers", [])
+            if (worker_task.get("taskDefinitionArn") != self.manifest["prior_tasks"]["worker"]
+                    or len(containers) != 1 or containers[0].get("name") != "worker"
+                    or containers[0].get("imageDigest") != self.manifest["worker_digest"]):
+                raise ExecutionError("Prior worker image differs")
+        else:
+            self.quiet()
+
+    def stop_writers(self):
+        if not self.has_worker:
+            raise ExecutionError("Only production has a live writer fence")
+        # Frontends stop producing new outbox work while Worker drains.
+        for kind in ("api", "admin-web"):
+            current = self.service(kind)
+            if current is None or current.get("taskDefinition") != self.manifest["prior_tasks"][kind]:
+                raise ExecutionError("Writer changed before maintenance stop")
+            self.mutate("update-service", {
+                "cluster": self.cluster, "service": self.cluster + "-" + kind,
+                "desiredCount": 0,
+            })
+            self.record("writer_stop_requested", kind=kind)
+        for _ in range(120):
+            if all(
+                (row := self.service(kind)) is not None
+                and all(row.get(key) == 0 for key in ("desiredCount", "runningCount", "pendingCount"))
+                for kind in ("api", "admin-web")
+            ):
+                break
+            self.sleep(5)
+        else:
+            raise ExecutionError("Frontend drain timed out; reviewed recovery required")
+        self.record("frontends_stopped")
+        self.attest_queue("before")
+        current = self.service("worker")
+        if (current is None or current.get("taskDefinition") != self.manifest["prior_tasks"]["worker"]
+                or current.get("desiredCount") != 1 or current.get("runningCount") != 1):
+            raise ExecutionError("Worker changed before maintenance stop")
+        self.mutate("update-service", {
+            "cluster": self.cluster, "service": self.cluster + "-worker",
+            "desiredCount": 0,
+        })
+        self.record("writer_stop_requested", kind="worker")
+        for _ in range(120):
+            try:
+                self.quiet()
+                self.record("writer_fence_verified")
+                break
+            except ExecutionError as error:
+                if str(error) not in {"Target service is not stopped", "A target-cluster task can still write"}:
+                    raise
+            self.sleep(5)
+        else:
+            raise ExecutionError("Writer fence timed out; keep services stopped for reviewed recovery")
+        self.attest_queue("after")
+        self.quiet()
 
     def prepare(self):
         self.preflight()
@@ -265,6 +363,8 @@ class Executor:
                 )
             self.tasks[kind] = arn
             self.record("task_registered", kind=kind, arn=arn)
+        if self.has_worker:
+            self.stop_writers()
         for request in self.plan["service_preparation"]:
             kind = request["serviceName"].removeprefix(self.cluster + "-")
             current = self.service(kind)
@@ -353,6 +453,39 @@ class Executor:
             "Task outcome unresolved; hold writes and inspect, never replay blindly"
         )
 
+    def attest_queue(self, phase: str):
+        if not self.has_worker or phase not in {"before", "after"}:
+            raise ExecutionError("Unknown queue attestation phase")
+        row = self.task("api", command=["python", "-c", QUEUE_ATTESTATION],
+                        phase="queue-" + phase)
+        task_id = row["taskArn"].rsplit("/", 1)[-1]
+        request = {
+            "logGroupName": "/synergie/fieldzilla/production/api",
+            "logStreamName": self.plan["source_sha"] + "/api/" + task_id,
+            "startFromHead": True,
+        }
+        observed = []
+        for _ in range(12):
+            reply = self.aws("logs", "get-log-events", request)
+            for event in reply.get("events", []):
+                message = event.get("message", "")
+                if message.startswith("FZ_QUEUE_ATTESTATION="):
+                    observed.append(json.loads(message.split("=", 1)[1]))
+            token = reply.get("nextForwardToken")
+            if not token or request.get("nextToken") == token:
+                break
+            request["nextToken"] = token
+        if len(observed) != 1:
+            raise ExecutionError("Queue attestation is absent or ambiguous")
+        facts = observed[0]
+        if (type(facts.get("tenants")) is not int or facts["tenants"] < 1
+                or type(facts.get("processing")) is not int or facts["processing"] != 0
+                or type(facts.get("due")) is not int or facts["due"] < 0
+                or (phase == "before" and facts["due"] != 0)):
+            raise ExecutionError("Outbox is not safely drained; keep writes fenced")
+        self.record("queue_attested", phase=phase, tenants=facts["tenants"],
+                    processing=facts["processing"], due=facts["due"])
+
     def attest_database(self, phase: str):
         if phase not in {"before", "after"}:
             raise ExecutionError("Unknown database attestation phase")
@@ -417,6 +550,67 @@ class Executor:
         # Caller must perform exact task/image/target health and authenticated
         # sync verification before traffic is eligible. Merely starting is not PASS.
         self.record("awaiting_runtime_verification")
+
+    def restore_worker(self):
+        if not self.has_worker:
+            return
+        current = self.service("worker")
+        if (current is None
+                or current.get("taskDefinition") != self.manifest["prior_tasks"]["worker"]
+                or current.get("desiredCount") != 0
+                or current.get("runningCount") != 0
+                or current.get("pendingCount") != 0):
+            raise ExecutionError("Worker changed before restoration")
+        self.mutate("update-service", {
+            "cluster": self.cluster,
+            "service": self.cluster + "-worker",
+            "desiredCount": 1,
+        })
+        self.record("worker_restoration_requested")
+
+    def wait_worker(self, *, attempts: int = 120):
+        if not self.has_worker or type(attempts) is not int or not 1 <= attempts <= 120:
+            raise ExecutionError("Invalid worker verification request")
+        name = self.cluster + "-worker"
+        expected = self.manifest["prior_tasks"]["worker"]
+        for attempt in range(attempts):
+            current = self.service("worker")
+            if current is None or current.get("taskDefinition") != expected or current.get("desiredCount") != 1:
+                raise ExecutionError("Restored worker service identity differs")
+            if current.get("runningCount") == 1 and current.get("pendingCount") == 0:
+                deployments = current.get("deployments", [])
+                if (len(deployments) != 1
+                        or deployments[0].get("status") != "PRIMARY"
+                        or deployments[0].get("rolloutState") != "COMPLETED"
+                        or deployments[0].get("taskDefinition") != expected):
+                    raise ExecutionError("Restored worker rollout is not stable")
+                listing = self.aws("ecs", "list-tasks", {
+                    "cluster": self.cluster, "containerInstance": self.instance,
+                    "serviceName": name, "desiredStatus": "RUNNING",
+                })
+                arns = listing.get("taskArns", [])
+                if len(arns) != 1 or listing.get("nextToken"):
+                    raise ExecutionError("Restored worker task count differs")
+                reply = self.aws("ecs", "describe-tasks", {"cluster": self.cluster, "tasks": arns})
+                rows = reply.get("tasks", [])
+                if reply.get("failures") or len(rows) != 1:
+                    raise ExecutionError("Restored worker task readback failed")
+                row = rows[0]
+                containers = row.get("containers", [])
+                if (row.get("group") != "service:" + name
+                        or row.get("taskDefinitionArn") != expected
+                        or row.get("containerInstanceArn") != self.instance
+                        or row.get("lastStatus") != "RUNNING"
+                        or len(containers) != 1
+                        or containers[0].get("name") != "worker"
+                        or containers[0].get("lastStatus") != "RUNNING"
+                        or containers[0].get("imageDigest") != self.manifest["worker_digest"]):
+                    raise ExecutionError("Restored worker identity or image differs")
+                self.record("worker_verified", task=arns[0], digest=containers[0]["imageDigest"])
+                return {"task": arns[0], "digest": containers[0]["imageDigest"]}
+            if attempt + 1 < attempts:
+                self.sleep(5)
+        raise ExecutionError("Worker did not recover within ten minutes")
 
     def verify_runtime(self):
         """Read back exact stable tasks and their healthy ALB registrations.
@@ -575,7 +769,7 @@ class Executor:
     def hold_for_recovery(self):
         # No database operation or automatic previous-image rollback. Accepted
         # writes, receipts, evidence and encryption keys remain in place.
-        for kind in ("api", "admin-web"):
+        for kind in (("api", "admin-web", "worker") if self.has_worker else ("api", "admin-web")):
             current = self.service(kind)
             if current is not None:
                 if current.get("taskDefinition") not in {
@@ -616,5 +810,37 @@ try:
     asyncio.run(main())
 except Exception:
     print("FZ_DB_ATTESTATION_FAILED", flush=True)
+    sys.exit(1)
+"""
+
+
+# Runs from the exact digest-pinned API task with its existing runtime role.
+# The same tenant discovery and RLS context are used by the production worker.
+# Only aggregate counts leave the task; no event, tenant or payload is logged.
+QUEUE_ATTESTATION = r"""
+import asyncio, json, sys
+from sqlalchemy import select, text
+from app.core.database import session_factory
+from app.core.tenant_context import set_database_tenant_context
+from app.modules.tenants.models import Tenant
+async def main():
+    async with session_factory() as session:
+        tenants = list(await session.scalars(select(Tenant.id).order_by(Tenant.id)))
+    processing = due = 0
+    for tenant_id in tenants:
+        async with session_factory() as session:
+            await set_database_tenant_context(session, tenant_id)
+            row = (await session.execute(text('''
+                SELECT count(*) FILTER (WHERE status = 'processing'),
+                       count(*) FILTER (WHERE status = 'pending' AND next_attempt_at <= now())
+                  FROM outbox_events WHERE tenant_id = :tenant
+            '''), {"tenant": tenant_id})).one()
+            processing += row[0]
+            due += row[1]
+    print("FZ_QUEUE_ATTESTATION=" + json.dumps({"tenants": len(tenants), "processing": processing, "due": due}), flush=True)
+try:
+    asyncio.run(main())
+except Exception:
+    print("FZ_QUEUE_ATTESTATION_FAILED", flush=True)
     sys.exit(1)
 """

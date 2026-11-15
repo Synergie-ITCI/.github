@@ -11,6 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/fieldzilla-production"))
 from application_executor import Aws, ExecutionError, Executor
+from application_plan import render
 
 spec = importlib.util.spec_from_file_location(
     "plan_fixture", Path(__file__).with_name("test_production_application_plan.py")
@@ -258,6 +259,163 @@ class ExecutorTests(unittest.TestCase):
         )
         records = [json.loads(line) for line in e.journal.read_text().splitlines()]
         self.assertEqual(records[-1]["event"], "recovery_requested")
+
+
+class LiveWorkerCloud(Cloud):
+    def __init__(self, manifest):
+        super().__init__(manifest)
+        self.instance = manifest["container_instance_arn"]
+        plan = render(manifest["application"])
+        for kind in ("api", "admin-web", "worker"):
+            name = "fieldzilla-production-" + kind
+            self.services[name] = {
+                "serviceName": name, "clusterArn": "arn:aws:ecs:ap-south-1:918870682888:cluster/fieldzilla-production",
+                "status": "ACTIVE", "taskDefinition": manifest["prior_tasks"][kind],
+                "loadBalancers": next((row["loadBalancers"] for row in plan["service_preparation"] if row["serviceName"] == name), []),
+                "desiredCount": 1, "runningCount": 1, "pendingCount": 0,
+            }
+        self.writers = ["arn:aws:ecs:ap-south-1:918870682888:task/fieldzilla-production/" + letter * 32 for letter in "abc"]
+        self.bad_worker_digest = False
+        self.stuck_writer = False
+        self.queue_processing = 0
+        self.queue_due = 0
+        self.after_processing = 0
+        self.queue_tasks = {}
+
+    def __call__(self, service, action, request):
+        if action == "list-tasks":
+            self.calls.append((service, action, copy.deepcopy(request)))
+            if "serviceName" in request:
+                suffix = {"api": "a", "admin-web": "b", "worker": "c"}[request["serviceName"].removeprefix("fieldzilla-production-")]
+                return {"taskArns": [arn for arn in self.writers if arn.endswith(suffix * 32)]}
+            return {"taskArns": list(self.writers)}
+        if action == "describe-tasks":
+            self.calls.append((service, action, copy.deepcopy(request)))
+            rows = []
+            for arn in request["tasks"]:
+                if arn in self.queue_tasks:
+                    rows.append(self.queue_tasks[arn])
+                    continue
+                kind = {"a": "api", "b": "admin-web", "c": "worker"}[arn[-1]]
+                digest = ("changed" if self.bad_worker_digest else self.manifest["worker_digest"]) if kind == "worker" else self.manifest["application"][kind + "_digest"]
+                rows.append({"taskArn": arn, "group": "service:fieldzilla-production-" + kind,
+                             "taskDefinitionArn": self.services["fieldzilla-production-" + kind]["taskDefinition"],
+                             "containerInstanceArn": self.instance, "lastStatus": "RUNNING",
+                             "containers": [{"name": kind, "lastStatus": "RUNNING", "imageDigest": digest}]})
+            return {"tasks": rows}
+        if action == "run-task":
+            self.calls.append((service, action, copy.deepcopy(request)))
+            arn = "arn:aws:ecs:ap-south-1:918870682888:task/fieldzilla-production/" + ("e" if request["clientToken"].endswith("before") else "f") * 32
+            self.queue_tasks[arn] = {"taskArn": arn, "taskDefinitionArn": request["taskDefinition"],
+                                     "lastStatus": "STOPPED", "containers": [{"exitCode": 0, "imageDigest": self.manifest["application"]["api_digest"]}]}
+            return {"tasks": [{"taskArn": arn}]}
+        if action == "get-log-events":
+            self.calls.append((service, action, copy.deepcopy(request)))
+            after = request["logStreamName"].endswith("f" * 32)
+            facts = {"tenants": 2, "processing": self.after_processing if after else self.queue_processing,
+                     "due": self.queue_due}
+            return {"events": [{"message": "FZ_QUEUE_ATTESTATION=" + json.dumps(facts)}]}
+        if action == "update-service":
+            reply = super().__call__(service, action, request)
+            name = request["service"]
+            kind = name.removeprefix("fieldzilla-production-")
+            row = self.services[name]
+            if request["desiredCount"] == 0 and not self.stuck_writer:
+                row["runningCount"] = 0
+                self.writers = [arn for arn in self.writers if not arn.endswith({"api": "a", "admin-web": "b", "worker": "c"}[kind] * 32)]
+            if request["desiredCount"] == 1:
+                row["runningCount"] = 1
+                row["deployments"] = [{"status": "PRIMARY", "rolloutState": "COMPLETED", "taskDefinition": row["taskDefinition"]}]
+                self.writers.append("arn:aws:ecs:ap-south-1:918870682888:task/fieldzilla-production/" + {"api": "a", "admin-web": "b", "worker": "c"}[kind] * 32)
+            return reply
+        return super().__call__(service, action, request)
+
+
+class LiveWriterFenceTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.manifest = {
+            "scope": "production", "application": fixture.manifest(),
+            "snapshot_id": "approved-snapshot", "worker_digest": "sha256:" + "f" * 64,
+            "container_instance_arn": "arn:aws:ecs:ap-south-1:918870682888:container-instance/fieldzilla-production/" + "d" * 32,
+            "prior_tasks": {kind: "arn:aws:ecs:ap-south-1:918870682888:task-definition/fieldzilla-production-" + kind + ":1" for kind in ("api", "admin-web", "worker")},
+        }
+        self.cloud = LiveWorkerCloud(self.manifest)
+
+    def engine(self):
+        engine = Executor(self.manifest, aws=self.cloud, authorize=lambda: None,
+                          journal=Path(self.temp.name) / "journal", sleep=lambda _: None)
+        self.addCleanup(engine.close)
+        return engine
+
+    def test_live_three_service_fence_and_exact_worker_restoration(self):
+        engine = self.engine()
+        engine.prepare()
+        self.assertEqual(self.cloud.writers, [])
+        self.assertEqual(self.cloud.registers, 3)
+        stops = [request["service"] for _, action, request in self.cloud.calls
+                 if action == "update-service" and request["desiredCount"] == 0]
+        self.assertEqual(stops[:3], ["fieldzilla-production-" + kind for kind in ("api", "admin-web", "worker")])
+        engine.restore_worker()
+        self.assertEqual(engine.wait_worker(attempts=1)["digest"], self.manifest["worker_digest"])
+        self.assertEqual(self.cloud.services["fieldzilla-production-worker"]["taskDefinition"], self.manifest["prior_tasks"]["worker"])
+
+    def test_worker_image_or_extra_task_blocks_before_approval_mutation(self):
+        for defect in ("bad_worker_digest", "extra"):
+            with self.subTest(defect=defect), tempfile.TemporaryDirectory() as folder:
+                cloud = LiveWorkerCloud(self.manifest)
+                if defect == "extra":
+                    cloud.writers.append("arn:aws:ecs:ap-south-1:918870682888:task/fieldzilla-production/" + "d" * 32)
+                else:
+                    cloud.bad_worker_digest = True
+                engine = Executor(self.manifest, aws=cloud, authorize=lambda: None,
+                                  journal=Path(folder) / "journal", sleep=lambda _: None)
+                try:
+                    with self.assertRaises(ExecutionError):
+                        engine.preflight()
+                    self.assertFalse(any(action == "update-service" for _, action, _ in cloud.calls))
+                finally:
+                    engine.close()
+
+    def test_failed_writer_fence_never_registers_or_migrates(self):
+        self.cloud.stuck_writer = True
+        engine = self.engine()
+        with self.assertRaisesRegex(ExecutionError, "Frontend drain timed out"):
+            engine.prepare()
+        self.assertFalse(any(action == "run-task" for _, action, _ in self.cloud.calls))
+
+    def test_processing_or_due_queue_refuses_worker_stop_and_migration(self):
+        for field in ("queue_processing", "queue_due"):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as folder:
+                cloud = LiveWorkerCloud(self.manifest)
+                setattr(cloud, field, 1)
+                engine = Executor(self.manifest, aws=cloud, authorize=lambda: None,
+                                  journal=Path(folder) / "journal", sleep=lambda _: None)
+                try:
+                    with self.assertRaisesRegex(ExecutionError, "Outbox is not safely drained"):
+                        engine.prepare()
+                    self.assertEqual(cloud.services["fieldzilla-production-worker"]["desiredCount"], 1)
+                    self.assertFalse(any(request.get("service") == "fieldzilla-production-worker"
+                                         for _, action, request in cloud.calls if action == "update-service"))
+                finally:
+                    engine.close()
+
+    def test_post_stop_processing_claim_blocks_migration(self):
+        self.cloud.after_processing = 1
+        engine = self.engine()
+        with self.assertRaisesRegex(ExecutionError, "Outbox is not safely drained"):
+            engine.prepare()
+        self.assertEqual(self.cloud.services["fieldzilla-production-worker"]["desiredCount"], 0)
+        self.assertFalse(any(action == "run-task" and "overrides" not in request
+                             for _, action, request in self.cloud.calls))
+
+    def test_worker_restoration_refuses_changed_revision(self):
+        engine = self.engine()
+        engine.prepare()
+        self.cloud.services["fieldzilla-production-worker"]["taskDefinition"] = "unexpected"
+        with self.assertRaisesRegex(ExecutionError, "Worker changed"):
+            engine.restore_worker()
 
 
 class TaskCloud(Cloud):

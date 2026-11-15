@@ -99,6 +99,12 @@ def validate(raw, manifest, args, *, api, environment, central_sha):
     operation = "rollout" if production else "rehearsal"
     if manifest.get("operation") != operation:
         raise ValueError("Execution operation differs from the selected target")
+    if production and (
+        set(manifest.get("prior_tasks", {})) != {"api", "admin-web", "worker"}
+        or not isinstance(manifest.get("worker_digest"), str)
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", manifest["worker_digest"]) is None
+    ):
+        raise ValueError("Production rollout must bind the prior worker and image")
     if manifest.get("expires_at") != args.expires_at:
         raise ValueError("Manifest and approval expiry differ")
     context = verify_production_context if production else verify_rehearsal_context
@@ -174,8 +180,11 @@ def execute_infrastructure(manifest, receipt, journal, *, aws, executor=Executor
 def execute_production(manifest, receipt, journal, *, aws, executor=Executor):
     if manifest.get("scope") != "production" or manifest.get("operation") != "rollout":
         raise ValueError("Only a separately approved production rollout is allowed")
-    # The engine checks exact target, image digests, empty writer set and the
-    # available encrypted production snapshot before approval is consumed.
+    if (set(manifest.get("prior_tasks", {})) != {"api", "admin-web", "worker"}
+            or not isinstance(manifest.get("worker_digest"), str)):
+        raise ValueError("Production rollout must bind the prior worker and image")
+    # The engine binds all three live services and the available snapshot before
+    # approval consumption. It then stops writers and verifies a zero-task fence.
     engine = executor(manifest, aws=aws, authorize=receipt.verify, journal=journal)
     try:
         engine.preflight()
@@ -184,6 +193,8 @@ def execute_production(manifest, receipt, journal, *, aws, executor=Executor):
         engine.migrate()
         engine.start()
         services = engine.wait_runtime()
+        engine.restore_worker()
+        services["worker"] = engine.wait_worker()
         report = {
             "status": "PRODUCTION_RUNTIME_READY_CUTOVER_AND_ACCEPTANCE_REQUIRED",
             "source_sha": manifest["application"]["source_sha"],

@@ -69,8 +69,16 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(rows["RegisterOnlyTargetFamilies"]["Condition"]["StringEqualsIfExists"]["ecs:privileged"], "false")
         self.assertNotIn("BoolIfExists", rows["RegisterOnlyTargetFamilies"]["Condition"])
         self.assertIn("ArnLike", rows["CreateOnlyTargetServices"]["Condition"])
-        self.assertEqual(len(rows["RunOnlyMigrationFamily"]["Resource"]), 1)
-        self.assertIn("-migration:", rows["RunOnlyMigrationFamily"]["Resource"][0])
+        self.assertEqual(len(rows["RunOnlyAttestationAndMigrationFamilies"]["Resource"]), 2)
+        self.assertTrue(any("-migration:" in resource for resource in rows["RunOnlyAttestationAndMigrationFamilies"]["Resource"]))
+        self.assertTrue(any("-api:" in resource for resource in rows["RunOnlyAttestationAndMigrationFamilies"]["Resource"]))
+
+    def test_production_worker_control_is_exactly_scoped(self):
+        rows = {row["Sid"]: row for row in deployment_policy(self.inputs)["Statement"]}
+        worker = "arn:aws:ecs:ap-south-1:918870682888:service/fieldzilla-production/fieldzilla-production-worker"
+        self.assertIn(worker, rows["ReadExactServices"]["Resource"])
+        self.assertIn(worker, rows["UpdateOnlyTargetServices"]["Resource"])
+        self.assertNotIn(worker, rows["CreateOnlyTargetServices"]["Resource"])
 
 
 if __name__ == "__main__":
