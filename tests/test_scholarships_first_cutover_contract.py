@@ -294,6 +294,36 @@ class FirstCutoverContractTests(unittest.TestCase):
             (self.root / changed[2]).write_text('changed\n')
             self.assertIn('certified file changed', ' '.join(verify([comment])))
 
+    def test_receipt_resume_requires_exact_bytes_and_owner(self):
+        changed = ['.github/workflows/scholarships-first-cutover-prepare.yml',
+                   'deploy/FIRST_CUTOVER_ACTIVATION.md', 'deploy/first-receipt-resume.py',
+                   'tests/test_first_receipt_resume.py']
+        self.write(changed[0], "!inputs.resume_verified_receipt\ninputs.resume_verified_receipt\n"
+                   "github.actor == 'SaurabhVermaIN'\ngithub.ref == 'refs/heads/main'\n"
+                   'github.run_attempt == 1\nenvironment: production\n'
+                   'python3 deploy/first-receipt-resume.py\n')
+        self.write(changed[2], "PREFIX = 'applications/scholarships/first-cutover/43713023653'\n"
+                   "'restore': ('1d45ad9e-13e3-4c06-851c-205df77403a2'\n"
+                   "'DocumentVersion'\nChecksumMode='ENABLED'\nIfNoneMatch='*'\n"
+                   'get_command_invocation\n')
+        for rel in (changed[1], changed[3]):
+            self.write(rel, 'reviewed content\n')
+        manifest = self.root / 'receipt-resume.json'
+        manifest.write_text(json.dumps({'repository': 'Synergie-ITCI/scholarships',
+            'pr_number': 29, 'head_sha': HEAD, 'removed_paths': [],
+            'technical_certification_owner': 'SaurabhVermaIN',
+            'files': {name: self.files[name] for name in changed}}))
+        digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
+        comment = dict(self.comment, body=self.comment['body'].replace(
+            self.comment['body'].splitlines()[1], f'CERTIFIED_MANIFEST_SHA256={digest}'))
+        with patch.object(contract, 'FIRST_CUTOVER_RECEIPT_RESUME_MANIFEST', manifest):
+            verify = lambda comments: contract.verify_first_cutover_receipt_resume(
+                self.root, changed, HEAD, comments)
+            self.assertEqual(verify([comment]), [])
+            self.assertIn('owner-led', ' '.join(verify([])))
+            (self.root / changed[2]).write_text('changed\n')
+            self.assertIn('certified file changed', ' '.join(verify([comment])))
+
     def test_exact_ssm_repair_requires_posix_wrapper_and_owner(self):
         names = ('backup', 'upload', 'restore', 'cutover')
         changed = ['.github/workflows/scholarships-first-cutover-prepare.yml',

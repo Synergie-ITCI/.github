@@ -1,0 +1,13 @@
+{
+  "files": {
+    ".github/workflows/scholarships-first-cutover-prepare.yml": "da85ef7927d26302598061ede2c95400a3388d4ce47adbfc3a05c610b61ccb74",
+    "deploy/FIRST_CUTOVER_ACTIVATION.md": "5ce6acc8389870aa54a008c2988e17155addde272d59e92bbe92266a6b40a786",
+    "deploy/first-receipt-resume.py": "25bbf903fae862e41724f8b1789d04786d023a9bb7774fb4b888ce8f89a9ae10",
+    "tests/test_first_receipt_resume.py": "bb961af083caeb3bb5ff47907df8c33502ac83ba7420cd0a20eb077f2c4c45a4"
+  },
+  "head_sha": "4ddfde17d70d1edf940790f613ef67d154abab5a",
+  "pr_number": 29,
+  "removed_paths": [],
+  "repository": "Synergie-ITCI/scholarships",
+  "technical_certification_owner": "SaurabhVermaIN"
+}
