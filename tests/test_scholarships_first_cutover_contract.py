@@ -378,6 +378,33 @@ class FirstCutoverContractTests(unittest.TestCase):
             (self.root / changed[0]).write_text('changed\n')
             self.assertIn('certified file changed', ' '.join(verify([comment])))
 
+    def test_rehearsal_node_serial_requires_exact_bytes_and_owner(self):
+        changed = ['deploy/first-rehearsal-preflight.py',
+                   'deploy/scholarships-first-rehearsal-preflight-command-v1.json',
+                   'tests/test_first_rehearsal_preflight.py']
+        self.write(changed[0], 'i-060e4ec1fd5345c30\n'
+                   'EXPECTED_DMI_SERIAL\n'
+                   'ec265fe7-70f0-ff7a-3d00-df5b7e29a614\n'
+                   'rehearsal node identity mismatch\n')
+        self.write(changed[1], json.dumps({'parameters': {}, 'mainSteps': [
+            {'action': 'aws:runShellScript', 'inputs': {'runCommand': ['fixed']}}]}))
+        self.write(changed[2], 'reviewed tests\n')
+        manifest = self.root / 'rehearsal-node.json'
+        manifest.write_text(json.dumps({'repository': 'Synergie-ITCI/scholarships',
+            'pr_number': 32, 'head_sha': HEAD, 'removed_paths': [],
+            'technical_certification_owner': 'SaurabhVermaIN',
+            'files': {name: self.files[name] for name in changed}}))
+        digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
+        comment = dict(self.comment, body=self.comment['body'].replace(
+            self.comment['body'].splitlines()[1], f'CERTIFIED_MANIFEST_SHA256={digest}'))
+        with patch.object(contract, 'FIRST_CUTOVER_REHEARSAL_NODE_MANIFEST', manifest):
+            verify = lambda comments: contract.verify_first_cutover_rehearsal_node(
+                self.root, changed, HEAD, comments)
+            self.assertEqual(verify([comment]), [])
+            self.assertIn('owner-led', ' '.join(verify([])))
+            (self.root / changed[0]).write_text('changed\n')
+            self.assertIn('certified file changed', ' '.join(verify([comment])))
+
     def test_exact_ssm_repair_requires_posix_wrapper_and_owner(self):
         names = ('backup', 'upload', 'restore', 'cutover')
         changed = ['.github/workflows/scholarships-first-cutover-prepare.yml',
