@@ -1,0 +1,14 @@
+{
+  "files": {
+    "deploy/FIRST_CUTOVER_ACTIVATION.md": "e823019d45e67523f80b0b8a072e17dcf8e1f7734e714a700cb0f42aaa38522c",
+    "deploy/compile-first-rehearsal-preflight-document.py": "3831dbce281163d199d48fce6c2de43fbdf2c297d2e2561d7427845699e03263",
+    "deploy/first-rehearsal-preflight.py": "a36b84420de24e03818486bf8c02ba3868aaf923993fff9fc8487350c4cd49c4",
+    "deploy/scholarships-first-rehearsal-preflight-command-v1.json": "6a4c4cae120e21c1e9143cc3be012d96499bd5541e93c3b37de80091b63ba8f1",
+    "tests/test_first_rehearsal_preflight.py": "a79b97db91b928e16f5e0f52eb3849571ad776424a2672c0fc2347e1881d8900"
+  },
+  "head_sha": "76c0523519c1b285d761846f0bf69e75042b64d5",
+  "pr_number": 30,
+  "removed_paths": [],
+  "repository": "Synergie-ITCI/scholarships",
+  "technical_certification_owner": "SaurabhVermaIN"
+}
