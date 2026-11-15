@@ -324,6 +324,35 @@ class FirstCutoverContractTests(unittest.TestCase):
             (self.root / changed[2]).write_text('changed\n')
             self.assertIn('certified file changed', ' '.join(verify([comment])))
 
+    def test_rehearsal_preflight_requires_exact_bytes_and_owner(self):
+        changed = ['deploy/FIRST_CUTOVER_ACTIVATION.md',
+                   'deploy/compile-first-rehearsal-preflight-document.py',
+                   'deploy/first-rehearsal-preflight.py',
+                   'deploy/scholarships-first-rehearsal-preflight-command-v1.json',
+                   'tests/test_first_rehearsal_preflight.py']
+        for rel in (changed[0], changed[1], changed[4]):
+            self.write(rel, 'reviewed content\n')
+        self.write(changed[2], 'i-060e4ec1fd5345c30\n'
+                   'ip-172-31-34-212.ap-south-1.compute.internal\n'
+                   'rehearsal node identity mismatch\n')
+        self.write(changed[3], json.dumps({'parameters': {}, 'mainSteps': [
+            {'action': 'aws:runShellScript', 'inputs': {'runCommand': ['fixed']}}]}))
+        manifest = self.root / 'rehearsal-preflight.json'
+        manifest.write_text(json.dumps({'repository': 'Synergie-ITCI/scholarships',
+            'pr_number': 30, 'head_sha': HEAD, 'removed_paths': [],
+            'technical_certification_owner': 'SaurabhVermaIN',
+            'files': {name: self.files[name] for name in changed}}))
+        digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
+        comment = dict(self.comment, body=self.comment['body'].replace(
+            self.comment['body'].splitlines()[1], f'CERTIFIED_MANIFEST_SHA256={digest}'))
+        with patch.object(contract, 'FIRST_CUTOVER_REHEARSAL_PREFLIGHT_MANIFEST', manifest):
+            verify = lambda comments: contract.verify_first_cutover_rehearsal_preflight(
+                self.root, changed, HEAD, comments)
+            self.assertEqual(verify([comment]), [])
+            self.assertIn('owner-led', ' '.join(verify([])))
+            (self.root / changed[2]).write_text('changed\n')
+            self.assertIn('certified file changed', ' '.join(verify([comment])))
+
     def test_exact_ssm_repair_requires_posix_wrapper_and_owner(self):
         names = ('backup', 'upload', 'restore', 'cutover')
         changed = ['.github/workflows/scholarships-first-cutover-prepare.yml',
