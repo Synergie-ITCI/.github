@@ -504,8 +504,17 @@ class BundledMigrationAuthorizationTests(unittest.TestCase):
         self.assertEqual(r["issued_at"], "2026-11-12T21:55:45Z")
         self.assertEqual(r["expires_at"], "2026-11-13T21:54:45Z")
 
+        # PR772 binds the same audited bytes and DELETE fingerprints to its exact source.
+        self.assertIn(772, by_pr)
+        r = by_pr[772]
+        self.assertEqual(r["expected_head_sha"], "08026deb18c37ec3dcb845abca93209625a2fc88")
+        self.assertEqual(r["expected_base_sha"], "0e6ab78dfeeb8348a9c3ab0c097e4989e4468fce")
+        self.assertEqual(r["migration_sha256"], by_pr[712]["migration_sha256"])
+        self.assertEqual(r["delete_fingerprints"], by_pr[712]["delete_fingerprints"])
+        self.assertEqual(r["approved_reviewer"], by_pr[712]["approved_reviewer"])
+
         # No unknown PRs
-        known = {118, 241, 712}
+        known = {118, 241, 712, 772}
         unknown = set(by_pr) - known
         self.assertFalse(unknown, f"unexpected migration authorization PRs: {unknown}")
         policy = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())
