@@ -127,6 +127,12 @@ immutable QA policy release that actually passed for this candidate. An old gree
 main-only issuance cannot activate a new or extended record. No policy record,
 expiry, scanner or consumer selection is changed by this guard.
 
+The same exact PR #772 SQL-free rollout may use its ordinary PASS QA report with
+no requested or granted baseline relaxation. The executor still verifies the
+selected immutable QA release, exact source/base, live review window, migration
+bytes, and production preflight before any mutation. Other production rollouts
+retain the baseline authorization requirement.
+
 
 Executor code and review data use separate immutable references. A main-only
 caller can retain its reviewed executor pin while a newly issued review package

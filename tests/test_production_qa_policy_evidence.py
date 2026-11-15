@@ -144,7 +144,7 @@ class QAPolicyTests(unittest.TestCase):
             }
         if path.endswith("/actions/runs/11"):
             return self.run
-        if path.endswith("/pulls/712"):
+        if path.endswith(f"/pulls/{self.manifest['promotion_pr']}"):
             return self.pr
         if "/jobs?" in path:
             return {"jobs": self.jobs}
@@ -255,6 +255,52 @@ class QAPolicyTests(unittest.TestCase):
             binding[field] = original
         self.rebuild_archive()
         self.manifest["scope"] = "production-rehearsal"
+        with self.assertRaises(ValueError):
+            self.verify()
+
+    def test_exact_pr772_sql_free_rollout_accepts_only_ordinary_pass(self):
+        from issued_windows import SQL_FREE_PRODUCTION_BASE, SQL_FREE_PRODUCTION_SOURCE
+
+        source, base = SQL_FREE_PRODUCTION_SOURCE, SQL_FREE_PRODUCTION_BASE
+        self.manifest.update(
+            promotion_pr=772, base_sha=base,
+            review_authorizations={"baseline": "3317b9b7-46c9-4eec-af94-7542758d7f17", "sql": None},
+            database={"name": "fieldzilla_production", "role": "pmp_fieldzilla_prod_migrator",
+                      "before": ["20260909_0041", "20261109_0073"],
+                      "after": ["20260909_0041", "20261113_0074"]},
+        )
+        self.manifest["application"]["source_sha"] = source
+        self.checks[QUALITY]["head_sha"] = source
+        self.run["head_sha"] = source
+        self.run["pull_requests"] = [{"number": 772, "head": {"sha": source}, "base": {"sha": base}}]
+        self.pr.update(number=772)
+        self.pr["head"]["sha"] = source
+        self.pr["base"]["sha"] = base
+        self.artifact["workflow_run"]["head_sha"] = source
+        binding = self.report["summary"]["baseline_alignment"]
+        binding.update(requested=False, authorized=False, relaxed_checks=[], source_sha=source, destination_sha=base)
+        self.rebuild_archive()
+        self.verify()
+        for key, invalid in (
+            ("promotion_pr", 773), ("base_sha", "f" * 40),
+            ("database", {"before": ["20260909_0041", "20261109_0073"], "after": ["20260909_0041", "20261109_0073"]}),
+        ):
+            with self.subTest(key=key):
+                original = self.manifest[key]
+                self.manifest[key] = invalid
+                with self.assertRaises(ValueError):
+                    self.verify()
+                self.manifest[key] = original
+        for field, invalid in (("requested", True), ("relaxed_checks", ["diff_size"])):
+            with self.subTest(field=field):
+                original = binding[field]
+                binding[field] = invalid
+                self.rebuild_archive()
+                with self.assertRaises(ValueError):
+                    self.verify()
+                binding[field] = original
+        self.report["summary"]["overall_result"] = "FAIL"
+        self.rebuild_archive()
         with self.assertRaises(ValueError):
             self.verify()
 
