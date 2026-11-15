@@ -27,6 +27,7 @@ FIRST_CUTOVER_MYSQL_WORKSPACE_MANIFEST = Path(__file__).resolve().parents[1] / "
 FIRST_CUTOVER_MYSQL_SHUTDOWN_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr28-first-cutover.json"
 FIRST_CUTOVER_RECEIPT_RESUME_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr29-first-cutover.json"
 FIRST_CUTOVER_REHEARSAL_PREFLIGHT_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr30-first-cutover.json"
+FIRST_CUTOVER_REHEARSAL_IDENTITY_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr31-first-cutover.json"
 HOST = "mi-04a256fa549e372a8"
 ACCOUNT = "918870682888"
 RELEASE_DOCUMENT = "Scholarships-GateD-Production-Command-v1"
@@ -569,6 +570,47 @@ def verify_first_cutover_rehearsal_preflight(repo: Path, changed: list[str], hea
             or "rehearsal node identity mismatch" not in source
             or any(token in source for token in ("os.system", "subprocess.Popen", "shutil.rmtree", "write_text("))):
         errors.append("fixed read-only rehearsal preflight boundary changed")
+    return errors
+
+
+def verify_first_cutover_rehearsal_identity(repo: Path, changed: list[str], head: str,
+                                             comments: list[dict[str, Any]]) -> list[str]:
+    """Certify PR #31's bounded, fail-closed rehearsal identity diagnostic."""
+    manifest = _read_json(FIRST_CUTOVER_REHEARSAL_IDENTITY_MANIFEST)
+    expected = {"deploy/first-rehearsal-preflight.py",
+                "deploy/scholarships-first-rehearsal-preflight-command-v1.json",
+                "tests/test_first_rehearsal_preflight.py"}
+    errors: list[str] = []
+    if (manifest.get("repository") != "Synergie-ITCI/scholarships"
+            or manifest.get("pr_number") != 31 or manifest.get("head_sha") != head
+            or manifest.get("technical_certification_owner") != "SaurabhVermaIN"
+            or manifest.get("removed_paths") != []):
+        errors.append("rehearsal identity certification changed")
+    files = manifest.get("files")
+    if not isinstance(files, dict) or set(files) != expected or set(changed) != expected:
+        errors.append("rehearsal identity changed-file scope changed")
+        return errors
+    for rel, digest in files.items():
+        path = repo / rel
+        if (not re.fullmatch(r"[0-9a-f]{64}", str(digest))
+                or not path.is_file() or path.is_symlink() or path.stat().st_size > 1_000_000
+                or hashlib.sha256(path.read_bytes()).hexdigest() != digest):
+            errors.append(f"rehearsal identity certified file changed: {rel}")
+    if errors:
+        return errors
+    if not _owner_certified(comments, "SaurabhVermaIN", head,
+                            hashlib.sha256(FIRST_CUTOVER_REHEARSAL_IDENTITY_MANIFEST.read_bytes()).hexdigest()):
+        errors.append("owner-led rehearsal identity certification is absent")
+    source = (repo / "deploy/first-rehearsal-preflight.py").read_text()
+    document = _read_json(repo / "deploy/scholarships-first-rehearsal-preflight-command-v1.json")
+    if (document.get("parameters") != {} or len(document.get("mainSteps", [])) != 1
+            or document["mainSteps"][0].get("action") != "aws:runShellScript"
+            or "{{" in str(document["mainSteps"][0])
+            or "SCHOLARSHIPS_REHEARSAL_IDENTITY=" not in source
+            or "rehearsal node identity mismatch" not in source
+            or "i-060e4ec1fd5345c30" not in source
+            or any(token in source for token in ("os.system", "subprocess.Popen", "shutil.rmtree", "write_text("))):
+        errors.append("fixed read-only rehearsal diagnostic boundary changed")
     return errors
 
 
