@@ -21,6 +21,7 @@ FIRST_CUTOVER_SSM_REPAIR_MANIFEST = Path(__file__).resolve().parents[1] / "polic
 FIRST_CUTOVER_HOST_COMPAT_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr22-first-cutover.json"
 FIRST_CUTOVER_MYSQL_RESTORE_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr23-first-cutover.json"
 FIRST_CUTOVER_RESTORE_PIN_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr24-first-cutover.json"
+FIRST_CUTOVER_BACKUP_CLEANUP_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr25-first-cutover.json"
 HOST = "mi-04a256fa549e372a8"
 ACCOUNT = "918870682888"
 RELEASE_DOCUMENT = "Scholarships-GateD-Production-Command-v1"
@@ -281,6 +282,50 @@ def verify_first_cutover_restore_pin(repo: Path, changed: list[str], head: str,
             errors.append(f"first-cutover restore version boundary changed: {token}")
     if "AWS-RunShellScript" in workflow:
         errors.append("generic SSM shell used in restore preparation workflow")
+    return errors
+
+
+def verify_first_cutover_backup_cleanup(repo: Path, changed: list[str], head: str,
+                                        comments: list[dict[str, Any]]) -> list[str]:
+    """Certify the exact spent one-time backup cleanup removal in PR #25."""
+    manifest = _read_json(FIRST_CUTOVER_BACKUP_CLEANUP_MANIFEST)
+    errors: list[str] = []
+    if (manifest.get("repository") != "Synergie-ITCI/scholarships"
+            or manifest.get("pr_number") != 25
+            or manifest.get("head_sha") != head
+            or manifest.get("technical_certification_owner") != "SaurabhVermaIN"
+            or manifest.get("removed_paths") != []):
+        errors.append("first-cutover backup cleanup identity changed")
+    expected = {".github/workflows/scholarships-first-cutover-prepare.yml",
+                "deploy/FIRST_CUTOVER_ACTIVATION.md", "deploy/first-backup.sh",
+                "deploy/scholarships-first-backup-command-v1.json",
+                "tests/test_first_cutover_approval.py"}
+    files = manifest.get("files")
+    if not isinstance(files, dict) or set(files) != expected or set(changed) != expected:
+        errors.append("first-cutover backup cleanup changed-file scope changed")
+        return errors
+    for rel, digest in files.items():
+        path = repo / rel
+        if (not re.fullmatch(r"[0-9a-f]{64}", str(digest))
+                or not path.is_file() or path.is_symlink() or path.stat().st_size > 1_000_000
+                or hashlib.sha256(path.read_bytes()).hexdigest() != digest):
+            errors.append(f"first-cutover backup cleanup certified file changed: {rel}")
+    if errors:
+        return errors
+    if not _owner_certified(comments, "SaurabhVermaIN", head,
+                            hashlib.sha256(FIRST_CUTOVER_BACKUP_CLEANUP_MANIFEST.read_bytes()).hexdigest()):
+        errors.append("owner-led first-cutover backup cleanup certification is absent")
+    workflow = (repo / ".github/workflows/scholarships-first-cutover-prepare.yml").read_text()
+    backup = (repo / "deploy/first-backup.sh").read_text()
+    if ("Scholarships-First-Backup-v1:scholarships-first-backup-command-v1.json:4" not in workflow
+            or "--document-name Scholarships-First-Backup-v1 --document-version 4" not in workflow
+            or "Scholarships-First-Upload-v1:scholarships-first-upload-command-v1.json:3" not in workflow
+            or "Scholarships-First-Restore-v1:scholarships-first-restore-command-v1.json:4" not in workflow
+            or "environment: production" not in workflow or "refs/heads/main" not in workflow
+            or "AWS-RunShellScript" in workflow):
+        errors.append("fixed backup version boundary changed")
+    if "43694560855" in backup or "rm -rf --one-file-system" in backup:
+        errors.append("spent cleanup remains in fixed backup payload")
     return errors
 
 
