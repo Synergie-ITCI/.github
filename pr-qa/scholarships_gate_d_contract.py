@@ -15,6 +15,7 @@ from typing import Any
 MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr15-gate-d.json"
 PROMOTION_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr13-gate-d.json"
 MAIN_PROMOTION_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr7-gate-d.json"
+FIRST_CUTOVER_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr19-first-cutover.json"
 HOST = "mi-04a256fa549e372a8"
 ACCOUNT = "918870682888"
 RELEASE_DOCUMENT = "Scholarships-GateD-Production-Command-v1"
@@ -144,6 +145,77 @@ def _owner_certified(comments: list[dict[str, Any]], owner: str, head: str,
         if required.issubset(set(str(comment.get("body") or "").splitlines())):
             return True
     return False
+
+
+def verify_first_cutover(repo: Path, changed: list[str], head: str,
+                         comments: list[dict[str, Any]]) -> list[str]:
+    """Certify one exact PR #19 byte set without changing recurring Gate D."""
+    manifest = _read_json(FIRST_CUTOVER_MANIFEST)
+    errors: list[str] = []
+    if (manifest.get("repository") != "Synergie-ITCI/scholarships"
+            or manifest.get("pr_number") != 19
+            or manifest.get("head_sha") != head
+            or manifest.get("technical_certification_owner") != "SaurabhVermaIN"
+            or manifest.get("removed_paths") != []):
+        errors.append("first-cutover identity or removed-path inventory changed")
+    files = manifest.get("files")
+    if not isinstance(files, dict) or set(changed) != set(files):
+        errors.append("first-cutover changed-file scope changed")
+        return errors
+    for rel, digest in files.items():
+        path = repo / rel
+        if (not isinstance(rel, str) or Path(rel).is_absolute() or ".." in Path(rel).parts
+                or not re.fullmatch(r"[0-9a-f]{64}", str(digest))
+                or not path.is_file() or path.is_symlink() or path.stat().st_size > 1_000_000
+                or hashlib.sha256(path.read_bytes()).hexdigest() != digest):
+            errors.append(f"first-cutover certified file changed: {rel}")
+    if errors:
+        return errors
+    if not _owner_certified(comments, "SaurabhVermaIN", head,
+                            hashlib.sha256(FIRST_CUTOVER_MANIFEST.read_bytes()).hexdigest()):
+        errors.append("owner-led first-cutover technical certification is absent")
+
+    prepare = (repo / ".github/workflows/scholarships-first-cutover-prepare.yml").read_text()
+    cutover = (repo / ".github/workflows/scholarships-first-cutover.yml").read_text()
+    approval = (repo / "deploy/first_cutover_approval.py").read_text()
+    if not all(token in prepare for token in (
+            "refs/heads/main", "environment: production", "aws ssm send-command",
+            "scholarships-first-cutover", "verified-receipt.json")):
+        errors.append("first-cutover backup preparation workflow boundary changed")
+    approval_at = cutover.find("python3 deploy/first-cutover-approval-cli.py consume")
+    oidc_at = cutover.find("aws-actions/configure-aws-credentials")
+    send_at = cutover.find("aws ssm send-command")
+    if (min(approval_at, oidc_at, send_at) < 0 or not approval_at < oidc_at < send_at
+            or "refs/heads/main" not in cutover or "environment: production" not in cutover
+            or "Scholarships-First-Cutover-v1" not in cutover):
+        errors.append("first-cutover approval, OIDC or fixed SSM execution order changed")
+    if not all(token in approval for token in (
+            "APPROVAL_ISSUE = 18", "run_attempt == \"1\"", "native reviewer protection exists",
+            "approval already consumed", "receipt no longer uniquely belongs to this run")):
+        errors.append("first-cutover one-use owner approval boundary changed")
+    expected = {
+        "scholarships-first-backup-role-policy-v1.json": {
+            "Scholarships-First-Backup-v1", "Scholarships-First-Upload-v1",
+            "Scholarships-First-Restore-v1"},
+        "scholarships-first-cutover-role-policy-v1.json": {"Scholarships-First-Cutover-v1"},
+    }
+    host = f"arn:aws:ssm:ap-south-1:{ACCOUNT}:managed-instance/{HOST}"
+    for name, documents in expected.items():
+        policy = _read_json(repo / "deploy" / name)
+        resources = _send_resources(policy)
+        if (resources != {host} | {f"arn:aws:ssm:ap-south-1:{ACCOUNT}:document/{item}"
+                                     for item in documents} or not _has_generic_deny(policy)):
+            errors.append(f"first-cutover IAM SendCommand scope changed: {name}")
+    for name in ("backup", "cutover"):
+        if not _role_trust_is_bound(_read_json(repo / f"deploy/scholarships-first-{name}-trust-v1.json")):
+            errors.append(f"first-cutover OIDC binding changed: {name}")
+    for name in ("backup", "upload", "restore", "cutover"):
+        document = _read_json(repo / f"deploy/scholarships-first-{name}-command-v1.json")
+        if document.get("schemaVersion") != "2.2" or len(document.get("mainSteps", [])) != 1:
+            errors.append(f"first-cutover fixed SSM document changed: {name}")
+    if "AWS-RunShellScript" in prepare + cutover:
+        errors.append("generic SSM shell used in first-cutover workflows")
+    return errors
 
 
 def verify(repo: Path, changed: list[str], head: str, pr_number: int,
