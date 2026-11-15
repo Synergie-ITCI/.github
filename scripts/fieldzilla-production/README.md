@@ -117,7 +117,10 @@ Execution manifests bind `review_authorizations.baseline` to an issued UUID.
 Production rollout manifests also bind `review_authorizations.sql` to an issued
 UUID. An image-only request may set `sql` to null only when a fresh, bounded
 GitHub PR changed-file read shows no SQL file or Alembic path changed; malformed,
-missing, or oversized evidence fails closed. Before each mutation,
+missing, or oversized evidence fails closed. The exact PR #772 production
+rollout may also omit SQL review only for its pinned source/base, the reviewed
+`0073` to `0074` database transition, and the byte-verified PR #743 migration;
+all other production rollouts still require an issued SQL UUID. Before each mutation,
 `issued_windows.py` checks their exact source/base/PR bindings, enabled state,
 and complete execution window against both live central policy and the activated
 immutable QA policy release that actually passed for this candidate. An old green QA result cannot extend an expired decision;

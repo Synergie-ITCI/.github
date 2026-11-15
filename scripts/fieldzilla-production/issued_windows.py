@@ -6,6 +6,7 @@ of its centrally issued, exact-PR review records.
 """
 
 import base64
+import hashlib
 import json
 import re
 import sys
@@ -15,14 +16,45 @@ from pathlib import Path
 from execution_gate import REPOSITORY
 
 ROOT = Path(__file__).resolve().parents[2]
+SQL_FREE_PRODUCTION_SOURCE = "08026deb18c37ec3dcb845abca93209625a2fc88"
+SQL_FREE_PRODUCTION_BASE = "0e6ab78dfeeb8348a9c3ab0c097e4989e4468fce"
+SQL_FREE_PRODUCTION_MIGRATION = "apps/api/alembic/versions/20261113_0074_tenant_bootstrap_owner_rls.py"
+SQL_FREE_PRODUCTION_MIGRATION_SHA256 = "3f3650808b57bedbe2f339278a98c03226a3af9c16af22cd4d612a9af7d6b3cf"
 sys.path.insert(0, str(ROOT / "pr-qa"))
 from baseline_authorization import schema_errors
 
 
 def verify_no_changed_sql(manifest, *, api):
-    """Allow an image-only request to omit SQL review only for a SQL-free PR."""
-    if manifest.get("scope") != "production-images":
-        raise ValueError("Only image publication may omit SQL review")
+    """Bind SQL-free publication or the reviewed PR772 rollout to exact source."""
+    scope = manifest.get("scope")
+    if scope == "production":
+        # PR743's reviewed additive RLS migration is inherited by the exact
+        # PR772 image. No other production source or DB transition may use this
+        # exception to the existing exact-PR SQL-review requirement.
+        database = manifest.get("database", {})
+        if (
+            not isinstance(database, dict)
+            or manifest.get("promotion_pr") != 772
+            or manifest.get("base_sha") != SQL_FREE_PRODUCTION_BASE
+            or manifest.get("application", {}).get("source_sha") != SQL_FREE_PRODUCTION_SOURCE
+            or database.get("before") != ["20260909_0041", "20261109_0073"]
+            or database.get("after") != ["20260909_0041", "20261113_0074"]
+        ):
+            raise ValueError("SQL-free production rollout binding differs")
+        content = api(
+            f"repos/{REPOSITORY}/contents/{SQL_FREE_PRODUCTION_MIGRATION}"
+            f"?ref={SQL_FREE_PRODUCTION_SOURCE}"
+        )
+        if content.get("type") != "file" or content.get("encoding") != "base64":
+            raise ValueError("Reviewed production migration source is unavailable")
+        encoded = content.get("content", "")
+        if not isinstance(encoded, str) or len(encoded) > 65536:
+            raise ValueError("Reviewed production migration source is oversized")
+        migration = base64.b64decode(encoded.replace("\n", ""), validate=True)
+        if hashlib.sha256(migration).hexdigest() != SQL_FREE_PRODUCTION_MIGRATION_SHA256:
+            raise ValueError("Reviewed production migration bytes differ")
+    elif scope != "production-images":
+        raise ValueError("Only image publication or the exact reviewed rollout may omit SQL review")
     for page in range(1, 11):
         rows = api(
             f"repos/{REPOSITORY}/pulls/{manifest['promotion_pr']}/files"

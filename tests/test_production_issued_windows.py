@@ -1,10 +1,12 @@
 import base64
 import copy
+import hashlib
 import json
 import sys
 import unittest
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "scripts/fieldzilla-production")
@@ -59,7 +61,9 @@ class IssuedWindowTests(unittest.TestCase):
     def api(self, path):
         if path.endswith("/git/ref/heads/main"):
             return {"object": {"sha": "c" * 40}}
-        if "/pulls/712/files?" in path:
+        if "/contents/apps/api/alembic/versions/20261113_0074_tenant_bootstrap_owner_rls.py?ref=" in path:
+            return {"type": "file", "encoding": "base64", "content": base64.b64encode(b"reviewed migration").decode()}
+        if f"/pulls/{self.manifest['promotion_pr']}/files?" in path:
             return self.changed_files
         self.assertTrue(path.endswith("?ref=" + "c" * 40))
         payload = (
@@ -153,6 +157,36 @@ class IssuedWindowTests(unittest.TestCase):
         self.manifest["review_authorizations"]["sql"] = None
         self.verify()
 
+    def test_only_exact_pr772_source_and_reviewed_db_transition_can_omit_sql(self):
+        from issued_windows import SQL_FREE_PRODUCTION_BASE, SQL_FREE_PRODUCTION_SOURCE
+
+        self.manifest.update(
+            scope="production", promotion_pr=772, base_sha=SQL_FREE_PRODUCTION_BASE,
+            database={"before": ["20260909_0041", "20261109_0073"],
+                      "after": ["20260909_0041", "20261113_0074"]},
+        )
+        self.manifest["application"]["source_sha"] = SQL_FREE_PRODUCTION_SOURCE
+        self.manifest["review_authorizations"]["sql"] = None
+        self.baseline.update(
+            pr_number=772, expected_head_sha=SQL_FREE_PRODUCTION_SOURCE,
+            expected_base_sha=SQL_FREE_PRODUCTION_BASE,
+        )
+        with patch("issued_windows.SQL_FREE_PRODUCTION_MIGRATION_SHA256", hashlib.sha256(b"reviewed migration").hexdigest()):
+            self.verify()
+            for key, replacement in (
+                ("promotion_pr", 773), ("base_sha", "d" * 40),
+                ("database", {"before": ["20260909_0041", "20261109_0073"], "after": ["20260909_0041", "20261109_0073"]}),
+            ):
+                with self.subTest(key=key):
+                    old = self.manifest[key]
+                    self.manifest[key] = replacement
+                    with self.assertRaises(ValueError):
+                        self.verify()
+                    self.manifest[key] = old
+            self.changed_files = [{"filename": "apps/api/alembic/versions/new.py"}]
+            with self.assertRaisesRegex(ValueError, "SQL or migration"):
+                self.verify()
+
     def test_sql_review_cannot_be_omitted_for_changed_or_renamed_sql(self):
         self.manifest["scope"] = "production-images"
         self.manifest["review_authorizations"]["sql"] = None
@@ -167,7 +201,7 @@ class IssuedWindowTests(unittest.TestCase):
 
     def test_sql_review_omission_fails_closed_outside_images_and_without_file_evidence(self):
         self.manifest["review_authorizations"]["sql"] = None
-        with self.assertRaisesRegex(ValueError, "Only image publication"):
+        with self.assertRaisesRegex(ValueError, "Only image publication or the exact reviewed rollout"):
             self.verify()
         self.manifest["scope"] = "production-images"
         for rows in (None, []):

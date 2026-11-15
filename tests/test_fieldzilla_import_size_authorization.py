@@ -286,7 +286,7 @@ class FieldzillaImportSizeTests(unittest.TestCase):
             normalized_sql[field] = old_sql[field]
         self.assertEqual(normalized_sql, old_sql)
         current_sql[current_sql.index(new_sql)] = old_sql
-        self.assertEqual([row for row in current_sql if row.get("pr_number") not in {744, 772}], previous_sql)
+        self.assertEqual([row for row in current_sql if row.get("pr_number") != 744], previous_sql)
 
     def test_historical_sql_review_preserves_audited_bytes_and_reviewer(self):
         proposed = json.loads(PROPOSAL.read_text())
