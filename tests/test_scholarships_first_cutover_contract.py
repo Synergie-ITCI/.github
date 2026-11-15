@@ -123,6 +123,29 @@ class FirstCutoverContractTests(unittest.TestCase):
             (self.root / changed[0]).write_text('changed\n')
             self.assertIn('certified file changed', ' '.join(verify([comment])))
 
+    def test_mysql_restore_repair_requires_exact_bytes_and_owner(self):
+        changed = ['deploy/first-restore-test.py',
+                   'deploy/scholarships-first-restore-command-v1.json']
+        self.write(changed[0], "runuser', '-u', 'mysql'\n"
+                   "datadir = workdir / 'data'\nshutil.rmtree(workdir\n")
+        self.write(changed[1], json.dumps({'mainSteps': [
+            {'action': 'aws:runShellScript'}], 'parameters': {}}))
+        manifest = self.root / 'mysql-restore.json'
+        manifest.write_text(json.dumps({'repository': 'Synergie-ITCI/scholarships',
+            'pr_number': 23, 'head_sha': HEAD, 'removed_paths': [],
+            'technical_certification_owner': 'SaurabhVermaIN',
+            'files': {name: self.files[name] for name in changed}}))
+        digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
+        comment = dict(self.comment, body=self.comment['body'].replace(
+            self.comment['body'].splitlines()[1], f'CERTIFIED_MANIFEST_SHA256={digest}'))
+        with patch.object(contract, 'FIRST_CUTOVER_MYSQL_RESTORE_MANIFEST', manifest):
+            verify = lambda comments: contract.verify_first_cutover_mysql_restore(
+                self.root, changed, HEAD, comments)
+            self.assertEqual(verify([comment]), [])
+            self.assertIn('owner-led', ' '.join(verify([])))
+            (self.root / changed[0]).write_text('changed\n')
+            self.assertIn('certified file changed', ' '.join(verify([comment])))
+
     def test_exact_ssm_repair_requires_posix_wrapper_and_owner(self):
         names = ('backup', 'upload', 'restore', 'cutover')
         changed = ['.github/workflows/scholarships-first-cutover-prepare.yml',

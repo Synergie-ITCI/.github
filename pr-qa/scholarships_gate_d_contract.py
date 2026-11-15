@@ -19,6 +19,7 @@ FIRST_CUTOVER_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarsh
 FIRST_CUTOVER_FOLLOWUP_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr20-first-cutover.json"
 FIRST_CUTOVER_SSM_REPAIR_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr21-first-cutover.json"
 FIRST_CUTOVER_HOST_COMPAT_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr22-first-cutover.json"
+FIRST_CUTOVER_MYSQL_RESTORE_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr23-first-cutover.json"
 HOST = "mi-04a256fa549e372a8"
 ACCOUNT = "918870682888"
 RELEASE_DOCUMENT = "Scholarships-GateD-Production-Command-v1"
@@ -196,6 +197,47 @@ def verify_first_cutover_host_compat(repo: Path, changed: list[str], head: str,
         script = (repo / rel).read_text()
         if "hashlib.file_digest" in script or ".is_relative_to(" in script:
             errors.append(f"host Python 3.8 compatibility changed: {rel}")
+    return errors
+
+
+def verify_first_cutover_mysql_restore(repo: Path, changed: list[str], head: str,
+                                       comments: list[dict[str, Any]]) -> list[str]:
+    """Certify the exact MySQL 5.7 isolated-restore repair in PR #23."""
+    manifest = _read_json(FIRST_CUTOVER_MYSQL_RESTORE_MANIFEST)
+    errors: list[str] = []
+    if (manifest.get("repository") != "Synergie-ITCI/scholarships"
+            or manifest.get("pr_number") != 23
+            or manifest.get("head_sha") != head
+            or manifest.get("technical_certification_owner") != "SaurabhVermaIN"
+            or manifest.get("removed_paths") != []):
+        errors.append("first-cutover MySQL restore identity changed")
+    expected = {"deploy/first-restore-test.py",
+                "deploy/scholarships-first-restore-command-v1.json"}
+    files = manifest.get("files")
+    if not isinstance(files, dict) or set(files) != expected or set(changed) != expected:
+        errors.append("first-cutover MySQL restore changed-file scope changed")
+        return errors
+    for rel, digest in files.items():
+        path = repo / rel
+        if (not re.fullmatch(r"[0-9a-f]{64}", str(digest))
+                or not path.is_file() or path.is_symlink() or path.stat().st_size > 1_000_000
+                or hashlib.sha256(path.read_bytes()).hexdigest() != digest):
+            errors.append(f"first-cutover MySQL restore certified file changed: {rel}")
+    if errors:
+        return errors
+    if not _owner_certified(comments, "SaurabhVermaIN", head,
+                            hashlib.sha256(FIRST_CUTOVER_MYSQL_RESTORE_MANIFEST.read_bytes()).hexdigest()):
+        errors.append("owner-led first-cutover MySQL restore certification is absent")
+    restore = (repo / "deploy/first-restore-test.py").read_text()
+    if ("runuser', '-u', 'mysql'" not in restore
+            or "datadir = workdir / 'data'" not in restore
+            or "shutil.rmtree(workdir" not in restore):
+        errors.append("isolated MySQL restore boundary changed")
+    document = _read_json(repo / "deploy/scholarships-first-restore-command-v1.json")
+    steps = document.get("mainSteps", [])
+    if (len(steps) != 1 or steps[0].get("action") != "aws:runShellScript"
+            or "Commands" in document.get("parameters", {})):
+        errors.append("fixed restore SSM document boundary changed")
     return errors
 
 
