@@ -1724,6 +1724,23 @@
       "allowed_changed_files": 4,
       "purpose": "Exact-source SQL-free production image review for PR #756 tenant-discovered invitation delivery and stale-invitation guard. No baseline relaxation, migration, ECS update, routing, or publication approval.",
       "relaxations": []
+    },
+    {
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "repository_id": 1315697868,
+      "pr_number": 772,
+      "head_ref": "fix/fieldzilla-synthetic-release-readback",
+      "base_ref": "main",
+      "expected_head_sha": "08026deb18c37ec3dcb845abca93209625a2fc88",
+      "expected_base_sha": "0e6ab78dfeeb8348a9c3ab0c097e4989e4468fce",
+      "issued_at": "2026-11-15T05:30:45Z",
+      "enabled": true,
+      "authorization_id": "3317b9b7-46c9-4eec-af94-7542758d7f17",
+      "expires_after": "2026-11-16T04:30:45Z",
+      "allowed_effective_additions": 134,
+      "allowed_changed_files": 8,
+      "purpose": "Exact-source SQL-free production image review for PR #772 published OTP readback and final capture publication guidance, preserving merged invitation delivery and scoped reviewer discovery. No baseline relaxation, migration, ECS update, routing, or publication approval.",
+      "relaxations": []
     }
   ]
 }
