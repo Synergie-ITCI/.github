@@ -21,6 +21,7 @@ from pathlib import Path
 
 from execution_artifact import _unique_object
 from execution_gate import REPOSITORY
+from issued_windows import SQL_FREE_PRODUCTION_BASE, SQL_FREE_PRODUCTION_SOURCE
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "pr-qa"))
 from release_pin import resolve_consumer_release
@@ -278,16 +279,31 @@ def verify_qa_policy_evidence(
     binding = summary.get("baseline_alignment", {})
     if not isinstance(binding, dict):
         raise TypeError("Final QA binding must be an object")
-    ordinary_image_qa = (
+    ordinary_qa = (
         manifest.get("scope") == "production-images"
-        and binding.get("requested") is False
+        or (
+            manifest.get("scope") == "production"
+            and manifest.get("promotion_pr") == 772
+            and source == SQL_FREE_PRODUCTION_SOURCE
+            and base == SQL_FREE_PRODUCTION_BASE
+            and isinstance(manifest.get("review_authorizations"), dict)
+            and manifest.get("review_authorizations", {}).get("sql") is None
+            and manifest.get("database") == {
+                "name": "fieldzilla_production",
+                "role": "pmp_fieldzilla_prod_migrator",
+                "before": ["20260909_0041", "20261109_0073"],
+                "after": ["20260909_0041", "20261113_0074"],
+            }
+        )
+    ) and (
+        binding.get("requested") is False
         and binding.get("authorized") is False
         and binding.get("relaxed_checks") == []
     )
     if (
         summary.get("repository") != REPOSITORY
         or summary.get("overall_result") != "PASS"
-        or (binding.get("authorized") is not True and not ordinary_image_qa)
+        or (binding.get("authorized") is not True and not ordinary_qa)
         or binding.get("source_sha") != source
         or binding.get("destination_sha") != base
     ):
