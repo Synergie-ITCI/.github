@@ -17,6 +17,7 @@ PROMOTION_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-
 MAIN_PROMOTION_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr7-gate-d.json"
 FIRST_CUTOVER_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr19-first-cutover.json"
 FIRST_CUTOVER_FOLLOWUP_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr20-first-cutover.json"
+FIRST_CUTOVER_SSM_REPAIR_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr21-first-cutover.json"
 HOST = "mi-04a256fa549e372a8"
 ACCOUNT = "918870682888"
 RELEASE_DOCUMENT = "Scholarships-GateD-Production-Command-v1"
@@ -146,6 +147,57 @@ def _owner_certified(comments: list[dict[str, Any]], owner: str, head: str,
         if required.issubset(set(str(comment.get("body") or "").splitlines())):
             return True
     return False
+
+
+def verify_first_cutover_ssm_repair(repo: Path, changed: list[str], head: str,
+                                    comments: list[dict[str, Any]]) -> list[str]:
+    """Certify the exact POSIX wrapper and version-2 document repair in PR #21."""
+    manifest = _read_json(FIRST_CUTOVER_SSM_REPAIR_MANIFEST)
+    errors: list[str] = []
+    if (manifest.get("repository") != "Synergie-ITCI/scholarships"
+            or manifest.get("pr_number") != 21
+            or manifest.get("head_sha") != head
+            or manifest.get("technical_certification_owner") != "SaurabhVermaIN"
+            or manifest.get("removed_paths") != []):
+        errors.append("first-cutover SSM repair identity changed")
+    names = ("backup", "upload", "restore", "cutover")
+    expected = ({f"deploy/compile-first-{name}-document.py" for name in names}
+                | {f"deploy/scholarships-first-{name}-command-v1.json" for name in names}
+                | {".github/workflows/scholarships-first-cutover-prepare.yml",
+                   ".github/workflows/scholarships-first-cutover.yml",
+                   "deploy/FIRST_CUTOVER_ACTIVATION.md", "tests/test_first_cutover_approval.py"})
+    files = manifest.get("files")
+    if not isinstance(files, dict) or set(files) != expected or set(changed) != expected:
+        errors.append("first-cutover SSM repair changed-file scope changed")
+        return errors
+    for rel, digest in files.items():
+        path = repo / rel
+        if (not re.fullmatch(r"[0-9a-f]{64}", str(digest))
+                or not path.is_file() or path.is_symlink() or path.stat().st_size > 1_000_000
+                or hashlib.sha256(path.read_bytes()).hexdigest() != digest):
+            errors.append(f"first-cutover SSM repair certified file changed: {rel}")
+    if errors:
+        return errors
+    if not _owner_certified(comments, "SaurabhVermaIN", head,
+                            hashlib.sha256(FIRST_CUTOVER_SSM_REPAIR_MANIFEST.read_bytes()).hexdigest()):
+        errors.append("owner-led first-cutover SSM repair certification is absent")
+    for name in names:
+        compiler = (repo / f"deploy/compile-first-{name}-document.py").read_text()
+        document = _read_json(repo / f"deploy/scholarships-first-{name}-command-v1.json")
+        steps = document.get("mainSteps", [])
+        command = (steps[0].get("inputs", {}).get("runCommand", [""])[0]
+                   if len(steps) == 1 else "")
+        if ("set -eu" not in compiler or "set -euo pipefail" in compiler
+                or not command.startswith("set -eu\n")
+                or steps[0].get("action") != "aws:runShellScript"
+                or "Commands" in document.get("parameters", {})):
+            errors.append(f"first-cutover {name} wrapper is not fixed and POSIX compatible")
+    for name in ("scholarships-first-cutover-prepare.yml", "scholarships-first-cutover.yml"):
+        workflow = (repo / ".github/workflows" / name).read_text()
+        if ("environment: production" not in workflow or "refs/heads/main" not in workflow
+                or "--document-version 2" not in workflow):
+            errors.append(f"first-cutover version-2 workflow boundary changed: {name}")
+    return errors
 
 
 def verify_first_cutover_followup(repo: Path, changed: list[str], head: str,

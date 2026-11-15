@@ -123,6 +123,38 @@ class FirstCutoverContractTests(unittest.TestCase):
             (self.root / changed[0]).write_text('changed\n')
             self.assertIn('certified file changed', ' '.join(verify([comment])))
 
+    def test_exact_ssm_repair_requires_posix_wrapper_and_owner(self):
+        names = ('backup', 'upload', 'restore', 'cutover')
+        changed = ['.github/workflows/scholarships-first-cutover-prepare.yml',
+                   '.github/workflows/scholarships-first-cutover.yml',
+                   'deploy/FIRST_CUTOVER_ACTIVATION.md', 'tests/test_first_cutover_approval.py']
+        for workflow in changed[:2]:
+            self.write(workflow, (self.root / workflow).read_text() + '--document-version 2\n')
+        self.write(changed[2], 'version 2\n')
+        self.write(changed[3], 'shell regression\n')
+        for name in names:
+            compiler = f'deploy/compile-first-{name}-document.py'
+            document = f'deploy/scholarships-first-{name}-command-v1.json'
+            self.write(compiler, 'command = "set -eu\\n"\n')
+            self.write(document, json.dumps({'parameters': {}, 'mainSteps': [{
+                'action': 'aws:runShellScript', 'inputs': {'runCommand': ['set -eu\ntrue\n']}}]}))
+            changed.extend((compiler, document))
+        manifest = self.root / 'ssm-repair.json'
+        manifest.write_text(json.dumps({'repository': 'Synergie-ITCI/scholarships',
+            'pr_number': 21, 'head_sha': HEAD, 'removed_paths': [],
+            'technical_certification_owner': 'SaurabhVermaIN',
+            'files': {name: self.files[name] for name in changed}}))
+        digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
+        comment = dict(self.comment, body=self.comment['body'].replace(
+            self.comment['body'].splitlines()[1], f'CERTIFIED_MANIFEST_SHA256={digest}'))
+        with patch.object(contract, 'FIRST_CUTOVER_SSM_REPAIR_MANIFEST', manifest):
+            verify = lambda comments: contract.verify_first_cutover_ssm_repair(
+                self.root, changed, HEAD, comments)
+            self.assertEqual(verify([comment]), [])
+            self.assertIn('owner-led', ' '.join(verify([])))
+            self.write('deploy/compile-first-backup-document.py', 'set -euo pipefail\n')
+            self.assertIn('certified file changed', ' '.join(verify([comment])))
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -1,0 +1,21 @@
+{
+  "files": {
+    ".github/workflows/scholarships-first-cutover-prepare.yml": "3bbced7f48f840e052951f41298c017a39490d9e5dd4c56c608210df0d157f94",
+    ".github/workflows/scholarships-first-cutover.yml": "fe0aa75438b70feef11586850fc5a9947b827edb99555e7f6b9c3cbf0686093d",
+    "deploy/FIRST_CUTOVER_ACTIVATION.md": "f7d7690e94d0096ab720f26509f7faa125dfebb8fb7b822647948c7e36b93575",
+    "deploy/compile-first-backup-document.py": "27fa0d6f13e5ec3559e79dbc641b193b51343607f8b1f6d39e0e6d156ceb52d2",
+    "deploy/compile-first-cutover-document.py": "5c0013837339d6e77cd53e4267925955746b070605412a020779a2c982dd1020",
+    "deploy/compile-first-restore-document.py": "f343e33e87bb4a7e80983771032046b8a738b275452a5b27696dc90d9d7e0b21",
+    "deploy/compile-first-upload-document.py": "19695d06db0ec4dec8dbb678deb0641294865def118eeea742c2f2bba2c1f08e",
+    "deploy/scholarships-first-backup-command-v1.json": "225f470ba87831d77e4d6c356d74e8ca99f18669dac996616e9842867cc81a6e",
+    "deploy/scholarships-first-cutover-command-v1.json": "e1d0d3b64125dae7f5de15004ebcddcd6b5ef013111cb0adf562760959284723",
+    "deploy/scholarships-first-restore-command-v1.json": "3205d1add2119164b7a6d7b980caa67f17d061fc9aab36322922d49a596ec8ac",
+    "deploy/scholarships-first-upload-command-v1.json": "12a478fc40ece078687e6a312b591aba688decff98555d1beb14e90110e6a0bf",
+    "tests/test_first_cutover_approval.py": "5bb6695071c7b94ba4755a5cf615d58bcab2e0a978c81a512b158cd1d5dba169"
+  },
+  "head_sha": "54c426a6c306b8f394a457ddec73ddea9c1844a1",
+  "pr_number": 21,
+  "removed_paths": [],
+  "repository": "Synergie-ITCI/scholarships",
+  "technical_certification_owner": "SaurabhVermaIN"
+}
