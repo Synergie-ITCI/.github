@@ -593,6 +593,43 @@ class FirstCutoverContractTests(unittest.TestCase):
             self.write(changed[1], 'changed\n')
             self.assertIn('certified file changed', ' '.join(verify([comment])))
 
+    def test_direct_cutover_requires_exact_artifacts_and_owner(self):
+        changed = ['.github/workflows/scholarships-first-cutover.yml',
+                   'deploy/FIRST_CUTOVER_ACTIVATION.md', 'tests/test_first_cutover_approval.py']
+        self.write(changed[0], "environment: production\n"
+                   "github.ref == 'refs/heads/main'\ngithub.run_attempt == 1\n"
+                   "Consume one-use exact owner receipt before AWS OIDC\n"
+                   "Assume cutover-only OIDC role after consumed owner receipt\n"
+                   "--document-name Scholarships-First-Cutover-v1\n--document-version 3\n"
+                   "mi-04a256fa549e372a8\n"
+                   "version=DtMN77Ft2om6nPPs5kAoUNDAiab96qo_\n"
+                   "rollback_version=N.kuwn9yxmaw9.smxP3FSrmnEczpryTJ\n"
+                   + 's3api head-object --bucket\n' * 4
+                   + 's3api get-object --bucket\n' * 4
+                   + '.ServerSideEncryption=="AES256"\n.Metadata.sha256==$sha\n'
+                   + 'DefaultVersion --output text)" = 1\n'
+                   + 'LatestVersion --output text)" = 1\n'
+                   + 'Synergie-Scholarships-Runtime-Certifier-v1\n')
+        self.write(changed[1], 'direct route with off-host backup and rollback\n')
+        self.write(changed[2], 'exact artifact reuse regression\n')
+        manifest = self.root / 'direct-cutover.json'
+        manifest.write_text(json.dumps({'repository': 'Synergie-ITCI/scholarships',
+            'pr_number': 38, 'head_sha': HEAD, 'removed_paths': [],
+            'technical_certification_owner': 'SaurabhVermaIN',
+            'files': {name: self.files[name] for name in changed}}))
+        digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
+        comment = dict(self.comment, body=self.comment['body'].replace(
+            self.comment['body'].splitlines()[1], f'CERTIFIED_MANIFEST_SHA256={digest}'))
+        with patch.object(contract, 'FIRST_CUTOVER_DIRECT_MANIFEST', manifest):
+            verify = lambda comments: contract.verify_first_cutover_direct(
+                self.root, changed, HEAD, comments)
+            self.assertEqual(verify([comment]), [])
+            self.assertIn('owner-led', ' '.join(verify([])))
+            self.assertIn('scope', ' '.join(contract.verify_first_cutover_direct(
+                self.root, changed[:-1], HEAD, [comment])))
+            self.write(changed[0], 's3api put-object\n')
+            self.assertIn('certified file changed', ' '.join(verify([comment])))
+
     def test_exact_ssm_repair_requires_posix_wrapper_and_owner(self):
         names = ('backup', 'upload', 'restore', 'cutover')
         changed = ['.github/workflows/scholarships-first-cutover-prepare.yml',
