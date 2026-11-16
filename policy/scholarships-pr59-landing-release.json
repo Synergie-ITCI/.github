@@ -1,7 +1,7 @@
 {
   "files": {
     "deploy/LANDING_UI_RELEASE.md": "e8a2f96af0be39bb2f3f8fd4ba101a765aa8261c3fd25d967b91dad088ff7d74",
-    "deploy/compile-first-landing-release-document.py": "b519b23e26b418480068b8b6f33c817bdfef37f11545ec92c61103c6e7d32def",
+    "deploy/compile-first-landing-release-document.py": "95e79867fa8c91a2ec4ab5b0f10317f13e7cb6402d0c9be6f6a9821593908f3b",
     "deploy/compile-first-landing-rollback-document.py": "8ce7a8519e606c5545d504349296300320dca78d30be2c36c479c9b2f9a847fd",
     "deploy/first-landing-release.py": "b0d676a16ea4cba25e6572a31db3656be4ae05efdc241c119b66da13dd4c424f",
     "deploy/first-landing-rollback.py": "bbf79a0c59cde422fa67fdbc0f7b03f1153212ba67c5c383cbb2daad0de19c67",
@@ -9,7 +9,7 @@
     "deploy/scholarships-first-landing-rollback-v1.json": "eb8d90fadb258cb59d3019d729bed1d0a1becf6dcca3a9bd28154b0037426710",
     "tests/test_first_landing_release.py": "53b42e8e12075717723e464d9357424c4b548660b948b6621ab5d8d3d33a433f"
   },
-  "head_sha": "c9b994f3a3bfb2a84277daf0005107bb4be951ca",
+  "head_sha": "f46d5a89e672bd9b9efc56dfd7e062ddbcfdd901",
   "pr_number": 59,
   "removed_paths": [],
   "repository": "Synergie-ITCI/scholarships",
