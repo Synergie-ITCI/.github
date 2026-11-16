@@ -1426,7 +1426,6 @@ def verify_validator_asset(repo: Path, changed: list[str], head: str,
     path = VALIDATOR_ASSET_MANIFEST
     manifest = _read_json(path)
     expected = {
-        "application/views/home/Index.php",
         "deploy/VALIDATOR_ASSET_RESTORE.md",
         "deploy/compile-first-recovery-validator-document.py",
         "deploy/first-recovery-validator-asset.py",
