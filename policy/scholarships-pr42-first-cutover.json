@@ -1,0 +1,13 @@
+{
+  "files": {
+    "deploy/compile-first-recovery-inspect-document.py": "02698a75f24ba0284866699847fcd0cbea0b7ba597a27344e71c39d6a580934d",
+    "deploy/first-recovery-inspect.sh": "aa6c6a3de37367d25b64f342589d212862fd805d1024dacb4653d129494b2e28",
+    "deploy/scholarships-first-recovery-inspect-v1.json": "4441cc5a26b8badce314d080785410f35972644fc11bdfdc11d323d24361f7a7",
+    "tests/test_first_recovery_inspect.py": "97ede7a605d5225b92118eedd0db862e6ad8f273cc641a2cf2083906e6082892"
+  },
+  "head_sha": "b2d922a22f9f7a76b1f36a2d79c1b37082cb93b1",
+  "pr_number": 42,
+  "removed_paths": [],
+  "repository": "Synergie-ITCI/scholarships",
+  "technical_certification_owner": "SaurabhVermaIN"
+}
