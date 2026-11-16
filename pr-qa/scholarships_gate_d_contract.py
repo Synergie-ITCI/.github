@@ -43,6 +43,7 @@ FIRST_CUTOVER_RECOVERY_ROOT_CAUSE_MANIFEST = Path(__file__).resolve().parents[1]
 FIRST_CUTOVER_RECOVERY_FPM_PROBE_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr44-first-cutover.json"
 FIRST_CUTOVER_RECOVERY_FPM_TRACE_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr45-first-cutover.json"
 FIRST_CUTOVER_PUBLIC_ASSETS_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr55-first-cutover.json"
+FIRST_CUTOVER_EXISTING_FONTS_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr56-first-cutover.json"
 HOST = "mi-04a256fa549e372a8"
 ACCOUNT = "918870682888"
 RELEASE_DOCUMENT = "Scholarships-GateD-Production-Command-v1"
@@ -1356,6 +1357,55 @@ def verify_first_cutover_public_assets(repo: Path, changed: list[str], head: str
             or "test_installation_and_partial_failure_cleanup" not in
                (repo / "tests/test_first_recovery_public_assets.py").read_text()):
         errors.append("fixed public asset restore execution boundary changed")
+    return errors
+
+
+def verify_first_cutover_existing_fonts(repo: Path, changed: list[str], head: str,
+                                       comments: list[dict[str, Any]]) -> list[str]:
+    """Certify only PR #56's correction for exact existing public fonts."""
+    path = FIRST_CUTOVER_EXISTING_FONTS_MANIFEST
+    manifest = _read_json(path)
+    expected = {
+        "deploy/first-recovery-public-assets.py",
+        "deploy/scholarships-first-recovery-public-assets-v1.json",
+        "tests/test_first_recovery_public_assets.py",
+    }
+    errors: list[str] = []
+    if (manifest.get("repository") != "Synergie-ITCI/scholarships"
+            or manifest.get("pr_number") != 56 or manifest.get("head_sha") != head
+            or manifest.get("technical_certification_owner") != "SaurabhVermaIN"
+            or manifest.get("removed_paths") != []):
+        errors.append("existing-font correction certification identity changed")
+    files = manifest.get("files")
+    if not isinstance(files, dict) or set(files) != expected or set(changed) != expected:
+        errors.append("existing-font correction changed-file scope changed")
+        return errors
+    for rel, digest in files.items():
+        file = repo / rel
+        if (not re.fullmatch(r"[0-9a-f]{64}", str(digest))
+                or not file.is_file() or file.is_symlink() or file.stat().st_size > 1_000_000
+                or hashlib.sha256(file.read_bytes()).hexdigest() != digest):
+            errors.append(f"existing-font correction certified file changed: {rel}")
+    if errors:
+        return errors
+    if not _owner_certified(comments, "SaurabhVermaIN", head,
+                            hashlib.sha256(path.read_bytes()).hexdigest()):
+        errors.append("owner-led existing-font correction certification is absent")
+    script = (repo / "deploy/first-recovery-public-assets.py").read_text()
+    assets = _read_json(repo / "deploy/public-assets-manifest.json")
+    document = _read_json(repo / "deploy/scholarships-first-recovery-public-assets-v1.json")
+    compiled = script.replace("__ASSET_MAP__", repr(assets))
+    command = "set -eu\nprintf '%s' '" + base64.b64encode(compiled.encode()).decode() + "' | base64 -d | python3\n"
+    if (script.count("__ASSET_MAP__") != 1
+            or "directory == 'assets/home/fonts'" not in script
+            or "existing public font differs from verified backup" not in script
+            or "not file.is_symlink()" not in script
+            or "installed.append(target)" not in script
+            or "run_migrations.php" in script or "database.sql.gz" in script
+            or document.get("mainSteps", [{}])[0].get("inputs", {}).get("runCommand") != [command]
+            or "test_exact_existing_fonts_are_preserved_and_changed_fonts_rejected" not in
+               (repo / "tests/test_first_recovery_public_assets.py").read_text()):
+        errors.append("fixed existing-font correction boundary changed")
     return errors
 
 
