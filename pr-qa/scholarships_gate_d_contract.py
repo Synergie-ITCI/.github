@@ -30,6 +30,7 @@ FIRST_CUTOVER_REHEARSAL_PREFLIGHT_MANIFEST = Path(__file__).resolve().parents[1]
 FIRST_CUTOVER_REHEARSAL_IDENTITY_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr31-first-cutover.json"
 FIRST_CUTOVER_REHEARSAL_NODE_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr32-first-cutover.json"
 FIRST_CUTOVER_SYNTHETIC_REHEARSAL_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr33-first-cutover.json"
+FIRST_CUTOVER_REHEARSAL_PERMISSIONS_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr34-first-cutover.json"
 HOST = "mi-04a256fa549e372a8"
 ACCOUNT = "918870682888"
 RELEASE_DOCUMENT = "Scholarships-GateD-Production-Command-v1"
@@ -718,6 +719,54 @@ def verify_first_cutover_synthetic_rehearsal(repo: Path, changed: list[str], hea
             or workflow.count('Document.LatestVersion --output text)" = 3') != 1
             or "AWS-RunShellScript" in workflow):
         errors.append("fixed synthetic SSM or production boundary changed")
+    return errors
+
+
+def verify_first_cutover_rehearsal_permissions(repo: Path, changed: list[str], head: str,
+                                                comments: list[dict[str, Any]]) -> list[str]:
+    """Certify exact PR #34 synthetic fixture permissions and fixed SSM v2."""
+    manifest = _read_json(FIRST_CUTOVER_REHEARSAL_PERMISSIONS_MANIFEST)
+    expected = {"deploy/FIRST_CUTOVER_ACTIVATION.md",
+                "deploy/first-synthetic-rehearsal.py",
+                "deploy/scholarships-first-synthetic-rehearsal-command-v1.json",
+                "tests/test_first_synthetic_rehearsal.py"}
+    errors: list[str] = []
+    if (manifest.get("repository") != "Synergie-ITCI/scholarships"
+            or manifest.get("pr_number") != 34 or manifest.get("head_sha") != head
+            or manifest.get("technical_certification_owner") != "SaurabhVermaIN"
+            or manifest.get("removed_paths") != []):
+        errors.append("rehearsal permission certification identity changed")
+    files = manifest.get("files")
+    if not isinstance(files, dict) or set(files) != expected or set(changed) != expected:
+        errors.append("rehearsal permission changed-file scope changed")
+        return errors
+    for rel, digest in files.items():
+        path = repo / rel
+        if (not re.fullmatch(r"[0-9a-f]{64}", str(digest))
+                or not path.is_file() or path.is_symlink() or path.stat().st_size > 1_000_000
+                or hashlib.sha256(path.read_bytes()).hexdigest() != digest):
+            errors.append(f"rehearsal permission certified file changed: {rel}")
+    if errors:
+        return errors
+    if not _owner_certified(comments, "SaurabhVermaIN", head,
+                            hashlib.sha256(FIRST_CUTOVER_REHEARSAL_PERMISSIONS_MANIFEST.read_bytes()).hexdigest()):
+        errors.append("owner-led rehearsal permission certification is absent")
+    runner = (repo / "deploy/first-synthetic-rehearsal.py").read_text()
+    document = _read_json(repo / "deploy/scholarships-first-synthetic-rehearsal-command-v1.json")
+    params = document.get("parameters", {})
+    steps = document.get("mainSteps", [])
+    if ("current.chmod(0o755)" not in runner
+            or "(current / '.htaccess').chmod(0o644)" not in runner
+            or "(current / '.scholarships-rehearsal-health.php').chmod(0o644)" not in runner
+            or "prior rehearsal workspace remains" not in runner
+            or "prior rehearsal database remains" not in runner
+            or "SCHOLARSHIPS_SYNTHETIC_REHEARSAL_PASS=" not in runner
+            or set(params) != {"ArtifactUrl", "RollbackArtifactUrl"}
+            or not all(p.get("interpolationType") == "ENV_VAR" for p in params.values())
+            or len(steps) != 1 or steps[0].get("action") != "aws:runShellScript"
+            or "{{" in str(steps)
+            or "i-060e4ec1fd5345c30" not in runner):
+        errors.append("fixed synthetic SSM v2 or Apache permission boundary changed")
     return errors
 
 
