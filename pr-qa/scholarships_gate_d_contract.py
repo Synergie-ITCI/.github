@@ -42,6 +42,7 @@ FIRST_CUTOVER_RECOVERY_INSPECT_MANIFEST = Path(__file__).resolve().parents[1] / 
 FIRST_CUTOVER_RECOVERY_ROOT_CAUSE_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr43-first-cutover.json"
 FIRST_CUTOVER_RECOVERY_FPM_PROBE_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr44-first-cutover.json"
 FIRST_CUTOVER_RECOVERY_FPM_TRACE_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr45-first-cutover.json"
+FIRST_CUTOVER_PUBLIC_ASSETS_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr55-first-cutover.json"
 HOST = "mi-04a256fa549e372a8"
 ACCOUNT = "918870682888"
 RELEASE_DOCUMENT = "Scholarships-GateD-Production-Command-v1"
@@ -1286,6 +1287,75 @@ def verify_first_cutover_recovery_fpm_trace(repo: Path, changed: list[str], head
             or "test_one_request_cleans_temporary_tracer" not in
                (repo / "tests/test_first_recovery_fastcgi_probe_v4.py").read_text()):
         errors.append("fixed internal FPM trace boundary changed")
+    return errors
+
+
+def verify_first_cutover_public_assets(repo: Path, changed: list[str], head: str,
+                                       comments: list[dict[str, Any]]) -> list[str]:
+    """Certify only the exact backup-sourced public asset repair in PR #55."""
+    path = FIRST_CUTOVER_PUBLIC_ASSETS_MANIFEST
+    manifest = _read_json(path)
+    expected = {
+        "deploy/compile-first-recovery-public-assets-document.py",
+        "deploy/first-recovery-public-assets.py",
+        "deploy/public-assets-manifest.json",
+        "deploy/scholarships-first-recovery-public-assets-v1.json",
+        "tests/test_first_recovery_public_assets.py",
+    }
+    errors: list[str] = []
+    if (manifest.get("repository") != "Synergie-ITCI/scholarships"
+            or manifest.get("pr_number") != 55 or manifest.get("head_sha") != head
+            or manifest.get("technical_certification_owner") != "SaurabhVermaIN"
+            or manifest.get("removed_paths") != []):
+        errors.append("public asset repair certification identity changed")
+    files = manifest.get("files")
+    if not isinstance(files, dict) or set(files) != expected or set(changed) != expected:
+        errors.append("public asset repair changed-file scope changed")
+        return errors
+    for rel, digest in files.items():
+        file = repo / rel
+        if (not re.fullmatch(r"[0-9a-f]{64}", str(digest))
+                or not file.is_file() or file.is_symlink() or file.stat().st_size > 1_000_000
+                or hashlib.sha256(file.read_bytes()).hexdigest() != digest):
+            errors.append(f"public asset repair certified file changed: {rel}")
+    if errors:
+        return errors
+    if not _owner_certified(comments, "SaurabhVermaIN", head,
+                            hashlib.sha256(path.read_bytes()).hexdigest()):
+        errors.append("owner-led public asset repair certification is absent")
+    assets = _read_json(repo / "deploy/public-assets-manifest.json")
+    prefixes = ("assets/ujjwal/images/", "assets/ujjwal/css/images/",
+                "assets/home/images/", "assets/home/fonts/",
+                "assets/plugins/fontawesome-free/", "assets/plugins/icheck-bootstrap/")
+    if (not isinstance(assets, dict) or len(assets) != 36
+            or any(not name.startswith(prefixes) or not re.fullmatch(r"[0-9a-f]{64}", str(digest))
+                   for name, digest in assets.items())):
+        errors.append("public-only asset manifest boundary changed")
+        return errors
+    script = (repo / "deploy/first-recovery-public-assets.py").read_text()
+    document = _read_json(repo / "deploy/scholarships-first-recovery-public-assets-v1.json")
+    compiled = script.replace("__ASSET_MAP__", repr(assets))
+    command = "set -eu\nprintf '%s' '" + base64.b64encode(compiled.encode()).decode() + "' | base64 -d | python3\n"
+    key = "applications/scholarships/first-cutover/43713023653/application.tar.gz.part-0000"
+    pattern = ("^https://synergie-production-app-backups-918870682888-ap-south-1"
+               "[.]s3[.]ap-south-1[.]amazonaws[.]com/" + key.replace(".", "[.]")
+               + "[?][A-Za-z0-9%_=&.~-]+$")
+    params = document.get("parameters", {})
+    steps = document.get("mainSteps", [])
+    if (script.count("__ASSET_MAP__") != 1
+            or "1uloEZmYt8h91r6zPAKA01ygteb_yCqx" not in script
+            or "54121df892ad8103e4f2c62c1577e1c07083f82a88e9eb84b8eb4e2e644d195c" not in script
+            or "ip-172-26-10-203.ap-south-1.compute.internal" not in script
+            or "b1ccf807b3b3d2812f1b0958c513866c85691b64" not in script
+            or "run_migrations.php" in script or "database.sql.gz" in script
+            or not isinstance(params, dict) or set(params) != {"BackupUrl"}
+            or params["BackupUrl"].get("interpolationType") != "ENV_VAR"
+            or params["BackupUrl"].get("allowedPattern") != pattern
+            or len(steps) != 1 or steps[0].get("action") != "aws:runShellScript"
+            or steps[0].get("inputs", {}).get("runCommand") != [command]
+            or "test_installation_and_partial_failure_cleanup" not in
+               (repo / "tests/test_first_recovery_public_assets.py").read_text()):
+        errors.append("fixed public asset restore execution boundary changed")
     return errors
 
 

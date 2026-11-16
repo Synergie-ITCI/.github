@@ -1,0 +1,14 @@
+{
+  "files": {
+    "deploy/compile-first-recovery-public-assets-document.py": "8bd1a8d9ce6a788c222368f5f2bd03735ccd10a75e28cfa30ea2d42a03cf55e0",
+    "deploy/first-recovery-public-assets.py": "823a5e85e659637a591de8dfacf1931d922f90463a838e258c3d2f4c210b7639",
+    "deploy/public-assets-manifest.json": "26724177fa48048b4996e4a73c3b2ad3788c5b7613323b964bd1d201a61a68ca",
+    "deploy/scholarships-first-recovery-public-assets-v1.json": "1979ea16ab48520124f5d4b0cdc439b6edd6f6259876d0b42a737a4949d3f376",
+    "tests/test_first_recovery_public_assets.py": "9c39d8e8728c486d8829aad7fbeccd69d659fbdadbe3c61e71528a44862565b7"
+  },
+  "head_sha": "4355a92db321f87607b4c5400c3b25494fdcbe5f",
+  "pr_number": 55,
+  "removed_paths": [],
+  "repository": "Synergie-ITCI/scholarships",
+  "technical_certification_owner": "SaurabhVermaIN"
+}
