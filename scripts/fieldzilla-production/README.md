@@ -166,6 +166,12 @@ selected immutable QA release, exact source/base, live review window, migration
 bytes, and production preflight before any mutation. Other production rollouts
 retain the baseline authorization requirement.
 
+The exact PR #786 scoped-role promotion may use an ordinary PASS QA report only
+with its pinned source/base, centrally reviewed migration 0075 SQL record,
+and the `0041+0074` to `0041+0075` database transition. The normal three-service
+writer and queue fence, migration attestation, Worker restoration, and one-use
+owner approval still apply. This does not create Nidaan roles or assign users.
+
 
 Executor code and review data use separate immutable references. A main-only
 caller can retain its reviewed executor pin while a newly issued review package

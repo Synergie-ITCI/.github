@@ -109,5 +109,25 @@
       "id": 52234089
     },
     "purpose": "Bind unchanged audited migration SQL and five DELETE fingerprints only to #712 fully audit-test-corrected head 973bee62d487f4b5c1bd58b269e0a358492fd5bf on unchanged rc267 caller base 8ae3caaa067b3698713e514e1a834412781a93dc."
+  },
+  {
+    "authorization_id": "17fc5f90-d712-4dd8-8085-57353395ff0e",
+    "repository": "Synergie-ITCI/programme-management-platform",
+    "repository_id": 1315697868,
+    "pr_number": 786,
+    "head_ref": "feature/fieldzilla-role-management-promotion",
+    "base_ref": "main",
+    "expected_head_sha": "2b0753f08aaabdacb780d1abd35fc2d5e80bc181",
+    "expected_base_sha": "576fba59c0d5958cb623351b29201b4d4aef589c",
+    "issued_at": "2026-11-16T14:31:55Z",
+    "expires_at": "2026-11-17T14:21:55Z",
+    "migration_path": "apps/api/alembic/versions/20261116_0075_operational_role_permissions.py",
+    "migration_sha256": "2432a1c42d5a8a65e4e5f67f1535450d77526edaa25c1bb2d96761daae967dc4",
+    "delete_fingerprints": [
+      {"line": 57, "sha256": "3032b0985c7678e126ba338a813e9853ba6d53a29354f2e68d6c778a6f47708c"},
+      {"line": 154, "sha256": "dd9408b10f018bfa044a1659986303ebe9f583f36aea6db3de4ffe957cac774c"}
+    ],
+    "approved_reviewer": {"login": "SaurabhVermaIN", "id": 52234089},
+    "purpose": "Review PR #786 migration 0075's exact additive permission DML and replacement role-permission guard; bind both DELETE definitions, including downgrade, to the exact source only."
   }
 ]

@@ -1775,6 +1775,23 @@
       "allowed_changed_files": 2,
       "purpose": "Exact-source SQL-free production image review for PR #783 mobile release tenant RLS readback correction. No baseline relaxation, migration, ECS update, routing, or publication approval.",
       "relaxations": []
+    },
+    {
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "repository_id": 1315697868,
+      "pr_number": 786,
+      "head_ref": "feature/fieldzilla-role-management-promotion",
+      "base_ref": "main",
+      "expected_head_sha": "2b0753f08aaabdacb780d1abd35fc2d5e80bc181",
+      "expected_base_sha": "576fba59c0d5958cb623351b29201b4d4aef589c",
+      "issued_at": "2026-11-16T14:31:55Z",
+      "enabled": true,
+      "authorization_id": "1beec030-e3bf-43c4-b2a1-c3299ddb7219",
+      "expires_after": "2026-11-17T14:21:55Z",
+      "allowed_effective_additions": 683,
+      "allowed_changed_files": 23,
+      "purpose": "Exact-source production image review for PR #786 scoped role management and migration 0075. No baseline relaxation, ECS update, routing, or publication approval.",
+      "relaxations": []
     }
   ]
 }
