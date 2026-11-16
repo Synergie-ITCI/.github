@@ -97,9 +97,9 @@ class ReleasePinTests(unittest.TestCase):
         verify.assert_called_once()
         self.assertEqual(self.manifest["consumer_release_selection"]["default"]["release"], "pr-qa-v1-rc216")
 
-    def test_fieldzilla_temporarily_selects_exact_rc342(self):
+    def test_fieldzilla_temporarily_selects_exact_rc343(self):
         selected = self.manifest["consumer_release_selection"]["repositories"]["Synergie-ITCI/programme-management-platform"]
-        self.assertEqual(selected, {"release": "pr-qa-v1-rc342", "commit": "419abf6d30157d191499a65ee0f87f023135650c"})
+        self.assertEqual(selected, {"release": "pr-qa-v1-rc343", "commit": "40668a9b44fea7505b3ef85bac12842238b7d655"})
         with patch("release_pin.protected_consumer_release", side_effect=AssertionError("temporary direct selection must not read app selector")), patch("release_pin.verify_bound_release") as verify:
             release, entry = resolve_consumer_release(self.manifest, "Synergie-ITCI/programme-management-platform")
         self.assertEqual((release, entry["commit"]), (selected["release"], selected["commit"]))
