@@ -1,0 +1,17 @@
+{
+  "files": {
+    "deploy/LANDING_UI_RELEASE.md": "e8a2f96af0be39bb2f3f8fd4ba101a765aa8261c3fd25d967b91dad088ff7d74",
+    "deploy/compile-first-landing-release-document.py": "77a0d139c6d6da244750aa031a50f055d51964f9bc2bb194c54acb683e09200c",
+    "deploy/compile-first-landing-rollback-document.py": "8ce7a8519e606c5545d504349296300320dca78d30be2c36c479c9b2f9a847fd",
+    "deploy/first-landing-release.py": "b0d676a16ea4cba25e6572a31db3656be4ae05efdc241c119b66da13dd4c424f",
+    "deploy/first-landing-rollback.py": "bbf79a0c59cde422fa67fdbc0f7b03f1153212ba67c5c383cbb2daad0de19c67",
+    "deploy/scholarships-first-landing-release-v1.json": "1affd207d8a5e0f027a41334dd694ba578f30620aaa59320b10d9f424980755e",
+    "deploy/scholarships-first-landing-rollback-v1.json": "eb8d90fadb258cb59d3019d729bed1d0a1becf6dcca3a9bd28154b0037426710",
+    "tests/test_first_landing_release.py": "53b42e8e12075717723e464d9357424c4b548660b948b6621ab5d8d3d33a433f"
+  },
+  "head_sha": "a439b13bf7cf9db3024080f7666300873da0d9ba",
+  "pr_number": 59,
+  "removed_paths": [],
+  "repository": "Synergie-ITCI/scholarships",
+  "technical_certification_owner": "SaurabhVermaIN"
+}
