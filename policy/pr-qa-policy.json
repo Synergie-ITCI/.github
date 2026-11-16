@@ -1758,6 +1758,23 @@
       "allowed_changed_files": 2,
       "purpose": "Exact-source SQL-free production image review for PR #780 activation response refresh. No baseline relaxation, migration, ECS update, routing, or publication approval.",
       "relaxations": []
+    },
+    {
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "repository_id": 1315697868,
+      "pr_number": 783,
+      "head_ref": "fix/mobile-release-production-readback",
+      "base_ref": "main",
+      "expected_head_sha": "2817ab3ad079e7795ca723e9cd6fbbc705f2bc8f",
+      "expected_base_sha": "79b9676aac733a9a78a6901af48e76fa93688828",
+      "issued_at": "2026-11-16T05:44:28Z",
+      "enabled": true,
+      "authorization_id": "2d04d97f-b65e-494e-b53b-2f3cc1bba028",
+      "expires_after": "2026-11-17T05:34:28Z",
+      "allowed_effective_additions": 227,
+      "allowed_changed_files": 2,
+      "purpose": "Exact-source SQL-free production image review for PR #783 mobile release tenant RLS readback correction. No baseline relaxation, migration, ECS update, routing, or publication approval.",
+      "relaxations": []
     }
   ]
 }
