@@ -20,6 +20,7 @@ REGISTRY = f"{ACCOUNT}.dkr.ecr.{REGION}.amazonaws.com/synergie/fieldzilla/produc
 SHA = re.compile(r"[0-9a-f]{40}")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 PR787_SOURCE_SHA = "a6e35a7ad36fbc21417a8575bb723a7948a5e8c7"
+PR791_SOURCE_SHA = "8821f317a4316ec7bca639ac7b6d22e9f903cfd9"
 ROLE = re.compile(
     rf"arn:aws:iam::{ACCOUNT}:role/[A-Za-z0-9_+=,.@/-]*[Pp]roduction[A-Za-z0-9_+=,.@/-]*"
 )
@@ -151,13 +152,14 @@ def render(manifest: dict, *, scope: str = "production") -> dict:
                     },
                 ]
             else:
-                container["command"] = (
-                    ["alembic", "upgrade", "20261116_0075"]
-                    if scope == "production" and sha == PR787_SOURCE_SHA
-                    else ["python", "scripts/production_historical_migrate.py"]
-                    if scope == "production"
-                    else ["alembic", "upgrade", "fieldzilla_pr119@head"]
-                )
+                if scope == "production" and sha == PR791_SOURCE_SHA:
+                    container["command"] = ["alembic", "upgrade", "20261117_0076"]
+                elif scope == "production" and sha == PR787_SOURCE_SHA:
+                    container["command"] = ["alembic", "upgrade", "20261116_0075"]
+                elif scope == "production":
+                    container["command"] = ["python", "scripts/production_historical_migrate.py"]
+                else:
+                    container["command"] = ["alembic", "upgrade", "fieldzilla_pr119@head"]
         definition = {
             "family": "fieldzilla-" + scope + "-" + kind,
             "networkMode": "bridge",

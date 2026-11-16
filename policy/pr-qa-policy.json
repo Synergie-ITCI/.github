@@ -1809,6 +1809,23 @@
       "allowed_changed_files": 3,
       "purpose": "Exact-source production image review for PR #787 governed rc340 caller; role implementation and migration 0075 are inherited byte-for-byte from reviewed PR #786 merge. No baseline relaxation, ECS update, routing, or publication approval.",
       "relaxations": []
+    },
+    {
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "repository_id": 1315697868,
+      "pr_number": 791,
+      "head_ref": "fix/nidaan-operational-role-delegation",
+      "base_ref": "main",
+      "expected_head_sha": "8821f317a4316ec7bca639ac7b6d22e9f903cfd9",
+      "expected_base_sha": "a1b883710bdd37ce915901dcfa86a837733a7b7b",
+      "issued_at": "2026-11-16T21:45:39Z",
+      "enabled": true,
+      "authorization_id": "b3fcd363-8f1b-460d-a630-167319a2134a",
+      "expires_after": "2026-11-17T21:35:39Z",
+      "allowed_effective_additions": 306,
+      "allowed_changed_files": 13,
+      "purpose": "Exact-source image review for PR #791 bounded tenant Owner operational-template delegation and forward migration 0076; no baseline relaxation or production mutation.",
+      "relaxations": []
     }
   ]
 }
