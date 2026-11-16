@@ -43,7 +43,11 @@ def validate_request(manifest):
         "recipes",
         "existing_images",
     }
-    if not isinstance(manifest, dict) or set(manifest) != fields:
+    if not isinstance(manifest, dict) or not (
+        set(manifest) == fields
+        or (set(manifest) == fields | {"merge_metadata_recovery"}
+            and manifest["merge_metadata_recovery"] is True)
+    ):
         raise ValueError("Image request must contain only supported metadata")
     if manifest["scope"] != "production-images" or manifest["operation"] != "prepare":
         raise ValueError("Only separately approved image publication is supported")

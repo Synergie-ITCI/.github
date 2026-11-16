@@ -248,3 +248,24 @@ staging, IAM or a database outside the task's reviewed secret. A successful run
 reports `production_live=false` until the separately governed routing cutover
 and authenticated acceptance have passed. This source preparation requires a
 new immutable executor release because rc235 rejects production.
+
+## GitHub merge-metadata incident recovery
+
+Normal production image and application execution still requires GitHub to
+report the exact source PR as merged. If GitHub has accepted the merge commit
+on protected `main` but leaves the PR open, the executor may use a separate,
+time-limited recovery only when the manifest explicitly opts in. The recovery
+record must be present on protected central `main` and in the immutable QA
+release selected by the current exact-head PR-QA run. The executor independently
+checks the original PR head/base, signed merge commit's two parents and identical
+reviewed tree, ancestry from current application `main`, active unchanged
+rulesets, successful exact-head checks, the GitHub Support ticket and the
+unedited owner comment bound to the record. The ordinary QA report, audited SQL
+review, one-use execution approval, IAM trust and live health checks remain
+required. An expired or revoked record fails closed. This path does not update
+GitHub PR metadata, alter the source commit, or authorize a migration itself.
+
+The record lives in `policy/fieldzilla-merge-metadata-recoveries.json`; use one
+record per incident and retain it for audit after expiration. If GitHub repairs
+the PR metadata before execution, omit the opt-in and use the normal merged-PR
+path. Never recreate the merge commit merely to change GitHub's PR display.

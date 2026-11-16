@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "recoveries": [
+    {
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "pr_number": 786,
+      "head_sha": "2b0753f08aaabdacb780d1abd35fc2d5e80bc181",
+      "base_sha": "576fba59c0d5958cb623351b29201b4d4aef589c",
+      "merge_sha": "739fd2759b949e3228affb69cd090b64613b159a",
+      "tree_sha": "5af21a0fe5f9d89a7d96dd1d50230318e67a63d2",
+      "owner_comment_id": 6920362081,
+      "issued_at": "2026-11-16T15:07:48Z",
+      "expires_at": "2026-11-17T14:57:48Z",
+      "support_ticket": "https://help.github.com/ticket/personal/0/5012738",
+      "enabled": true
+    }
+  ]
+}
