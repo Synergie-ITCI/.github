@@ -145,6 +145,18 @@ class MigrationAuthorizationTests(unittest.TestCase):
         self.ctx.changed_files = []
         self.assertEqual(self.gate().status, "PASS")
 
+    def test_python_execution_review_cannot_grant_sql_qa_exception(self):
+        self.auth["migration_path"] = "apps/api/alembic/versions/inherited.py"
+        self.save()
+        self.ctx.changed_files = ["deploy/production/hosting/prepare_application_manifest.py"]
+        self.assertEqual(self.gate().status, "PASS")
+        self.http.assert_not_called()
+
+        (self.repo / self.rel).write_bytes(self.sql)
+        self.ctx.changed_files.append(self.rel)
+        self.assertEqual(self.gate().status, "FAIL")
+        self.http.assert_not_called()
+
     def test_live_sql_review_and_legacy_compatibility(self):
         legacy_scope = (self.auth["repository_id"], self.auth["pr_number"])
         with mock.patch.object(approval, "LEGACY_BUNDLED_BINDINGS", frozenset({legacy_scope})), \

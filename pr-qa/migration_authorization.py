@@ -239,10 +239,13 @@ def reviewed_migration_texts(ctx):
         repository = os.environ.get("GITHUB_REPOSITORY", "")
         event_pr = ctx.event.get("pull_request") or {}
         number = event_pr.get("number")
+        # Python migration records bind production execution, not SQL QA exceptions.
         candidates = [
             record
             for record in records
-            if record["repository"] == repository and record["pr_number"] == number
+            if record["repository"] == repository
+            and record["pr_number"] == number
+            and record["migration_path"].endswith(".sql")
         ]
         if not candidates:
             return {}, []
