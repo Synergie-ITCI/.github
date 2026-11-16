@@ -413,6 +413,7 @@ class FirstCutoverContractTests(unittest.TestCase):
                    'deploy/production-release.sh', 'deploy/rollback.sh',
                    'deploy/scholarships-first-cutover-command-v1.json',
                    'deploy/scholarships-first-synthetic-rehearsal-command-v1.json',
+                   'deploy/scholarships-gate-d-production-command-v1.json',
                    'tests/test_first_cutover_approval.py',
                    'tests/test_first_synthetic_rehearsal.py']
         for rel in changed:

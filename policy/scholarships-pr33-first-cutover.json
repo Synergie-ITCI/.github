@@ -9,10 +9,11 @@
     "deploy/rollback.sh": "1959da4be3420b724fc75f140b43e8b34f4eb0c07d4f8eab194865d6033d4a63",
     "deploy/scholarships-first-cutover-command-v1.json": "dcbc17a71655113c6a3748644487daec555d673327b5d55047048a20873f966e",
     "deploy/scholarships-first-synthetic-rehearsal-command-v1.json": "8cc7630485b09bf3f67b03cbac3c263aa90574c717d489a276d229151c7d871d",
+    "deploy/scholarships-gate-d-production-command-v1.json": "656fc0c2535fee6358156e2d11bb59b2f818d5a6715c5151a90ce4202a53ff5a",
     "tests/test_first_cutover_approval.py": "33c19086d099b4a6cddcf63f340a531f23923f6c10131f05949105e00189db1e",
     "tests/test_first_synthetic_rehearsal.py": "77851ad1f3aecbc8a060400f5cb072622a3e8ea07ed21c8b54840ae8d8b19b58"
   },
-  "head_sha": "555a8f8309a450a24c783bddcf1d900a57bd6f3e",
+  "head_sha": "bcdd44a66c7ba6536a283e447befcc676ba44274",
   "pr_number": 33,
   "removed_paths": [],
   "repository": "Synergie-ITCI/scholarships",
