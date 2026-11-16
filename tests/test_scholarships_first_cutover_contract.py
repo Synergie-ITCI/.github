@@ -560,6 +560,39 @@ class FirstCutoverContractTests(unittest.TestCase):
             self.write(changed[1], 'changed\n')
             self.assertIn('certified file changed', ' '.join(verify([comment])))
 
+    def test_rehearsal_readiness_requires_bounded_retry_and_owner(self):
+        changed = ['deploy/FIRST_CUTOVER_ACTIVATION.md',
+                   'deploy/first-synthetic-rehearsal.py',
+                   'deploy/scholarships-first-synthetic-rehearsal-command-v1.json',
+                   'tests/test_first_synthetic_rehearsal.py']
+        self.write(changed[0], 'fixed version 5\n')
+        self.write(changed[1], "WORKSPACE_PARENT = Path('/var/www')\n"
+                   "deadline = time.monotonic() + 10\n"
+                   "probe.returncode != 7 or time.monotonic() >= deadline\n"
+                   "time.sleep(0.25)\nSCHOLARSHIPS_SYNTHETIC_REHEARSAL_PASS=\n"
+                   "i-060e4ec1fd5345c30\n")
+        self.write(changed[2], json.dumps({'parameters': {
+            'ArtifactUrl': {'interpolationType': 'ENV_VAR'},
+            'RollbackArtifactUrl': {'interpolationType': 'ENV_VAR'}},
+            'mainSteps': [{'action': 'aws:runShellScript', 'inputs': {'runCommand': ['fixed']}}]}))
+        self.write(changed[3], 'test_health_waits_for_graceful_apache_listener_only\n'
+                   'test_health_connection_refusal_is_bounded\n')
+        manifest = self.root / 'rehearsal-readiness.json'
+        manifest.write_text(json.dumps({'repository': 'Synergie-ITCI/scholarships',
+            'pr_number': 37, 'head_sha': HEAD, 'removed_paths': [],
+            'technical_certification_owner': 'SaurabhVermaIN',
+            'files': {name: self.files[name] for name in changed}}))
+        digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
+        comment = dict(self.comment, body=self.comment['body'].replace(
+            self.comment['body'].splitlines()[1], f'CERTIFIED_MANIFEST_SHA256={digest}'))
+        with patch.object(contract, 'FIRST_CUTOVER_REHEARSAL_READINESS_MANIFEST', manifest):
+            verify = lambda comments: contract.verify_first_cutover_rehearsal_readiness(
+                self.root, changed, HEAD, comments)
+            self.assertEqual(verify([comment]), [])
+            self.assertIn('owner-led', ' '.join(verify([])))
+            self.write(changed[1], 'changed\n')
+            self.assertIn('certified file changed', ' '.join(verify([comment])))
+
     def test_exact_ssm_repair_requires_posix_wrapper_and_owner(self):
         names = ('backup', 'upload', 'restore', 'cutover')
         changed = ['.github/workflows/scholarships-first-cutover-prepare.yml',
