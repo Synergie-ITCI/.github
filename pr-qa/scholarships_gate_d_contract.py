@@ -34,6 +34,7 @@ FIRST_CUTOVER_REHEARSAL_PERMISSIONS_MANIFEST = Path(__file__).resolve().parents[
 FIRST_CUTOVER_REHEARSAL_DIAGNOSTIC_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr35-first-cutover.json"
 FIRST_CUTOVER_REHEARSAL_WEBROOT_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr36-first-cutover.json"
 FIRST_CUTOVER_REHEARSAL_READINESS_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr37-first-cutover.json"
+FIRST_CUTOVER_DIRECT_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr38-first-cutover.json"
 HOST = "mi-04a256fa549e372a8"
 ACCOUNT = "918870682888"
 RELEASE_DOCUMENT = "Scholarships-GateD-Production-Command-v1"
@@ -924,6 +925,57 @@ def verify_first_cutover_rehearsal_readiness(repo: Path, changed: list[str], hea
             or len(steps) != 1 or steps[0].get("action") != "aws:runShellScript"
             or "{{" in str(steps)):
         errors.append("fixed synthetic SSM v5 or bounded readiness retry changed")
+    return errors
+
+
+def verify_first_cutover_direct(repo: Path, changed: list[str], head: str,
+                                 comments: list[dict[str, Any]]) -> list[str]:
+    """Certify exact PR #38 reuse of immutable artifacts in the governed cutover."""
+    path = FIRST_CUTOVER_DIRECT_MANIFEST
+    manifest = _read_json(path)
+    expected = {".github/workflows/scholarships-first-cutover.yml",
+                "deploy/FIRST_CUTOVER_ACTIVATION.md", "tests/test_first_cutover_approval.py"}
+    errors: list[str] = []
+    if (manifest.get("repository") != "Synergie-ITCI/scholarships"
+            or manifest.get("pr_number") != 38 or manifest.get("head_sha") != head
+            or manifest.get("technical_certification_owner") != "SaurabhVermaIN"
+            or manifest.get("removed_paths") != []):
+        errors.append("direct cutover certification identity changed")
+    files = manifest.get("files")
+    if not isinstance(files, dict) or set(files) != expected or set(changed) != expected:
+        errors.append("direct cutover changed-file scope changed")
+        return errors
+    for rel, digest in files.items():
+        file = repo / rel
+        if (not re.fullmatch(r"[0-9a-f]{64}", str(digest))
+                or not file.is_file() or file.is_symlink() or file.stat().st_size > 1_000_000
+                or hashlib.sha256(file.read_bytes()).hexdigest() != digest):
+            errors.append(f"direct cutover certified file changed: {rel}")
+    if errors:
+        return errors
+    if not _owner_certified(comments, "SaurabhVermaIN", head, hashlib.sha256(path.read_bytes()).hexdigest()):
+        errors.append("owner-led direct cutover certification is absent")
+    workflow = (repo / ".github/workflows/scholarships-first-cutover.yml").read_text()
+    if ("environment: production" not in workflow
+            or "github.ref == 'refs/heads/main'" not in workflow
+            or "github.run_attempt == 1" not in workflow
+            or "Consume one-use exact owner receipt before AWS OIDC" not in workflow
+            or workflow.find("Consume one-use exact owner receipt before AWS OIDC")
+               >= workflow.find("Assume cutover-only OIDC role after consumed owner receipt")
+            or "--document-name Scholarships-First-Cutover-v1" not in workflow
+            or "--document-version 3" not in workflow
+            or "mi-04a256fa549e372a8" not in workflow
+            or "s3api put-object" in workflow
+            or "version=DtMN77Ft2om6nPPs5kAoUNDAiab96qo_" not in workflow
+            or "rollback_version=N.kuwn9yxmaw9.smxP3FSrmnEczpryTJ" not in workflow
+            or workflow.count("s3api head-object --bucket") < 4
+            or workflow.count("s3api get-object --bucket") < 4
+            or ".ServerSideEncryption==\"AES256\"" not in workflow
+            or ".Metadata.sha256==$sha" not in workflow
+            or "DefaultVersion --output text)\" = 1" not in workflow
+            or "LatestVersion --output text)\" = 1" not in workflow
+            or "Synergie-Scholarships-Runtime-Certifier-v1" not in workflow):
+        errors.append("one-use approval, fixed SSM or immutable artifact boundary changed")
     return errors
 
 
