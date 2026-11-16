@@ -358,6 +358,42 @@ class QAPolicyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.verify()
 
+    def test_exact_pr786_migration_accepts_only_ordinary_qa_and_audited_sql(self):
+        source = "2b0753f08aaabdacb780d1abd35fc2d5e80bc181"
+        base = "576fba59c0d5958cb623351b29201b4d4aef589c"
+        self.manifest.update(
+            operation="rollout", promotion_pr=786, base_sha=base,
+            review_authorizations={"baseline": "1beec030-e3bf-43c4-b2a1-c3299ddb7219",
+                                   "sql": "17fc5f90-d712-4dd8-8085-57353395ff0e"},
+            database={"name": "fieldzilla_production", "role": "pmp_fieldzilla_prod_migrator",
+                      "before": ["20260909_0041", "20261113_0074"],
+                      "after": ["20260909_0041", "20261116_0075"]},
+        )
+        self.manifest["application"]["source_sha"] = source
+        self.checks[QUALITY]["head_sha"] = source
+        self.run["head_sha"] = source
+        self.run["pull_requests"] = [{"number": 786, "head": {"sha": source}, "base": {"sha": base}}]
+        self.pr.update(number=786)
+        self.pr["head"]["sha"] = source
+        self.pr["base"]["sha"] = base
+        self.artifact["workflow_run"]["head_sha"] = source
+        binding = self.report["summary"]["baseline_alignment"]
+        binding.update(requested=False, authorized=False, relaxed_checks=[], source_sha=source, destination_sha=base)
+        self.rebuild_archive()
+        self.verify()
+        for mutation in (
+            lambda: self.manifest["review_authorizations"].update(sql=None),
+            lambda: self.manifest["database"].update(after=["20260909_0041", "20261113_0074"]),
+            lambda: binding.update(relaxed_checks=["diff_size"]),
+        ):
+            mutation()
+            self.rebuild_archive()
+            with self.assertRaises(ValueError):
+                self.verify()
+            self.manifest["review_authorizations"]["sql"] = "17fc5f90-d712-4dd8-8085-57353395ff0e"
+            self.manifest["database"]["after"] = ["20260909_0041", "20261116_0075"]
+            binding["relaxed_checks"] = []
+
     def test_detector_execution_must_equal_selected_immutable_policy(self):
         for logs in (
             self.logs.replace(b"rc233", b"rc232"),
