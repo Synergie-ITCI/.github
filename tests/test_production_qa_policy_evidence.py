@@ -331,6 +331,33 @@ class QAPolicyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.verify()
 
+    def test_exact_pr783_database_current_rollout_accepts_ordinary_qa_only(self):
+        from issued_windows import SQL_FREE_PR783_BASE, SQL_FREE_PR783_SOURCE, SQL_FREE_UPDATE_REVISIONS
+
+        source, base = SQL_FREE_PR783_SOURCE, SQL_FREE_PR783_BASE
+        self.manifest.update(
+            operation="rollout", promotion_pr=783, base_sha=base,
+            review_authorizations={"baseline": "2d04d97f-b65e-494e-b53b-2f3cc1bba028", "sql": None},
+            database={"name": "fieldzilla_production", "role": "pmp_fieldzilla_prod_migrator",
+                      "before": SQL_FREE_UPDATE_REVISIONS, "after": SQL_FREE_UPDATE_REVISIONS},
+        )
+        self.manifest["application"]["source_sha"] = source
+        self.checks[QUALITY]["head_sha"] = source
+        self.run["head_sha"] = source
+        self.run["pull_requests"] = [{"number": 783, "head": {"sha": source}, "base": {"sha": base}}]
+        self.pr.update(number=783)
+        self.pr["head"]["sha"] = source
+        self.pr["base"]["sha"] = base
+        self.artifact["workflow_run"]["head_sha"] = source
+        binding = self.report["summary"]["baseline_alignment"]
+        binding.update(requested=False, authorized=False, relaxed_checks=[], source_sha=source, destination_sha=base)
+        self.rebuild_archive()
+        self.verify()
+        binding["relaxed_checks"] = ["diff_size"]
+        self.rebuild_archive()
+        with self.assertRaises(ValueError):
+            self.verify()
+
     def test_detector_execution_must_equal_selected_immutable_policy(self):
         for logs in (
             self.logs.replace(b"rc233", b"rc232"),
