@@ -484,6 +484,41 @@ class FirstCutoverContractTests(unittest.TestCase):
             (self.root / changed[1]).write_text('changed\n')
             self.assertIn('certified file changed', ' '.join(verify([comment])))
 
+    def test_rehearsal_diagnostic_requires_vhost_only_log_and_owner(self):
+        changed = ['deploy/FIRST_CUTOVER_ACTIVATION.md',
+                   'deploy/first-synthetic-rehearsal.py',
+                   'deploy/scholarships-first-synthetic-rehearsal-command-v1.json',
+                   'tests/test_first_synthetic_rehearsal.py']
+        self.write(changed[0], 'version 3 of Scholarships-First-Synthetic-Rehearsal-v1\n')
+        self.write(changed[1], "root / 'apache-error.log'\n"
+                   "LogLevel warn authz_core:debug\n"
+                   "def health_check(root, stage):\n"
+                   "body[:200]\nsplitlines()[-8:]\n"
+                   "health_check(root, 'synthetic legacy')\n"
+                   "SCHOLARSHIPS_SYNTHETIC_REHEARSAL_PASS=\n"
+                   "i-060e4ec1fd5345c30\n")
+        self.write(changed[2], json.dumps({'parameters': {
+            'ArtifactUrl': {'interpolationType': 'ENV_VAR'},
+            'RollbackArtifactUrl': {'interpolationType': 'ENV_VAR'}},
+            'mainSteps': [{'action': 'aws:runShellScript',
+                           'inputs': {'runCommand': ['fixed']}}]}))
+        self.write(changed[3], 'synthetic vhost-only diagnostic regression\n')
+        manifest = self.root / 'rehearsal-diagnostic.json'
+        manifest.write_text(json.dumps({'repository': 'Synergie-ITCI/scholarships',
+            'pr_number': 35, 'head_sha': HEAD, 'removed_paths': [],
+            'technical_certification_owner': 'SaurabhVermaIN',
+            'files': {name: self.files[name] for name in changed}}))
+        digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
+        comment = dict(self.comment, body=self.comment['body'].replace(
+            self.comment['body'].splitlines()[1], f'CERTIFIED_MANIFEST_SHA256={digest}'))
+        with patch.object(contract, 'FIRST_CUTOVER_REHEARSAL_DIAGNOSTIC_MANIFEST', manifest):
+            verify = lambda comments: contract.verify_first_cutover_rehearsal_diagnostic(
+                self.root, changed, HEAD, comments)
+            self.assertEqual(verify([comment]), [])
+            self.assertIn('owner-led', ' '.join(verify([])))
+            (self.root / changed[1]).write_text('changed\n')
+            self.assertIn('certified file changed', ' '.join(verify([comment])))
+
     def test_exact_ssm_repair_requires_posix_wrapper_and_owner(self):
         names = ('backup', 'upload', 'restore', 'cutover')
         changed = ['.github/workflows/scholarships-first-cutover-prepare.yml',
