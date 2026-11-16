@@ -1,0 +1,12 @@
+{
+  "files": {
+    "deploy/first-recovery-public-assets.py": "a23186e1be094773c57497587e930f73163db8533c2995aca6ea9cbc16e6ce63",
+    "deploy/scholarships-first-recovery-public-assets-v1.json": "a16484754f979c570a316768eb8a7aa587dd1cdf67974f1f34d738ec58288de8",
+    "tests/test_first_recovery_public_assets.py": "f5c6d681e30ea17c3af0ba0c9f3f9bc95d5cc139ce01c22ae984a43f97c56867"
+  },
+  "head_sha": "4fc01054fd96863dae716ef215d484212b4a1b90",
+  "pr_number": 56,
+  "removed_paths": [],
+  "repository": "Synergie-ITCI/scholarships",
+  "technical_certification_owner": "SaurabhVermaIN"
+}
