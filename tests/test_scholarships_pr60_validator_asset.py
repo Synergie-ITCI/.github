@@ -18,7 +18,6 @@ class ValidatorAssetContractTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.repo = Path(temp.name)
         self.names = sorted({
-            'application/views/home/Index.php',
             'deploy/VALIDATOR_ASSET_RESTORE.md',
             'deploy/compile-first-recovery-validator-document.py',
             'deploy/first-recovery-validator-asset.py',
