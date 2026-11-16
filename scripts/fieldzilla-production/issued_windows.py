@@ -20,14 +20,35 @@ SQL_FREE_PRODUCTION_SOURCE = "08026deb18c37ec3dcb845abca93209625a2fc88"
 SQL_FREE_PRODUCTION_BASE = "0e6ab78dfeeb8348a9c3ab0c097e4989e4468fce"
 SQL_FREE_PRODUCTION_MIGRATION = "apps/api/alembic/versions/20261113_0074_tenant_bootstrap_owner_rls.py"
 SQL_FREE_PRODUCTION_MIGRATION_SHA256 = "3f3650808b57bedbe2f339278a98c03226a3af9c16af22cd4d612a9af7d6b3cf"
+SQL_FREE_UPDATE_SOURCE = "7ab72476c96b853a6c18a5b91223622fbba9e173"
+SQL_FREE_UPDATE_BASE = "52ae1bedaffe089f611048e13199dfaaa769d553"
+SQL_FREE_UPDATE_REVISIONS = ["20260909_0041", "20261113_0074"]
 sys.path.insert(0, str(ROOT / "pr-qa"))
 from baseline_authorization import schema_errors
 
 
+def is_sql_free_update(manifest):
+    """Allow only PR #780 to deploy without changing the already-current DB."""
+    return (
+        manifest.get("scope") == "production"
+        and manifest.get("operation") == "rollout"
+        and manifest.get("promotion_pr") == 780
+        and manifest.get("base_sha") == SQL_FREE_UPDATE_BASE
+        and manifest.get("application", {}).get("source_sha") == SQL_FREE_UPDATE_SOURCE
+        and manifest.get("review_authorizations", {}).get("sql") is None
+        and manifest.get("database") == {
+            "name": "fieldzilla_production",
+            "role": "pmp_fieldzilla_prod_migrator",
+            "before": SQL_FREE_UPDATE_REVISIONS,
+            "after": SQL_FREE_UPDATE_REVISIONS,
+        }
+    )
+
+
 def verify_no_changed_sql(manifest, *, api):
-    """Bind SQL-free publication or the reviewed PR772 rollout to exact source."""
+    """Bind SQL-free publication or an exact reviewed production rollout."""
     scope = manifest.get("scope")
-    if scope == "production":
+    if scope == "production" and not is_sql_free_update(manifest):
         # PR743's reviewed additive RLS migration is inherited by the exact
         # PR772 image. No other production source or DB transition may use this
         # exception to the existing exact-PR SQL-review requirement.
@@ -53,7 +74,7 @@ def verify_no_changed_sql(manifest, *, api):
         migration = base64.b64decode(encoded.replace("\n", ""), validate=True)
         if hashlib.sha256(migration).hexdigest() != SQL_FREE_PRODUCTION_MIGRATION_SHA256:
             raise ValueError("Reviewed production migration bytes differ")
-    elif scope != "production-images":
+    elif scope not in {"production", "production-images"}:
         raise ValueError("Only image publication or the exact reviewed rollout may omit SQL review")
     for page in range(1, 11):
         rows = api(
