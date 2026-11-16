@@ -269,3 +269,11 @@ The record lives in `policy/fieldzilla-merge-metadata-recoveries.json`; use one
 record per incident and retain it for audit after expiration. If GitHub repairs
 the PR metadata before execution, omit the opt-in and use the normal merged-PR
 path. Never recreate the merge commit merely to change GitHub's PR display.
+
+PR #787 is the normal, mergeable caller after the #786 metadata incident. Its
+source tree inherits migration `0075` unchanged from the signed #786 merge.
+The exact PR #787 production path therefore checks that merge's parents and
+reviewed tree, PR #787 ancestry and three changed caller files, the migration
+bytes, a separately issued SQL record, the ordinary unrelaxed PR #787 QA report,
+and the `0041+0074` to `0041+0075` transition. This binding never treats the
+failed #786 QA rerun as a PASS or alters the migration or participant data.

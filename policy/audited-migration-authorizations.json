@@ -129,5 +129,25 @@
     ],
     "approved_reviewer": {"login": "SaurabhVermaIN", "id": 52234089},
     "purpose": "Review PR #786 migration 0075's exact additive permission DML and replacement role-permission guard; bind both DELETE definitions, including downgrade, to the exact source only."
+  },
+  {
+    "authorization_id": "407d605f-815b-4516-b714-5b72bf6c1422",
+    "repository": "Synergie-ITCI/programme-management-platform",
+    "repository_id": 1315697868,
+    "pr_number": 787,
+    "head_ref": "feature/fieldzilla-rc340-governed-caller",
+    "base_ref": "main",
+    "expected_head_sha": "a6e35a7ad36fbc21417a8575bb723a7948a5e8c7",
+    "expected_base_sha": "739fd2759b949e3228affb69cd090b64613b159a",
+    "issued_at": "2026-11-16T17:04:04Z",
+    "expires_at": "2026-11-17T16:54:04Z",
+    "migration_path": "apps/api/alembic/versions/20261116_0075_operational_role_permissions.py",
+    "migration_sha256": "2432a1c42d5a8a65e4e5f67f1535450d77526edaa25c1bb2d96761daae967dc4",
+    "delete_fingerprints": [
+      {"line": 57, "sha256": "3032b0985c7678e126ba338a813e9853ba6d53a29354f2e68d6c778a6f47708c"},
+      {"line": 154, "sha256": "dd9408b10f018bfa044a1659986303ebe9f583f36aea6db3de4ffe957cac774c"}
+    ],
+    "approved_reviewer": {"login": "SaurabhVermaIN", "id": 52234089},
+    "purpose": "Review unchanged migration 0075 inherited by PR #787 from the exact signed PR #786 merge; bind both original DELETE definitions and the 0041+0074 to 0041+0075 production transition to the exact new source."
   }
 ]
