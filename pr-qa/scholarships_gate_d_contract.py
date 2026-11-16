@@ -38,6 +38,7 @@ FIRST_CUTOVER_DIRECT_MANIFEST = Path(__file__).resolve().parents[1] / "policy/sc
 FIRST_CUTOVER_APPROVAL_DIAGNOSTIC_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr39-first-cutover.json"
 FIRST_CUTOVER_COMMENT_SCOPE_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr40-first-cutover.json"
 FIRST_CUTOVER_OWNER_ID_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr41-first-cutover.json"
+FIRST_CUTOVER_RECOVERY_INSPECT_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr42-first-cutover.json"
 HOST = "mi-04a256fa549e372a8"
 ACCOUNT = "918870682888"
 RELEASE_DOCUMENT = "Scholarships-GateD-Production-Command-v1"
@@ -1093,6 +1094,51 @@ def verify_first_cutover_owner_id(repo: Path, changed: list[str], head: str,
             or "approval already consumed" not in approval
             or "test_exact_owner_id_is_authoritative_when_association_varies" not in tests):
         errors.append("fixed one-use owner identity boundary changed")
+    return errors
+
+
+def verify_first_cutover_recovery_inspect(repo: Path, changed: list[str], head: str,
+                                           comments: list[dict[str, Any]]) -> list[str]:
+    """Certify exact read-only inspection after the failed first cutover."""
+    path = FIRST_CUTOVER_RECOVERY_INSPECT_MANIFEST
+    manifest = _read_json(path)
+    expected = {"deploy/first-recovery-inspect.sh",
+                "deploy/compile-first-recovery-inspect-document.py",
+                "deploy/scholarships-first-recovery-inspect-v1.json",
+                "tests/test_first_recovery_inspect.py"}
+    errors: list[str] = []
+    if (manifest.get("repository") != "Synergie-ITCI/scholarships"
+            or manifest.get("pr_number") != 42 or manifest.get("head_sha") != head
+            or manifest.get("technical_certification_owner") != "SaurabhVermaIN"
+            or manifest.get("removed_paths") != []):
+        errors.append("recovery inspection certification identity changed")
+    files = manifest.get("files")
+    if not isinstance(files, dict) or set(files) != expected or set(changed) != expected:
+        errors.append("recovery inspection changed-file scope changed")
+        return errors
+    for rel, digest in files.items():
+        file = repo / rel
+        if (not re.fullmatch(r"[0-9a-f]{64}", str(digest))
+                or not file.is_file() or file.is_symlink() or file.stat().st_size > 1_000_000
+                or hashlib.sha256(file.read_bytes()).hexdigest() != digest):
+            errors.append(f"recovery inspection certified file changed: {rel}")
+    if errors:
+        return errors
+    if not _owner_certified(comments, "SaurabhVermaIN", head, hashlib.sha256(path.read_bytes()).hexdigest()):
+        errors.append("owner-led recovery inspection certification is absent")
+    script = (repo / "deploy/first-recovery-inspect.sh").read_text()
+    document = _read_json(repo / "deploy/scholarships-first-recovery-inspect-v1.json")
+    steps = document.get("mainSteps", [])
+    if (document.get("parameters") != {} or len(steps) != 1
+            or steps[0].get("action") != "aws:runShellScript"
+            or "ip-172-26-10-203.ap-south-1.compute.internal" not in script
+            or "20261116T085246Z-355f465e4813" not in script
+            or "rollback.sh\" --check" not in script
+            or "rollback.sh\" --execute" in script
+            or "RESTORE_APPROVAL=" in script
+            or "test_read_only_host_and_release_boundary" not in
+               (repo / "tests/test_first_recovery_inspect.py").read_text()):
+        errors.append("fixed read-only recovery inspection boundary changed")
     return errors
 
 
