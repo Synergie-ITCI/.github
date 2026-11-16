@@ -8,6 +8,7 @@ import base64
 import hashlib
 import json
 import re
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +45,7 @@ FIRST_CUTOVER_RECOVERY_FPM_PROBE_MANIFEST = Path(__file__).resolve().parents[1] 
 FIRST_CUTOVER_RECOVERY_FPM_TRACE_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr45-first-cutover.json"
 FIRST_CUTOVER_PUBLIC_ASSETS_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr55-first-cutover.json"
 FIRST_CUTOVER_EXISTING_FONTS_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr56-first-cutover.json"
+LANDING_RELEASE_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr59-landing-release.json"
 HOST = "mi-04a256fa549e372a8"
 ACCOUNT = "918870682888"
 RELEASE_DOCUMENT = "Scholarships-GateD-Production-Command-v1"
@@ -1357,6 +1359,63 @@ def verify_first_cutover_public_assets(repo: Path, changed: list[str], head: str
             or "test_installation_and_partial_failure_cleanup" not in
                (repo / "tests/test_first_recovery_public_assets.py").read_text()):
         errors.append("fixed public asset restore execution boundary changed")
+    return errors
+
+
+def verify_landing_release(repo: Path, changed: list[str], head: str,
+                           comments: list[dict[str, Any]]) -> list[str]:
+    """Certify the exact fixed PHP 8.3 landing switch and rollback controls."""
+    path = LANDING_RELEASE_MANIFEST
+    manifest = _read_json(path)
+    expected = {
+        "deploy/LANDING_UI_RELEASE.md",
+        "deploy/compile-first-landing-release-document.py",
+        "deploy/compile-first-landing-rollback-document.py",
+        "deploy/first-landing-release.py",
+        "deploy/first-landing-rollback.py",
+        "deploy/scholarships-first-landing-release-v1.json",
+        "deploy/scholarships-first-landing-rollback-v1.json",
+        "tests/test_first_landing_release.py",
+    }
+    errors: list[str] = []
+    if (manifest.get("repository") != "Synergie-ITCI/scholarships"
+            or manifest.get("pr_number") != 59 or manifest.get("head_sha") != head
+            or manifest.get("technical_certification_owner") != "SaurabhVermaIN"
+            or manifest.get("removed_paths") != []):
+        errors.append("landing release certification identity changed")
+    files = manifest.get("files")
+    if not isinstance(files, dict) or set(files) != expected or set(changed) != expected:
+        errors.append("landing release changed-file scope changed")
+        return errors
+    for rel, digest in files.items():
+        file = repo / rel
+        if (not re.fullmatch(r"[0-9a-f]{64}", str(digest))
+                or not file.is_file() or file.is_symlink() or file.stat().st_size > 1_000_000
+                or hashlib.sha256(file.read_bytes()).hexdigest() != digest):
+            errors.append(f"landing release certified file changed: {rel}")
+    if errors:
+        return errors
+    if not _owner_certified(comments, "SaurabhVermaIN", head,
+                            hashlib.sha256(path.read_bytes()).hexdigest()):
+        errors.append("owner-led landing release certification is absent")
+    for kind in ("release", "rollback"):
+        compiler = repo / f"deploy/compile-first-landing-{kind}-document.py"
+        document = repo / f"deploy/scholarships-first-landing-{kind}-v1.json"
+        result = subprocess.run(["python3", str(compiler)], cwd=repo,
+                                capture_output=True, check=False)
+        if (result.returncode != 0 or result.stdout != document.read_bytes()
+                or _read_json(document).get("parameters") != {}):
+            errors.append(f"fixed landing {kind} document differs from compiler")
+    release = (repo / "deploy/first-landing-release.py").read_text()
+    rollback = (repo / "deploy/first-landing-rollback.py").read_text()
+    if ("DATABASE_MIGRATIONS=NOT_RUN" not in release
+            or "DATABASE_MIGRATIONS=NOT_RUN" not in rollback
+            or "run_migrations" in release + rollback
+            or "mysql" in release.lower() + rollback.lower()
+            or "NEW_FILES = json.loads" not in release
+            or "LANDING_UI_REVERTED=yes" not in release
+            or "LANDING_UI_ROLLED_BACK=yes" not in rollback):
+        errors.append("fixed landing UI-only or rollback boundary changed")
     return errors
 
 
