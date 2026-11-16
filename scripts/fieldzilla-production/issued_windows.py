@@ -22,19 +22,26 @@ SQL_FREE_PRODUCTION_MIGRATION = "apps/api/alembic/versions/20261113_0074_tenant_
 SQL_FREE_PRODUCTION_MIGRATION_SHA256 = "3f3650808b57bedbe2f339278a98c03226a3af9c16af22cd4d612a9af7d6b3cf"
 SQL_FREE_UPDATE_SOURCE = "7ab72476c96b853a6c18a5b91223622fbba9e173"
 SQL_FREE_UPDATE_BASE = "52ae1bedaffe089f611048e13199dfaaa769d553"
+SQL_FREE_PR783_SOURCE = "2817ab3ad079e7795ca723e9cd6fbbc705f2bc8f"
+SQL_FREE_PR783_BASE = "79b9676aac733a9a78a6901af48e76fa93688828"
 SQL_FREE_UPDATE_REVISIONS = ["20260909_0041", "20261113_0074"]
+SQL_FREE_UPDATE_BINDINGS = {
+    780: (SQL_FREE_UPDATE_SOURCE, SQL_FREE_UPDATE_BASE),
+    783: (SQL_FREE_PR783_SOURCE, SQL_FREE_PR783_BASE),
+}
 sys.path.insert(0, str(ROOT / "pr-qa"))
 from baseline_authorization import schema_errors
 
 
 def is_sql_free_update(manifest):
-    """Allow only PR #780 to deploy without changing the already-current DB."""
+    """Allow only exact reviewed hotfixes to keep the already-current DB."""
+    source_and_base = SQL_FREE_UPDATE_BINDINGS.get(manifest.get("promotion_pr"))
     return (
         manifest.get("scope") == "production"
         and manifest.get("operation") == "rollout"
-        and manifest.get("promotion_pr") == 780
-        and manifest.get("base_sha") == SQL_FREE_UPDATE_BASE
-        and manifest.get("application", {}).get("source_sha") == SQL_FREE_UPDATE_SOURCE
+        and source_and_base is not None
+        and manifest.get("base_sha") == source_and_base[1]
+        and manifest.get("application", {}).get("source_sha") == source_and_base[0]
         and manifest.get("review_authorizations", {}).get("sql") is None
         and manifest.get("database") == {
             "name": "fieldzilla_production",

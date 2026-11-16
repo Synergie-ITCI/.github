@@ -193,7 +193,10 @@ def execute_production(manifest, receipt, journal, *, aws, executor=Executor):
         if is_sql_free_update(manifest):
             engine.attest_database("before")
             engine.attest_database("after")
-            engine.record("migration_skipped", reason="exact_pr780_database_already_current")
+            engine.record(
+                "migration_skipped",
+                reason=f"exact_pr{manifest['promotion_pr']}_database_already_current",
+            )
         else:
             engine.migrate()
         engine.start()

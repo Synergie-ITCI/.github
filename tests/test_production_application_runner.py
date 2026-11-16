@@ -160,6 +160,32 @@ class RunnerTests(unittest.TestCase):
         self.assertIn("restore_worker", self.calls)
         self.assertFalse(report["production_live"])
 
+    def test_exact_pr783_update_attests_current_database_without_migration(self):
+        from issued_windows import SQL_FREE_PR783_BASE, SQL_FREE_PR783_SOURCE, SQL_FREE_UPDATE_REVISIONS
+
+        self.manifest.update(
+            scope="production", operation="rollout", promotion_pr=783,
+            base_sha=SQL_FREE_PR783_BASE,
+            application={"source_sha": SQL_FREE_PR783_SOURCE},
+            review_authorizations={"baseline": "2d04d97f-b65e-494e-b53b-2f3cc1bba028", "sql": None},
+            database={"name": "fieldzilla_production", "role": "pmp_fieldzilla_prod_migrator",
+                      "before": SQL_FREE_UPDATE_REVISIONS, "after": SQL_FREE_UPDATE_REVISIONS},
+            prior_tasks={"api": "old-api", "admin-web": "old-admin", "worker": "old-worker"},
+            worker_digest="sha256:" + "f" * 64,
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            report = execute_production(
+                self.manifest, self.receipt, Path(folder) / "journal",
+                aws=lambda *args: None, executor=self.engine,
+            )
+        self.assertEqual(self.calls[:7], [
+            "constructed", "preflight", "consume", "prepare",
+            "attest_database", "attest_database", "record",
+        ])
+        self.assertNotIn("migrate", self.calls)
+        self.assertIn("restore_worker", self.calls)
+        self.assertFalse(report["production_live"])
+
     def test_production_is_separately_bound_and_does_not_claim_cutover(self):
         self.manifest.update(scope="production", operation="rollout", prior_tasks={"api": None, "admin-web": None, "worker": "exact"}, worker_digest="sha256:" + "f" * 64)
         with tempfile.TemporaryDirectory() as folder:

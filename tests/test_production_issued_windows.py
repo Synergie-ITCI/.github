@@ -218,6 +218,37 @@ class IssuedWindowTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "SQL or migration"):
             self.verify()
 
+    def test_exact_pr783_current_database_can_omit_migration(self):
+        from issued_windows import SQL_FREE_PR783_BASE, SQL_FREE_PR783_SOURCE, SQL_FREE_UPDATE_REVISIONS
+
+        self.manifest.update(
+            scope="production", operation="rollout", promotion_pr=783,
+            base_sha=SQL_FREE_PR783_BASE,
+            database={"name": "fieldzilla_production", "role": "pmp_fieldzilla_prod_migrator",
+                      "before": SQL_FREE_UPDATE_REVISIONS, "after": SQL_FREE_UPDATE_REVISIONS},
+        )
+        self.manifest["application"]["source_sha"] = SQL_FREE_PR783_SOURCE
+        self.manifest["review_authorizations"]["sql"] = None
+        self.baseline.update(
+            pr_number=783, expected_head_sha=SQL_FREE_PR783_SOURCE,
+            expected_base_sha=SQL_FREE_PR783_BASE,
+        )
+        self.verify()
+        for key, invalid in (
+            ("promotion_pr", 784), ("base_sha", "d" * 40),
+            ("database", {"name": "fieldzilla_production", "role": "pmp_fieldzilla_prod_migrator",
+                          "before": SQL_FREE_UPDATE_REVISIONS, "after": ["20260909_0041", "20261109_0073"]}),
+        ):
+            with self.subTest(key=key):
+                old = self.manifest[key]
+                self.manifest[key] = invalid
+                with self.assertRaises(ValueError):
+                    self.verify()
+                self.manifest[key] = old
+        self.changed_files = [{"filename": "apps/api/alembic/versions/new.py"}]
+        with self.assertRaisesRegex(ValueError, "SQL or migration"):
+            self.verify()
+
     def test_sql_review_cannot_be_omitted_for_changed_or_renamed_sql(self):
         self.manifest["scope"] = "production-images"
         self.manifest["review_authorizations"]["sql"] = None
