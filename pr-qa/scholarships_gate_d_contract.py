@@ -35,6 +35,7 @@ FIRST_CUTOVER_REHEARSAL_DIAGNOSTIC_MANIFEST = Path(__file__).resolve().parents[1
 FIRST_CUTOVER_REHEARSAL_WEBROOT_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr36-first-cutover.json"
 FIRST_CUTOVER_REHEARSAL_READINESS_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr37-first-cutover.json"
 FIRST_CUTOVER_DIRECT_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr38-first-cutover.json"
+FIRST_CUTOVER_APPROVAL_DIAGNOSTIC_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr39-first-cutover.json"
 HOST = "mi-04a256fa549e372a8"
 ACCOUNT = "918870682888"
 RELEASE_DOCUMENT = "Scholarships-GateD-Production-Command-v1"
@@ -976,6 +977,42 @@ def verify_first_cutover_direct(repo: Path, changed: list[str], head: str,
             or "LatestVersion --output text)\" = 1" not in workflow
             or "Synergie-Scholarships-Runtime-Certifier-v1" not in workflow):
         errors.append("one-use approval, fixed SSM or immutable artifact boundary changed")
+    return errors
+
+
+def verify_first_cutover_approval_diagnostic(repo: Path, changed: list[str], head: str,
+                                              comments: list[dict[str, Any]]) -> list[str]:
+    """Certify the exact bounded approval API failure diagnostic on PR #39."""
+    path = FIRST_CUTOVER_APPROVAL_DIAGNOSTIC_MANIFEST
+    manifest = _read_json(path)
+    expected = {"deploy/first-cutover-approval-cli.py", "tests/test_first_cutover_approval.py"}
+    errors: list[str] = []
+    if (manifest.get("repository") != "Synergie-ITCI/scholarships"
+            or manifest.get("pr_number") != 39 or manifest.get("head_sha") != head
+            or manifest.get("technical_certification_owner") != "SaurabhVermaIN"
+            or manifest.get("removed_paths") != []):
+        errors.append("approval diagnostic certification identity changed")
+    files = manifest.get("files")
+    if not isinstance(files, dict) or set(files) != expected or set(changed) != expected:
+        errors.append("approval diagnostic changed-file scope changed")
+        return errors
+    for rel, digest in files.items():
+        file = repo / rel
+        if (not re.fullmatch(r"[0-9a-f]{64}", str(digest))
+                or not file.is_file() or file.is_symlink() or file.stat().st_size > 1_000_000
+                or hashlib.sha256(file.read_bytes()).hexdigest() != digest):
+            errors.append(f"approval diagnostic certified file changed: {rel}")
+    if errors:
+        return errors
+    if not _owner_certified(comments, "SaurabhVermaIN", head, hashlib.sha256(path.read_bytes()).hexdigest()):
+        errors.append("owner-led approval diagnostic certification is absent")
+    cli = (repo / "deploy/first-cutover-approval-cli.py").read_text()
+    tests = (repo / "tests/test_first_cutover_approval.py").read_text()
+    if ("capture_output=True" not in cli or "GitHub approval API request failed at" not in cli
+            or "owner-comment-read" not in cli or "deployment-receipt-read" not in cli
+            or "deployment-receipt-create" not in cli
+            or "test_api_failure_reports_bounded_endpoint_and_status" not in tests):
+        errors.append("bounded approval API diagnostic changed")
     return errors
 
 
