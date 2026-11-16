@@ -44,6 +44,7 @@ from scholarships_gate_d_contract import verify_first_cutover_synthetic_rehearsa
 from scholarships_gate_d_contract import verify_first_cutover_rehearsal_permissions as verify_scholarships_first_cutover_rehearsal_permissions
 from scholarships_gate_d_contract import verify_first_cutover_rehearsal_diagnostic as verify_scholarships_first_cutover_rehearsal_diagnostic
 from scholarships_gate_d_contract import verify_first_cutover_rehearsal_webroot as verify_scholarships_first_cutover_rehearsal_webroot
+from scholarships_gate_d_contract import verify_first_cutover_rehearsal_readiness as verify_scholarships_first_cutover_rehearsal_readiness
 from risk_contract import assess_risk_contracts
 from adapters.base import (
     FAIL,
@@ -3890,7 +3891,7 @@ def gate_deployment_safety(ctx: PRContext, git_context: dict[str, Any]) -> list[
         return [passed("Deployment Risk", None, "No deployment-sensitive files changed.")]
     if resolve_repository_name(ctx) == "Synergie-ITCI/scholarships":
         pr_number = extract_pr_number(ctx.event)
-        if pr_number in (19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36):
+        if pr_number in (19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37):
             try:
                 manifest = read_json(SCHOLARSHIPS_FIRST_CUTOVER_MANIFEST) if pr_number == 19 else None
                 head = str(((ctx.event.get("pull_request", {}) or {}).get("head", {}) or {}).get("sha", ""))
@@ -3913,7 +3914,8 @@ def gate_deployment_safety(ctx: PRContext, git_context: dict[str, Any]) -> list[
                              33: verify_scholarships_first_cutover_synthetic_rehearsal,
                              34: verify_scholarships_first_cutover_rehearsal_permissions,
                              35: verify_scholarships_first_cutover_rehearsal_diagnostic,
-                             36: verify_scholarships_first_cutover_rehearsal_webroot}[pr_number])
+                             36: verify_scholarships_first_cutover_rehearsal_webroot,
+                             37: verify_scholarships_first_cutover_rehearsal_readiness}[pr_number])
                 failures = verifier(ctx.repo, ctx.changed_files, head, comments)
             except (OSError, ValueError, TypeError, KeyError, IndexError):
                 failures = ["first-cutover certification evidence is unreadable or malformed"]

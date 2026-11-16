@@ -1,0 +1,13 @@
+{
+  "files": {
+    "deploy/FIRST_CUTOVER_ACTIVATION.md": "4f33d71ef58ea6f0ce85e2aca588e4dab40bd3dcd3f749be13cfad0b5baff9d0",
+    "deploy/first-synthetic-rehearsal.py": "ff9679e349c401f2ee3a533c4081d257644876310e3d97ed7af314dd6b1c5be9",
+    "deploy/scholarships-first-synthetic-rehearsal-command-v1.json": "823508d588747abcf0033dc5b9f914137f322ebd4cda6613207aceae737e84e2",
+    "tests/test_first_synthetic_rehearsal.py": "56f769c9ff17ff93a14a6094f83e94c622a5ed7221c0f9fb3d67c27ee7f2f8ae"
+  },
+  "head_sha": "51dcdceb399dec4471cd9eaddd2ea5d7a84e21ce",
+  "pr_number": 37,
+  "removed_paths": [],
+  "repository": "Synergie-ITCI/scholarships",
+  "technical_certification_owner": "SaurabhVermaIN"
+}

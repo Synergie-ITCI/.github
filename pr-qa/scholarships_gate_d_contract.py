@@ -33,6 +33,7 @@ FIRST_CUTOVER_SYNTHETIC_REHEARSAL_MANIFEST = Path(__file__).resolve().parents[1]
 FIRST_CUTOVER_REHEARSAL_PERMISSIONS_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr34-first-cutover.json"
 FIRST_CUTOVER_REHEARSAL_DIAGNOSTIC_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr35-first-cutover.json"
 FIRST_CUTOVER_REHEARSAL_WEBROOT_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr36-first-cutover.json"
+FIRST_CUTOVER_REHEARSAL_READINESS_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr37-first-cutover.json"
 HOST = "mi-04a256fa549e372a8"
 ACCOUNT = "918870682888"
 RELEASE_DOCUMENT = "Scholarships-GateD-Production-Command-v1"
@@ -873,6 +874,56 @@ def verify_first_cutover_rehearsal_webroot(repo: Path, changed: list[str], head:
             or len(steps) != 1 or steps[0].get("action") != "aws:runShellScript"
             or "{{" in str(steps)):
         errors.append("fixed synthetic SSM v4 or Apache-visible workspace boundary changed")
+    return errors
+
+
+def verify_first_cutover_rehearsal_readiness(repo: Path, changed: list[str], head: str,
+                                             comments: list[dict[str, Any]]) -> list[str]:
+    """Certify exact PR #37 bounded listener readiness after Apache reload."""
+    path = FIRST_CUTOVER_REHEARSAL_READINESS_MANIFEST
+    manifest = _read_json(path)
+    expected = {"deploy/FIRST_CUTOVER_ACTIVATION.md",
+                "deploy/first-synthetic-rehearsal.py",
+                "deploy/scholarships-first-synthetic-rehearsal-command-v1.json",
+                "tests/test_first_synthetic_rehearsal.py"}
+    errors: list[str] = []
+    if (manifest.get("repository") != "Synergie-ITCI/scholarships"
+            or manifest.get("pr_number") != 37 or manifest.get("head_sha") != head
+            or manifest.get("technical_certification_owner") != "SaurabhVermaIN"
+            or manifest.get("removed_paths") != []):
+        errors.append("rehearsal readiness certification identity changed")
+    files = manifest.get("files")
+    if not isinstance(files, dict) or set(files) != expected or set(changed) != expected:
+        errors.append("rehearsal readiness changed-file scope changed")
+        return errors
+    for rel, digest in files.items():
+        file = repo / rel
+        if (not re.fullmatch(r"[0-9a-f]{64}", str(digest))
+                or not file.is_file() or file.is_symlink() or file.stat().st_size > 1_000_000
+                or hashlib.sha256(file.read_bytes()).hexdigest() != digest):
+            errors.append(f"rehearsal readiness certified file changed: {rel}")
+    if errors:
+        return errors
+    if not _owner_certified(comments, "SaurabhVermaIN", head, hashlib.sha256(path.read_bytes()).hexdigest()):
+        errors.append("owner-led rehearsal readiness certification is absent")
+    runner = (repo / "deploy/first-synthetic-rehearsal.py").read_text()
+    tests = (repo / "tests/test_first_synthetic_rehearsal.py").read_text()
+    document = _read_json(repo / "deploy/scholarships-first-synthetic-rehearsal-command-v1.json")
+    params = document.get("parameters", {})
+    steps = document.get("mainSteps", [])
+    if ("WORKSPACE_PARENT = Path('/var/www')" not in runner
+            or "deadline = time.monotonic() + 10" not in runner
+            or "probe.returncode != 7 or time.monotonic() >= deadline" not in runner
+            or "time.sleep(0.25)" not in runner
+            or "test_health_waits_for_graceful_apache_listener_only" not in tests
+            or "test_health_connection_refusal_is_bounded" not in tests
+            or "SCHOLARSHIPS_SYNTHETIC_REHEARSAL_PASS=" not in runner
+            or "i-060e4ec1fd5345c30" not in runner
+            or set(params) != {"ArtifactUrl", "RollbackArtifactUrl"}
+            or not all(p.get("interpolationType") == "ENV_VAR" for p in params.values())
+            or len(steps) != 1 or steps[0].get("action") != "aws:runShellScript"
+            or "{{" in str(steps)):
+        errors.append("fixed synthetic SSM v5 or bounded readiness retry changed")
     return errors
 
 
