@@ -97,10 +97,10 @@ class ReleasePinTests(unittest.TestCase):
         verify.assert_called_once()
         self.assertEqual(self.manifest["consumer_release_selection"]["default"]["release"], "pr-qa-v1-rc216")
 
-    def test_fieldzilla_delegates_from_exact_issued_rc294_floor(self):
+    def test_fieldzilla_temporarily_selects_exact_rc342(self):
         selected = self.manifest["consumer_release_selection"]["repositories"]["Synergie-ITCI/programme-management-platform"]
-        self.assertEqual(selected, {"release": "pr-qa-v1-rc294", "commit": "cbe53c5dbc19b2adf3420aad0daf1197d0ae2cb4", "protected_main_selection": True})
-        with patch("release_pin.protected_consumer_release", return_value={"release": selected["release"], "commit": selected["commit"]}), patch("release_pin.verify_bound_release") as verify:
+        self.assertEqual(selected, {"release": "pr-qa-v1-rc342", "commit": "419abf6d30157d191499a65ee0f87f023135650c"})
+        with patch("release_pin.protected_consumer_release", side_effect=AssertionError("temporary direct selection must not read app selector")), patch("release_pin.verify_bound_release") as verify:
             release, entry = resolve_consumer_release(self.manifest, "Synergie-ITCI/programme-management-platform")
         self.assertEqual((release, entry["commit"]), (selected["release"], selected["commit"]))
         verify.assert_called_once_with(selected["release"], selected["commit"], self.manifest,
@@ -111,6 +111,7 @@ class ReleasePinTests(unittest.TestCase):
 
     def test_delegated_fieldzilla_release_obeys_central_floor(self):
         entry = self.manifest["consumer_release_selection"]["repositories"]["Synergie-ITCI/programme-management-platform"]
+        entry.update(release="pr-qa-v1-rc294", commit="cbe53c5dbc19b2adf3420aad0daf1197d0ae2cb4")
         entry["protected_main_selection"] = True
         with patch("release_pin.protected_consumer_release", return_value={"release": "pr-qa-v1-rc295", "commit": "b" * 40}), patch("release_pin.verify_bound_release") as verify:
             release, selected = resolve_consumer_release(self.manifest, "Synergie-ITCI/programme-management-platform")
