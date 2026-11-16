@@ -524,7 +524,7 @@ class BundledMigrationAuthorizationTests(unittest.TestCase):
         self.assertEqual(inherited["approved_reviewer"], by_pr[786]["approved_reviewer"])
 
         # No unknown PRs
-        known = {118, 241, 712, 786, 787}
+        known = {118, 241, 712, 786, 787, 791}
         unknown = set(by_pr) - known
         self.assertFalse(unknown, f"unexpected migration authorization PRs: {unknown}")
         policy = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())

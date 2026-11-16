@@ -42,6 +42,11 @@ PR787_FILES = {
     "deploy/production/hosting/prepare_application_manifest.py",
     "deploy/production/hosting/test_prepare_application_manifest.py",
 }
+PR791_SOURCE = "8821f317a4316ec7bca639ac7b6d22e9f903cfd9"
+PR791_BASE = "a1b883710bdd37ce915901dcfa86a837733a7b7b"
+PR791_MIGRATION = "apps/api/alembic/versions/20261117_0076_tenant_owner_operational_delegation.py"
+PR791_MIGRATION_SHA256 = "30bea9f387d9d9e50304a8e8f3dac1db7bb6e7adeda092d896b023c37c3b8681"
+PR791_SQL_REVIEW = "50e42152-16ec-43c3-8bce-b8df5f4f10cf"
 sys.path.insert(0, str(ROOT / "pr-qa"))
 from baseline_authorization import schema_errors
 
@@ -172,8 +177,38 @@ def verify_pr787_inherited_migration(manifest, *, api):
         raise ValueError("PR #787 changed files differ from reviewed caller-only patch")
 
 
+def verify_pr791_migration(manifest, *, api):
+    """Bind the forward role guard to the exact source and reviewed bytes."""
+    if manifest.get("scope") != "production" or manifest.get("promotion_pr") != 791:
+        return
+    if (
+        manifest.get("application", {}).get("source_sha") != PR791_SOURCE
+        or manifest.get("base_sha") != PR791_BASE
+        or manifest.get("review_authorizations", {}).get("sql") != PR791_SQL_REVIEW
+        or manifest.get("database") != {
+            "name": "fieldzilla_production",
+            "role": "pmp_fieldzilla_prod_migrator",
+            "before": ["20260909_0041", "20261116_0075"],
+            "after": ["20260909_0041", "20261117_0076"],
+        }
+    ):
+        raise ValueError("PR #791 role migration binding differs")
+    reply = api(f"repos/{REPOSITORY}/contents/{PR791_MIGRATION}?ref={PR791_SOURCE}")
+    encoded = reply.get("content", "")
+    if (
+        reply.get("type") != "file"
+        or reply.get("encoding") != "base64"
+        or not isinstance(encoded, str)
+        or len(encoded) > 65536
+        or hashlib.sha256(base64.b64decode(encoded.replace("\n", ""), validate=True)).hexdigest()
+        != PR791_MIGRATION_SHA256
+    ):
+        raise ValueError("Reviewed migration 0076 bytes differ")
+
+
 def verify_issued_windows(manifest, *, api, activated_policies, now=None):
     verify_pr787_inherited_migration(manifest, api=api)
+    verify_pr791_migration(manifest, api=api)
     if activated_policies.get("__merge_metadata_recovery__") is True:
         verify_merge_metadata_recovery(
             manifest, api=api,

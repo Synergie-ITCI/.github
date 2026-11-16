@@ -437,6 +437,98 @@ class QAPolicyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.verify()
 
+    def test_exact_pr791_role_guard_requires_ordinary_qa_and_its_own_review(self):
+        source = "8821f317a4316ec7bca639ac7b6d22e9f903cfd9"
+        base = "a1b883710bdd37ce915901dcfa86a837733a7b7b"
+        self.manifest.update(
+            operation="rollout", promotion_pr=791, base_sha=base,
+            review_authorizations={
+                "baseline": "b3fcd363-8f1b-460d-a630-167319a2134a",
+                "sql": "50e42152-16ec-43c3-8bce-b8df5f4f10cf",
+            },
+            database={
+                "name": "fieldzilla_production", "role": "pmp_fieldzilla_prod_migrator",
+                "before": ["20260909_0041", "20261116_0075"],
+                "after": ["20260909_0041", "20261117_0076"],
+            },
+        )
+        self.manifest["application"]["source_sha"] = source
+        self.checks[QUALITY]["head_sha"] = source
+        self.run["head_sha"] = source
+        self.run["pull_requests"] = [{"number": 791, "head": {"sha": source}, "base": {"sha": base}}]
+        self.pr.update(number=791)
+        self.pr["head"]["sha"] = source
+        self.pr["base"]["sha"] = base
+        self.artifact["workflow_run"]["head_sha"] = source
+        binding = self.report["summary"]["baseline_alignment"]
+        binding.update(requested=False, authorized=False, relaxed_checks=[], source_sha=source, destination_sha=base)
+        self.rebuild_archive()
+        self.verify()
+        self.manifest["review_authorizations"]["sql"] = "407d605f-815b-4516-b714-5b72bf6c1422"
+        with self.assertRaises(ValueError):
+            self.verify()
+
+    def test_pr791_migration_command_and_reviewed_bytes(self):
+        import base64
+        from unittest.mock import patch
+
+        from application_plan import PR791_SOURCE_SHA, render
+        from issued_windows import (
+            PR791_BASE, PR791_MIGRATION, PR791_SOURCE, PR791_SQL_REVIEW,
+            verify_pr791_migration,
+        )
+        from tests.test_production_application_plan import manifest
+
+        inputs = manifest()
+        inputs["source_sha"] = PR791_SOURCE_SHA
+        migration = render(inputs)["task_definitions"][2]["containerDefinitions"][0]
+        self.assertEqual(migration["command"], ["alembic", "upgrade", "20261117_0076"])
+
+        reviewed_bytes = b"reviewed migration fixture"
+        reviewed = {
+            "scope": "production", "promotion_pr": 791,
+            "application": {"source_sha": PR791_SOURCE}, "base_sha": PR791_BASE,
+            "review_authorizations": {"sql": PR791_SQL_REVIEW},
+            "database": {
+                "name": "fieldzilla_production", "role": "pmp_fieldzilla_prod_migrator",
+                "before": ["20260909_0041", "20261116_0075"],
+                "after": ["20260909_0041", "20261117_0076"],
+            },
+        }
+
+        def api(path):
+            self.assertEqual(
+                path, f"repos/Synergie-ITCI/programme-management-platform/contents/"
+                      f"{PR791_MIGRATION}?ref={PR791_SOURCE}",
+            )
+            return {
+                "type": "file", "encoding": "base64",
+                "content": base64.b64encode(reviewed_bytes).decode(),
+            }
+
+        with patch("issued_windows.PR791_MIGRATION_SHA256", hashlib.sha256(reviewed_bytes).hexdigest()):
+            verify_pr791_migration(reviewed, api=api)
+            reviewed["database"]["after"] = ["20260909_0041", "20261116_0075"]
+            with self.assertRaises(ValueError):
+                verify_pr791_migration(reviewed, api=api)
+        reviewed["database"]["after"] = ["20260909_0041", "20261117_0076"]
+        with self.assertRaises(ValueError):
+            verify_pr791_migration(reviewed, api=api)
+
+        policy = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())
+        sql = json.loads((ROOT / "policy/audited-migration-authorizations.json").read_text())
+        image_record = next(
+            row for row in policy["one_time_baseline_alignments"] if row.get("pr_number") == 791
+        )
+        sql_record = next(row for row in sql if row.get("pr_number") == 791)
+        self.assertEqual(image_record["relaxations"], [])
+        self.assertEqual((image_record["allowed_changed_files"], image_record["allowed_effective_additions"]), (13, 306))
+        self.assertEqual(sql_record["migration_sha256"], "30bea9f387d9d9e50304a8e8f3dac1db7bb6e7adeda092d896b023c37c3b8681")
+        self.assertEqual(sql_record["delete_fingerprints"], [{
+            "line": 192,
+            "sha256": "dd9408b10f018bfa044a1659986303ebe9f583f36aea6db3de4ffe957cac774c",
+        }])
+
     def test_detector_execution_must_equal_selected_immutable_policy(self):
         for logs in (
             self.logs.replace(b"rc233", b"rc232"),

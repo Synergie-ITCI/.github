@@ -328,6 +328,21 @@ def verify_qa_policy_evidence(
                 "after": ["20260909_0041", "20261116_0075"],
             }
         )
+        or (
+            manifest.get("scope") == "production"
+            and manifest.get("promotion_pr") == 791
+            and source == "8821f317a4316ec7bca639ac7b6d22e9f903cfd9"
+            and base == "a1b883710bdd37ce915901dcfa86a837733a7b7b"
+            and isinstance(manifest.get("review_authorizations"), dict)
+            and manifest["review_authorizations"].get("sql")
+            == "50e42152-16ec-43c3-8bce-b8df5f4f10cf"
+            and manifest.get("database") == {
+                "name": "fieldzilla_production",
+                "role": "pmp_fieldzilla_prod_migrator",
+                "before": ["20260909_0041", "20261116_0075"],
+                "after": ["20260909_0041", "20261117_0076"],
+            }
+        )
     ) and (
         binding.get("requested") is False
         and binding.get("authorized") is False

@@ -149,5 +149,30 @@
     ],
     "approved_reviewer": {"login": "SaurabhVermaIN", "id": 52234089},
     "purpose": "Review unchanged migration 0075 inherited by PR #787 from the exact signed PR #786 merge; bind both original DELETE definitions and the 0041+0074 to 0041+0075 production transition to the exact new source."
+  },
+  {
+    "repository": "Synergie-ITCI/programme-management-platform",
+    "repository_id": 1315697868,
+    "pr_number": 791,
+    "head_ref": "fix/nidaan-operational-role-delegation",
+    "base_ref": "main",
+    "expected_head_sha": "8821f317a4316ec7bca639ac7b6d22e9f903cfd9",
+    "expected_base_sha": "a1b883710bdd37ce915901dcfa86a837733a7b7b",
+    "issued_at": "2026-11-16T21:45:39Z",
+    "authorization_id": "50e42152-16ec-43c3-8bce-b8df5f4f10cf",
+    "expires_at": "2026-11-17T21:35:39Z",
+    "migration_path": "apps/api/alembic/versions/20261117_0076_tenant_owner_operational_delegation.py",
+    "migration_sha256": "30bea9f387d9d9e50304a8e8f3dac1db7bb6e7adeda092d896b023c37c3b8681",
+    "delete_fingerprints": [
+      {
+        "line": 192,
+        "sha256": "dd9408b10f018bfa044a1659986303ebe9f583f36aea6db3de4ffe957cac774c"
+      }
+    ],
+    "approved_reviewer": {
+      "login": "SaurabhVermaIN",
+      "id": 52234089
+    },
+    "purpose": "Review PR #791 exact 0076 migration bytes: only tenant Owner template delegation clause changes from 0075; existing DELETE definition is identical, bound to this reviewed head and 0041+0075 to 0041+0076 transition."
   }
 ]
