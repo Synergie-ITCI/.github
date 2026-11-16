@@ -6,7 +6,7 @@
     "deploy/scholarships-first-recovery-validator-v1.json": "5b63d103cfe58c42a1e7c30b76d115abda12b4f1206ac6fdca72cec46363a4b7",
     "tests/test_first_recovery_validator_asset.py": "fd8e26803742a4568b44c83ca4223433ab49777ceed5e0d94212935c12a3c62b"
   },
-  "head_sha": "cf9b6809ae14241fb6f76691c9be4ba061e2de23",
+  "head_sha": "f02d5d52ac0c115ba125a2bea7ea778c7716171b",
   "pr_number": 60,
   "removed_paths": [],
   "repository": "Synergie-ITCI/scholarships",
