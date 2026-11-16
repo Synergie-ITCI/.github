@@ -56,6 +56,7 @@ from scholarships_gate_d_contract import verify_first_cutover_recovery_fpm_trace
 from scholarships_gate_d_contract import verify_first_cutover_public_assets as verify_scholarships_first_cutover_public_assets
 from scholarships_gate_d_contract import verify_first_cutover_existing_fonts as verify_scholarships_first_cutover_existing_fonts
 from scholarships_gate_d_contract import verify_landing_release as verify_scholarships_landing_release
+from scholarships_gate_d_contract import verify_validator_asset as verify_scholarships_validator_asset
 from risk_contract import assess_risk_contracts
 from adapters.base import (
     FAIL,
@@ -3902,7 +3903,7 @@ def gate_deployment_safety(ctx: PRContext, git_context: dict[str, Any]) -> list[
         return [passed("Deployment Risk", None, "No deployment-sensitive files changed.")]
     if resolve_repository_name(ctx) == "Synergie-ITCI/scholarships":
         pr_number = extract_pr_number(ctx.event)
-        if pr_number in (19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 55, 56, 59):
+        if pr_number in (19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 55, 56, 59, 60):
             try:
                 manifest = read_json(SCHOLARSHIPS_FIRST_CUTOVER_MANIFEST) if pr_number == 19 else None
                 head = str(((ctx.event.get("pull_request", {}) or {}).get("head", {}) or {}).get("sha", ""))
@@ -3937,7 +3938,8 @@ def gate_deployment_safety(ctx: PRContext, git_context: dict[str, Any]) -> list[
                              45: verify_scholarships_first_cutover_recovery_fpm_trace,
                              55: verify_scholarships_first_cutover_public_assets,
                              56: verify_scholarships_first_cutover_existing_fonts,
-                             59: verify_scholarships_landing_release}[pr_number])
+                             59: verify_scholarships_landing_release,
+                             60: verify_scholarships_validator_asset}[pr_number])
                 failures = verifier(ctx.repo, ctx.changed_files, head, comments)
             except (OSError, ValueError, TypeError, KeyError, IndexError):
                 failures = ["first-cutover certification evidence is unreadable or malformed"]
