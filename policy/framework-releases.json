@@ -7,7 +7,7 @@
       "Synergie-ITCI/BDPP": {"release": "pr-qa-v1-rc218", "commit": "ec03dcee66773539100b286afe530f6700c0bd50"},
       "Synergie-ITCI/csr-intelligence-engine": {"release": "pr-qa-v1-rc227", "commit": "854c27f46e9c827b6d75d2dfa5282dffbbd5af92"},
       "Synergie-ITCI/programme-management-platform": {"release": "pr-qa-v1-rc294", "commit": "cbe53c5dbc19b2adf3420aad0daf1197d0ae2cb4", "protected_main_selection": true},
-      "Synergie-ITCI/scholarships": {"release": "pr-qa-v1-rc339", "commit": "05ec80eace77fd83ac5c736e722a30a49f781670"}
+      "Synergie-ITCI/scholarships": {"release": "pr-qa-v1-rc341", "commit": "fad6f5728bf5dbbca3c2e4aa95b106f9566efb04"}
     }
   },
   "gate_d_workflow_releases": {
