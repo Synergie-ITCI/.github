@@ -49,6 +49,12 @@ def manifest():
 
 
 class PlanTests(unittest.TestCase):
+    def test_pr787_uses_reviewed_operational_role_migration(self):
+        inputs = manifest()
+        inputs["source_sha"] = module.PR787_SOURCE_SHA
+        migration = render(inputs)["task_definitions"][2]["containerDefinitions"][0]
+        self.assertEqual(migration["command"], ["alembic", "upgrade", "20261116_0075"])
+
     def test_zero_services_and_no_cutover(self):
         plan = render(manifest())
         self.assertTrue(
