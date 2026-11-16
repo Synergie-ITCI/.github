@@ -653,6 +653,30 @@ class FirstCutoverContractTests(unittest.TestCase):
             self.write(changed[0], 'changed\n')
             self.assertIn('certified file changed', ' '.join(verify([comment])))
 
+    def test_owner_comment_scope_requires_exact_files_and_owner(self):
+        changed = ['.github/workflows/scholarships-first-cutover.yml',
+                   'tests/test_first_cutover_approval.py']
+        self.write(changed[0], '      pull-requests: read\n      deployments: write\n'
+                   'Consume one-use exact owner receipt before AWS OIDC\n')
+        self.write(changed[1], 'test_workflow_uses_pull_request_read_for_owner_comment\n')
+        manifest = self.root / 'owner-comment-scope.json'
+        manifest.write_text(json.dumps({'repository': 'Synergie-ITCI/scholarships',
+            'pr_number': 40, 'head_sha': HEAD, 'removed_paths': [],
+            'technical_certification_owner': 'SaurabhVermaIN',
+            'files': {name: self.files[name] for name in changed}}))
+        digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
+        comment = dict(self.comment, body=self.comment['body'].replace(
+            self.comment['body'].splitlines()[1], f'CERTIFIED_MANIFEST_SHA256={digest}'))
+        with patch.object(contract, 'FIRST_CUTOVER_COMMENT_SCOPE_MANIFEST', manifest):
+            verify = lambda comments: contract.verify_first_cutover_comment_scope(
+                self.root, changed, HEAD, comments)
+            self.assertEqual(verify([comment]), [])
+            self.assertIn('owner-led', ' '.join(verify([])))
+            self.assertIn('scope', ' '.join(contract.verify_first_cutover_comment_scope(
+                self.root, changed[:-1], HEAD, [comment])))
+            self.write(changed[0], 'changed\n')
+            self.assertIn('certified file changed', ' '.join(verify([comment])))
+
     def test_exact_ssm_repair_requires_posix_wrapper_and_owner(self):
         names = ('backup', 'upload', 'restore', 'cutover')
         changed = ['.github/workflows/scholarships-first-cutover-prepare.yml',
