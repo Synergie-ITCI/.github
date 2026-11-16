@@ -1792,6 +1792,23 @@
       "allowed_changed_files": 23,
       "purpose": "Exact-source production image review for PR #786 scoped role management and migration 0075. No baseline relaxation, ECS update, routing, or publication approval.",
       "relaxations": []
+    },
+    {
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "repository_id": 1315697868,
+      "pr_number": 787,
+      "head_ref": "feature/fieldzilla-rc340-governed-caller",
+      "base_ref": "main",
+      "expected_head_sha": "a6e35a7ad36fbc21417a8575bb723a7948a5e8c7",
+      "expected_base_sha": "739fd2759b949e3228affb69cd090b64613b159a",
+      "issued_at": "2026-11-16T17:04:04Z",
+      "enabled": true,
+      "authorization_id": "ad7b17f5-e21f-4d48-93d8-e81635624b27",
+      "expires_after": "2026-11-17T16:54:04Z",
+      "allowed_effective_additions": 29,
+      "allowed_changed_files": 3,
+      "purpose": "Exact-source production image review for PR #787 governed rc340 caller; role implementation and migration 0075 are inherited byte-for-byte from reviewed PR #786 merge. No baseline relaxation, ECS update, routing, or publication approval.",
+      "relaxations": []
     }
   ]
 }

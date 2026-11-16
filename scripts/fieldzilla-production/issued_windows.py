@@ -30,6 +30,18 @@ SQL_FREE_UPDATE_BINDINGS = {
     780: (SQL_FREE_UPDATE_SOURCE, SQL_FREE_UPDATE_BASE),
     783: (SQL_FREE_PR783_SOURCE, SQL_FREE_PR783_BASE),
 }
+PR787_SOURCE = "a6e35a7ad36fbc21417a8575bb723a7948a5e8c7"
+PR787_BASE = "739fd2759b949e3228affb69cd090b64613b159a"
+PR786_HEAD = "2b0753f08aaabdacb780d1abd35fc2d5e80bc181"
+PR786_BASE = "576fba59c0d5958cb623351b29201b4d4aef589c"
+PR786_TREE = "5af21a0fe5f9d89a7d96dd1d50230318e67a63d2"
+PR787_MIGRATION = "apps/api/alembic/versions/20261116_0075_operational_role_permissions.py"
+PR787_MIGRATION_SHA256 = "2432a1c42d5a8a65e4e5f67f1535450d77526edaa25c1bb2d96761daae967dc4"
+PR787_FILES = {
+    ".github/workflows/fieldzilla-production-hosting.yml",
+    "deploy/production/hosting/prepare_application_manifest.py",
+    "deploy/production/hosting/test_prepare_application_manifest.py",
+}
 sys.path.insert(0, str(ROOT / "pr-qa"))
 from baseline_authorization import schema_errors
 
@@ -109,7 +121,59 @@ def verify_no_changed_sql(manifest, *, api):
     raise ValueError("Exact PR changed-file evidence exceeds the bounded read")
 
 
+def verify_pr787_inherited_migration(manifest, *, api):
+    """Prove the audited migration is inherited unchanged from the PR #786 merge."""
+    if manifest.get("scope") != "production" or manifest.get("promotion_pr") != 787:
+        return
+    if (
+        manifest.get("application", {}).get("source_sha") != PR787_SOURCE
+        or manifest.get("base_sha") != PR787_BASE
+        or manifest.get("review_authorizations", {}).get("sql")
+        != "407d605f-815b-4516-b714-5b72bf6c1422"
+        or manifest.get("database") != {
+            "name": "fieldzilla_production",
+            "role": "pmp_fieldzilla_prod_migrator",
+            "before": ["20260909_0041", "20261113_0074"],
+            "after": ["20260909_0041", "20261116_0075"],
+        }
+    ):
+        raise ValueError("PR #787 inherited migration binding differs")
+    base = api(f"repos/{REPOSITORY}/git/commits/{PR787_BASE}")
+    original = api(f"repos/{REPOSITORY}/git/commits/{PR786_HEAD}")
+    source = api(f"repos/{REPOSITORY}/git/commits/{PR787_SOURCE}")
+    if (
+        base.get("sha") != PR787_BASE
+        or [row.get("sha") for row in base.get("parents", [])] != [PR786_BASE, PR786_HEAD]
+        or base.get("tree", {}).get("sha") != PR786_TREE
+        or base.get("verification", {}).get("verified") is not True
+        or original.get("tree", {}).get("sha") != PR786_TREE
+        or source.get("sha") != PR787_SOURCE
+        or [row.get("sha") for row in source.get("parents", [])] != [PR787_BASE]
+    ):
+        raise ValueError("Reviewed PR #786 merge or PR #787 ancestry differs")
+    reply = api(f"repos/{REPOSITORY}/contents/{PR787_MIGRATION}?ref={PR787_SOURCE}")
+    encoded = reply.get("content", "")
+    if (
+        reply.get("type") != "file"
+        or reply.get("encoding") != "base64"
+        or not isinstance(encoded, str)
+        or len(encoded) > 65536
+        or hashlib.sha256(base64.b64decode(encoded.replace("\n", ""), validate=True)).hexdigest()
+        != PR787_MIGRATION_SHA256
+    ):
+        raise ValueError("Inherited migration 0075 bytes differ")
+    files = api(f"repos/{REPOSITORY}/pulls/787/files?per_page=100&page=1")
+    if (
+        not isinstance(files, list)
+        or len(files) != len(PR787_FILES)
+        or any(not isinstance(row, dict) or row.get("previous_filename") is not None for row in files)
+        or {row.get("filename") for row in files} != PR787_FILES
+    ):
+        raise ValueError("PR #787 changed files differ from reviewed caller-only patch")
+
+
 def verify_issued_windows(manifest, *, api, activated_policies, now=None):
+    verify_pr787_inherited_migration(manifest, api=api)
     if activated_policies.get("__merge_metadata_recovery__") is True:
         verify_merge_metadata_recovery(
             manifest, api=api,

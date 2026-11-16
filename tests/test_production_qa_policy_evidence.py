@@ -406,6 +406,37 @@ class QAPolicyTests(unittest.TestCase):
             self.manifest["database"]["after"] = ["20260909_0041", "20261116_0075"]
             binding["relaxed_checks"] = []
 
+    def test_exact_pr787_inherited_migration_requires_ordinary_qa_and_its_own_review(self):
+        source = "a6e35a7ad36fbc21417a8575bb723a7948a5e8c7"
+        base = "739fd2759b949e3228affb69cd090b64613b159a"
+        self.manifest.update(
+            operation="rollout", promotion_pr=787, base_sha=base,
+            review_authorizations={
+                "baseline": "ad7b17f5-e21f-4d48-93d8-e81635624b27",
+                "sql": "407d605f-815b-4516-b714-5b72bf6c1422",
+            },
+            database={
+                "name": "fieldzilla_production", "role": "pmp_fieldzilla_prod_migrator",
+                "before": ["20260909_0041", "20261113_0074"],
+                "after": ["20260909_0041", "20261116_0075"],
+            },
+        )
+        self.manifest["application"]["source_sha"] = source
+        self.checks[QUALITY]["head_sha"] = source
+        self.run["head_sha"] = source
+        self.run["pull_requests"] = [{"number": 787, "head": {"sha": source}, "base": {"sha": base}}]
+        self.pr.update(number=787)
+        self.pr["head"]["sha"] = source
+        self.pr["base"]["sha"] = base
+        self.artifact["workflow_run"]["head_sha"] = source
+        binding = self.report["summary"]["baseline_alignment"]
+        binding.update(requested=False, authorized=False, relaxed_checks=[], source_sha=source, destination_sha=base)
+        self.rebuild_archive()
+        self.verify()
+        self.manifest["review_authorizations"]["sql"] = "17fc5f90-d712-4dd8-8085-57353395ff0e"
+        with self.assertRaises(ValueError):
+            self.verify()
+
     def test_detector_execution_must_equal_selected_immutable_policy(self):
         for logs in (
             self.logs.replace(b"rc233", b"rc232"),
