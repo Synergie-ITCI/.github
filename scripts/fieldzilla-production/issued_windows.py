@@ -14,6 +14,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from execution_gate import REPOSITORY
+from merge_metadata_recovery import verify_merge_metadata_recovery
 
 ROOT = Path(__file__).resolve().parents[2]
 SQL_FREE_PRODUCTION_SOURCE = "08026deb18c37ec3dcb845abca93209625a2fc88"
@@ -109,6 +110,12 @@ def verify_no_changed_sql(manifest, *, api):
 
 
 def verify_issued_windows(manifest, *, api, activated_policies, now=None):
+    if activated_policies.get("__merge_metadata_recovery__") is True:
+        verify_merge_metadata_recovery(
+            manifest, api=api,
+            activated_sha=manifest.get("qa_evidence", {}).get("policy_sha"),
+            now=now,
+        )
     expected = manifest.get("review_authorizations", {})
     if (
         not isinstance(expected, dict)

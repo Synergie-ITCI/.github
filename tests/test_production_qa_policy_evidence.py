@@ -240,6 +240,18 @@ class QAPolicyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.verify()
 
+    def test_metadata_recovery_can_bind_only_an_explicitly_verified_missing_association(self):
+        self.manifest["scope"] = "production-images"
+        self.run["pull_requests"] = []
+        self.pr.update(state="open", merged_at=None)
+        with self.assertRaises(ValueError):
+            self.verify()
+        self.checks["__merge_metadata_recovery__"] = True
+        self.verify()
+        self.run["pull_requests"] = [{"number": 713, "head": {"sha": "a" * 40}, "base": {"sha": "b" * 40}}]
+        with self.assertRaises(ValueError):
+            self.verify()
+
     def test_ordinary_sql_free_image_qa_needs_exact_pass_without_relaxations(self):
         self.manifest["scope"] = "production-images"
         binding = self.report["summary"]["baseline_alignment"]

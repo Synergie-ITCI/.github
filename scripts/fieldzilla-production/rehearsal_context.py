@@ -12,6 +12,7 @@ from collections.abc import Callable
 from typing import Any
 
 from execution_gate import REPOSITORY
+from merge_metadata_recovery import verify_merge_metadata_recovery
 
 REQUIRED_CHECKS = {
     "Architecture Governance",
@@ -83,18 +84,22 @@ def verify_production_context(*, manifest, environment, api, central_checkout_sh
         raise ValueError("Production caller or executing release changed")
     pr = api(f"repos/{REPOSITORY}/pulls/{promotion}")
     merge = pr.get("merge_commit_sha", "")
-    if (
-        pr.get("state") != "closed"
-        or not pr.get("merged_at")
-        or pr.get("head", {}).get("sha") != source
-        or pr.get("head", {}).get("repo", {}).get("full_name") != REPOSITORY
-        or pr.get("base", {}).get("ref") != "main"
-        or not re.fullmatch(r"[0-9a-f]{40}", merge)
-    ):
+    metadata_recovery = False
+    if pr.get("state") == "closed" and pr.get("merged_at"):
+        if (
+            pr.get("head", {}).get("sha") != source
+            or pr.get("head", {}).get("repo", {}).get("full_name") != REPOSITORY
+            or pr.get("base", {}).get("ref") != "main"
+            or not re.fullmatch(r"[0-9a-f]{40}", merge)
+            or api(f"repos/{REPOSITORY}/compare/{merge}...{caller}").get("status")
+            not in {"identical", "ahead"}
+        ):
+            raise ValueError("Gate C merge is not in the executing main")
+    elif manifest.get("merge_metadata_recovery") is True:
+        verify_merge_metadata_recovery(manifest, api=api)
+        metadata_recovery = True
+    else:
         raise ValueError("Exact candidate has not passed Gate C")
-    lineage = api(f"repos/{REPOSITORY}/compare/{merge}...{caller}")
-    if lineage.get("status") not in {"identical", "ahead"}:
-        raise ValueError("Gate C merge is not in the executing main")
     ref = api(f"repos/Synergie-ITCI/.github/git/ref/tags/{tag}").get("object", {})
     if ref.get("type") != "tag" or not re.fullmatch(r"[0-9a-f]{40}", ref.get("sha", "")):
         raise ValueError("Production executor release is not annotated")
@@ -123,6 +128,8 @@ def verify_production_context(*, manifest, environment, api, central_checkout_sh
         for row in latest.values()
     ):
         raise ValueError("Gate C exact-head checks are not current successes")
+    if metadata_recovery:
+        latest["__merge_metadata_recovery__"] = True
     return latest
 
 
@@ -180,9 +187,14 @@ def _verify_context(
         or pr.get("base", {}).get("repo", {}).get("full_name") != REPOSITORY
     ):
         raise ValueError("Exact main-targeted candidate changed")
+    metadata_recovery = False
     if pr.get("state") == "open":
         if caller != base or pr.get("merged_at"):
-            raise ValueError("Open candidate no longer has the exact main base")
+            if scope == "production-images" and manifest.get("merge_metadata_recovery") is True:
+                verify_merge_metadata_recovery(manifest, api=api)
+                metadata_recovery = True
+            else:
+                raise ValueError("Open candidate no longer has the exact main base")
     elif allow_merged and pr.get("state") == "closed" and pr.get("merged_at"):
         merge = pr.get("merge_commit_sha", "")
         if not re.fullmatch(r"[0-9a-f]{40}", merge):
@@ -231,4 +243,6 @@ def _verify_context(
         for row in latest.values()
     ):
         raise ValueError("Required exact-head governed checks are unresolved")
+    if metadata_recovery:
+        latest["__merge_metadata_recovery__"] = True
     return latest

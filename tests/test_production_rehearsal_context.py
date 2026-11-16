@@ -2,6 +2,7 @@ import copy
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/fieldzilla-production"))
@@ -139,6 +140,28 @@ class RehearsalContextTests(unittest.TestCase):
         self.pr["state"] = "open"
         with self.assertRaises(ValueError):
             verify()
+
+    def test_exact_metadata_recovery_requires_explicit_manifest_and_live_verifier(self):
+        self.manifest.update(scope="production-images", operation="prepare")
+        self.manifest["caller_sha"] = "e" * 40
+        self.environment["GITHUB_SHA"] = "e" * 40
+        self.environment["CENTRAL_WORKFLOW_REF"] = self.environment[
+            "CENTRAL_WORKFLOW_REF"
+        ].replace("fieldzilla-production-application.yml", "fieldzilla-production-images.yml")
+        self.main = "e" * 40
+        with self.assertRaises(ValueError):
+            verify_image_context(
+                manifest=self.manifest, environment=self.environment,
+                api=self.api, central_checkout_sha="c" * 40,
+            )
+        self.manifest["merge_metadata_recovery"] = True
+        with patch("rehearsal_context.verify_merge_metadata_recovery", return_value={}) as verifier:
+            checks = verify_image_context(
+                manifest=self.manifest, environment=self.environment,
+                api=self.api, central_checkout_sha="c" * 40,
+            )
+        verifier.assert_called_once()
+        self.assertIs(checks["__merge_metadata_recovery__"], True)
 
     def test_rehearsal_context_cannot_impersonate_image_publication(self):
         self.manifest["operation"] = "prepare"
