@@ -1426,6 +1426,7 @@ def verify_validator_asset(repo: Path, changed: list[str], head: str,
     path = VALIDATOR_ASSET_MANIFEST
     manifest = _read_json(path)
     expected = {
+        "application/views/home/Index.php",
         "deploy/VALIDATOR_ASSET_RESTORE.md",
         "deploy/compile-first-recovery-validator-document.py",
         "deploy/first-recovery-validator-asset.py",
@@ -1467,6 +1468,10 @@ def verify_validator_asset(repo: Path, changed: list[str], head: str,
             or len(steps) != 1 or steps[0].get("action") != "aws:runShellScript"
             or "BACKUP_VERSION = '1uloEZmYt8h91r6zPAKA01ygteb_yCqx'" not in source
             or "MEMBER = 'public_html/' + ASSET" not in source
+            or "OLD_INDEX_SHA = '4c0b7d52e5206827c772ac531b4aaf073921e66dd24b0eaecf644a14a99a78f5'" not in source
+            or "NEW_INDEX_SHA = '9f360d8b694f63b3f986eeefb089d968ff504ccdfda96593cc80d480ca127b01'" not in source
+            or "CSS_SHA = 'f24ccfb5e3ae910e1b72f64dbbac993dbc2e3bbfc0c4d8d179e60e96374504dd'" not in source
+            or "def patch_stylesheet_reference(release):" not in source
             or "DATABASE_MIGRATIONS=NOT_RUN" not in source
             or "def public_health(expected):" not in source
             or "run_migrations" in source or "mysql" in source.lower()):

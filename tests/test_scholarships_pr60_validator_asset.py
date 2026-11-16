@@ -1,4 +1,4 @@
-"""Exact-head certification of the fixed validator asset recovery."""
+"""Exact-head certification of validator recovery and stylesheet cache repair."""
 
 import hashlib
 import json
@@ -18,6 +18,7 @@ class ValidatorAssetContractTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.repo = Path(temp.name)
         self.names = sorted({
+            'application/views/home/Index.php',
             'deploy/VALIDATOR_ASSET_RESTORE.md',
             'deploy/compile-first-recovery-validator-document.py',
             'deploy/first-recovery-validator-asset.py',
@@ -35,6 +36,10 @@ class ValidatorAssetContractTests(unittest.TestCase):
             elif name.endswith('first-recovery-validator-asset.py'):
                 file.write_text("BACKUP_VERSION = '1uloEZmYt8h91r6zPAKA01ygteb_yCqx'\n"
                                 "MEMBER = 'public_html/' + ASSET\n"
+                                "OLD_INDEX_SHA = '4c0b7d52e5206827c772ac531b4aaf073921e66dd24b0eaecf644a14a99a78f5'\n"
+                                "NEW_INDEX_SHA = '9f360d8b694f63b3f986eeefb089d968ff504ccdfda96593cc80d480ca127b01'\n"
+                                "CSS_SHA = 'f24ccfb5e3ae910e1b72f64dbbac993dbc2e3bbfc0c4d8d179e60e96374504dd'\n"
+                                "def patch_stylesheet_reference(release):\n    pass\n"
                                 "DATABASE_MIGRATIONS=NOT_RUN\n"
                                 "def public_health(expected):\n    pass\n")
             else:
