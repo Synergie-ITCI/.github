@@ -477,7 +477,8 @@ class QAPolicyTests(unittest.TestCase):
             PR791_BASE, PR791_MIGRATION, PR791_SOURCE, PR791_SQL_REVIEW,
             verify_pr791_migration,
         )
-        from tests.test_production_application_plan import manifest
+        sys.path.insert(0, str(ROOT / "tests"))
+        from test_production_application_plan import manifest
 
         inputs = manifest()
         inputs["source_sha"] = PR791_SOURCE_SHA
