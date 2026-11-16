@@ -1,0 +1,18 @@
+{
+  "files": {
+    "deploy/FIRST_CUTOVER_ACTIVATION.md": "d9238f97c9af502101b2d175a84e14e0e6bf65eddfe08597e518b31b37eff599",
+    "deploy/first-synthetic-rehearsal.py": "d523e3cecfe6f85935f2b9de0880f8da9076cee5b2d0e30a2d19172bd208ae2b",
+    "deploy/private-storage.sh": "dd8d4a81ed2ed99915f2edba960108912528e089d58c19b1a6dd16888b47e2b6",
+    "deploy/production-release.sh": "e8a6f7ad378c97f5b8264fdbdf97bf9c60e482e700b2c8082bb4dbff0944c3f9",
+    "deploy/rollback.sh": "7dd011e3d3afab67d6fb054b79056ba62501ba67621b3e7e4633944bf88e3374",
+    "deploy/scholarships-first-cutover-command-v1.json": "a55bd162406e5aa7c357347776dbdbe7913c586b07c81ca48dd78d969e02d3ed",
+    "deploy/scholarships-first-synthetic-rehearsal-command-v1.json": "d160a7e70db4c614075ed4bbe1e4c4afc3696dd509efab53646ad3d8aad97a40",
+    "deploy/scholarships-gate-d-production-command-v1.json": "71ddd98b817101bd7d84716193e9e9256f49519621e62882bbf53c1dbefb8b58",
+    "tests/test_first_synthetic_rehearsal.py": "9f2b8b449a5418165e948925f0df635721ad10127aaebbf27cb68b89e9f6e25c"
+  },
+  "head_sha": "d92d91dfc076e9f29804db4c95f7397e4759eb41",
+  "pr_number": 36,
+  "removed_paths": [],
+  "repository": "Synergie-ITCI/scholarships",
+  "technical_certification_owner": "SaurabhVermaIN"
+}

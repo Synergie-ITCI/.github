@@ -32,6 +32,7 @@ FIRST_CUTOVER_REHEARSAL_NODE_MANIFEST = Path(__file__).resolve().parents[1] / "p
 FIRST_CUTOVER_SYNTHETIC_REHEARSAL_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr33-first-cutover.json"
 FIRST_CUTOVER_REHEARSAL_PERMISSIONS_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr34-first-cutover.json"
 FIRST_CUTOVER_REHEARSAL_DIAGNOSTIC_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr35-first-cutover.json"
+FIRST_CUTOVER_REHEARSAL_WEBROOT_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr36-first-cutover.json"
 HOST = "mi-04a256fa549e372a8"
 ACCOUNT = "918870682888"
 RELEASE_DOCUMENT = "Scholarships-GateD-Production-Command-v1"
@@ -816,6 +817,62 @@ def verify_first_cutover_rehearsal_diagnostic(repo: Path, changed: list[str], he
             or "{{" in str(steps)
             or "i-060e4ec1fd5345c30" not in runner):
         errors.append("fixed synthetic SSM v3 or vhost-only diagnostic boundary changed")
+    return errors
+
+
+def verify_first_cutover_rehearsal_webroot(repo: Path, changed: list[str], head: str,
+                                           comments: list[dict[str, Any]]) -> list[str]:
+    """Certify exact PR #36 Apache-visible synthetic workspace and fixed SSM v4."""
+    path = FIRST_CUTOVER_REHEARSAL_WEBROOT_MANIFEST
+    manifest = _read_json(path)
+    expected = {"deploy/FIRST_CUTOVER_ACTIVATION.md", "deploy/first-synthetic-rehearsal.py",
+                "deploy/private-storage.sh", "deploy/production-release.sh", "deploy/rollback.sh",
+                "deploy/scholarships-first-cutover-command-v1.json",
+                "deploy/scholarships-first-synthetic-rehearsal-command-v1.json",
+                "deploy/scholarships-gate-d-production-command-v1.json",
+                "tests/test_first_synthetic_rehearsal.py"}
+    errors: list[str] = []
+    if (manifest.get("repository") != "Synergie-ITCI/scholarships"
+            or manifest.get("pr_number") != 36 or manifest.get("head_sha") != head
+            or manifest.get("technical_certification_owner") != "SaurabhVermaIN"
+            or manifest.get("removed_paths") != []):
+        errors.append("rehearsal webroot certification identity changed")
+    files = manifest.get("files")
+    if not isinstance(files, dict) or set(files) != expected or set(changed) != expected:
+        errors.append("rehearsal webroot changed-file scope changed")
+        return errors
+    for rel, digest in files.items():
+        file = repo / rel
+        if (not re.fullmatch(r"[0-9a-f]{64}", str(digest))
+                or not file.is_file() or file.is_symlink() or file.stat().st_size > 1_000_000
+                or hashlib.sha256(file.read_bytes()).hexdigest() != digest):
+            errors.append(f"rehearsal webroot certified file changed: {rel}")
+    if errors:
+        return errors
+    if not _owner_certified(comments, "SaurabhVermaIN", head, hashlib.sha256(path.read_bytes()).hexdigest()):
+        errors.append("owner-led rehearsal webroot certification is absent")
+    runner = (repo / "deploy/first-synthetic-rehearsal.py").read_text()
+    production = (repo / "deploy/production-release.sh").read_text()
+    private = (repo / "deploy/private-storage.sh").read_text()
+    rollback = (repo / "deploy/rollback.sh").read_text()
+    document = _read_json(repo / "deploy/scholarships-first-synthetic-rehearsal-command-v1.json")
+    params = document.get("parameters", {})
+    steps = document.get("mainSteps", [])
+    if ("WORKSPACE_PARENT = Path('/var/www')" not in runner
+            or "Path('/var/tmp'), WORKSPACE_PARENT" not in runner
+            or "tempfile.mkdtemp(prefix='scholarships-first-rehearsal-'" not in runner
+            or "dir=str(WORKSPACE_PARENT))" not in runner
+            or "i-060e4ec1fd5345c30" not in runner
+            or "SCHOLARSHIPS_SYNTHETIC_REHEARSAL_PASS=" not in runner
+            or "/var/www/scholarships-first-rehearsal-????????" not in production
+            or "/var/www/scholarships-first-rehearsal-????????" not in private
+            or "/var/www/scholarships-first-rehearsal-????????" not in rollback
+            or "/var/www/scholarships.synergieinsights.in" not in production
+            or set(params) != {"ArtifactUrl", "RollbackArtifactUrl"}
+            or not all(p.get("interpolationType") == "ENV_VAR" for p in params.values())
+            or len(steps) != 1 or steps[0].get("action") != "aws:runShellScript"
+            or "{{" in str(steps)):
+        errors.append("fixed synthetic SSM v4 or Apache-visible workspace boundary changed")
     return errors
 
 
