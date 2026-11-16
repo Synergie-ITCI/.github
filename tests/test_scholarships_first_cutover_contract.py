@@ -791,6 +791,37 @@ class FirstCutoverContractTests(unittest.TestCase):
             self.write(changed[0], 'changed\n')
             self.assertIn('certified file changed', ' '.join(verify([comment])))
 
+    def test_internal_fpm_trace_requires_exact_files_and_owner(self):
+        changed = ['deploy/first-recovery-fastcgi-probe-v4.py',
+                   'deploy/compile-first-recovery-fastcgi-document-v4.py',
+                   'deploy/scholarships-first-recovery-inspect-v4.json',
+                   'tests/test_first_recovery_fastcgi_probe_v4.py']
+        self.write(changed[0], 'ip-172-26-10-203.ap-south-1.compute.internal\n'
+                   'RewriteRule ^ - [R=503,L]\ndatabase-backed sessions are enabled\n'
+                   'TemporaryDirectory(\ndebug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 12)\n'
+                   "set_exception_handler\nFCGI_APP_STATUS=\n'REQUEST_METHOD': 'GET'\n")
+        self.write(changed[1], 'fixed compiler\n')
+        self.write(changed[2], json.dumps({'parameters': {}, 'mainSteps': [
+            {'action': 'aws:runShellScript'}]}))
+        self.write(changed[3], 'test_one_request_cleans_temporary_tracer\n')
+        manifest = self.root / 'recovery-fpm-trace.json'
+        manifest.write_text(json.dumps({'repository': 'Synergie-ITCI/scholarships',
+            'pr_number': 45, 'head_sha': HEAD, 'removed_paths': [],
+            'technical_certification_owner': 'SaurabhVermaIN',
+            'files': {name: self.files[name] for name in changed}}))
+        digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
+        comment = dict(self.comment, body=self.comment['body'].replace(
+            self.comment['body'].splitlines()[1], f'CERTIFIED_MANIFEST_SHA256={digest}'))
+        with patch.object(contract, 'FIRST_CUTOVER_RECOVERY_FPM_TRACE_MANIFEST', manifest):
+            verify = lambda comments: contract.verify_first_cutover_recovery_fpm_trace(
+                self.root, changed, HEAD, comments)
+            self.assertEqual(verify([comment]), [])
+            self.assertIn('owner-led', ' '.join(verify([])))
+            self.assertIn('scope', ' '.join(contract.verify_first_cutover_recovery_fpm_trace(
+                self.root, changed[:-1], HEAD, [comment])))
+            self.write(changed[0], 'changed\n')
+            self.assertIn('certified file changed', ' '.join(verify([comment])))
+
     def test_exact_ssm_repair_requires_posix_wrapper_and_owner(self):
         names = ('backup', 'upload', 'restore', 'cutover')
         changed = ['.github/workflows/scholarships-first-cutover-prepare.yml',
