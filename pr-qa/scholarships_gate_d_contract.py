@@ -40,6 +40,7 @@ FIRST_CUTOVER_COMMENT_SCOPE_MANIFEST = Path(__file__).resolve().parents[1] / "po
 FIRST_CUTOVER_OWNER_ID_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr41-first-cutover.json"
 FIRST_CUTOVER_RECOVERY_INSPECT_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr42-first-cutover.json"
 FIRST_CUTOVER_RECOVERY_ROOT_CAUSE_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr43-first-cutover.json"
+FIRST_CUTOVER_RECOVERY_FPM_PROBE_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr44-first-cutover.json"
 HOST = "mi-04a256fa549e372a8"
 ACCOUNT = "918870682888"
 RELEASE_DOCUMENT = "Scholarships-GateD-Production-Command-v1"
@@ -1186,6 +1187,53 @@ def verify_first_cutover_recovery_root_cause(repo: Path, changed: list[str], hea
             or "test_bounded_failure_window_and_worker_access" not in
                (repo / "tests/test_first_recovery_inspect_v2.py").read_text()):
         errors.append("fixed read-only root-cause inspection boundary changed")
+    return errors
+
+
+def verify_first_cutover_recovery_fpm_probe(repo: Path, changed: list[str], head: str,
+                                            comments: list[dict[str, Any]]) -> list[str]:
+    """Certify one fail-closed internal FPM GET while public maintenance stays active."""
+    path = FIRST_CUTOVER_RECOVERY_FPM_PROBE_MANIFEST
+    manifest = _read_json(path)
+    expected = {"deploy/first-recovery-fastcgi-probe.py",
+                "deploy/compile-first-recovery-fastcgi-document.py",
+                "deploy/scholarships-first-recovery-inspect-v3.json",
+                "tests/test_first_recovery_fastcgi_probe.py"}
+    errors: list[str] = []
+    if (manifest.get("repository") != "Synergie-ITCI/scholarships"
+            or manifest.get("pr_number") != 44 or manifest.get("head_sha") != head
+            or manifest.get("technical_certification_owner") != "SaurabhVermaIN"
+            or manifest.get("removed_paths") != []):
+        errors.append("internal FPM probe certification identity changed")
+    files = manifest.get("files")
+    if not isinstance(files, dict) or set(files) != expected or set(changed) != expected:
+        errors.append("internal FPM probe changed-file scope changed")
+        return errors
+    for rel, digest in files.items():
+        file = repo / rel
+        if (not re.fullmatch(r"[0-9a-f]{64}", str(digest))
+                or not file.is_file() or file.is_symlink() or file.stat().st_size > 1_000_000
+                or hashlib.sha256(file.read_bytes()).hexdigest() != digest):
+            errors.append(f"internal FPM probe certified file changed: {rel}")
+    if errors:
+        return errors
+    if not _owner_certified(comments, "SaurabhVermaIN", head, hashlib.sha256(path.read_bytes()).hexdigest()):
+        errors.append("owner-led internal FPM probe certification is absent")
+    script = (repo / "deploy/first-recovery-fastcgi-probe.py").read_text()
+    document = _read_json(repo / "deploy/scholarships-first-recovery-inspect-v3.json")
+    steps = document.get("mainSteps", [])
+    if (document.get("parameters") != {} or len(steps) != 1
+            or steps[0].get("action") != "aws:runShellScript"
+            or "ip-172-26-10-203.ap-south-1.compute.internal" not in script
+            or "RewriteRule ^ - [R=503,L]" not in script
+            or "database-backed sessions are enabled" not in script
+            or "'REQUEST_METHOD': 'GET'" not in script
+            or "'HTTP_COOKIE':" in script
+            or "run_migrations.php" in script
+            or "rollback.sh" in script
+            or "test_fixed_request_has_no_cookie_or_input_and_captures_failure" not in
+               (repo / "tests/test_first_recovery_fastcgi_probe.py").read_text()):
+        errors.append("fixed internal FPM probe boundary changed")
     return errors
 
 
