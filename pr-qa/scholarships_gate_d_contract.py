@@ -46,6 +46,7 @@ FIRST_CUTOVER_RECOVERY_FPM_TRACE_MANIFEST = Path(__file__).resolve().parents[1] 
 FIRST_CUTOVER_PUBLIC_ASSETS_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr55-first-cutover.json"
 FIRST_CUTOVER_EXISTING_FONTS_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr56-first-cutover.json"
 LANDING_RELEASE_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr59-landing-release.json"
+VALIDATOR_ASSET_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr60-validator-asset.json"
 HOST = "mi-04a256fa549e372a8"
 ACCOUNT = "918870682888"
 RELEASE_DOCUMENT = "Scholarships-GateD-Production-Command-v1"
@@ -1416,6 +1417,60 @@ def verify_landing_release(repo: Path, changed: list[str], head: str,
             or "LANDING_UI_REVERTED=yes" not in release
             or "LANDING_UI_ROLLED_BACK=yes" not in rollback):
         errors.append("fixed landing UI-only or rollback boundary changed")
+    return errors
+
+
+def verify_validator_asset(repo: Path, changed: list[str], head: str,
+                           comments: list[dict[str, Any]]) -> list[str]:
+    """Certify the exact, single-file validator recovery from a verified backup."""
+    path = VALIDATOR_ASSET_MANIFEST
+    manifest = _read_json(path)
+    expected = {
+        "deploy/VALIDATOR_ASSET_RESTORE.md",
+        "deploy/compile-first-recovery-validator-document.py",
+        "deploy/first-recovery-validator-asset.py",
+        "deploy/scholarships-first-recovery-validator-v1.json",
+        "tests/test_first_recovery_validator_asset.py",
+    }
+    errors: list[str] = []
+    if (manifest.get("repository") != "Synergie-ITCI/scholarships"
+            or manifest.get("pr_number") != 60 or manifest.get("head_sha") != head
+            or manifest.get("technical_certification_owner") != "SaurabhVermaIN"
+            or manifest.get("removed_paths") != []):
+        errors.append("validator recovery certification identity changed")
+    files = manifest.get("files")
+    if not isinstance(files, dict) or set(files) != expected or set(changed) != expected:
+        errors.append("validator recovery changed-file scope changed")
+        return errors
+    for rel, file_hash in files.items():
+        file = repo / rel
+        if (not re.fullmatch(r"[0-9a-f]{64}", str(file_hash))
+                or not file.is_file() or file.is_symlink() or file.stat().st_size > 1_000_000
+                or hashlib.sha256(file.read_bytes()).hexdigest() != file_hash):
+            errors.append(f"validator recovery certified file changed: {rel}")
+    if errors:
+        return errors
+    if not _owner_certified(comments, "SaurabhVermaIN", head,
+                            hashlib.sha256(path.read_bytes()).hexdigest()):
+        errors.append("owner-led validator recovery certification is absent")
+    compiler = repo / "deploy/compile-first-recovery-validator-document.py"
+    document = repo / "deploy/scholarships-first-recovery-validator-v1.json"
+    result = subprocess.run(["python3", str(compiler)], cwd=repo,
+                            capture_output=True, check=False)
+    parsed = _read_json(document)
+    steps = parsed.get("mainSteps", [])
+    params = parsed.get("parameters", {})
+    source = (repo / "deploy/first-recovery-validator-asset.py").read_text()
+    if (result.returncode != 0 or result.stdout != document.read_bytes()
+            or set(params) != {"BackupUrl"}
+            or params["BackupUrl"].get("interpolationType") != "ENV_VAR"
+            or len(steps) != 1 or steps[0].get("action") != "aws:runShellScript"
+            or "BACKUP_VERSION = '1uloEZmYt8h91r6zPAKA01ygteb_yCqx'" not in source
+            or "MEMBER = 'public_html/' + ASSET" not in source
+            or "DATABASE_MIGRATIONS=NOT_RUN" not in source
+            or "def public_health(expected):" not in source
+            or "run_migrations" in source or "mysql" in source.lower()):
+        errors.append("fixed validator backup or execution boundary changed")
     return errors
 
 
