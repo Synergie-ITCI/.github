@@ -1326,7 +1326,9 @@ exit 0
     def test_saksham_reconciliation_exception_requires_exact_inherited_staging_history(self) -> None:
         engine = load_engine_module()
         staging_sha = "dccc80c2bf1c1de578bd3f940743c62d7b45bc80"
-        head_sha = "cc58fe386a8c9b4e6beacb18858f271bd6048484"
+        head_sha = "f9c6e71ddbf1f2936bda070eb65b302c8d5aee27"
+        previous_head_sha = "cc58fe386a8c9b4e6beacb18858f271bd6048484"
+        development_sha = "89c087ef483235f4d936a9d4f0e5162f8fe5e3c5"
         ctx = SimpleNamespace(
             repo=self.tmp,
             base_ref="development",
@@ -1339,15 +1341,15 @@ exit 0
             mock.patch.object(engine, "resolve_head_sha", return_value=head_sha),
             mock.patch.object(engine, "resolve_fresh_origin_staging_tip", return_value=staging_sha),
             mock.patch.object(engine, "commit_is_ancestor", return_value=True),
-            mock.patch.object(engine, "git_lines", side_effect=[[], history]),
+            mock.patch.object(engine, "git_lines", side_effect=[[f"{previous_head_sha} {development_sha}"], [head_sha], history]),
         ):
-            self.assertTrue(engine.exact_saksham_staging_reconciliation(ctx, {}, history))
+            self.assertTrue(engine.exact_saksham_staging_reconciliation(ctx, {}, history + [head_sha]))
         with (
             mock.patch.object(engine, "resolve_repository_name", return_value="Synergie-ITCI/saksham"),
             mock.patch.object(engine, "resolve_head_sha", return_value=head_sha),
             mock.patch.object(engine, "resolve_fresh_origin_staging_tip", return_value=staging_sha),
             mock.patch.object(engine, "commit_is_ancestor", return_value=True),
-            mock.patch.object(engine, "git_lines", side_effect=[["new-feature-merge"], history]),
+            mock.patch.object(engine, "git_lines", side_effect=[[f"{previous_head_sha} {development_sha}"], [head_sha, "new-feature-merge"], history]),
         ):
             self.assertFalse(engine.exact_saksham_staging_reconciliation(ctx, {}, history))
         ctx.event["pull_request"]["number"] = 211
