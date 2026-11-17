@@ -285,6 +285,19 @@ class FieldzillaImportSizeTests(unittest.TestCase):
              275, 15714, ["changed_file_count", "diff_size"]),
         )
         current["one_time_baseline_alignments"].remove(scholarships_pr68)
+        scholarships_pr70 = next(
+            row for row in current["one_time_baseline_alignments"]
+            if row.get("repository") == "Synergie-ITCI/scholarships" and row.get("pr_number") == 70
+        )
+        self.assertEqual(
+            (scholarships_pr70["expected_head_sha"], scholarships_pr70["expected_base_sha"],
+             scholarships_pr70["allowed_changed_files"], scholarships_pr70["allowed_effective_additions"],
+             scholarships_pr70["relaxations"]),
+            ("6661d6c04d6fe6ab08cae016dcdba7a36c5a3723",
+             "1379352d5ef26cc7e867e52185315083ec63eebe",
+             142, 10470, ["changed_file_count", "diff_size"]),
+        )
+        current["one_time_baseline_alignments"].remove(scholarships_pr70)
         self.assertEqual(current, previous)
 
         previous_sql = json.loads(subprocess.check_output(

@@ -1192,6 +1192,28 @@
       "enabled": true,
       "repository": "Synergie-ITCI/scholarships",
       "repository_id": 1132519991,
+      "pr_number": 70,
+      "expected_head_sha": "6661d6c04d6fe6ab08cae016dcdba7a36c5a3723",
+      "expected_base_sha": "1379352d5ef26cc7e867e52185315083ec63eebe",
+      "head_ref": "development",
+      "base_ref": "staging",
+      "allowed_effective_additions": 10470,
+      "allowed_changed_files": 142,
+      "minimum_changed_files": 142,
+      "purpose": "One-time exact-head size authorization for Scholarships PR #70, promoting protected main ancestry and three reviewed MBRDI form/migration files from development to staging. Only changed-file-count and diff-size thresholds are relaxed; exact lineage, all other QA, release-contract validation, branch protection, and production controls remain mandatory.",
+      "issued_at": "2026-11-17T16:28:57Z",
+      "expires_after": "2026-11-18T15:28:57Z",
+      "authorization_id": "d55a2463-ab9c-4520-a576-c7dec4704816",
+      "required_pr_body_marker": "SCHOLARSHIPS-PR70-DEV-STAGE-SIZE-6661d6c",
+      "relaxations": [
+        "changed_file_count",
+        "diff_size"
+      ]
+    },
+    {
+      "enabled": true,
+      "repository": "Synergie-ITCI/scholarships",
+      "repository_id": 1132519991,
       "pr_number": 68,
       "expected_head_sha": "c99aa25f31af725ba4b46922ff669810eb67eb0c",
       "expected_base_sha": "da1d5b78e4a34512a6584c7f4ba4e6d4a990ebd3",
