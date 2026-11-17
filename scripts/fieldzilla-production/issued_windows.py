@@ -47,6 +47,28 @@ PR791_BASE = "a1b883710bdd37ce915901dcfa86a837733a7b7b"
 PR791_MIGRATION = "apps/api/alembic/versions/20261117_0076_tenant_owner_operational_delegation.py"
 PR791_MIGRATION_SHA256 = "30bea9f387d9d9e50304a8e8f3dac1db7bb6e7adeda092d896b023c37c3b8681"
 PR791_SQL_REVIEW = "50e42152-16ec-43c3-8bce-b8df5f4f10cf"
+PR798_SOURCE = "ee2b975c9c5a4881d71c6cd46d17af4e2f33aeae"
+PR798_BASE = "4c31546a984e3bda42d52b11a2ce268989991eab"
+PR798_MERGE = "42566a33d50b9a0924b89e7603857446858703cb"
+PR797_HEAD = "fd220a932b07a466ceb400d56ebcf22e6c06653c"
+PR796_HEAD = "e080a80d6b1c6e3059d003a939e8c117134e7951"
+PR794_HEAD = "0352baa1de50b44050e6061b028edc29995faa3f"
+PR794_BASE = "35c22710266b12d595c83e37c4bd7249e94077ce"
+PR794_MERGE = "2bb27d09cd8f9643ccc1fc75d3775753798e9dab"
+PR796_MERGE = "4444cd46683eac6350e54336796610b82c5b6f82"
+PR794_TREE = "828f27b5c1eee6862590adc22e751f3731274d6f"
+PR796_TREE = "8d5087bf59c700e7f00ff88d6a70a778323596f4"
+PR797_TREE = "7bd0d2cb95fb2c8a83265de8382e00d844b3fc6e"
+PR798_TREE = "b2b70f169808e4d04a321049a3982c256caae995"
+PR798_SQL_REVIEW = "b0f5dab9-3c63-4273-a8cb-4ca891f7c8ee"
+PR798_REVIEWED_FILES = {
+    "apps/api/alembic/versions/20261117_0077_mother_schema_bridge.py": "ce13743006d75236e47706abb27419388f85889d30a5bf94ae0bfd1c652ce5aa",
+    "apps/api/alembic/versions/20261117_0076_tenant_owner_operational_delegation.py": PR791_MIGRATION_SHA256,
+    "apps/api/alembic/production_bridge/otp_policy.py": "d996aab759d75bed5f93831f71163129a7deffdfd692dbc30f9cb8ad054bb71d",
+    "apps/api/alembic/production_bridge/policy_correction_audit.py": "484242306a3ea50e7cc4015edd0b6a687f458a5558af82217cbdbedc053e20c5",
+    "apps/api/alembic/production_bridge/production_baseline.py": "adebe0a50757125c18db47bebff23956ae85558a065151c77e94126908d0be0b",
+    "apps/api/alembic/production_bridge/role_permissions.py": "376ac7a3d0cf0dc1dfe032739b4dc398f3e48e0c162908a408cca8093633d572",
+}
 sys.path.insert(0, str(ROOT / "pr-qa"))
 from baseline_authorization import schema_errors
 
@@ -206,9 +228,76 @@ def verify_pr791_migration(manifest, *, api):
         raise ValueError("Reviewed migration 0076 bytes differ")
 
 
+def verify_pr798_inherited_migration(manifest, *, api):
+    """Bind the mother release to the reviewed production bridge and merge chain."""
+    if manifest.get("scope") != "production" or manifest.get("promotion_pr") != 798:
+        return
+    if (
+        manifest.get("application", {}).get("source_sha") != PR798_SOURCE
+        or manifest.get("base_sha") != PR798_BASE
+        or manifest.get("review_authorizations", {}).get("sql") != PR798_SQL_REVIEW
+        or manifest.get("database") != {
+            "name": "fieldzilla_production",
+            "role": "pmp_fieldzilla_prod_migrator",
+            "before": ["20260909_0041", "20261117_0076"],
+            "after": ["20260909_0041", "20261117_0077"],
+        }
+    ):
+        raise ValueError("PR #798 inherited bridge binding differs")
+    chain = (
+        (PR794_MERGE, [PR794_BASE, PR794_HEAD], PR794_TREE),
+        (PR796_MERGE, [PR794_MERGE, PR796_HEAD], PR796_TREE),
+        (PR798_BASE, [PR796_MERGE, PR797_HEAD], PR797_TREE),
+        (PR798_MERGE, [PR798_BASE, PR798_SOURCE], PR798_TREE),
+    )
+    for sha, parents, tree in chain:
+        commit = api(f"repos/{REPOSITORY}/git/commits/{sha}")
+        if (
+            commit.get("sha") != sha
+            or [row.get("sha") for row in commit.get("parents", [])] != parents
+            or commit.get("tree", {}).get("sha") != tree
+            or commit.get("verification", {}).get("verified") is not True
+        ):
+            raise ValueError("Reviewed mother merge ancestry or tree differs")
+    for sha, tree in (
+        (PR794_HEAD, PR794_TREE),
+        (PR796_HEAD, PR796_TREE),
+        (PR797_HEAD, PR797_TREE),
+        (PR798_SOURCE, PR798_TREE),
+    ):
+        commit = api(f"repos/{REPOSITORY}/git/commits/{sha}")
+        if commit.get("sha") != sha or commit.get("tree", {}).get("sha") != tree:
+            raise ValueError("Reviewed mother PR head tree differs")
+    for path, expected in PR798_REVIEWED_FILES.items():
+        content = api(f"repos/{REPOSITORY}/contents/{path}?ref={PR798_SOURCE}")
+        encoded = content.get("content", "")
+        if (
+            content.get("type") != "file"
+            or content.get("encoding") != "base64"
+            or not isinstance(encoded, str)
+            or len(encoded) > 131072
+            or hashlib.sha256(base64.b64decode(encoded.replace("\n", ""), validate=True)).hexdigest()
+            != expected
+        ):
+            raise ValueError(f"Reviewed mother production bridge bytes differ: {path}")
+    files = api(f"repos/{REPOSITORY}/pulls/798/files?per_page=100&page=1")
+    if (
+        not isinstance(files, list)
+        or len(files) != 37
+        or any(
+            not isinstance(row, dict)
+            or row.get("previous_filename") is not None
+            or not str(row.get("filename", "")).startswith("apps/mobile/")
+            for row in files
+        )
+    ):
+        raise ValueError("PR #798 changed files differ from reviewed mobile-only patch")
+
+
 def verify_issued_windows(manifest, *, api, activated_policies, now=None):
     verify_pr787_inherited_migration(manifest, api=api)
     verify_pr791_migration(manifest, api=api)
+    verify_pr798_inherited_migration(manifest, api=api)
     if activated_policies.get("__merge_metadata_recovery__") is True:
         verify_merge_metadata_recovery(
             manifest, api=api,
