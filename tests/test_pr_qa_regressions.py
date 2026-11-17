@@ -1323,6 +1323,36 @@ exit 0
         for action in (feature_to_staging, feature_to_main, development_to_main):
             self.assertIn("do not create a replacement PR", action)
 
+    def test_saksham_reconciliation_exception_requires_exact_inherited_staging_history(self) -> None:
+        engine = load_engine_module()
+        staging_sha = "dccc80c2bf1c1de578bd3f940743c62d7b45bc80"
+        head_sha = "cc58fe386a8c9b4e6beacb18858f271bd6048484"
+        ctx = SimpleNamespace(
+            repo=self.tmp,
+            base_ref="development",
+            head_ref="reconcile/staging-history-into-development",
+            event={"pull_request": {"number": 210}},
+        )
+        history = ["inherited-merge-1", "inherited-merge-2"]
+        with (
+            mock.patch.object(engine, "resolve_repository_name", return_value="Synergie-ITCI/saksham"),
+            mock.patch.object(engine, "resolve_head_sha", return_value=head_sha),
+            mock.patch.object(engine, "resolve_fresh_origin_staging_tip", return_value=staging_sha),
+            mock.patch.object(engine, "commit_is_ancestor", return_value=True),
+            mock.patch.object(engine, "git_lines", side_effect=[[], history]),
+        ):
+            self.assertTrue(engine.exact_saksham_staging_reconciliation(ctx, {}, history))
+        with (
+            mock.patch.object(engine, "resolve_repository_name", return_value="Synergie-ITCI/saksham"),
+            mock.patch.object(engine, "resolve_head_sha", return_value=head_sha),
+            mock.patch.object(engine, "resolve_fresh_origin_staging_tip", return_value=staging_sha),
+            mock.patch.object(engine, "commit_is_ancestor", return_value=True),
+            mock.patch.object(engine, "git_lines", side_effect=[["new-feature-merge"], history]),
+        ):
+            self.assertFalse(engine.exact_saksham_staging_reconciliation(ctx, {}, history))
+        ctx.event["pull_request"]["number"] = 211
+        self.assertFalse(engine.exact_saksham_staging_reconciliation(ctx, {}, history))
+
     def test_feature_pr_still_blocks_accidental_merge_commit(self) -> None:
         repo, base = self.init_repo("feature-merge-commit")
         self.write(repo / "feature.txt", "feature change\n")
