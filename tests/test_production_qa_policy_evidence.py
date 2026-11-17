@@ -468,6 +468,37 @@ class QAPolicyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.verify()
 
+    def test_exact_pr798_mother_bridge_requires_ordinary_qa_and_its_own_review(self):
+        source = "ee2b975c9c5a4881d71c6cd46d17af4e2f33aeae"
+        base = "4c31546a984e3bda42d52b11a2ce268989991eab"
+        self.manifest.update(
+            operation="rollout", promotion_pr=798, base_sha=base,
+            review_authorizations={
+                "baseline": "47ad19da-aa3c-4492-946f-da4b9ffce871",
+                "sql": "b0f5dab9-3c63-4273-a8cb-4ca891f7c8ee",
+            },
+            database={
+                "name": "fieldzilla_production", "role": "pmp_fieldzilla_prod_migrator",
+                "before": ["20260909_0041", "20261117_0076"],
+                "after": ["20260909_0041", "20261117_0077"],
+            },
+        )
+        self.manifest["application"]["source_sha"] = source
+        self.checks[QUALITY]["head_sha"] = source
+        self.run["head_sha"] = source
+        self.run["pull_requests"] = [{"number": 798, "head": {"sha": source}, "base": {"sha": base}}]
+        self.pr.update(number=798)
+        self.pr["head"]["sha"] = source
+        self.pr["base"]["sha"] = base
+        self.artifact["workflow_run"]["head_sha"] = source
+        binding = self.report["summary"]["baseline_alignment"]
+        binding.update(requested=False, authorized=False, relaxed_checks=[], source_sha=source, destination_sha=base)
+        self.rebuild_archive()
+        self.verify()
+        self.manifest["review_authorizations"]["sql"] = "407d605f-815b-4516-b714-5b72bf6c1422"
+        with self.assertRaises(ValueError):
+            self.verify()
+
     def test_pr791_migration_command_and_reviewed_bytes(self):
         import base64
         from unittest.mock import patch

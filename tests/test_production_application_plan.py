@@ -49,6 +49,12 @@ def manifest():
 
 
 class PlanTests(unittest.TestCase):
+    def test_pr798_uses_reviewed_mother_bridge_migration(self):
+        inputs = manifest()
+        inputs["source_sha"] = module.PR798_SOURCE_SHA
+        migration = render(inputs)["task_definitions"][2]["containerDefinitions"][0]
+        self.assertEqual(migration["command"], ["alembic", "upgrade", "20261117_0077"])
+
     def test_pr787_uses_reviewed_operational_role_migration(self):
         inputs = manifest()
         inputs["source_sha"] = module.PR787_SOURCE_SHA

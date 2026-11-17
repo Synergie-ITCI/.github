@@ -11,10 +11,65 @@ from unittest.mock import patch
 sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "scripts/fieldzilla-production")
 )
-from issued_windows import verify_issued_windows
+from issued_windows import verify_issued_windows, verify_pr798_inherited_migration
 
 
 class IssuedWindowTests(unittest.TestCase):
+    def test_pr798_inherited_bridge_requires_exact_merges_and_reviewed_bytes(self):
+        from issued_windows import (
+            PR794_MERGE, PR794_BASE, PR794_HEAD, PR794_TREE,
+            PR796_MERGE, PR796_HEAD, PR796_TREE, PR797_HEAD, PR797_TREE,
+            PR798_BASE, PR798_SOURCE, PR798_MERGE, PR798_TREE,
+            PR798_REVIEWED_FILES, PR798_SQL_REVIEW,
+        )
+        manifest = {
+            "scope": "production", "promotion_pr": 798,
+            "application": {"source_sha": PR798_SOURCE}, "base_sha": PR798_BASE,
+            "review_authorizations": {"sql": PR798_SQL_REVIEW},
+            "database": {
+                "name": "fieldzilla_production", "role": "pmp_fieldzilla_prod_migrator",
+                "before": ["20260909_0041", "20261117_0076"],
+                "after": ["20260909_0041", "20261117_0077"],
+            },
+        }
+        commits = {
+            PR794_MERGE: ([PR794_BASE, PR794_HEAD], PR794_TREE),
+            PR796_MERGE: ([PR794_MERGE, PR796_HEAD], PR796_TREE),
+            PR798_BASE: ([PR796_MERGE, PR797_HEAD], PR797_TREE),
+            PR798_MERGE: ([PR798_BASE, PR798_SOURCE], PR798_TREE),
+            PR794_HEAD: ([], PR794_TREE), PR796_HEAD: ([], PR796_TREE),
+            PR797_HEAD: ([], PR797_TREE), PR798_SOURCE: ([], PR798_TREE),
+        }
+
+        def api(path):
+            if "/git/commits/" in path:
+                sha = path.rsplit("/", 1)[-1]
+                parents, tree = commits[sha]
+                return {
+                    "sha": sha, "parents": [{"sha": parent} for parent in parents],
+                    "tree": {"sha": tree}, "verification": {"verified": True},
+                }
+            if "/contents/" in path:
+                name = path.split("/contents/", 1)[1].split("?", 1)[0]
+                return {
+                    "type": "file", "encoding": "base64",
+                    "content": base64.b64encode(name.encode()).decode(),
+                }
+            if "/pulls/798/files?" in path:
+                return [{"filename": f"apps/mobile/file-{n}"} for n in range(37)]
+            raise AssertionError(path)
+
+        hashes = {path: hashlib.sha256(path.encode()).hexdigest() for path in PR798_REVIEWED_FILES}
+        with patch("issued_windows.PR798_REVIEWED_FILES", hashes):
+            verify_pr798_inherited_migration(manifest, api=api)
+            commits[PR796_MERGE] = ([PR794_MERGE, PR797_HEAD], PR796_TREE)
+            with self.assertRaisesRegex(ValueError, "ancestry"):
+                verify_pr798_inherited_migration(manifest, api=api)
+            commits[PR796_MERGE] = ([PR794_MERGE, PR796_HEAD], PR796_TREE)
+            hashes[next(iter(hashes))] = "0" * 64
+            with self.assertRaisesRegex(ValueError, "bridge bytes"):
+                verify_pr798_inherited_migration(manifest, api=api)
+
     def setUp(self):
         self.now = datetime(2026, 11, 10, 12, tzinfo=UTC)
         self.manifest = {

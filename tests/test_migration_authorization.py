@@ -524,7 +524,14 @@ class BundledMigrationAuthorizationTests(unittest.TestCase):
         self.assertEqual(inherited["approved_reviewer"], by_pr[786]["approved_reviewer"])
 
         # No unknown PRs
-        known = {118, 241, 712, 786, 787, 791}
+        inherited_mother = by_pr[798]
+        self.assertEqual(inherited_mother["expected_head_sha"], "ee2b975c9c5a4881d71c6cd46d17af4e2f33aeae")
+        self.assertEqual(inherited_mother["expected_base_sha"], "4c31546a984e3bda42d52b11a2ce268989991eab")
+        self.assertEqual(inherited_mother["migration_sha256"], "ce13743006d75236e47706abb27419388f85889d30a5bf94ae0bfd1c652ce5aa")
+        self.assertEqual(inherited_mother["delete_fingerprints"], [])
+        self.assertEqual(inherited_mother["approved_reviewer"], {"login": "SaurabhVermaIN", "id": 52234089})
+
+        known = {118, 241, 712, 786, 787, 791, 798}
         unknown = set(by_pr) - known
         self.assertFalse(unknown, f"unexpected migration authorization PRs: {unknown}")
         policy = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())

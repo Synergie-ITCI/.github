@@ -174,5 +174,22 @@
       "id": 52234089
     },
     "purpose": "Review PR #791 exact 0076 migration bytes: only tenant Owner template delegation clause changes from 0075; existing DELETE definition is identical, bound to this reviewed head and 0041+0075 to 0041+0076 transition."
+  },
+  {
+    "repository": "Synergie-ITCI/programme-management-platform",
+    "repository_id": 1315697868,
+    "pr_number": 798,
+    "head_ref": "feature/fieldzilla-mother-mobile-promotion",
+    "base_ref": "main",
+    "expected_head_sha": "ee2b975c9c5a4881d71c6cd46d17af4e2f33aeae",
+    "expected_base_sha": "4c31546a984e3bda42d52b11a2ce268989991eab",
+    "issued_at": "2026-11-17T15:07:31Z",
+    "authorization_id": "b0f5dab9-3c63-4273-a8cb-4ca891f7c8ee",
+    "expires_at": "2026-11-18T15:00:00Z",
+    "migration_path": "apps/api/alembic/versions/20261117_0077_mother_schema_bridge.py",
+    "migration_sha256": "ce13743006d75236e47706abb27419388f85889d30a5bf94ae0bfd1c652ce5aa",
+    "delete_fingerprints": [],
+    "approved_reviewer": {"login": "SaurabhVermaIN", "id": 52234089},
+    "purpose": "Review unchanged additive production bridge 0077 inherited by PR #798 from the exact reviewed PR #794 merge. No DELETE statement is present in the migration file; downgrade is data-guarded. Bind 0041+0076 to 0041+0077 without transferring staging data."
   }
 ]

@@ -1826,6 +1826,23 @@
       "allowed_changed_files": 13,
       "purpose": "Exact-source image review for PR #791 bounded tenant Owner operational-template delegation and forward migration 0076; no baseline relaxation or production mutation.",
       "relaxations": []
+    },
+    {
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "repository_id": 1315697868,
+      "pr_number": 798,
+      "head_ref": "feature/fieldzilla-mother-mobile-promotion",
+      "base_ref": "main",
+      "expected_head_sha": "ee2b975c9c5a4881d71c6cd46d17af4e2f33aeae",
+      "expected_base_sha": "4c31546a984e3bda42d52b11a2ce268989991eab",
+      "issued_at": "2026-11-17T15:07:31Z",
+      "enabled": true,
+      "authorization_id": "47ad19da-aa3c-4492-946f-da4b9ffce871",
+      "expires_after": "2026-11-18T15:00:00Z",
+      "allowed_effective_additions": 3947,
+      "allowed_changed_files": 37,
+      "purpose": "Exact-source image review for the merged mother application: PR #798 mobile source inherits exact reviewed API #796, Admin #797, and additive production bridge #794. No QA relaxation, image publication, ECS, migration, or Nidaan configuration authorization.",
+      "relaxations": []
     }
   ]
 }

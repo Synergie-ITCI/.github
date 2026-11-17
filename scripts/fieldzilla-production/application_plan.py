@@ -21,6 +21,7 @@ SHA = re.compile(r"[0-9a-f]{40}")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 PR787_SOURCE_SHA = "a6e35a7ad36fbc21417a8575bb723a7948a5e8c7"
 PR791_SOURCE_SHA = "8821f317a4316ec7bca639ac7b6d22e9f903cfd9"
+PR798_SOURCE_SHA = "ee2b975c9c5a4881d71c6cd46d17af4e2f33aeae"
 ROLE = re.compile(
     rf"arn:aws:iam::{ACCOUNT}:role/[A-Za-z0-9_+=,.@/-]*[Pp]roduction[A-Za-z0-9_+=,.@/-]*"
 )
@@ -152,7 +153,9 @@ def render(manifest: dict, *, scope: str = "production") -> dict:
                     },
                 ]
             else:
-                if scope == "production" and sha == PR791_SOURCE_SHA:
+                if scope == "production" and sha == PR798_SOURCE_SHA:
+                    container["command"] = ["alembic", "upgrade", "20261117_0077"]
+                elif scope == "production" and sha == PR791_SOURCE_SHA:
                     container["command"] = ["alembic", "upgrade", "20261117_0076"]
                 elif scope == "production" and sha == PR787_SOURCE_SHA:
                     container["command"] = ["alembic", "upgrade", "20261116_0075"]
