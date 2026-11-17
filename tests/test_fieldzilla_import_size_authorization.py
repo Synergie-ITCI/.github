@@ -272,6 +272,19 @@ class FieldzillaImportSizeTests(unittest.TestCase):
             normalized_scholarships[field] = old_scholarships[field]
         self.assertEqual(normalized_scholarships, old_scholarships)
         current["one_time_baseline_alignments"][current["one_time_baseline_alignments"].index(new_scholarships)] = old_scholarships
+        scholarships_pr68 = next(
+            row for row in current["one_time_baseline_alignments"]
+            if row.get("repository") == "Synergie-ITCI/scholarships" and row.get("pr_number") == 68
+        )
+        self.assertEqual(
+            (scholarships_pr68["expected_head_sha"], scholarships_pr68["expected_base_sha"],
+             scholarships_pr68["allowed_changed_files"], scholarships_pr68["allowed_effective_additions"],
+             scholarships_pr68["relaxations"]),
+            ("c99aa25f31af725ba4b46922ff669810eb67eb0c",
+             "da1d5b78e4a34512a6584c7f4ba4e6d4a990ebd3",
+             275, 15714, ["changed_file_count", "diff_size"]),
+        )
+        current["one_time_baseline_alignments"].remove(scholarships_pr68)
         self.assertEqual(current, previous)
 
         previous_sql = json.loads(subprocess.check_output(
