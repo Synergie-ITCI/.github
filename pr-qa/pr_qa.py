@@ -2195,7 +2195,9 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
                     or governed_ancestry_alignment_merge_commit(ctx, sha)
                 )
             ]
-        if unexpected_merge_commits and exact_saksham_staging_reconciliation(ctx, git_context, merge_commits):
+        if unexpected_merge_commits == [run_git(ctx.repo, ["rev-parse", "--verify", "HEAD^{commit}"]).strip()] and exact_scholarships_main_development_reconciliation(ctx):
+            results.append(warning("Repository Hygiene", None, "Verified exact Scholarships PR #68 main-to-development history reconciliation; unrelated merges remain prohibited.", unexpected_merge_commits))
+        elif unexpected_merge_commits and exact_saksham_staging_reconciliation(ctx, git_context, merge_commits):
             results.append(warning("Repository Hygiene", None, "Verified inherited staging merges and the exact development branch update for Saksham PR #210; other merges remain prohibited.", unexpected_merge_commits[:20]))
         elif unexpected_merge_commits and exact_saksham_main_staging_alignment(ctx, git_context, merge_commits):
             results.append(warning("Repository Hygiene", None, "Verified exact main-to-staging alignment for Saksham PR #211; other merges remain prohibited.", unexpected_merge_commits[:20]))
@@ -2276,6 +2278,29 @@ def exact_saksham_main_staging_alignment(ctx: PRContext, git_context: dict[str, 
     ):
         return False
     return git_lines(ctx.repo, ["show", "-s", "--format=%P", head_sha]) == [f"{staging_sha} {main_sha}"]
+
+
+def exact_scholarships_main_development_reconciliation(ctx: PRContext) -> bool:
+    """Recognize only Scholarships PR #68's current main history merge."""
+    development_sha = "da1d5b78e4a34512a6584c7f4ba4e6d4a990ebd3"
+    main_sha = "6c4493cc0c80734a2c44a356e8620c225d3fa6dd"
+    head_sha = "c99aa25f31af725ba4b46922ff669810eb67eb0c"
+    pull_request = ctx.event.get("pull_request", {}) or {}
+    if not (
+        resolve_repository_name(ctx) == "Synergie-ITCI/scholarships"
+        and ctx.base_ref == "development"
+        and ctx.head_ref == "reconcile/main-into-development"
+        and pull_request.get("number") == 68
+        and (pull_request.get("head") or {}).get("sha") == head_sha
+        and run_git(ctx.repo, ["rev-parse", "--verify", "HEAD^{commit}"]).strip() == head_sha
+        and resolve_fresh_origin_development_tip(ctx.repo) == development_sha
+        and resolve_fresh_origin_main_tip(ctx.repo) == main_sha
+        and git_lines(ctx.repo, ["show", "-s", "--format=%P", head_sha]) == [f"{development_sha} {main_sha}"]
+    ):
+        return False
+    head_tree = run_git(ctx.repo, ["rev-parse", "--verify", f"{head_sha}^{{tree}}"])
+    main_tree = run_git(ctx.repo, ["rev-parse", "--verify", f"{main_sha}^{{tree}}"])
+    return bool(head_tree) and head_tree == main_tree
 
 
 def canonical_branch_promotion(ctx: PRContext) -> bool:
@@ -3959,6 +3984,8 @@ def gate_deployment_safety(ctx: PRContext, git_context: dict[str, Any]) -> list[
             ]
     if not changed:
         return [passed("Deployment Risk", None, "No deployment-sensitive files changed.")]
+    if exact_scholarships_main_development_reconciliation(ctx):
+        return [warning("Deployment Risk", None, "Verified exact Scholarships PR #68 history reconciliation: final tree equals current main; no release contract content changes.")]
     if resolve_repository_name(ctx) == "Synergie-ITCI/scholarships":
         pr_number = extract_pr_number(ctx.event)
         if pr_number in (19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 55, 56, 59, 60):
