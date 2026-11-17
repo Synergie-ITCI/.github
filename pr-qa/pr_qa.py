@@ -2242,7 +2242,7 @@ def exact_saksham_staging_reconciliation(ctx: PRContext, git_context: dict[str, 
         return False
     if git_lines(ctx.repo, ["show", "-s", "--format=%P", head_sha]) != [f"{previous_head_sha} {development_sha}"]:
         return False
-    if git_lines(ctx.repo, ["rev-list", "--merges", f"{staging_sha}..{head_sha}"]) != [head_sha]:
+    if git_lines(ctx.repo, ["rev-list", "--first-parent", "--merges", f"{staging_sha}..{head_sha}"]) != [head_sha]:
         return False
     inherited = set(git_lines(ctx.repo, ["rev-list", "--first-parent", "--merges", staging_sha]))
     return set(merge_commits).issubset(inherited | {head_sha})
