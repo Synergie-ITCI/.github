@@ -1192,6 +1192,28 @@
       "enabled": true,
       "repository": "Synergie-ITCI/scholarships",
       "repository_id": 1132519991,
+      "pr_number": 68,
+      "expected_head_sha": "c99aa25f31af725ba4b46922ff669810eb67eb0c",
+      "expected_base_sha": "da1d5b78e4a34512a6584c7f4ba4e6d4a990ebd3",
+      "head_ref": "reconcile/main-into-development",
+      "base_ref": "development",
+      "allowed_effective_additions": 15714,
+      "allowed_changed_files": 275,
+      "minimum_changed_files": 275,
+      "purpose": "One-time exact-head size authorization for Scholarships PR #68, which merges existing protected main history into development with a final tree identical to main. Only changed-file-count and diff-size thresholds are relaxed; exact lineage, all other QA, release-contract validation, branch protection, and production controls remain mandatory.",
+      "issued_at": "2026-11-17T16:00:51Z",
+      "expires_after": "2026-11-18T15:00:51Z",
+      "authorization_id": "f1c83140-75a0-4788-abfc-e6612ffd605a",
+      "required_pr_body_marker": "SCHOLARSHIPS-PR68-MAIN-DEV-SIZE-c99aa25",
+      "relaxations": [
+        "changed_file_count",
+        "diff_size"
+      ]
+    },
+    {
+      "enabled": true,
+      "repository": "Synergie-ITCI/scholarships",
+      "repository_id": 1132519991,
       "pr_number": 7,
       "expected_head_sha": "1379352d5ef26cc7e867e52185315083ec63eebe",
       "expected_base_sha": "b48d1fed412f87977c75c60c69df528151f0a7cd",
