@@ -8,7 +8,7 @@
       "Synergie-ITCI/csr-intelligence-engine": {"release": "pr-qa-v1-rc227", "commit": "854c27f46e9c827b6d75d2dfa5282dffbbd5af92"},
       "Synergie-ITCI/programme-management-platform": {"release": "pr-qa-v1-rc294", "commit": "cbe53c5dbc19b2adf3420aad0daf1197d0ae2cb4", "protected_main_selection": true},
       "Synergie-ITCI/scholarships": {"release": "pr-qa-v1-rc350", "commit": "ba3900f19ac1916805b3b45bc094e5d8daac1431"},
-      "Synergie-ITCI/saksham": {"release": "pr-qa-v1-rc352", "commit": "8860eec97ba0a23f192d5af2d9d96d1e3b318cfc"}
+      "Synergie-ITCI/saksham": {"release": "pr-qa-v1-rc353", "commit": "2b9e40e0fd147a308b20985b29b2362f74db7586"}
     }
   },
   "gate_d_workflow_releases": {
