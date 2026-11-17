@@ -25,6 +25,7 @@ from typing import Any, Callable
 from adapters import ADAPTERS
 from scholarships_gate_d_contract import MANIFEST as SCHOLARSHIPS_GATE_D_MANIFEST
 from scholarships_gate_d_contract import FIRST_CUTOVER_MANIFEST as SCHOLARSHIPS_FIRST_CUTOVER_MANIFEST
+from scholarships_gate_d_contract import CURRENT_RECOVERY_MANIFEST as SCHOLARSHIPS_CURRENT_RECOVERY_MANIFEST
 from scholarships_gate_d_contract import verify as verify_scholarships_gate_d_contract
 from scholarships_gate_d_contract import verify_first_cutover as verify_scholarships_first_cutover
 from scholarships_gate_d_contract import verify_first_cutover_followup as verify_scholarships_first_cutover_followup
@@ -2334,6 +2335,44 @@ def exact_scholarships_development_staging_promotion(ctx: PRContext) -> bool:
     return set(git_lines(ctx.repo, ["diff", "--name-only", f"{main_sha}..{development_sha}"])) == new_paths
 
 
+def exact_scholarships_current_recovery_promotion(ctx: PRContext) -> bool:
+    """Recognize only protected promotions of PR #78's certified final tree."""
+    if resolve_repository_name(ctx) != "Synergie-ITCI/scholarships":
+        return False
+    pr = ctx.event.get("pull_request", {}) or {}
+    number = pr.get("number")
+    if (number, ctx.head_ref, ctx.base_ref) not in {
+            (79, "development", "staging"), (80, "staging", "main")}:
+        return False
+    manifest = read_json(SCHOLARSHIPS_CURRENT_RECOVERY_MANIFEST)
+    files = manifest.get("files")
+    if (manifest.get("repository") != "Synergie-ITCI/scholarships"
+            or manifest.get("pr_number") != 78
+            or manifest.get("head_sha") != "418aaee96d6a05f605621fb9a343ac543ae59ab5"
+            or not isinstance(files, dict) or len(files) != 27
+            or set(ctx.changed_files) != set(files)):
+        return False
+    head = (pr.get("head") or {}).get("sha") or ""
+    base = (pr.get("base") or {}).get("sha") or ""
+    if (not re.fullmatch(r"[0-9a-f]{40}", head)
+            or run_git(ctx.repo, ["rev-parse", "--verify", "HEAD^{commit}"]).strip() != head
+            or set(git_lines(ctx.repo, ["diff", "--name-only", f"{base}..{head}"])) != set(files)):
+        return False
+    if number == 79:
+        if (head != "bfbaa1815547ece581c39535aeeb72d39c6966c0"
+                or base != "53e9e714289b76831a8b74a6d094dd9fcfe44853"
+                or resolve_fresh_origin_development_tip(ctx.repo) != head
+                or resolve_fresh_origin_staging_tip(ctx.repo) != base):
+            return False
+    elif (base != "e853573a7d426a5b8e3dd2cece7e816d41045d24"
+          or resolve_fresh_origin_main_tip(ctx.repo) != base
+          or resolve_fresh_origin_staging_tip(ctx.repo) != head
+          or not commit_is_ancestor(ctx.repo, "bfbaa1815547ece581c39535aeeb72d39c6966c0", head)):
+        return False
+    return all(tree_file_sha256(ctx.repo, head, rel) == digest
+               for rel, digest in files.items())
+
+
 def canonical_branch_promotion(ctx: PRContext) -> bool:
     pair = ((ctx.head_ref or "").lower(), (ctx.base_ref or "").lower())
     return pair in {
@@ -4019,6 +4058,8 @@ def gate_deployment_safety(ctx: PRContext, git_context: dict[str, Any]) -> list[
         return [warning("Deployment Risk", None, "Verified exact Scholarships PR #68 history reconciliation: final tree equals current main; no release contract content changes.")]
     if exact_scholarships_development_staging_promotion(ctx):
         return [warning("Deployment Risk", None, "Verified exact Scholarships PR #70 promotion: protected release files equal current main; only three reviewed files differ.")]
+    if exact_scholarships_current_recovery_promotion(ctx):
+        return [warning("Deployment Risk", None, "Verified protected Scholarships PR #78 recovery promotion: final tree contains exactly the 27 certified control files; production installation remains separately gated.")]
     if resolve_repository_name(ctx) == "Synergie-ITCI/scholarships":
         pr_number = extract_pr_number(ctx.event)
         if pr_number in (19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 55, 56, 59, 60, 78):
