@@ -1887,6 +1887,23 @@
       "allowed_changed_files": 37,
       "purpose": "Exact-source image review for the merged mother application: PR #798 mobile source inherits exact reviewed API #796, Admin #797, and additive production bridge #794. No QA relaxation, image publication, ECS, migration, or Nidaan configuration authorization.",
       "relaxations": []
+    },
+    {
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "repository_id": 1315697868,
+      "pr_number": 802,
+      "head_ref": "fix/nidaan-form-config",
+      "base_ref": "main",
+      "expected_head_sha": "b55cf18a881c1722d307cac4c04114667e8379ea",
+      "expected_base_sha": "cfbdc0e4d5ac2478ea33befff657e23570507e48",
+      "issued_at": "2026-11-17T18:57:00Z",
+      "enabled": true,
+      "authorization_id": "73013153-53b5-4cf0-88da-cd2b38cd5d41",
+      "expires_after": "2026-11-18T18:50:00Z",
+      "allowed_effective_additions": 34,
+      "allowed_changed_files": 4,
+      "purpose": "Exact-source image review for PR #802 generic Admin form editing and published-versus-draft version display at unchanged production DB 0077. No QA relaxation, migration, ECS action, Nidaan content or publication approval.",
+      "relaxations": []
     }
   ]
 }

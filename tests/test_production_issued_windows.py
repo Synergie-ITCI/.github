@@ -15,6 +15,35 @@ from issued_windows import verify_issued_windows, verify_pr798_inherited_migrati
 
 
 class IssuedWindowTests(unittest.TestCase):
+    def test_pr802_sql_free_binding_keeps_current_database_and_rejects_other_sources(self):
+        from issued_windows import (
+            SQL_FREE_PR802_BASE, SQL_FREE_PR802_REVISIONS,
+            SQL_FREE_PR802_SOURCE, is_sql_free_update,
+        )
+
+        manifest = {
+            "scope": "production", "operation": "rollout", "promotion_pr": 802,
+            "base_sha": SQL_FREE_PR802_BASE,
+            "application": {"source_sha": SQL_FREE_PR802_SOURCE},
+            "review_authorizations": {"sql": None},
+            "database": {
+                "name": "fieldzilla_production", "role": "pmp_fieldzilla_prod_migrator",
+                "before": SQL_FREE_PR802_REVISIONS,
+                "after": SQL_FREE_PR802_REVISIONS,
+            },
+        }
+        self.assertTrue(is_sql_free_update(manifest))
+        for field, replacement in (
+            ("promotion_pr", 803), ("base_sha", "0" * 40),
+            ("operation", "rehearsal"),
+        ):
+            altered = copy.deepcopy(manifest)
+            altered[field] = replacement
+            self.assertFalse(is_sql_free_update(altered))
+        altered = copy.deepcopy(manifest)
+        altered["database"]["after"] = ["20260909_0041", "20261117_0076"]
+        self.assertFalse(is_sql_free_update(altered))
+
     def test_pr798_inherited_bridge_requires_exact_merges_and_reviewed_bytes(self):
         from issued_windows import (
             PR794_MERGE, PR794_BASE, PR794_HEAD, PR794_TREE,
