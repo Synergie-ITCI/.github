@@ -1418,6 +1418,39 @@ exit 0
             with mock.patch.object(engine, "run_git", side_effect=lambda repo, args: "different-tree" if args[-1] == f"{main_sha}^{{tree}}" else fake_git(repo, args)):
                 self.assertFalse(engine.exact_scholarships_main_development_reconciliation(ctx))
 
+    def test_scholarships_pr70_promotion_requires_exact_lineage_and_three_files(self) -> None:
+        engine = load_engine_module()
+        staging_sha = "1379352d5ef26cc7e867e52185315083ec63eebe"
+        main_sha = "6c4493cc0c80734a2c44a356e8620c225d3fa6dd"
+        development_sha = "6661d6c04d6fe6ab08cae016dcdba7a36c5a3723"
+        paths = [
+            "application/views/home/ApplicationNewReg.php",
+            "application/views/home/Index.php",
+            "database/migrations/2026_11_17_raise_query.sql",
+        ]
+        ctx = SimpleNamespace(
+            repo=self.tmp, base_ref="staging", head_ref="development",
+            changed_files=["deploy/production-release.sh"],
+            event={"pull_request": {"number": 70, "head": {"sha": development_sha}}},
+        )
+        with (
+            mock.patch.object(engine, "resolve_repository_name", return_value="Synergie-ITCI/scholarships"),
+            mock.patch.object(engine, "resolve_fresh_origin_staging_tip", return_value=staging_sha),
+            mock.patch.object(engine, "resolve_fresh_origin_main_tip", return_value=main_sha),
+            mock.patch.object(engine, "resolve_fresh_origin_development_tip", return_value=development_sha),
+            mock.patch.object(engine, "run_git", return_value=development_sha),
+            mock.patch.object(engine, "commit_is_ancestor", return_value=True),
+            mock.patch.object(engine, "git_lines", return_value=paths),
+        ):
+            self.assertTrue(engine.exact_scholarships_development_staging_promotion(ctx))
+            self.assertEqual(engine.gate_deployment_safety(ctx, {}).pop().status, "WARNING")
+            with mock.patch.object(engine, "git_lines", return_value=paths + ["deploy/production-release.sh"]):
+                self.assertFalse(engine.exact_scholarships_development_staging_promotion(ctx))
+            with mock.patch.object(engine, "commit_is_ancestor", return_value=False):
+                self.assertFalse(engine.exact_scholarships_development_staging_promotion(ctx))
+            ctx.event["pull_request"]["number"] = 71
+            self.assertFalse(engine.exact_scholarships_development_staging_promotion(ctx))
+
     def test_feature_pr_still_blocks_accidental_merge_commit(self) -> None:
         repo, base = self.init_repo("feature-merge-commit")
         self.write(repo / "feature.txt", "feature change\n")

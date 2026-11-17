@@ -2197,6 +2197,8 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
             ]
         if unexpected_merge_commits == [run_git(ctx.repo, ["rev-parse", "--verify", "HEAD^{commit}"]).strip()] and exact_scholarships_main_development_reconciliation(ctx):
             results.append(warning("Repository Hygiene", None, "Verified exact Scholarships PR #68 main-to-development history reconciliation; unrelated merges remain prohibited.", unexpected_merge_commits))
+        elif unexpected_merge_commits == ["da1d5b78e4a34512a6584c7f4ba4e6d4a990ebd3"] and exact_scholarships_development_staging_promotion(ctx):
+            results.append(warning("Repository Hygiene", None, "Verified inherited development merge in exact Scholarships PR #70 staging promotion; other merges remain prohibited.", unexpected_merge_commits))
         elif unexpected_merge_commits and exact_saksham_staging_reconciliation(ctx, git_context, merge_commits):
             results.append(warning("Repository Hygiene", None, "Verified inherited staging merges and the exact development branch update for Saksham PR #210; other merges remain prohibited.", unexpected_merge_commits[:20]))
         elif unexpected_merge_commits and exact_saksham_main_staging_alignment(ctx, git_context, merge_commits):
@@ -2301,6 +2303,34 @@ def exact_scholarships_main_development_reconciliation(ctx: PRContext) -> bool:
     head_tree = run_git(ctx.repo, ["rev-parse", "--verify", f"{head_sha}^{{tree}}"])
     main_tree = run_git(ctx.repo, ["rev-parse", "--verify", f"{main_sha}^{{tree}}"])
     return bool(head_tree) and head_tree == main_tree
+
+
+def exact_scholarships_development_staging_promotion(ctx: PRContext) -> bool:
+    """Recognize only PR #70's inherited main history plus three reviewed files."""
+    staging_sha = "1379352d5ef26cc7e867e52185315083ec63eebe"
+    main_sha = "6c4493cc0c80734a2c44a356e8620c225d3fa6dd"
+    development_sha = "6661d6c04d6fe6ab08cae016dcdba7a36c5a3723"
+    new_paths = {
+        "application/views/home/ApplicationNewReg.php",
+        "application/views/home/Index.php",
+        "database/migrations/2026_11_17_raise_query.sql",
+    }
+    pull_request = ctx.event.get("pull_request", {}) or {}
+    if not (
+        resolve_repository_name(ctx) == "Synergie-ITCI/scholarships"
+        and ctx.base_ref == "staging"
+        and ctx.head_ref == "development"
+        and pull_request.get("number") == 70
+        and (pull_request.get("head") or {}).get("sha") == development_sha
+        and run_git(ctx.repo, ["rev-parse", "--verify", "HEAD^{commit}"]).strip() == development_sha
+        and resolve_fresh_origin_staging_tip(ctx.repo) == staging_sha
+        and resolve_fresh_origin_main_tip(ctx.repo) == main_sha
+        and resolve_fresh_origin_development_tip(ctx.repo) == development_sha
+        and commit_is_ancestor(ctx.repo, staging_sha, main_sha)
+        and commit_is_ancestor(ctx.repo, main_sha, development_sha)
+    ):
+        return False
+    return set(git_lines(ctx.repo, ["diff", "--name-only", f"{main_sha}..{development_sha}"])) == new_paths
 
 
 def canonical_branch_promotion(ctx: PRContext) -> bool:
@@ -3986,6 +4016,8 @@ def gate_deployment_safety(ctx: PRContext, git_context: dict[str, Any]) -> list[
         return [passed("Deployment Risk", None, "No deployment-sensitive files changed.")]
     if exact_scholarships_main_development_reconciliation(ctx):
         return [warning("Deployment Risk", None, "Verified exact Scholarships PR #68 history reconciliation: final tree equals current main; no release contract content changes.")]
+    if exact_scholarships_development_staging_promotion(ctx):
+        return [warning("Deployment Risk", None, "Verified exact Scholarships PR #70 promotion: protected release files equal current main; only three reviewed files differ.")]
     if resolve_repository_name(ctx) == "Synergie-ITCI/scholarships":
         pr_number = extract_pr_number(ctx.event)
         if pr_number in (19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 55, 56, 59, 60):
