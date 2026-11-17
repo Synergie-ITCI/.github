@@ -47,6 +47,7 @@ FIRST_CUTOVER_PUBLIC_ASSETS_MANIFEST = Path(__file__).resolve().parents[1] / "po
 FIRST_CUTOVER_EXISTING_FONTS_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr56-first-cutover.json"
 LANDING_RELEASE_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr59-landing-release.json"
 VALIDATOR_ASSET_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr60-validator-asset.json"
+CURRENT_RECOVERY_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr78-current-recovery.json"
 HOST = "mi-04a256fa549e372a8"
 ACCOUNT = "918870682888"
 RELEASE_DOCUMENT = "Scholarships-GateD-Production-Command-v1"
@@ -176,6 +177,73 @@ def _owner_certified(comments: list[dict[str, Any]], owner: str, head: str,
         if required.issubset(set(str(comment.get("body") or "").splitlines())):
             return True
     return False
+
+
+def verify_current_recovery(repo: Path, changed: list[str], head: str,
+                            comments: list[dict[str, Any]]) -> list[str]:
+    """Certify only PR #78's exact current-landing recovery control changes."""
+    path = CURRENT_RECOVERY_MANIFEST
+    manifest = _read_json(path)
+    files = manifest.get("files")
+    errors: list[str] = []
+    if (manifest.get("repository") != "Synergie-ITCI/scholarships"
+            or manifest.get("pr_number") != 78 or manifest.get("head_sha") != head
+            or manifest.get("technical_certification_owner") != "SaurabhVermaIN"
+            or manifest.get("removed_paths") != []):
+        errors.append("current recovery certification identity changed")
+    if not isinstance(files, dict) or len(files) != 27 or set(changed) != set(files):
+        errors.append("current recovery changed-file scope changed")
+        return errors
+    for rel, digest in files.items():
+        file = repo / rel
+        if (not isinstance(rel, str) or Path(rel).is_absolute() or ".." in Path(rel).parts
+                or not re.fullmatch(r"[0-9a-f]{64}", str(digest))
+                or not file.is_file() or file.is_symlink() or file.stat().st_size > 1_000_000
+                or hashlib.sha256(file.read_bytes()).hexdigest() != digest):
+            errors.append(f"current recovery certified file changed: {rel}")
+    if errors:
+        return errors
+    if not _owner_certified(comments, "SaurabhVermaIN", head,
+                            hashlib.sha256(path.read_bytes()).hexdigest()):
+        errors.append("owner-led current recovery technical certification is absent")
+    workflow = (repo / ".github/workflows/scholarships-first-cutover.yml").read_text()
+    prepare = (repo / ".github/workflows/scholarships-first-cutover-prepare.yml").read_text()
+    release = (repo / "deploy/production-release.sh").read_text()
+    backup = (repo / "deploy/first-current-backup.sh").read_text()
+    cutover = (repo / "deploy/first-current-cutover.sh").read_text()
+    positions = [workflow.find(token) for token in (
+        "python3 deploy/first-cutover-approval-cli.py consume",
+        "aws-actions/configure-aws-credentials", "aws ssm send-command")]
+    if ("environment: production" not in workflow or "refs/heads/main" not in workflow
+            or -1 in positions or positions != sorted(positions)
+            or "AWS-RunShellScript" in workflow + prepare):
+        errors.append("protected cutover approval/OIDC/fixed-SSM boundary changed")
+    if ("environment: production" not in prepare or "refs/heads/main" not in prepare
+            or "Scholarships-First-Backup-v1" not in prepare
+            or "Scholarships-First-Restore-v1" not in prepare):
+        errors.append("protected backup and isolated restore boundary changed")
+    if ("--backup-only" not in backup or "database.sql.gz" not in backup
+            or "documents.tar.gz" not in backup or "shared/private-documents" not in backup
+            or "off_host_verified" not in cutover or "isolated_restore_pass" not in cutover
+            or "rollback.sh" not in cutover or "--check" not in cutover):
+        errors.append("fresh backup, private document or rollback verification changed")
+    if ("c44cef5ac0490aa0c356c6c1d441ab521197a77fc212e4f10613687cb3be150b"
+            not in release or "RECOVERY_BACKUP_RUN_ID" not in release
+            or "RECOVERY_ROLLBACK_SHA256" not in release):
+        errors.append("one-use current landing release identity changed")
+    role = _read_json(repo / "deploy/scholarships-first-cutover-role-policy-v1.json")
+    host = f"arn:aws:ssm:ap-south-1:{ACCOUNT}:managed-instance/{HOST}"
+    if (_send_resources(role) != {host, f"arn:aws:ssm:ap-south-1:{ACCOUNT}:document/Scholarships-First-Cutover-v1"}
+            or not _has_generic_deny(role)):
+        errors.append("fixed SSM host/document or generic-shell denial changed")
+    for name in ("scholarships-first-current-backup-command-v1.json",
+                 "scholarships-first-current-cutover-command-v1.json",
+                 "scholarships-gate-d-production-command-v2.json",
+                 "scholarships-gate-d-runtime-certifier-v2.json"):
+        document = _read_json(repo / "deploy" / name)
+        if document.get("schemaVersion") != "2.2" or len(document.get("mainSteps", [])) != 1:
+            errors.append(f"fixed SSM document structure changed: {name}")
+    return errors
 
 
 def verify_first_cutover_host_compat(repo: Path, changed: list[str], head: str,
