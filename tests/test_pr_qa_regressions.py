@@ -1355,6 +1355,33 @@ exit 0
         ctx.event["pull_request"]["number"] = 211
         self.assertFalse(engine.exact_saksham_staging_reconciliation(ctx, {}, history))
 
+    def test_saksham_main_staging_alignment_requires_exact_merge_and_paths(self) -> None:
+        engine = load_engine_module()
+        staging_sha = "106e8e49da87673063f729c4e62a733f482aa92a"
+        main_sha = "9b165bd52caaa487a426d24fb18a9755d2519e64"
+        head_sha = "38354d45e94ee61e12f6499b33c2842970fc9dd2"
+        ctx = SimpleNamespace(
+            repo=self.tmp,
+            base_ref="staging",
+            head_ref="align/main-into-staging-for-022",
+            changed_files=["application/models/applicantmodel.php", "scripts/run_migrations.php"],
+            event={"pull_request": {"number": 211}},
+        )
+        with (
+            mock.patch.object(engine, "resolve_repository_name", return_value="Synergie-ITCI/saksham"),
+            mock.patch.object(engine, "resolve_head_sha", return_value=head_sha),
+            mock.patch.object(engine, "resolve_fresh_origin_staging_tip", return_value=staging_sha),
+            mock.patch.object(engine, "resolve_fresh_origin_main_tip", return_value=main_sha),
+            mock.patch.object(engine, "git_lines", return_value=[f"{staging_sha} {main_sha}"]),
+        ):
+            self.assertTrue(engine.exact_saksham_main_staging_alignment(ctx, {}, [head_sha]))
+            self.assertFalse(engine.exact_saksham_main_staging_alignment(ctx, {}, [head_sha, "extra-merge"]))
+            ctx.changed_files.append("application/config/database.php")
+            self.assertFalse(engine.exact_saksham_main_staging_alignment(ctx, {}, [head_sha]))
+            ctx.changed_files.pop()
+            ctx.event["pull_request"]["number"] = 212
+            self.assertFalse(engine.exact_saksham_main_staging_alignment(ctx, {}, [head_sha]))
+
     def test_feature_pr_still_blocks_accidental_merge_commit(self) -> None:
         repo, base = self.init_repo("feature-merge-commit")
         self.write(repo / "feature.txt", "feature change\n")

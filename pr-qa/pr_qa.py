@@ -2197,6 +2197,8 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
             ]
         if unexpected_merge_commits and exact_saksham_staging_reconciliation(ctx, git_context, merge_commits):
             results.append(warning("Repository Hygiene", None, "Verified inherited staging merges and the exact development branch update for Saksham PR #210; other merges remain prohibited.", unexpected_merge_commits[:20]))
+        elif unexpected_merge_commits and exact_saksham_main_staging_alignment(ctx, git_context, merge_commits):
+            results.append(warning("Repository Hygiene", None, "Verified exact main-to-staging alignment for Saksham PR #211; other merges remain prohibited.", unexpected_merge_commits[:20]))
         elif unexpected_merge_commits and baseline_allows(ctx, "historical_commit_volume"):
             results.append(warning("Repository Hygiene", None, "Historical baseline merge commits predate current promotion policy; future PRs remain governed.", unexpected_merge_commits[:20]))
         elif unexpected_merge_commits and long_lived_staging_to_main_promotion(ctx):
@@ -2246,6 +2248,34 @@ def exact_saksham_staging_reconciliation(ctx: PRContext, git_context: dict[str, 
         return False
     inherited = set(git_lines(ctx.repo, ["rev-list", "--first-parent", "--merges", staging_sha]))
     return set(merge_commits).issubset(inherited | {head_sha})
+
+
+def exact_saksham_main_staging_alignment(ctx: PRContext, git_context: dict[str, Any], merge_commits: list[str]) -> bool:
+    """Allow only PR #211's exact merge of current main into current staging."""
+    staging_sha = "106e8e49da87673063f729c4e62a733f482aa92a"
+    main_sha = "9b165bd52caaa487a426d24fb18a9755d2519e64"
+    head_sha = "38354d45e94ee61e12f6499b33c2842970fc9dd2"
+    allowed_paths = {
+        "application/models/applicantmodel.php",
+        "scripts/run_migrations.php",
+        "tests/ci.sh",
+        "tests/disbursement_eligibility.php",
+        "tests/scholarship_consent_status.php",
+    }
+    pull_request = ctx.event.get("pull_request", {}) or {}
+    if not (
+        resolve_repository_name(ctx) == "Synergie-ITCI/saksham"
+        and ctx.base_ref == "staging"
+        and ctx.head_ref == "align/main-into-staging-for-022"
+        and pull_request.get("number") == 211
+        and resolve_head_sha(ctx.repo, git_context) == head_sha
+        and resolve_fresh_origin_staging_tip(ctx.repo) == staging_sha
+        and resolve_fresh_origin_main_tip(ctx.repo) == main_sha
+        and set(ctx.changed_files).issubset(allowed_paths)
+        and merge_commits == [head_sha]
+    ):
+        return False
+    return git_lines(ctx.repo, ["show", "-s", "--format=%P", head_sha]) == [f"{staging_sha} {main_sha}"]
 
 
 def canonical_branch_promotion(ctx: PRContext) -> bool:
