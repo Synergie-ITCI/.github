@@ -1382,6 +1382,42 @@ exit 0
             ctx.event["pull_request"]["number"] = 212
             self.assertFalse(engine.exact_saksham_main_staging_alignment(ctx, {}, [head_sha]))
 
+    def test_scholarships_pr68_reconciliation_is_exact_and_tree_preserving(self) -> None:
+        engine = load_engine_module()
+        development_sha = "da1d5b78e4a34512a6584c7f4ba4e6d4a990ebd3"
+        main_sha = "6c4493cc0c80734a2c44a356e8620c225d3fa6dd"
+        head_sha = "c99aa25f31af725ba4b46922ff669810eb67eb0c"
+        ctx = SimpleNamespace(
+            repo=self.tmp, base_ref="development", head_ref="reconcile/main-into-development",
+            changed_files=["deploy/production-release.sh"],
+            event={"pull_request": {"number": 68, "head": {"sha": head_sha}}},
+        )
+        def fake_git(repo, args):
+            if args[-1] == "HEAD^{commit}":
+                return head_sha
+            if args[-1] in (f"{head_sha}^{{tree}}", f"{main_sha}^{{tree}}"):
+                return "same-tree"
+            return ""
+        with (
+            mock.patch.object(engine, "resolve_repository_name", return_value="Synergie-ITCI/scholarships"),
+            mock.patch.object(engine, "resolve_fresh_origin_development_tip", return_value=development_sha),
+            mock.patch.object(engine, "resolve_fresh_origin_main_tip", return_value=main_sha),
+            mock.patch.object(engine, "git_lines", return_value=[f"{development_sha} {main_sha}"]),
+            mock.patch.object(engine, "run_git", side_effect=fake_git),
+        ):
+            self.assertTrue(engine.exact_scholarships_main_development_reconciliation(ctx))
+            self.assertEqual(engine.gate_deployment_safety(ctx, {}).pop().status, "WARNING")
+            ctx.event["pull_request"]["number"] = 69
+            self.assertFalse(engine.exact_scholarships_main_development_reconciliation(ctx))
+            ctx.event["pull_request"]["number"] = 68
+            ctx.event["pull_request"]["head"]["sha"] = "other-head"
+            self.assertFalse(engine.exact_scholarships_main_development_reconciliation(ctx))
+            ctx.event["pull_request"]["head"]["sha"] = head_sha
+            with mock.patch.object(engine, "git_lines", return_value=[f"{development_sha} other-main"]):
+                self.assertFalse(engine.exact_scholarships_main_development_reconciliation(ctx))
+            with mock.patch.object(engine, "run_git", side_effect=lambda repo, args: "different-tree" if args[-1] == f"{main_sha}^{{tree}}" else fake_git(repo, args)):
+                self.assertFalse(engine.exact_scholarships_main_development_reconciliation(ctx))
+
     def test_feature_pr_still_blocks_accidental_merge_commit(self) -> None:
         repo, base = self.init_repo("feature-merge-commit")
         self.write(repo / "feature.txt", "feature change\n")
