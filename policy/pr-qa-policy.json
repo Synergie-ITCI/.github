@@ -1904,6 +1904,23 @@
       "allowed_changed_files": 4,
       "purpose": "Exact-source image review for PR #802 generic Admin form editing and published-versus-draft version display at unchanged production DB 0077. No QA relaxation, migration, ECS action, Nidaan content or publication approval.",
       "relaxations": []
+    },
+    {
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "repository_id": 1315697868,
+      "pr_number": 804,
+      "head_ref": "fix/scoped-role-template-provisioning",
+      "base_ref": "main",
+      "expected_head_sha": "0d82540f4e2ca19a5edceea34d78728fea57fa46",
+      "expected_base_sha": "254484811fe33ddcaa6c8bd5a105f76d8384d6eb",
+      "issued_at": "2026-11-18T04:54:57Z",
+      "enabled": true,
+      "authorization_id": "a3c449f3-f2a2-4932-8fbb-f12f6b787ff9",
+      "expires_after": "2026-11-19T04:54:57Z",
+      "allowed_effective_additions": 19,
+      "allowed_changed_files": 2,
+      "purpose": "Exact-source image review for PR #804 reusable Admin access to approved project/programme role templates at unchanged production DB 0077. No QA relaxation, migration, ECS action, Nidaan role creation or user assignment authorization.",
+      "relaxations": []
     }
   ]
 }
