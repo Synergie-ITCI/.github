@@ -49,6 +49,7 @@ LANDING_RELEASE_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholar
 VALIDATOR_ASSET_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr60-validator-asset.json"
 CURRENT_RECOVERY_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr78-current-recovery.json"
 GATE_D_OWNER_RECEIPT_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr87-gate-d-owner-receipt.json"
+GATE_D_SSM_SHELL_FIX_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr90-ssm-shell-fix.json"
 HOST = "mi-04a256fa549e372a8"
 ACCOUNT = "918870682888"
 RELEASE_DOCUMENT = "Scholarships-GateD-Production-Command-v1"
@@ -303,6 +304,67 @@ def verify_gate_d_owner_receipt(repo: Path, changed: list[str], head: str,
             or 'created_at' not in approval or 'updated_at' not in approval
             or 'timedelta(hours=2)' not in approval):
         errors.append('one-use exact owner comment and rollback binding changed')
+    return errors
+
+
+def verify_gate_d_ssm_shell_fix(repo: Path, changed: list[str], head: str,
+                                comments: list[dict[str, Any]],
+                                controlled_workflow: bool) -> list[str]:
+    """Certify the exact POSIX wrapper repair after the v2 SSM command failed closed."""
+    path = GATE_D_SSM_SHELL_FIX_MANIFEST
+    manifest = _read_json(path)
+    files = manifest.get('files')
+    errors: list[str] = []
+    if (manifest.get('repository') != 'Synergie-ITCI/scholarships'
+            or manifest.get('pr_number') != 90 or manifest.get('head_sha') != head
+            or manifest.get('technical_certification_owner') != 'SaurabhVermaIN'
+            or manifest.get('removed_paths') != []):
+        errors.append('Gate D SSM shell fix certification identity changed')
+    if not isinstance(files, dict) or len(files) != 8 or set(changed) != set(files):
+        errors.append('Gate D SSM shell fix changed-file scope changed')
+        return errors
+    for rel, digest in files.items():
+        file = repo / rel
+        if (not isinstance(rel, str) or Path(rel).is_absolute() or '..' in Path(rel).parts
+                or not re.fullmatch(r'[0-9a-f]{64}', str(digest))
+                or not file.is_file() or file.is_symlink() or file.stat().st_size > 1_000_000
+                or hashlib.sha256(file.read_bytes()).hexdigest() != digest):
+            errors.append(f'Gate D SSM shell fix certified file changed: {rel}')
+    if errors:
+        return errors
+    if not _owner_certified(comments, 'SaurabhVermaIN', head,
+                            hashlib.sha256(path.read_bytes()).hexdigest()):
+        errors.append('owner-led Gate D SSM shell fix technical certification is absent')
+    workflow = (repo / '.github/workflows/scholarships-gate-d-release.yml').read_text()
+    owner_receipt = (repo / 'deploy/gate-d-owner-receipt.py').read_text()
+    command = _read_json(repo / 'deploy/scholarships-gate-d-production-command-v3.json')
+    wrapper = command['mainSteps'][0]['inputs']['runCommand'][0]
+    compiler = (repo / 'deploy/compile-ssm-document-v3.py').read_text()
+    sequence = [workflow.find(token) for token in (
+        'gate-d-owner-receipt.py consume',
+        'Assume restricted runtime-certification role',
+        'Certify actual production PHP-FPM serving runtime',
+        'Assume repository and environment bound production role',
+        'aws ssm send-command',
+    )]
+    if (not controlled_workflow or -1 in sequence or sequence != sorted(sequence)
+            or 'environment: production' not in workflow
+            or 'Scholarships-GateD-Production-Command-v1 --document-version 3' not in workflow
+            or 'scholarships-gate-d-production-command-v3.json' not in workflow
+            or 'deployments: write' not in workflow
+            or 'AWS-RunShellScript' in workflow):
+        errors.append('protected Gate D workflow or fixed version 3 document binding changed')
+    if (not wrapper.startswith('set -eu\n')
+            or 'base64 -d > "$bootstrap"\n' not in wrapper
+            or 'bash "$bootstrap"\n' not in wrapper
+            or wrapper.index('base64 -d > "$bootstrap"') > wrapper.index('bash "$bootstrap"')
+            or '"set -eu\\n"' not in compiler
+            or "document-version 3" not in workflow):
+        errors.append('POSIX SSM wrapper or checked bootstrap execution changed')
+    if ("ROOT / 'scholarships-gate-d-production-command-v3.json'" not in owner_receipt
+            or "ROLLBACK_SOURCE = 'e853573a7d426a5b8e3dd2cece7e816d41045d24'" not in owner_receipt
+            or 'receipt.consume()' not in owner_receipt):
+        errors.append('one-use owner manifest or rollback binding changed')
     return errors
 
 

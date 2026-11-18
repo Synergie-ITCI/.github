@@ -27,6 +27,7 @@ from scholarships_gate_d_contract import MANIFEST as SCHOLARSHIPS_GATE_D_MANIFES
 from scholarships_gate_d_contract import FIRST_CUTOVER_MANIFEST as SCHOLARSHIPS_FIRST_CUTOVER_MANIFEST
 from scholarships_gate_d_contract import CURRENT_RECOVERY_MANIFEST as SCHOLARSHIPS_CURRENT_RECOVERY_MANIFEST
 from scholarships_gate_d_contract import GATE_D_OWNER_RECEIPT_MANIFEST as SCHOLARSHIPS_GATE_D_OWNER_RECEIPT_MANIFEST
+from scholarships_gate_d_contract import GATE_D_SSM_SHELL_FIX_MANIFEST as SCHOLARSHIPS_GATE_D_SSM_SHELL_FIX_MANIFEST
 from scholarships_gate_d_contract import verify as verify_scholarships_gate_d_contract
 from scholarships_gate_d_contract import verify_first_cutover as verify_scholarships_first_cutover
 from scholarships_gate_d_contract import verify_first_cutover_followup as verify_scholarships_first_cutover_followup
@@ -61,6 +62,7 @@ from scholarships_gate_d_contract import verify_landing_release as verify_schola
 from scholarships_gate_d_contract import verify_validator_asset as verify_scholarships_validator_asset
 from scholarships_gate_d_contract import verify_current_recovery as verify_scholarships_current_recovery
 from scholarships_gate_d_contract import verify_gate_d_owner_receipt as verify_scholarships_gate_d_owner_receipt
+from scholarships_gate_d_contract import verify_gate_d_ssm_shell_fix as verify_scholarships_gate_d_ssm_shell_fix
 from risk_contract import assess_risk_contracts
 from adapters.base import (
     FAIL,
@@ -2411,6 +2413,42 @@ def exact_scholarships_gate_d_owner_receipt_promotion(ctx: PRContext) -> bool:
                for rel, digest in files.items())
 
 
+def exact_scholarships_gate_d_ssm_shell_fix_promotion(ctx: PRContext) -> bool:
+    """Recognize only PR #90's exact v3 SSM wrapper on protected promotions."""
+    if resolve_repository_name(ctx) != 'Synergie-ITCI/scholarships':
+        return False
+    pr = ctx.event.get('pull_request', {}) or {}
+    number = pr.get('number')
+    if (number, ctx.head_ref, ctx.base_ref) not in {
+            (91, 'development', 'staging'), (92, 'staging', 'main')}:
+        return False
+    manifest = read_json(SCHOLARSHIPS_GATE_D_SSM_SHELL_FIX_MANIFEST)
+    files = manifest.get('files')
+    if (manifest.get('repository') != 'Synergie-ITCI/scholarships'
+            or manifest.get('pr_number') != 90
+            or manifest.get('head_sha') != '304390448cef6383341de9da5977f802b58bde10'
+            or not isinstance(files, dict) or len(files) != 8
+            or set(ctx.changed_files) != set(files)):
+        return False
+    head = (pr.get('head') or {}).get('sha') or ''
+    base = (pr.get('base') or {}).get('sha') or ''
+    if (not re.fullmatch(r'[0-9a-f]{40}', head)
+            or not re.fullmatch(r'[0-9a-f]{40}', base)
+            or run_git(ctx.repo, ['rev-parse', '--verify', 'HEAD^{commit}']).strip() != head
+            or not commit_is_ancestor(ctx.repo, manifest['head_sha'], head)
+            or set(git_lines(ctx.repo, ['diff', '--name-only', f'{base}..{head}'])) != set(files)):
+        return False
+    if number == 91:
+        if (resolve_fresh_origin_development_tip(ctx.repo) != head
+                or resolve_fresh_origin_staging_tip(ctx.repo) != base):
+            return False
+    elif (resolve_fresh_origin_staging_tip(ctx.repo) != head
+          or resolve_fresh_origin_main_tip(ctx.repo) != base):
+        return False
+    return all(tree_file_sha256(ctx.repo, head, rel) == digest
+               for rel, digest in files.items())
+
+
 def canonical_branch_promotion(ctx: PRContext) -> bool:
     pair = ((ctx.head_ref or "").lower(), (ctx.base_ref or "").lower())
     return pair in {
@@ -4100,8 +4138,30 @@ def gate_deployment_safety(ctx: PRContext, git_context: dict[str, Any]) -> list[
         return [warning("Deployment Risk", None, "Verified protected Scholarships PR #78 recovery promotion: final tree contains exactly the 27 certified control files; production installation remains separately gated.")]
     if exact_scholarships_gate_d_owner_receipt_promotion(ctx):
         return [warning("Deployment Risk", None, "Verified protected Scholarships PR #87 owner-receipt promotion: exact certified control files only; production activation remains separately gated.")]
+    if exact_scholarships_gate_d_ssm_shell_fix_promotion(ctx):
+        return [warning("Deployment Risk", None, "Verified protected Scholarships PR #90 SSM shell fix promotion: exact certified control files only; version 3 installation and production activation remain separately gated.")]
     if resolve_repository_name(ctx) == "Synergie-ITCI/scholarships":
         pr_number = extract_pr_number(ctx.event)
+        if pr_number == 90:
+            head = str(((ctx.event.get('pull_request', {}) or {}).get('head', {}) or {}).get('sha', ''))
+            evidence = fetch_github_review_policy_evidence(ctx, include_comments=True)
+            comments = evidence.get('comments', []) if evidence and evidence.get('source') == 'github_api' else []
+            workflow_path = '.github/workflows/scholarships-gate-d-release.yml'
+            workflow = read_text(ctx.repo / workflow_path)
+            try:
+                failures = verify_scholarships_gate_d_ssm_shell_fix(
+                    ctx.repo, ctx.changed_files, head, comments,
+                    bool(controlled_gate_d_workflow_details(workflow_path, workflow, ctx=ctx)),
+                )
+            except (OSError, ValueError, TypeError, KeyError, IndexError):
+                failures = ['Gate D SSM shell fix certification evidence is unreadable or malformed']
+            if failures:
+                return [failed('Deployment Risk', None,
+                               'Scholarships Gate D SSM shell fix is uncertified or changed.',
+                               failures[:30], score=20)]
+            return [warning('Deployment Risk', None,
+                            'Exact Scholarships Gate D SSM shell fix has owner-led technical certification; version 3 installation and activation remain separately gated.',
+                            [f'head={head}', 'technical-certification=owner-led', 'live-controls=NOT_VERIFIED'])]
         if pr_number == 87:
             head = str(((ctx.event.get('pull_request', {}) or {}).get('head', {}) or {}).get('sha', ''))
             evidence = fetch_github_review_policy_evidence(ctx, include_comments=True)

@@ -1,0 +1,17 @@
+{
+  "files": {
+    ".github/workflows/scholarships-gate-d-release.yml": "b43a956a91d69dae269336e276c398d145c72ea2f1ae0d7dd0beacf85dc812b6",
+    "deploy/GATE_D_OWNER_RECEIPT.md": "e7d9938b0407a8b776b40e7bb93096089b4f5249aa3b17fdcdc9ec2c7abbda03",
+    "deploy/compile-ssm-document-v3.py": "4be78ba961658c550e4a1f9a35f642387bc17f25a8b6a1093f89107f65a30fc9",
+    "deploy/gate-d-owner-receipt.py": "53a9b09a4eff0389d1fdafdfcf6c5a3098fce0f487109540fc1402114b9c1ff8",
+    "deploy/scholarships-gate-d-production-command-v3.json": "1f6a88b12295fae5dcc2c84e5503a7c3775611a5025ddd00a25a79965917a3e0",
+    "tests/test_current_recovery_contract.py": "1435ba656277215e47efcca26f03921cc67a8673fd003675c1b5fc7dedfd89f2",
+    "tests/test_gate_d_contract.py": "4757b312a9de3c926e4e80a47c4fa914ffebf79091a953607fabdc7c7b4d62b4",
+    "tests/test_gate_d_owner_receipt.py": "30d4ca3e652d43fe6f87d89ce94eb0f12e444e8396a4fd7dc788f730e820e77e"
+  },
+  "head_sha": "304390448cef6383341de9da5977f802b58bde10",
+  "pr_number": 90,
+  "removed_paths": [],
+  "repository": "Synergie-ITCI/scholarships",
+  "technical_certification_owner": "SaurabhVermaIN"
+}
