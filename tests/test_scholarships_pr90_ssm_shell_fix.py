@@ -13,7 +13,7 @@ import pr_qa
 import scholarships_gate_d_contract as contract
 from adapters.base import PRContext
 
-HEAD = '304390448cef6383341de9da5977f802b58bde10'
+HEAD = '3dea18e9a14227366ea3f4b7271caee2ebaae099'
 
 
 class GateDSSMShellFixTests(unittest.TestCase):
