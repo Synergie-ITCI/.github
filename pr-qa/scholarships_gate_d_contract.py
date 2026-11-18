@@ -50,6 +50,7 @@ VALIDATOR_ASSET_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholar
 CURRENT_RECOVERY_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr78-current-recovery.json"
 GATE_D_OWNER_RECEIPT_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr87-gate-d-owner-receipt.json"
 GATE_D_SSM_SHELL_FIX_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr90-ssm-shell-fix.json"
+GATE_D_CURRENT_ROLLBACK_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr96-current-rollback.json"
 HOST = "mi-04a256fa549e372a8"
 ACCOUNT = "918870682888"
 RELEASE_DOCUMENT = "Scholarships-GateD-Production-Command-v1"
@@ -304,6 +305,59 @@ def verify_gate_d_owner_receipt(repo: Path, changed: list[str], head: str,
             or 'created_at' not in approval or 'updated_at' not in approval
             or 'timedelta(hours=2)' not in approval):
         errors.append('one-use exact owner comment and rollback binding changed')
+    return errors
+
+
+def verify_gate_d_current_rollback(repo: Path, changed: list[str], head: str,
+                                   comments: list[dict[str, Any]],
+                                   controlled_workflow: bool) -> list[str]:
+    """Certify only PR #96's rebinding to the verified current release."""
+    manifest = _read_json(GATE_D_CURRENT_ROLLBACK_MANIFEST)
+    expected = {
+        '.github/workflows/scholarships-gate-d-release.yml',
+        'deploy/GATE_D_OWNER_RECEIPT.md',
+        'deploy/gate-d-owner-receipt.py',
+        'tests/test_gate_d_owner_receipt.py',
+    }
+    files = manifest.get('files')
+    errors: list[str] = []
+    if (manifest.get('repository') != 'Synergie-ITCI/scholarships'
+            or manifest.get('pr_number') != 96 or manifest.get('head_sha') != head
+            or manifest.get('technical_certification_owner') != 'SaurabhVermaIN'
+            or manifest.get('removed_paths') != []):
+        errors.append('current rollback certification identity changed')
+    if not isinstance(files, dict) or set(files) != expected or set(changed) != expected:
+        errors.append('current rollback changed-file scope changed')
+        return errors
+    for rel, digest in files.items():
+        path = repo / rel
+        if (not re.fullmatch(r'[0-9a-f]{64}', str(digest))
+                or not path.is_file() or path.is_symlink() or path.stat().st_size > 1_000_000
+                or hashlib.sha256(path.read_bytes()).hexdigest() != digest):
+            errors.append(f'current rollback certified file changed: {rel}')
+    if errors:
+        return errors
+    if not _owner_certified(comments, 'SaurabhVermaIN', head,
+                            hashlib.sha256(GATE_D_CURRENT_ROLLBACK_MANIFEST.read_bytes()).hexdigest()):
+        errors.append('owner-led current rollback technical certification is absent')
+    workflow = (repo / '.github/workflows/scholarships-gate-d-release.yml').read_text()
+    receipt = (repo / 'deploy/gate-d-owner-receipt.py').read_text()
+    current = 'f4c685021a600871457db83034d7d663d1317f40'
+    artifact = 'f4c883c4852a1b80dae6d8e43ded919b529555798677a786533a211102ba0f25'
+    if (not controlled_workflow
+            or f'test "$EXPECTED_CURRENT" = {current}' not in workflow
+            or 'Scholarships-GateD-Production-Command-v1 --document-version 3' not in workflow
+            or workflow.find('gate-d-owner-receipt.py consume') > workflow.find('aws-actions/configure-aws-credentials')
+            or 'AWS-RunShellScript' in workflow):
+        errors.append('protected Gate D execution boundary changed')
+    if (f"ROLLBACK_SOURCE = '{current}'" not in receipt
+            or f"ROLLBACK_ARTIFACT = '{artifact}'" not in receipt
+            or "OPERATION = 'gate-d-application-csrf-fallback'" not in receipt
+            or "APPROVAL_PREFIX = 'SCHOLARSHIPS GATE D APPLICATION CSRF APPROVED'" not in receipt
+            or "'deployment_task': 'scholarships-gate-d-application-csrf-fallback'" not in receipt
+            or "ROOT / 'scholarships-gate-d-production-command-v3.json'" not in receipt
+            or 'receipt.consume()' not in receipt):
+        errors.append('one-use owner receipt or current rollback binding changed')
     return errors
 
 
