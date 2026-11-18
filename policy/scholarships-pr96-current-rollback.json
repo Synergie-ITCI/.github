@@ -1,0 +1,13 @@
+{
+  "files": {
+    ".github/workflows/scholarships-gate-d-release.yml": "a5db7181b1100981c459c3afad5568f523a6cff9e07675793591933ff37b31e9",
+    "deploy/GATE_D_OWNER_RECEIPT.md": "fd127d1100d3dcc6b9a42ca3c2564a96f497fe1cb75770d7c4c927fc22388daa",
+    "deploy/gate-d-owner-receipt.py": "60503faa0694e4610096b269d9c45d67f6111dc93e54bbed4b6ed0cde1ae2997",
+    "tests/test_gate_d_owner_receipt.py": "8dbe006eae89fc78523fe92a5fcaf5aaf9f086eb4e5ef7265cbb771a97ac9780"
+  },
+  "head_sha": "2db0c1209dda360259c21d278063ba7666540581",
+  "pr_number": 96,
+  "removed_paths": [],
+  "repository": "Synergie-ITCI/scholarships",
+  "technical_certification_owner": "SaurabhVermaIN"
+}
