@@ -1921,6 +1921,23 @@
       "allowed_changed_files": 2,
       "purpose": "Exact-source image review for PR #804 reusable Admin access to approved project/programme role templates at unchanged production DB 0077. No QA relaxation, migration, ECS action, Nidaan role creation or user assignment authorization.",
       "relaxations": []
+    },
+    {
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "repository_id": 1315697868,
+      "pr_number": 806,
+      "head_ref": "fix/fieldzilla-location-choice-validation",
+      "base_ref": "main",
+      "expected_head_sha": "670b7482120cda2375fad491a270e0b00f833450",
+      "expected_base_sha": "aa23b1b0bebbf4c5bf5dadc768e38a049e6b07d0",
+      "issued_at": "2026-11-18T14:04:02Z",
+      "enabled": true,
+      "authorization_id": "a35fb297-9bd0-48d1-9571-e106b50c3938",
+      "expires_after": "2026-11-19T14:04:02Z",
+      "allowed_effective_additions": 156,
+      "allowed_changed_files": 4,
+      "purpose": "Exact-source image review for PR #806 reusable calculated form-score validation and tenant-location choices at unchanged production DB 0077. No QA relaxation, migration, ECS action, Nidaan content or publication approval.",
+      "relaxations": []
     }
   ]
 }
