@@ -48,6 +48,7 @@ FIRST_CUTOVER_EXISTING_FONTS_MANIFEST = Path(__file__).resolve().parents[1] / "p
 LANDING_RELEASE_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr59-landing-release.json"
 VALIDATOR_ASSET_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr60-validator-asset.json"
 CURRENT_RECOVERY_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr78-current-recovery.json"
+GATE_D_OWNER_RECEIPT_MANIFEST = Path(__file__).resolve().parents[1] / "policy/scholarships-pr87-gate-d-owner-receipt.json"
 HOST = "mi-04a256fa549e372a8"
 ACCOUNT = "918870682888"
 RELEASE_DOCUMENT = "Scholarships-GateD-Production-Command-v1"
@@ -243,6 +244,65 @@ def verify_current_recovery(repo: Path, changed: list[str], head: str,
         document = _read_json(repo / "deploy" / name)
         if document.get("schemaVersion") != "2.2" or len(document.get("mainSteps", [])) != 1:
             errors.append(f"fixed SSM document structure changed: {name}")
+    return errors
+
+
+def verify_gate_d_owner_receipt(repo: Path, changed: list[str], head: str,
+                                comments: list[dict[str, Any]],
+                                controlled_workflow: bool) -> list[str]:
+    """Certify only PR #87's exact owner-receipt control and preserved Gate D."""
+    path = GATE_D_OWNER_RECEIPT_MANIFEST
+    manifest = _read_json(path)
+    files = manifest.get('files')
+    errors: list[str] = []
+    if (manifest.get('repository') != 'Synergie-ITCI/scholarships'
+            or manifest.get('pr_number') != 87 or manifest.get('head_sha') != head
+            or manifest.get('technical_certification_owner') != 'SaurabhVermaIN'
+            or manifest.get('removed_paths') != []):
+        errors.append('Gate D owner receipt certification identity changed')
+    if not isinstance(files, dict) or len(files) != 7 or set(changed) != set(files):
+        errors.append('Gate D owner receipt changed-file scope changed')
+        return errors
+    for rel, digest in files.items():
+        file = repo / rel
+        if (not isinstance(rel, str) or Path(rel).is_absolute() or '..' in Path(rel).parts
+                or not re.fullmatch(r'[0-9a-f]{64}', str(digest))
+                or not file.is_file() or file.is_symlink() or file.stat().st_size > 1_000_000
+                or hashlib.sha256(file.read_bytes()).hexdigest() != digest):
+            errors.append(f'Gate D owner receipt certified file changed: {rel}')
+    if errors:
+        return errors
+    if not _owner_certified(comments, 'SaurabhVermaIN', head,
+                            hashlib.sha256(path.read_bytes()).hexdigest()):
+        errors.append('owner-led Gate D technical certification is absent')
+    workflow = (repo / '.github/workflows/scholarships-gate-d-release.yml').read_text()
+    owner_receipt = (repo / 'deploy/gate-d-owner-receipt.py').read_text()
+    approval = (repo / 'deploy/first_cutover_approval.py').read_text()
+    sequence = [workflow.find(token) for token in (
+        'Checkout exact approved source',
+        'python3 deploy/gate-d-owner-receipt.py consume',
+        'Assume restricted runtime-certification role',
+        'Certify actual production PHP-FPM serving runtime',
+        'Assume repository and environment bound production role',
+        'aws ssm send-command',
+    )]
+    if (not controlled_workflow or -1 in sequence or sequence != sorted(sequence)
+            or 'environment: production' not in workflow
+            or "refs/heads/main" not in workflow
+            or 'deployments: write' not in workflow
+            or 'pull-requests: read' not in workflow
+            or '--document-version 2' not in workflow
+            or 'AWS-RunShellScript' in workflow):
+        errors.append('protected approval, runtime certifier or fixed SSM order changed')
+    if ("ROLLBACK_SOURCE = 'e853573a7d426a5b8e3dd2cece7e816d41045d24'" not in owner_receipt
+            or 'BACKUP_RUN = \'44171193048\'' not in owner_receipt
+            or 'ApprovalReceipt(api=api' not in owner_receipt
+            or "'receipt_marker_prefix': 'scholarships-gate-d'" not in owner_receipt
+            or 'receipt.consume()' not in owner_receipt
+            or "contract.get('receipt_marker_prefix', 'scholarships-first-cutover')" not in approval
+            or 'created_at' not in approval or 'updated_at' not in approval
+            or 'timedelta(hours=2)' not in approval):
+        errors.append('one-use exact owner comment and rollback binding changed')
     return errors
 
 
