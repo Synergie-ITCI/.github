@@ -2426,7 +2426,7 @@ def exact_scholarships_gate_d_ssm_shell_fix_promotion(ctx: PRContext) -> bool:
     files = manifest.get('files')
     if (manifest.get('repository') != 'Synergie-ITCI/scholarships'
             or manifest.get('pr_number') != 90
-            or manifest.get('head_sha') != '304390448cef6383341de9da5977f802b58bde10'
+            or manifest.get('head_sha') != '3dea18e9a14227366ea3f4b7271caee2ebaae099'
             or not isinstance(files, dict) or len(files) != 8
             or set(ctx.changed_files) != set(files)):
         return False

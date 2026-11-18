@@ -9,7 +9,7 @@
     "tests/test_gate_d_contract.py": "4757b312a9de3c926e4e80a47c4fa914ffebf79091a953607fabdc7c7b4d62b4",
     "tests/test_gate_d_owner_receipt.py": "30d4ca3e652d43fe6f87d89ce94eb0f12e444e8396a4fd7dc788f730e820e77e"
   },
-  "head_sha": "304390448cef6383341de9da5977f802b58bde10",
+  "head_sha": "3dea18e9a14227366ea3f4b7271caee2ebaae099",
   "pr_number": 90,
   "removed_paths": [],
   "repository": "Synergie-ITCI/scholarships",
