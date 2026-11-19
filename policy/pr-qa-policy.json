@@ -108,7 +108,7 @@
         "repository": "Synergie-ITCI/fis.synergielms.com",
         "pr_number": 36,
         "expected_base_sha": "3ab557316f79dfa6168ce37f744a319bbd94e293",
-        "expected_head_sha": "2a383838c84d3fc88e9c59a84f7115c5d25e8f5d",
+        "expected_head_sha": "64d8c4415c6f5ac650ad6a40164dbba949a8ce0b",
         "paths": [
           ".github/workflows/deploy.yml",
           ".github/workflows/fis-gate-d-production.yml",
@@ -143,7 +143,7 @@
           "deploy/iam/fis-host-trust.json": "4457a82555d2e59e594e72d9824b363d8aca0be04c5da91b9368334db3b01600",
           "deploy/ssm-fis-app-rollback.sh": "ee4d8c5eb207792f14f86d6c10aaea18d17f8686b5eaea1717818a85d67a76a0",
           "deploy/ssm-fis-gate-d-production.sh": "26158127e7772a66a863a6b4bf68c2be18735bc721bdf320858872603495683e",
-          "deploy/ssm-runtime-certifier.sh": "df9a96c180d7698660cee2d976abff23ecdac28ed606f47e8a9a952f4888fdfe",
+          "deploy/ssm-runtime-certifier.sh": "0455e3af9f81eceb2212b2ab614a2a7649df61077ace3f07965cb40c1f6f8ac7",
           "docs/fis-controlled-production-release.md": "a303bfc1a7fae75a4f9439d890072e31ef923c0de488ab9f88de8b5f054991bc"
         },
         "required_reviewers": [

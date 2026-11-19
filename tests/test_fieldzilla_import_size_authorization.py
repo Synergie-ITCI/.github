@@ -304,7 +304,7 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         )
         self.assertEqual(fis_review["pr_number"], 36)
         self.assertEqual(fis_review["expected_base_sha"], "3ab557316f79dfa6168ce37f744a319bbd94e293")
-        self.assertEqual(fis_review["expected_head_sha"], "2a383838c84d3fc88e9c59a84f7115c5d25e8f5d")
+        self.assertEqual(fis_review["expected_head_sha"], "64d8c4415c6f5ac650ad6a40164dbba949a8ce0b")
         self.assertEqual(len(fis_review["file_sha256"]), 17)
         self.assertEqual(set(fis_review["paths"]), {
             path for path in fis_review["file_sha256"]
