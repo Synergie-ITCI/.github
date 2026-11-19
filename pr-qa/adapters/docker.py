@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .base import CheckResult, PRContext, TechnologyAdapter, command_exists, command_result, failed, find_files, passed, warning
+from .base import RepositoryFileInventory, CheckResult, PRContext, TechnologyAdapter, command_exists, command_result, failed, find_files, passed, warning
 
 
 class DockerAdapter(TechnologyAdapter):
     key = "docker"
     name = "Docker"
 
-    def detect(self, repo: Path) -> list[Path]:
-        files = find_files(repo, ["Dockerfile", "Dockerfile.*", "docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"])
+    def detect(self, repo: Path, inventory: RepositoryFileInventory | None = None) -> list[Path]:
+        files = find_files(repo, ["Dockerfile", "Dockerfile.*", "docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"], inventory)
         return sorted(set(path.parent for path in files))
 
     def format(self, ctx: PRContext, roots: list[Path]) -> list[CheckResult]:
@@ -20,7 +20,7 @@ class DockerAdapter(TechnologyAdapter):
         if not command_exists("hadolint"):
             return [warning("Lint", self.name, "hadolint is not installed on the runner.")]
         results = []
-        for dockerfile in find_files(ctx.repo, ["Dockerfile", "Dockerfile.*"]):
+        for dockerfile in find_files(ctx.repo, ["Dockerfile", "Dockerfile.*"], ctx.file_inventory):
             results.append(command_result("Lint", self.name, ctx.run(["hadolint", str(dockerfile)], cwd=ctx.repo), f"{ctx.rel(dockerfile)}: hadolint passed.", f"{ctx.rel(dockerfile)}: hadolint failed.", score=10))
         return results
 
@@ -30,7 +30,7 @@ class DockerAdapter(TechnologyAdapter):
         if not command_exists("docker"):
             return [warning("Build", self.name, "`docker` is not available on the runner.")]
         results = []
-        for dockerfile in find_files(ctx.repo, ["Dockerfile", "Dockerfile.*"]):
+        for dockerfile in find_files(ctx.repo, ["Dockerfile", "Dockerfile.*"], ctx.file_inventory):
             tag = "synergie-pr-qa-" + ctx.rel(dockerfile).replace("/", "-").replace(".", "-").lower()
             results.append(command_result("Build", self.name, ctx.run(["docker", "build", "-f", str(dockerfile), "-t", tag, "."], cwd=dockerfile.parent), f"{ctx.rel(dockerfile)}: Docker build passed.", f"{ctx.rel(dockerfile)}: Docker build failed.", score=12))
         return results

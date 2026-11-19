@@ -229,6 +229,7 @@ jobs:
       - name: Phase 1 static preflight
         id: static
         env:
+          PR_QA_DETECTION_CACHE: ${{ runner.temp }}/pr-qa-detection.json
           GH_TOKEN: ${{ github.token }}
           PR_QA_LIVE_AUTHORIZATIONS: "true"
           PR_QA_FRAMEWORK_RELEASE: ${{ needs.detect.outputs.framework_release }}
@@ -252,6 +253,8 @@ jobs:
 
       - name: Compute technical baseline key
         id: technical-baseline
+        env:
+          PR_QA_DETECTION_CACHE: ${{ runner.temp }}/pr-qa-detection.json
         run: |
           profile_args=()
           if [ "${GITHUB_REPOSITORY}" = "Synergie-ITCI/.github" ]; then
@@ -271,6 +274,8 @@ jobs:
 
       - name: Verify restored baseline before technical tool setup
         id: technical-baseline-verify
+        env:
+          PR_QA_DETECTION_CACHE: ${{ runner.temp }}/pr-qa-detection.json
         run: |
           engine_help="$(python3 .pr-qa-framework/pr-qa/pr_qa.py --help)"
           if ! grep -q -- '--technical-baseline-verify-out' <<< "$engine_help"; then

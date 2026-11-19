@@ -2,16 +2,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .base import CheckResult, PRContext, TechnologyAdapter, command_exists, command_result, failed, find_named_files, passed, read_text, warning
+from .base import RepositoryFileInventory, CheckResult, PRContext, TechnologyAdapter, command_exists, command_result, failed, find_named_files, passed, read_text, warning
 
 
 class GradleAdapter(TechnologyAdapter):
     key = "gradle"
     name = "Kotlin/Gradle"
 
-    def detect(self, repo: Path) -> list[Path]:
+    def detect(self, repo: Path, inventory: RepositoryFileInventory | None = None) -> list[Path]:
         markers = {"build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts", "gradlew"}
-        return sorted(set(path.parent for path in find_named_files(repo, markers)))
+        return sorted(set(path.parent for path in find_named_files(repo, markers, inventory)))
 
     def format(self, ctx: PRContext, roots: list[Path]) -> list[CheckResult]:
         results = []

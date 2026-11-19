@@ -2,22 +2,22 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .base import CheckResult, PRContext, TechnologyAdapter, command_exists, command_result, find_files, failed, passed, read_text, warning
+from .base import RepositoryFileInventory, CheckResult, PRContext, TechnologyAdapter, command_exists, command_result, find_files, failed, passed, read_text, warning
 
 
 class GitHubActionsAdapter(TechnologyAdapter):
     key = "github_actions"
     name = "GitHub Actions"
 
-    def detect(self, repo: Path) -> list[Path]:
-        workflows = find_files(repo, [".github/workflows/*.yml", ".github/workflows/*.yaml"])
+    def detect(self, repo: Path, inventory: RepositoryFileInventory | None = None) -> list[Path]:
+        workflows = find_files(repo, [".github/workflows/*.yml", ".github/workflows/*.yaml"], inventory)
         return sorted(set(path.parent for path in workflows))
 
     def format(self, ctx: PRContext, roots: list[Path]) -> list[CheckResult]:
         return [warning("Formatting", self.name, "GitHub Actions formatting is not configured by default.")]
 
     def lint(self, ctx: PRContext, roots: list[Path]) -> list[CheckResult]:
-        workflow_files = find_files(ctx.repo, [".github/workflows/*.yml", ".github/workflows/*.yaml"])
+        workflow_files = find_files(ctx.repo, [".github/workflows/*.yml", ".github/workflows/*.yaml"], ctx.file_inventory)
         if not workflow_files:
             return []
         if command_exists("actionlint"):

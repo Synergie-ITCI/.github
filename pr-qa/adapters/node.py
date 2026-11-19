@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .base import (
+    RepositoryFileInventory,
     FAIL,
     PASS,
     WARNING,
@@ -32,9 +33,9 @@ class NodeAdapter(TechnologyAdapter):
     key = "node"
     name = "Node.js"
 
-    def detect(self, repo: Path) -> list[Path]:
+    def detect(self, repo: Path, inventory: RepositoryFileInventory | None = None) -> list[Path]:
         roots = []
-        for package_json in find_named_files(repo, {"package.json"}):
+        for package_json in find_named_files(repo, {"package.json"}, inventory):
             rel_parts = package_json.relative_to(repo).parts
             if "node_modules" not in rel_parts and "vendor" not in rel_parts:
                 roots.append(package_json.parent)

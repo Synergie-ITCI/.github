@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .base import CheckResult, PRContext, TechnologyAdapter, command_exists, command_result, failed, find_named_files, warning
+from .base import RepositoryFileInventory, CheckResult, PRContext, TechnologyAdapter, command_exists, command_result, failed, find_named_files, warning
 
 
 class RustAdapter(TechnologyAdapter):
     key = "rust"
     name = "Rust"
 
-    def detect(self, repo: Path) -> list[Path]:
-        return sorted(set(path.parent for path in find_named_files(repo, {"Cargo.toml"})))
+    def detect(self, repo: Path, inventory: RepositoryFileInventory | None = None) -> list[Path]:
+        return sorted(set(path.parent for path in find_named_files(repo, {"Cargo.toml"}, inventory)))
 
     def format(self, ctx: PRContext, roots: list[Path]) -> list[CheckResult]:
         return self._run(ctx, roots, "Formatting", ["cargo", "fmt", "--check"], "cargo fmt passed.", "cargo fmt failed.", 8)
