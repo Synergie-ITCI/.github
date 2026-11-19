@@ -37,6 +37,30 @@ def load_engine_module():
 
 
 class PrQaRegressionTests(unittest.TestCase):
+    def test_exact_critical_infrastructure_authorization_is_bound_to_pr_and_bytes(self):
+        engine = load_engine_module()
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            path = "deploy/ssm-fis-gate-d-production.sh"
+            (repo / "deploy").mkdir()
+            (repo / path).write_text("reviewed\n")
+            digest = hashlib.sha256((repo / path).read_bytes()).hexdigest()
+            item = {
+                "repository": "Synergie-ITCI/fis.synergielms.com", "pr_number": 36,
+                "expected_head_sha": "a" * 40, "expected_base_sha": "b" * 40,
+                "paths": [path], "file_sha256": {path: digest},
+            }
+            event = {"repository": {"full_name": item["repository"]},
+                     "pull_request": {"number": 36, "head": {"sha": "a" * 40},
+                                      "base": {"sha": "b" * 40}}}
+            ctx = engine.PRContext(repo=repo, config={},
+                                   policy={"governance": {"critical_infrastructure_paths": [item]}},
+                                   changed_files=[path], event=event)
+            with mock.patch.object(engine, "run_git", return_value="a" * 40):
+                self.assertIs(engine.governed_critical_infrastructure_authorization(ctx, path), item)
+                (repo / path).write_text("modified\n")
+                self.assertIsNone(engine.governed_critical_infrastructure_authorization(ctx, path))
+
     def test_secret_markdown_count_reconciles_with_complete_json(self):
         engine = load_engine_module()
         inherited = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())[
