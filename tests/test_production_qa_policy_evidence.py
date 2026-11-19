@@ -52,10 +52,18 @@ class PR808DetectorRecoveryTests(unittest.TestCase):
             "base": {"sha": "6a940de7c493be4aa257bbe2f97977ba021622d4"},
             "merged_at": "2026-11-19T07:13:03Z",
         }
+        self.current_main = self.selector["merge_commit_sha"]
+        self.ancestry_status = "identical"
 
     def api(self, path):
         if path.endswith("/git/ref/heads/main"):
-            return {"object": {"sha": self.selector["merge_commit_sha"]}}
+            return {"object": {"sha": self.current_main}}
+        if "/compare/" in path:
+            self.assertEqual(
+                path.rsplit("/", 1)[-1],
+                f"a3b0380d9eeb3a5e56d3d24e947ee375c4d3c7bb...{self.current_main}",
+            )
+            return {"status": self.ancestry_status}
         if path.endswith("/pulls/809"):
             return self.selector
         raise AssertionError(path)
@@ -71,6 +79,14 @@ class PR808DetectorRecoveryTests(unittest.TestCase):
 
     def test_exact_incident_can_use_successful_post_merge_detector(self):
         self.verify()
+
+    def test_later_protected_caller_merge_is_allowed_only_with_selector_ancestry(self):
+        self.current_main = "b" * 40
+        self.ancestry_status = "ahead"
+        self.verify()
+        self.ancestry_status = "diverged"
+        with self.assertRaisesRegex(ValueError, "not in main ancestry"):
+            self.verify()
 
     def test_other_identity_or_unverified_detector_is_rejected(self):
         for target, key, bad in (
