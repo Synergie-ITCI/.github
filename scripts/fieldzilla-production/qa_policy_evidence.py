@@ -54,10 +54,15 @@ def verify_pr808_detector_log_recovery(manifest, proof, release, run, detector, 
         or proof.get("policy_sha") != "ea802c2a5e2b7965850db7c19a69bfe12b897f18"
         or detector.get("id") != 135404339322
         or detector.get("head_sha") != manifest["application"]["source_sha"]
-        or api(f"repos/{REPOSITORY}/git/ref/heads/main").get("object", {}).get("sha")
-        != "a3b0380d9eeb3a5e56d3d24e947ee375c4d3c7bb"
     ):
         raise ValueError("PR #808 detector-log recovery identity differs")
+    selector_merge = "a3b0380d9eeb3a5e56d3d24e947ee375c4d3c7bb"
+    current_main = api(f"repos/{REPOSITORY}/git/ref/heads/main").get("object", {}).get("sha")
+    if not isinstance(current_main, str) or not re.fullmatch(r"[0-9a-f]{40}", current_main):
+        raise ValueError("PR #808 protected main identity unavailable")
+    ancestry = api(f"repos/{REPOSITORY}/compare/{selector_merge}...{current_main}")
+    if ancestry.get("status") not in {"identical", "ahead"}:
+        raise ValueError("PR #808 protected selector is not in main ancestry")
     selector = api(f"repos/{REPOSITORY}/pulls/809")
     if (
         selector.get("state") != "closed"
