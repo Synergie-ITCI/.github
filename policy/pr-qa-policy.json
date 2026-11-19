@@ -2030,6 +2030,23 @@
       "allowed_changed_files": 4,
       "purpose": "Exact-source image review for merged PR #811 generic Admin successor JSON editing, untranslated Draft source-language correction and reviewed translation-value import at unchanged production DB 0077. No QA relaxation, migration, ECS action, Nidaan content or publication approval.",
       "relaxations": []
+    },
+    {
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "repository_id": 1315697868,
+      "pr_number": 814,
+      "head_ref": "release/location-parent-cascade-admin-api",
+      "base_ref": "main",
+      "expected_head_sha": "6b2b91e65452a705ae856678dfda1441f8377c6e",
+      "expected_base_sha": "8ebd9e87912aa134d00462e08d9fdc757a3cb98b",
+      "issued_at": "2026-11-19T19:21:25Z",
+      "enabled": true,
+      "authorization_id": "77914f6d-de16-4144-864b-f6418f986fe1",
+      "expires_after": "2026-11-20T19:21:25Z",
+      "allowed_effective_additions": 916,
+      "allowed_changed_files": 11,
+      "purpose": "Exact-source image review for merged PR #814 reusable location hierarchy and tenant-location submission validation on current FieldZilla main at unchanged production DB 0077. No QA relaxation, migration, ECS action, Nidaan content or publication approval.",
+      "relaxations": []
     }
   ]
 }
