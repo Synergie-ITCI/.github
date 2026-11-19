@@ -108,7 +108,7 @@
         "repository": "Synergie-ITCI/fis.synergielms.com",
         "pr_number": 36,
         "expected_base_sha": "3ab557316f79dfa6168ce37f744a319bbd94e293",
-        "expected_head_sha": "08f7d26b6d0fb88bf0556b503c2fa0da3b697462",
+        "expected_head_sha": "b84e1531fe9060c041944cc9d4742686cc35b4e5",
         "paths": [
           ".github/workflows/deploy.yml",
           ".github/workflows/fis-gate-d-production.yml",
@@ -132,7 +132,7 @@
           ".github/workflows/deploy.yml": "ca95d4bcab76d1fc92824bed0c36ce45db36449424f7177e15d5264ac5f08cce",
           ".github/workflows/fis-gate-d-production.yml": "56c671339758768770c931325f0282a052b842254b0bfea8e58de0c200da4028",
           ".github/workflows/fis-package-release.yml": "ea7ff3564294927ff8c355dc02d15f4fb49d30eb1e17c15922f3616f26f88925",
-          ".github/workflows/pr-qa.yml": "0ac4796b16c3630c84d96ae1f0776168a062e4655ba59a724a4be3d60f19377a",
+          ".github/workflows/pr-qa.yml": "f9a8ed8450785642fc249d24e98aa91249a8ae3219bbb763d18b58d1f16d24c6",
           "deploy/backup-fis-production.sh": "2af37b366e6b9bcc606f5fe6f0fb3d76b50108e0c765090dfe3ef1438505449b",
           "deploy/build-fis-artifact.sh": "d3a635e641d15fe9222845fe3bb4734df0136e724a502a5fb6b4394198aa0499",
           "deploy/compile-fis-app-rollback-document.py": "fdd9b288a053c51cbec5f1502ca4387e505c02c714937b99281e99007d1ce7b3",
@@ -145,7 +145,8 @@
           "deploy/ssm-fis-app-rollback.sh": "ee4d8c5eb207792f14f86d6c10aaea18d17f8686b5eaea1717818a85d67a76a0",
           "deploy/ssm-fis-gate-d-production.sh": "bdf22f6db28f349e0a2fa1dd7aea674d6375f5c02716e063be36c8e75792e9bd",
           "deploy/ssm-runtime-certifier.sh": "0455e3af9f81eceb2212b2ab614a2a7649df61077ace3f07965cb40c1f6f8ac7",
-          "docs/fis-controlled-production-release.md": "a303bfc1a7fae75a4f9439d890072e31ef923c0de488ab9f88de8b5f054991bc"
+          "docs/fis-controlled-production-release.md": "a303bfc1a7fae75a4f9439d890072e31ef923c0de488ab9f88de8b5f054991bc",
+          "tests/test_fis_ssm_documents.py": "bf09f673e4e87645f67bb67bdfc332f47e65c3152095f02fcf8350a0179d33ba"
         },
         "required_reviewers": [
           "SaurabhVermaIN"

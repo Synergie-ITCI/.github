@@ -304,8 +304,8 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         )
         self.assertEqual(fis_review["pr_number"], 36)
         self.assertEqual(fis_review["expected_base_sha"], "3ab557316f79dfa6168ce37f744a319bbd94e293")
-        self.assertEqual(fis_review["expected_head_sha"], "08f7d26b6d0fb88bf0556b503c2fa0da3b697462")
-        self.assertEqual(len(fis_review["file_sha256"]), 18)
+        self.assertEqual(fis_review["expected_head_sha"], "b84e1531fe9060c041944cc9d4742686cc35b4e5")
+        self.assertEqual(len(fis_review["file_sha256"]), 19)
         self.assertEqual(set(fis_review["paths"]), {
             path for path in fis_review["file_sha256"]
             if path.startswith("deploy/") or path.startswith(".github/workflows/")
