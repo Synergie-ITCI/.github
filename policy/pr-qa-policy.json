@@ -2013,6 +2013,23 @@
       "allowed_changed_files": 15,
       "purpose": "Exact-source image review for merged PR #808 reusable form review, localization, capture policy and release-readiness API/Admin changes at unchanged production DB 0077. No QA relaxation, migration, ECS action, Nidaan content or publication approval.",
       "relaxations": []
+    },
+    {
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "repository_id": 1315697868,
+      "pr_number": 811,
+      "head_ref": "fix/form-draft-json-and-language-metadata",
+      "base_ref": "main",
+      "expected_head_sha": "410badf52529ace7a7e05295f012c8ff6b50be3a",
+      "expected_base_sha": "6a41100ee099ee7f0ed1d12ca222c4df7dcd704d",
+      "issued_at": "2026-11-19T14:09:56Z",
+      "enabled": true,
+      "authorization_id": "6f277cb1-cedf-418e-8b6b-2fdda8ef5f3f",
+      "expires_after": "2026-11-20T14:09:56Z",
+      "allowed_effective_additions": 81,
+      "allowed_changed_files": 4,
+      "purpose": "Exact-source image review for merged PR #811 generic Admin successor JSON editing, untranslated Draft source-language correction and reviewed translation-value import at unchanged production DB 0077. No QA relaxation, migration, ECS action, Nidaan content or publication approval.",
+      "relaxations": []
     }
   ]
 }
