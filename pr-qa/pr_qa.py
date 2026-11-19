@@ -3359,6 +3359,23 @@ def governed_critical_infrastructure_authorization(ctx: PRContext, rel: str) -> 
             continue
         if str(item.get("repository") or "") != repository:
             continue
+        expected_head = item.get("expected_head_sha")
+        if expected_head:
+            pull_request = ctx.event.get("pull_request", {}) or {}
+            head = str((pull_request.get("head", {}) or {}).get("sha", ""))
+            base = str((pull_request.get("base", {}) or {}).get("sha", ""))
+            if (head != expected_head
+                    or base != item.get("expected_base_sha")
+                    or run_git(ctx.repo, ["rev-parse", "HEAD"]).strip() != expected_head
+                    or extract_pr_number(ctx.event) != item.get("pr_number")):
+                continue
+            expected_files = item.get("file_sha256", {})
+            if set(ctx.changed_files) != set(expected_files):
+                continue
+            if any(not re.fullmatch(r"[0-9a-f]{64}", str(digest))
+                   or hashlib.sha256((ctx.repo / path).read_bytes()).hexdigest() != digest
+                   for path, digest in expected_files.items()):
+                continue
         patterns = [str(pattern) for pattern in item.get("paths", []) or []]
         if match_any(rel, patterns):
             return item

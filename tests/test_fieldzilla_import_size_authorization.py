@@ -298,6 +298,19 @@ class FieldzillaImportSizeTests(unittest.TestCase):
              142, 10470, ["changed_file_count", "diff_size"]),
         )
         current["one_time_baseline_alignments"].remove(scholarships_pr70)
+        fis_review = next(
+            row for row in current["governance"]["critical_infrastructure_paths"]
+            if row.get("repository") == "Synergie-ITCI/fis.synergielms.com"
+        )
+        self.assertEqual(fis_review["pr_number"], 36)
+        self.assertEqual(fis_review["expected_base_sha"], "3ab557316f79dfa6168ce37f744a319bbd94e293")
+        self.assertEqual(fis_review["expected_head_sha"], "2a383838c84d3fc88e9c59a84f7115c5d25e8f5d")
+        self.assertEqual(len(fis_review["file_sha256"]), 17)
+        self.assertEqual(set(fis_review["paths"]), {
+            path for path in fis_review["file_sha256"]
+            if path.startswith("deploy/") or path.startswith(".github/workflows/")
+        })
+        current["governance"]["critical_infrastructure_paths"].remove(fis_review)
         self.assertEqual(current, previous)
 
         previous_sql = json.loads(subprocess.check_output(

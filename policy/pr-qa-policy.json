@@ -103,6 +103,61 @@
           "environment-approval-before-apply"
         ],
         "risk": "critical"
+      },
+      {
+        "repository": "Synergie-ITCI/fis.synergielms.com",
+        "pr_number": 36,
+        "expected_base_sha": "3ab557316f79dfa6168ce37f744a319bbd94e293",
+        "expected_head_sha": "2a383838c84d3fc88e9c59a84f7115c5d25e8f5d",
+        "paths": [
+          ".github/workflows/deploy.yml",
+          ".github/workflows/fis-gate-d-production.yml",
+          ".github/workflows/fis-package-release.yml",
+          ".github/workflows/pr-qa.yml",
+          "deploy/backup-fis-production.sh",
+          "deploy/build-fis-artifact.sh",
+          "deploy/compile-fis-app-rollback-document.py",
+          "deploy/compile-fis-gate-d-document.py",
+          "deploy/compile-runtime-certifier.py",
+          "deploy/iam/fis-gate-d-oidc-policy.json",
+          "deploy/iam/fis-gate-d-oidc-trust.json",
+          "deploy/iam/fis-host-artifact-read.json",
+          "deploy/iam/fis-host-trust.json",
+          "deploy/ssm-fis-app-rollback.sh",
+          "deploy/ssm-fis-gate-d-production.sh",
+          "deploy/ssm-runtime-certifier.sh"
+        ],
+        "file_sha256": {
+          ".github/workflows/deploy.yml": "ca95d4bcab76d1fc92824bed0c36ce45db36449424f7177e15d5264ac5f08cce",
+          ".github/workflows/fis-gate-d-production.yml": "56c671339758768770c931325f0282a052b842254b0bfea8e58de0c200da4028",
+          ".github/workflows/fis-package-release.yml": "ea7ff3564294927ff8c355dc02d15f4fb49d30eb1e17c15922f3616f26f88925",
+          ".github/workflows/pr-qa.yml": "68ea57b4f3e2ba7f823cbcb5eb2f0453dd98f4c57a3dc869ac0b06b2d41e2586",
+          "deploy/backup-fis-production.sh": "2af37b366e6b9bcc606f5fe6f0fb3d76b50108e0c765090dfe3ef1438505449b",
+          "deploy/build-fis-artifact.sh": "d3a635e641d15fe9222845fe3bb4734df0136e724a502a5fb6b4394198aa0499",
+          "deploy/compile-fis-app-rollback-document.py": "fdd9b288a053c51cbec5f1502ca4387e505c02c714937b99281e99007d1ce7b3",
+          "deploy/compile-fis-gate-d-document.py": "11df3a4d10a971565d9527cd173f02379ed94152426ae340f461b1705b9be109",
+          "deploy/compile-runtime-certifier.py": "8f46f76cdc94c27b1f94fab9929265c656fd092883b6a3410cf113a9b9eed3fd",
+          "deploy/iam/fis-gate-d-oidc-policy.json": "9b6d1a2175768b5db9f8c47c8286d1d13d3a8a9d262eb7346b9b9fff9516c9c1",
+          "deploy/iam/fis-gate-d-oidc-trust.json": "81ec3e629d0190b2187a1e63099a46667f5329942ce0df174c52085bac75f038",
+          "deploy/iam/fis-host-artifact-read.json": "23e7b7e0408d6dde6b46c5466e6511aa9046b05124442966c5f427b2733632b3",
+          "deploy/iam/fis-host-trust.json": "4457a82555d2e59e594e72d9824b363d8aca0be04c5da91b9368334db3b01600",
+          "deploy/ssm-fis-app-rollback.sh": "ee4d8c5eb207792f14f86d6c10aaea18d17f8686b5eaea1717818a85d67a76a0",
+          "deploy/ssm-fis-gate-d-production.sh": "26158127e7772a66a863a6b4bf68c2be18735bc721bdf320858872603495683e",
+          "deploy/ssm-runtime-certifier.sh": "df9a96c180d7698660cee2d976abff23ecdac28ed606f47e8a9a952f4888fdfe",
+          "docs/fis-controlled-production-release.md": "a303bfc1a7fae75a4f9439d890072e31ef923c0de488ab9f88de8b5f054991bc"
+        },
+        "required_reviewers": [
+          "SaurabhVermaIN"
+        ],
+        "required_controls": [
+          "github-actions-oidc-only",
+          "plan-apply-separation",
+          "no-apply-from-pull-request",
+          "environment-approval-before-apply",
+          "exact-head-and-file-sha256",
+          "fresh-backup-and-rollback"
+        ],
+        "risk": "critical"
       }
     ],
     "pr_consolidation_policy": {
