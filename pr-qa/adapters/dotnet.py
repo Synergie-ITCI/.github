@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .base import CheckResult, PRContext, TechnologyAdapter, command_exists, command_result, failed, find_files, find_named_files, warning
+from .base import RepositoryFileInventory, CheckResult, PRContext, TechnologyAdapter, command_exists, command_result, failed, find_files, find_named_files, warning
 
 
 class DotnetAdapter(TechnologyAdapter):
     key = "dotnet"
     name = ".NET"
 
-    def detect(self, repo: Path) -> list[Path]:
-        markers = find_files(repo, ["*.sln", "*.csproj", "*.fsproj", "*.vbproj"])
+    def detect(self, repo: Path, inventory: RepositoryFileInventory | None = None) -> list[Path]:
+        markers = find_files(repo, ["*.sln", "*.csproj", "*.fsproj", "*.vbproj"], inventory)
         roots = [path.parent for path in markers if "obj" not in path.parts and "bin" not in path.parts]
         return sorted(set(roots))
 

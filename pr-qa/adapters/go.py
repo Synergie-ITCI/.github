@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .base import CheckResult, PRContext, TechnologyAdapter, command_exists, command_result, failed, find_named_files, passed, warning
+from .base import RepositoryFileInventory, CheckResult, PRContext, TechnologyAdapter, command_exists, command_result, failed, find_named_files, passed, warning
 
 
 class GoAdapter(TechnologyAdapter):
     key = "go"
     name = "Go"
 
-    def detect(self, repo: Path) -> list[Path]:
-        return sorted(set(path.parent for path in find_named_files(repo, {"go.mod"})))
+    def detect(self, repo: Path, inventory: RepositoryFileInventory | None = None) -> list[Path]:
+        return sorted(set(path.parent for path in find_named_files(repo, {"go.mod"}, inventory)))
 
     def format(self, ctx: PRContext, roots: list[Path]) -> list[CheckResult]:
         results = []
