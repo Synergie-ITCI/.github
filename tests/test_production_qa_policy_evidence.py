@@ -15,8 +15,86 @@ from qa_policy_evidence import (
     DETECTOR,
     QUALITY,
     read_final_report,
+    verify_pr808_detector_log_recovery,
     verify_qa_policy_evidence,
 )
+
+
+class PR808DetectorRecoveryTests(unittest.TestCase):
+    def setUp(self):
+        self.manifest = {
+            "promotion_pr": 808,
+            "application": {"source_sha": "5d92dd585eda25391297bfd9d408c585f556a4d6"},
+            "base_sha": "bd9b3bd3d6b0fa4d7e27448e09a674de3c601aa0",
+        }
+        self.proof = {
+            "run_id": 44451575467,
+            "policy_sha": "ea802c2a5e2b7965850db7c19a69bfe12b897f18",
+        }
+        self.run = {"run_attempt": 2}
+        self.detector = {
+            "id": 135404339322,
+            "head_sha": self.manifest["application"]["source_sha"],
+            "started_at": "2026-11-19T07:16:47Z",
+            "steps": [
+                {"name": name, "conclusion": "success"}
+                for name in (
+                    "Resolve approved central PR QA release",
+                    "Checkout immutable central PR QA framework",
+                    "Detect technologies",
+                )
+            ],
+        }
+        self.selector = {
+            "state": "closed",
+            "merge_commit_sha": "a3b0380d9eeb3a5e56d3d24e947ee375c4d3c7bb",
+            "head": {"sha": "c862601ff13a6c438854dfaafb7c49eb2a385dd7"},
+            "base": {"sha": "6a940de7c493be4aa257bbe2f97977ba021622d4"},
+            "merged_at": "2026-11-19T07:13:03Z",
+        }
+
+    def api(self, path):
+        if path.endswith("/git/ref/heads/main"):
+            return {"object": {"sha": self.selector["merge_commit_sha"]}}
+        if path.endswith("/pulls/809"):
+            return self.selector
+        raise AssertionError(path)
+
+    def verify(self, *, now=None):
+        from datetime import UTC, datetime
+
+        verify_pr808_detector_log_recovery(
+            self.manifest, self.proof, "pr-qa-v1-rc368", self.run,
+            self.detector, self.api,
+            now=now or datetime(2026, 11, 19, 8, tzinfo=UTC),
+        )
+
+    def test_exact_incident_can_use_successful_post_merge_detector(self):
+        self.verify()
+
+    def test_other_identity_or_unverified_detector_is_rejected(self):
+        for target, key, bad in (
+            (self.manifest, "promotion_pr", 807),
+            (self.proof, "run_id", 1),
+            (self.run, "run_attempt", 1),
+            (self.detector, "id", 1),
+            (self.detector, "started_at", "2026-11-19T07:12:00Z"),
+            (self.selector, "merge_commit_sha", "f" * 40),
+        ):
+            original = target[key]
+            target[key] = bad
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                self.verify()
+            target[key] = original
+        self.detector["steps"][0]["conclusion"] = "failure"
+        with self.assertRaises(ValueError):
+            self.verify()
+
+    def test_recovery_expires_with_review_record(self):
+        from datetime import datetime
+
+        with self.assertRaises(ValueError):
+            self.verify(now=datetime.fromisoformat("2026-11-20T06:30:11Z"))
 
 
 class QAPolicyTests(unittest.TestCase):
@@ -81,6 +159,7 @@ class QAPolicyTests(unittest.TestCase):
             + b"\n"
         )
         self.log_api_failure = False
+        self.run_log_api_failure = False
         self.run_log_override = None
         self.run_log_reads = 0
         self.report = {
@@ -154,6 +233,8 @@ class QAPolicyTests(unittest.TestCase):
             return self.logs
         if path.endswith(f"/runs/11/attempts/{self.run['run_attempt']}/logs"):
             self.run_log_reads += 1
+            if self.run_log_api_failure:
+                raise RuntimeError("run log API unavailable")
             if self.run_log_override is not None:
                 return self.run_log_override
             output = io.BytesIO()
@@ -190,6 +271,17 @@ class QAPolicyTests(unittest.TestCase):
         self.assertNotEqual(
             self.manifest["central_tag"], self.manifest["qa_evidence"]["policy_release"]
         )
+
+    def test_both_log_endpoints_require_scoped_recovery_before_final_artifact(self):
+        from unittest.mock import patch
+
+        self.log_api_failure = True
+        self.run_log_api_failure = True
+        with patch("qa_policy_evidence.verify_pr808_detector_log_recovery") as recovery:
+            self.verify()
+            recovery.assert_called_once()
+        with self.assertRaises(ValueError):
+            self.verify()
 
     def test_unselected_policy_or_stale_winning_check_is_rejected(self):
         self.selected = ("pr-qa-v1-rc234", {"commit": "f" * 40})
