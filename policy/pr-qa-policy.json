@@ -1939,5 +1939,23 @@
       "purpose": "Exact-source image review for PR #806 reusable calculated form-score validation and tenant-location choices at unchanged production DB 0077. No QA relaxation, migration, ECS action, Nidaan content or publication approval.",
       "relaxations": []
     }
+,
+    {
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "repository_id": 1315697868,
+      "pr_number": 808,
+      "head_ref": "fix/form-review-saved-definition",
+      "base_ref": "main",
+      "expected_head_sha": "5d92dd585eda25391297bfd9d408c585f556a4d6",
+      "expected_base_sha": "bd9b3bd3d6b0fa4d7e27448e09a674de3c601aa0",
+      "issued_at": "2026-11-19T06:30:11Z",
+      "enabled": true,
+      "authorization_id": "790a35a8-9c7d-45b4-ab08-bfab14a7e768",
+      "expires_after": "2026-11-20T06:30:11Z",
+      "allowed_effective_additions": 311,
+      "allowed_changed_files": 15,
+      "purpose": "Exact-source image review for merged PR #808 reusable form review, localization, capture policy and release-readiness API/Admin changes at unchanged production DB 0077. No QA relaxation, migration, ECS action, Nidaan content or publication approval.",
+      "relaxations": []
+    }
   ]
 }
