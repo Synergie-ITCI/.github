@@ -116,7 +116,9 @@ jobs:
     timeout-minutes: 60
     services:
       postgres:
-        image: postgres:16
+        # Central framework regression tests use fixtures, not a live database.
+        # Keep the existing service for every consumer repository.
+        image: ${{ github.repository != 'Synergie-ITCI/.github' && 'postgres:16' || '' }}
         env:
           POSTGRES_DB: telepathy_test
           POSTGRES_HOST_AUTH_METHOD: trust
