@@ -2087,20 +2087,19 @@
       "repository": "Synergie-ITCI/mobilekids.synergieinsights.in",
       "repository_id": 1117278219,
       "pr_number": 11,
-      "expected_head_sha": "3000b9cda44234db2f14c3f02ab36c3b94bf1165",
+      "expected_head_sha": "65ec72d353a17f2a858eb3d3d6a2a6d274b47891",
       "expected_base_sha": "582c03347247e069678e8dd3c9f5db786db4e833",
       "head_ref": "codex/mobilekids-pr10-promotion",
       "base_ref": "main",
       "allowed_effective_additions": 10714,
       "allowed_changed_files": 113,
       "minimum_changed_files": 111,
-      "purpose": "One-time exact-head size authorization for MobileKids PR #11 promoting the already staged phase-management release. Only changed-file-count and diff-size thresholds are relaxed; persistent-data, review-policy, migration, secrets, branch protection, QA and production controls remain mandatory.",
+      "purpose": "Authorize only the additions size of MobileKids PR #11 at its existing protected rc376 caller. Its 111 effective changed files are below the central 200-file limit. Persistent-data, review-policy, migration, secrets, branch protection, QA and production controls remain mandatory.",
       "issued_at": "2026-11-20T09:12:00Z",
       "expires_after": "2026-11-21T08:12:00Z",
-      "authorization_id": "63c3d977-bd95-45b6-8493-b15bbf42ae51",
-      "required_pr_body_marker": "MOBILEKIDS-PR11-MAIN-SIZE-3000B9C",
+      "authorization_id": "a605d85d-72cf-4c22-ad26-55e344ab95f7",
+      "required_pr_body_marker": "MOBILEKIDS-PR11-MAIN-SIZE-65EC72D",
       "relaxations": [
-        "changed_file_count",
         "diff_size"
       ]
     }
