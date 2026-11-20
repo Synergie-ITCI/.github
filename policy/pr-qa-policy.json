@@ -2064,6 +2064,23 @@
       "allowed_changed_files": 2,
       "purpose": "Exact-source image review for merged PR #816 published mobile language read access for assigned field users at unchanged production DB 0077. No permission grant, QA relaxation, migration, ECS action, Nidaan content or publication approval.",
       "relaxations": []
+    },
+    {
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "repository_id": 1315697868,
+      "pr_number": 819,
+      "head_ref": "promote/pr818-location-hierarchy",
+      "base_ref": "main",
+      "expected_head_sha": "59e520f20481ed2cc192d1c9a0ba569d480a5e90",
+      "expected_base_sha": "ea29a5727ae4ac81b3c5aa6f2bad91eac1d546df",
+      "issued_at": "2026-11-20T06:06:00Z",
+      "enabled": true,
+      "authorization_id": "c0b8654e-3c83-4307-9ad2-1e0f150a4e35",
+      "expires_after": "2026-11-21T06:06:00Z",
+      "allowed_effective_additions": 339,
+      "allowed_changed_files": 8,
+      "purpose": "Exact-source image review for merged PR #819 reusable location hierarchy promotion from reviewed development PR #818 at unchanged production DB 0077. No QA relaxation, migration, ECS action, Nidaan content or publication approval.",
+      "relaxations": []
     }
   ]
 }
