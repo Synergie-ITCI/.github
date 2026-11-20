@@ -2047,6 +2047,23 @@
       "allowed_changed_files": 11,
       "purpose": "Exact-source image review for merged PR #814 reusable location hierarchy and tenant-location submission validation on current FieldZilla main at unchanged production DB 0077. No QA relaxation, migration, ECS action, Nidaan content or publication approval.",
       "relaxations": []
+    },
+    {
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "repository_id": 1315697868,
+      "pr_number": 816,
+      "head_ref": "fix/mobile-published-languages-403",
+      "base_ref": "main",
+      "expected_head_sha": "d0760117e67cdff1c9b7aa9de7920533da4a35eb",
+      "expected_base_sha": "85ee72c6e93a53411db87607dbb171aec638a149",
+      "issued_at": "2026-11-20T03:49:29Z",
+      "enabled": true,
+      "authorization_id": "63cf35f5-456d-4bfb-8507-d2bae66ac570",
+      "expires_after": "2026-11-21T03:49:29Z",
+      "allowed_effective_additions": 215,
+      "allowed_changed_files": 2,
+      "purpose": "Exact-source image review for merged PR #816 published mobile language read access for assigned field users at unchanged production DB 0077. No permission grant, QA relaxation, migration, ECS action, Nidaan content or publication approval.",
+      "relaxations": []
     }
   ]
 }
