@@ -24,7 +24,7 @@ class MobileKidsPr11SizeAuthorizationTests(unittest.TestCase):
         entry = entries[0]
         self.assertEqual(schema_errors(entry, schema), [])
         self.assertEqual(entry["repository_id"], 1117278219)
-        self.assertEqual(entry["expected_head_sha"], "3000b9cda44234db2f14c3f02ab36c3b94bf1165")
+        self.assertEqual(entry["expected_head_sha"], "5a3e55edd07bbe3c8cc0318d294c4e300d4ec4bd")
         self.assertEqual(entry["expected_base_sha"], "582c03347247e069678e8dd3c9f5db786db4e833")
         self.assertEqual((entry["head_ref"], entry["base_ref"]),
                          ("codex/mobilekids-pr10-promotion", "main"))
