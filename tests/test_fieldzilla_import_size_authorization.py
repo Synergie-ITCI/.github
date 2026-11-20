@@ -242,7 +242,9 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         self.assertEqual(normalized, old)
         current["one_time_baseline_alignments"][current["one_time_baseline_alignments"].index(new)] = old
         current["one_time_baseline_alignments"] = [
-            row for row in current["one_time_baseline_alignments"] if row.get("pr_number") not in (744, 754, 756, 772, 780, 783, 786, 787, 791, 798, 802, 804, 806, 808, 811, 814, 816, 819)
+            row for row in current["one_time_baseline_alignments"]
+            if row.get("pr_number") not in (744, 754, 756, 772, 780, 783, 786, 787, 791, 798, 802, 804, 806, 808, 811, 814, 816, 819)
+            and (row.get("repository"), row.get("pr_number")) != ("Synergie-ITCI/mobilekids.synergieinsights.in", 11)
         ]
         governed = next(
             row for row in current["governance"]["critical_infrastructure_paths"]
