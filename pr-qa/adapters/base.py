@@ -129,6 +129,7 @@ class PRContext:
     diff_error: str = ""
     prepared: set[str] = field(default_factory=set)
     command_log: list[dict[str, Any]] = field(default_factory=list)
+    file_inventory: RepositoryFileInventory | None = None
 
     def adapter_config(self, key: str) -> dict[str, Any]:
         return dict(self.config.get("adapters", {}).get(key, {}) or {})
@@ -208,6 +209,8 @@ class PRContext:
                 duration_seconds=round(time.time() - started, 3),
             )
         self.command_log.append(outcome.sanitized_dict())
+        if self.file_inventory is not None:
+            self.file_inventory.invalidate()
         return outcome
 
 
@@ -215,7 +218,7 @@ class TechnologyAdapter:
     key = "base"
     name = "Base"
 
-    def detect(self, repo: Path) -> list[Path]:
+    def detect(self, repo: Path, inventory: RepositoryFileInventory | None = None) -> list[Path]:
         raise NotImplementedError
 
     def format(self, ctx: PRContext, roots: list[Path]) -> list[CheckResult]:
@@ -253,26 +256,45 @@ def should_skip_path(path: Path) -> bool:
     return any(part in EXCLUDED_DIRS for part in path.parts)
 
 
-def find_named_files(repo: Path, names: set[str]) -> list[Path]:
-    matches: list[Path] = []
-    for path in repo.rglob("*"):
-        if path.is_file() and path.name in names and not should_skip_path(path.relative_to(repo)):
-            matches.append(path)
-    return sorted(matches)
+class RepositoryFileInventory:
+    """One workspace snapshot, refreshed after repository-controlled commands."""
+
+    def __init__(self, repo: Path) -> None:
+        self.repo = repo
+        self._files: list[Path] | None = None
+
+    def invalidate(self) -> None:
+        self._files = None
+
+    def files(self) -> list[Path]:
+        if self._files is None:
+            files: list[Path] = []
+            for root, dirs, names in os.walk(self.repo, followlinks=False):
+                dirs[:] = [name for name in dirs if name not in EXCLUDED_DIRS]
+                for name in names:
+                    if name in EXCLUDED_DIRS:
+                        continue
+                    path = Path(root) / name
+                    if path.is_file():
+                        files.append(path)
+                # pathlib.rglob includes symlinked files but does not recurse
+                # through symlinked directories. os.walk lists those as dirs.
+                for name in dirs:
+                    path = Path(root) / name
+                    if path.is_symlink() and path.is_file():
+                        files.append(path)
+            self._files = sorted(files)
+        return self._files
 
 
-def find_files(repo: Path, patterns: list[str]) -> list[Path]:
-    matches: list[Path] = []
-    for path in repo.rglob("*"):
-        if not path.is_file():
-            continue
-        rel = path.relative_to(repo)
-        if should_skip_path(rel):
-            continue
-        rel_text = rel.as_posix()
-        if any(fnmatch.fnmatch(rel_text, pattern) for pattern in patterns):
-            matches.append(path)
-    return sorted(matches)
+def find_named_files(repo: Path, names: set[str], inventory: RepositoryFileInventory | None = None) -> list[Path]:
+    files = inventory.files() if inventory is not None else RepositoryFileInventory(repo).files()
+    return [path for path in files if path.name in names]
+
+
+def find_files(repo: Path, patterns: list[str], inventory: RepositoryFileInventory | None = None) -> list[Path]:
+    files = inventory.files() if inventory is not None else RepositoryFileInventory(repo).files()
+    return [path for path in files if any(fnmatch.fnmatch(path.relative_to(repo).as_posix(), pattern) for pattern in patterns)]
 
 
 def read_json(path: Path) -> dict[str, Any]:

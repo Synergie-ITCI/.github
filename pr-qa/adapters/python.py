@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 from .base import (
+    RepositoryFileInventory,
     FAIL,
     CheckResult,
     PRContext,
@@ -12,6 +13,7 @@ from .base import (
     command_result,
     failed,
     find_named_files,
+    find_files,
     passed,
     read_text,
     restricted_license_hit,
@@ -27,13 +29,10 @@ class PythonAdapter(TechnologyAdapter):
     key = "python"
     name = "Python"
 
-    def detect(self, repo: Path) -> list[Path]:
+    def detect(self, repo: Path, inventory: RepositoryFileInventory | None = None) -> list[Path]:
         markers = {"pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "Pipfile", "poetry.lock", "uv.lock"}
-        roots = [path.parent for path in find_named_files(repo, markers)]
-        if not roots and any(
-            path.is_file() and not should_skip_path(path.relative_to(repo))
-            for path in repo.rglob("*.py")
-        ):
+        roots = [path.parent for path in find_named_files(repo, markers, inventory)]
+        if not roots and find_files(repo, ["*.py"], inventory):
             roots = [repo]
         return sorted(set(roots))
 

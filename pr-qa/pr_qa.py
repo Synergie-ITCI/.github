@@ -74,6 +74,7 @@ from adapters.base import (
     WARNING,
     CheckResult,
     PRContext,
+    RepositoryFileInventory,
     command_exists,
     failed,
     find_named_files,
@@ -298,19 +299,22 @@ def main() -> int:
     args = parse_args()
     repo = Path(args.repo).resolve()
     policy = load_policy(Path(args.policy))
+    inventory = RepositoryFileInventory(repo)
 
     if args.publish_pr_status_comment:
         return publish_pr_status_comment_cli(args, policy)
 
     if args.detect_only:
-        write_detection_outputs(detect_technologies(repo), args.github_output)
+        write_detection_outputs(detect_technologies(repo, inventory), args.github_output)
         return 0
 
     event = load_event(args.event_path)
-    git_context = gather_git_context(repo, event, args.base_ref, args.head_ref)
+    git_context = gather_git_context(repo, event, args.base_ref, args.head_ref, inventory)
     config, config_violations = load_effective_config(repo, CONFIG_PATH, policy, git_context)
     config_violations.extend(apply_repository_profile_override(config, args.repository_profile, policy))
-    technologies = detect_technologies(repo)
+    cache_path = args.detection_cache if (args.static_only or args.technical_baseline_key_out
+                                          or args.technical_baseline_verify_out) else ""
+    technologies = detect_technologies_for_phase(repo, inventory, cache_path)
     ctx = PRContext(
         repo=repo,
         config=config,
@@ -326,6 +330,7 @@ def main() -> int:
         command_timeout_seconds=int(args.command_timeout_minutes * 60),
         config_violations=config_violations,
         diff_error=git_context.get("diff_error", ""),
+        file_inventory=inventory,
     )
     context_cache(ctx)["numstat"] = dict(git_context.get("numstat") or {})
 
@@ -381,6 +386,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--head-ref", default="", help="Head ref override.")
     parser.add_argument("--command-timeout-minutes", type=float, default=20)
     parser.add_argument("--detect-only", action="store_true")
+    parser.add_argument("--detection-cache", default=os.environ.get("PR_QA_DETECTION_CACHE", ""), help="Trusted same-job detection snapshot for static and baseline steps.")
     parser.add_argument("--static-only", action="store_true", help="Run only Phase 1 static preflight.")
     parser.add_argument("--repository-profile", default="", help="Operator-selected repository profile for governance-aware self-validation.")
     parser.add_argument("--github-output", default="", help="GITHUB_OUTPUT file for detection mode.")
@@ -654,12 +660,64 @@ def load_event(event_path: str) -> dict[str, Any]:
     return {}
 
 
-def detect_technologies(repo: Path) -> dict[str, dict[str, Any]]:
+def detect_technologies(repo: Path, inventory: RepositoryFileInventory | None = None) -> dict[str, dict[str, Any]]:
+    inventory = inventory or RepositoryFileInventory(repo)
     detected: dict[str, dict[str, Any]] = {}
     for adapter in ADAPTERS:
-        roots = adapter.detect(repo)
+        roots = adapter.detect(repo, inventory)
         if roots:
             detected[adapter.key] = {"adapter": adapter, "roots": roots, "name": adapter.name}
+    return detected
+
+
+def detect_technologies_for_phase(repo: Path, inventory: RepositoryFileInventory, cache_path: str) -> dict[str, dict[str, Any]]:
+    runner_temp = os.environ.get("RUNNER_TEMP", "")
+    if (not cache_path or os.environ.get("GITHUB_ACTIONS") != "true" or not runner_temp
+            or not Path(cache_path).resolve().is_relative_to(Path(runner_temp).resolve())
+            or not is_git_repo(repo)):
+        return detect_technologies(repo, inventory)
+    head = run_git(repo, ["rev-parse", "HEAD"]).strip()
+    if not re.fullmatch(r"[0-9a-f]{40}", head):
+        return detect_technologies(repo, inventory)
+    path = Path(cache_path)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if payload.get("repo") == str(repo) and payload.get("head") == head:
+            values = payload.get("roots")
+            if isinstance(values, dict) and set(values) <= {adapter.key for adapter in ADAPTERS}:
+                detected = {}
+                for adapter in ADAPTERS:
+                    entries = values.get(adapter.key, [])
+                    if not isinstance(entries, list):
+                        raise ValueError("Invalid detection roots")
+                    roots = []
+                    for rel in entries:
+                        if not isinstance(rel, str) or not rel or Path(rel).is_absolute():
+                            raise ValueError("Invalid detection root")
+                        root = repo / rel
+                        if root.resolve().is_relative_to(repo) and root.is_dir():
+                            roots.append(root)
+                        else:
+                            raise ValueError("Detection root is unavailable")
+                    if roots:
+                        detected[adapter.key] = {"adapter": adapter, "roots": roots, "name": adapter.name}
+                return detected
+    except (OSError, ValueError, TypeError, AttributeError, json.JSONDecodeError):
+        pass
+    detected = detect_technologies(repo, inventory)
+    payload = {
+        "repo": str(repo),
+        "head": head,
+        "roots": {key: [path.relative_to(repo).as_posix() for path in value["roots"]]
+                  for key, value in detected.items()},
+    }
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(path.name + ".tmp")
+        temporary.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+        temporary.replace(path)
+    except OSError:
+        pass  # An optional cache never blocks full detection.
     return detected
 
 
@@ -689,7 +747,8 @@ def is_bounded_static_browser_asset(rel: str) -> bool:
     return False
 
 
-def gather_git_context(repo: Path, event: dict[str, Any], base_ref: str, head_ref: str) -> dict[str, Any]:
+def gather_git_context(repo: Path, event: dict[str, Any], base_ref: str, head_ref: str,
+                       inventory: RepositoryFileInventory | None = None) -> dict[str, Any]:
     pull_request = event.get("pull_request", {}) or {}
     base_sha = pull_request.get("base", {}).get("sha") or base_ref
     head_sha = pull_request.get("head", {}).get("sha") or "HEAD"
@@ -717,7 +776,7 @@ def gather_git_context(repo: Path, event: dict[str, Any], base_ref: str, head_re
         "is_git_repo": is_git_repo(repo),
     }
     if not context["is_git_repo"]:
-        context.update({"changed_files": list_repo_files(repo), "commits": [], "additions": 0, "deletions": 0, "diff_range": ""})
+        context.update({"changed_files": list_repo_files(repo, inventory), "commits": [], "additions": 0, "deletions": 0, "diff_range": ""})
         return context
 
     if base_sha:
@@ -872,14 +931,9 @@ def tree_file_sha256(repo: Path, ref: str, rel: str) -> str:
     return hashlib.sha256(completed.stdout).hexdigest()
 
 
-def list_repo_files(repo: Path) -> list[str]:
-    files: list[str] = []
-    for path in repo.rglob("*"):
-        if path.is_file():
-            rel = path.relative_to(repo)
-            if not should_skip_path(rel):
-                files.append(rel.as_posix())
-    return sorted(files)
+def list_repo_files(repo: Path, inventory: RepositoryFileInventory | None = None) -> list[str]:
+    inventory = inventory or RepositoryFileInventory(repo)
+    return [path.relative_to(repo).as_posix() for path in inventory.files()]
 
 
 def react_native_roots(ctx: PRContext) -> list[Path]:
@@ -887,7 +941,7 @@ def react_native_roots(ctx: PRContext) -> list[Path]:
     if "react_native_roots" in cache:
         return list(cache["react_native_roots"])
     roots: list[Path] = []
-    for package_json in find_named_files(ctx.repo, {"package.json"}):
+    for package_json in find_named_files(ctx.repo, {"package.json"}, ctx.file_inventory):
         package = read_json(package_json)
         dependencies: set[str] = set()
         for key in ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]:
@@ -5761,17 +5815,19 @@ def promotion_direct_tree_equivalent_checkpoint(repo: Path, base_sha: str) -> st
     shallow = subprocess.run(["git", "rev-parse", "--is-shallow-repository"], cwd=repo, capture_output=True, text=True, check=False)
     if shallow.returncode != 0 or shallow.stdout.strip().lower() == "true":
         return ""
-    main_history = subprocess.run(["git", "rev-list", base_sha], cwd=repo, capture_output=True, text=True, check=False)
+    main_history = subprocess.run(
+        ["git", "log", "--format=%H %T", base_sha], cwd=repo, capture_output=True, text=True, check=False
+    )
     if main_history.returncode != 0 or not main_history.stdout.strip():
         return ""
     main_trees: set[str] = set()
-    for sha in main_history.stdout.splitlines():
-        tree = run_git(repo, ["rev-parse", "--verify", f"{sha}^{{tree}}"]).strip()
-        if not tree:
+    for line in main_history.stdout.splitlines():
+        fields = line.split()
+        if len(fields) != 2:
             return ""
-        main_trees.add(tree)
+        main_trees.add(fields[1])
     staging_commits = subprocess.run(
-        ["git", "rev-list", "--reverse", "--first-parent", "--no-merges", f"{base_sha}..HEAD"],
+        ["git", "log", "--reverse", "--first-parent", "--no-merges", "--format=%H %T", f"{base_sha}..HEAD"],
         cwd=repo,
         capture_output=True,
         text=True,
@@ -5781,10 +5837,11 @@ def promotion_direct_tree_equivalent_checkpoint(repo: Path, base_sha: str) -> st
         return ""
     checkpoint = ""
     first_parent_commits = staging_commits.stdout.splitlines()
-    for sha in first_parent_commits[:-1]:
-        tree = run_git(repo, ["rev-parse", "--verify", f"{sha}^{{tree}}"]).strip()
-        if not tree:
+    for line in first_parent_commits[:-1]:
+        fields = line.split()
+        if len(fields) != 2:
             return ""
+        sha, tree = fields
         if tree in main_trees:
             checkpoint = sha
     return checkpoint

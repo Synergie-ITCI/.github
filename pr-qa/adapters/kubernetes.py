@@ -2,16 +2,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .base import CheckResult, PRContext, TechnologyAdapter, command_exists, command_result, failed, find_files, read_text, warning
+from .base import RepositoryFileInventory, CheckResult, PRContext, TechnologyAdapter, command_exists, command_result, failed, find_files, read_text, warning
 
 
 class KubernetesAdapter(TechnologyAdapter):
     key = "kubernetes"
     name = "Kubernetes"
 
-    def detect(self, repo: Path) -> list[Path]:
+    def detect(self, repo: Path, inventory: RepositoryFileInventory | None = None) -> list[Path]:
         roots = []
-        for path in find_files(repo, ["*.yml", "*.yaml"]):
+        for path in find_files(repo, ["*.yml", "*.yaml"], inventory):
             text = read_text(path)
             if "apiVersion:" in text and "kind:" in text:
                 roots.append(path.parent)
@@ -21,7 +21,7 @@ class KubernetesAdapter(TechnologyAdapter):
         return [warning("Formatting", self.name, "Kubernetes manifests have no formatter configured by default.")]
 
     def lint(self, ctx: PRContext, roots: list[Path]) -> list[CheckResult]:
-        manifest_paths = [ctx.rel(path) for path in find_files(ctx.repo, ["*.yml", "*.yaml"]) if "apiVersion:" in read_text(path) and "kind:" in read_text(path)]
+        manifest_paths = [ctx.rel(path) for path in find_files(ctx.repo, ["*.yml", "*.yaml"], ctx.file_inventory) if "apiVersion:" in read_text(path) and "kind:" in read_text(path)]
         if not manifest_paths:
             return []
         if command_exists("kubeconform"):
