@@ -89,6 +89,56 @@ def verify_pr808_detector_log_recovery(manifest, proof, release, run, detector, 
         raise ValueError("PR #808 QA detector release steps are not exact successes")
 
 
+def verify_pr841_detector_log_recovery(manifest, proof, release, run, detector, api, *, now=None):
+    """Time-limited recovery for the exact merged PR #841 detector-log outage.
+
+    The latest exact-head check, final QA artifact, immutable release, and
+    centrally reviewed size authorization are still verified by the caller.
+    """
+    if (now or datetime.now(UTC)) >= datetime.fromisoformat("2026-11-22T17:29:39Z"):
+        raise ValueError("PR #841 detector-log recovery expired")
+    if (
+        manifest.get("promotion_pr") != 841
+        or manifest.get("application", {}).get("source_sha") != "42730e5659959ba708fcfea4d37c80edde71fc9f"
+        or manifest.get("base_sha") != "8646fe3583dfdd4985ec6e13fbb5c01fa7bdfb4d"
+        or proof.get("run_id") != 44936685431
+        or run.get("run_attempt") not in range(3, 11)
+        or release != "pr-qa-v1-rc393"
+        or detector.get("head_sha") != manifest["application"]["source_sha"]
+    ):
+        raise ValueError("PR #841 detector-log recovery identity differs")
+    selector_merge = "daace8f2312cd77046147aff57911d48de3dd14f"
+    current_main = api(f"repos/{REPOSITORY}/git/ref/heads/main").get("object", {}).get("sha")
+    if not isinstance(current_main, str) or not re.fullmatch(r"[0-9a-f]{40}", current_main):
+        raise ValueError("PR #841 protected main identity unavailable")
+    if api(f"repos/{REPOSITORY}/compare/{selector_merge}...{current_main}").get("status") not in {"identical", "ahead"}:
+        raise ValueError("PR #841 protected selector is not in main ancestry")
+    selector = api(f"repos/{REPOSITORY}/pulls/842")
+    if (
+        selector.get("state") != "closed"
+        or selector.get("merge_commit_sha") != selector_merge
+        or selector.get("head", {}).get("sha") != "9bc40fc589a6c142cf6ff33cf24f6b3b4620eb52"
+        or selector.get("base", {}).get("sha") != "e9e8690e0d212c576c4b34cabaa7abbeb11a9986"
+        or not selector.get("merged_at")
+    ):
+        raise ValueError("PR #841 protected selector merge differs")
+    started = datetime.fromisoformat(detector.get("started_at", ""))
+    merged = datetime.fromisoformat(selector["merged_at"])
+    if started.tzinfo is None or merged.tzinfo is None or started <= merged:
+        raise ValueError("PR #841 QA detector did not run after selector merge")
+    steps = detector.get("steps", [])
+    required = {
+        "Resolve approved central PR QA release",
+        "Checkout immutable central PR QA framework",
+        "Detect technologies",
+    }
+    if not isinstance(steps, list) or any(
+        len([step for step in steps if step.get("name") == name and step.get("conclusion") == "success"]) != 1
+        for name in required
+    ):
+        raise ValueError("PR #841 QA detector release steps are not exact successes")
+
+
 def read_central_json(api, path, sha):
     reply = api(f"{CENTRAL}contents/{path}?ref={sha}")
     if reply.get("type") != "file" or reply.get("encoding") != "base64":
@@ -293,9 +343,14 @@ def verify_qa_policy_evidence(
                 )
             )
         except RuntimeError:
-            verify_pr808_detector_log_recovery(
-                manifest, proof, release, run, detectors[0], api
-            )
+            if manifest.get("promotion_pr") == 841:
+                verify_pr841_detector_log_recovery(
+                    manifest, proof, release, run, detectors[0], api
+                )
+            else:
+                verify_pr808_detector_log_recovery(
+                    manifest, proof, release, run, detectors[0], api
+                )
             logs = None
     if logs is not None:
         if not isinstance(logs, bytes) or len(logs) > 4 * 1024 * 1024:

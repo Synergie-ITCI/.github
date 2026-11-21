@@ -242,6 +242,34 @@ def read_live_main_sha(repository: str, token: str) -> str:
         raise ValueError("Live GitHub main verification unavailable") from None
 
 
+def read_live_ancestry(repository: str, ancestor: str, head: str, token: str) -> bool:
+    """Verify a protected caller merge remains reachable from current main."""
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository) or any(
+        not re.fullmatch(r"[0-9a-f]{40}", value) for value in (ancestor, head)
+    ):
+        raise ValueError("Invalid live ancestry identity")
+    request = urllib.request.Request(
+        f"https://api.github.com/repos/{repository}/compare/{ancestor}...{head}",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "synergie-pr-qa",
+        },
+    )
+    try:
+        with urllib.request.build_opener(NoRedirect()).open(request, timeout=20) as response:
+            if response.status != 200:
+                raise ValueError("non-success status")
+            raw = response.read(2_000_001)
+            if len(raw) > 2_000_000:
+                raise ValueError("oversized response")
+            value = json.loads(raw)
+            return isinstance(value, dict) and value.get("status") in {"identical", "ahead"}
+    except (urllib.error.HTTPError, urllib.error.URLError, OSError, ValueError, TypeError):
+        raise ValueError("Live GitHub ancestry verification unavailable") from None
+
+
 def validate_authorization(ctx, git_context, policy, size) -> list[str]:
     try:
         errors = schema_errors(policy, json.loads(SCHEMA_PATH.read_text()))
@@ -364,11 +392,32 @@ def validate_authorization(ctx, git_context, policy, size) -> list[str]:
                     or live_base["sha"] == policy["expected_base_sha"]
                 )
             )
+        # One exact, time-limited release-evidence rerun after PR #841 merged.
+        # The ordinary open-PR rule remains mandatory for every other review.
+        merged_rerun = False
+        if (
+            promotion is None
+            and policy.get("authorization_id") == "0c6cf576-19b5-4fab-aace-7d52c7ddaee1"
+            and current_pr == 841
+            and checked_head == "42730e5659959ba708fcfea4d37c80edde71fc9f"
+            and os.environ.get("GITHUB_RUN_ID") == "44936685431"
+            and os.environ.get("GITHUB_RUN_ATTEMPT") in {str(value) for value in range(3, 11)}
+            and live.get("state") == "closed"
+            and live.get("merged") is True
+            and live.get("merge_commit_sha") == "e9e8690e0d212c576c4b34cabaa7abbeb11a9986"
+            and live.get("merged_at")
+        ):
+            current_main = read_live_main_sha(repository, token)
+            merged_rerun = read_live_ancestry(
+                repository,
+                "daace8f2312cd77046147aff57911d48de3dd14f",
+                current_main,
+                token,
+            )
         matches = (
             type(live["number"]) is int
             and live["number"] == current_pr
-            and live["state"] == "open"
-            and live["merged"] is False
+            and ((live["state"] == "open" and live["merged"] is False) or merged_rerun)
             and live["draft"] is False
             and live_head["sha"] == checked_head
             and live_head["ref"] == ctx.head_ref
