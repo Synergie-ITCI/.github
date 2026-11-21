@@ -2220,6 +2220,23 @@
       "relaxations": []
     },
     {
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "repository_id": 1315697868,
+      "pr_number": 835,
+      "head_ref": "promote/password-reset-migration-owner-path",
+      "base_ref": "main",
+      "expected_head_sha": "54069e56d92bfc4546d924c7963e23db4a24e439",
+      "expected_base_sha": "d63120d3a4664b163e5871aaf40eab6ad361af40",
+      "issued_at": "2026-11-21T11:01:50Z",
+      "enabled": true,
+      "authorization_id": "21792366-a9c0-489c-b8c6-a8bd7b9e4c75",
+      "expires_after": "2026-11-22T10:01:50Z",
+      "allowed_effective_additions": 164,
+      "allowed_changed_files": 3,
+      "purpose": "Exact-source QA and image review for merged PR #835 restricted password-reset lookup migration at production DB 0041+0077 to 0041+0078. Normal QA remains required. This record does not authorize owner SQL, IAM, ECR or ECS execution.",
+      "relaxations": []
+    },
+    {
       "enabled": true,
       "repository": "Synergie-ITCI/mobilekids.synergieinsights.in",
       "repository_id": 1117278219,
