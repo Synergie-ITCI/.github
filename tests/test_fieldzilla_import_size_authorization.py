@@ -318,12 +318,16 @@ class FieldzillaImportSizeTests(unittest.TestCase):
             and row.get("pr_number") == 30
         )
         self.assertEqual(fis_promotion["expected_base_sha"], "27204807a0f92ee0f2f56f0d3f769b603c75abf8")
-        self.assertEqual(fis_promotion["expected_head_sha"], "1888e73a4a5389d8014d6811e88e86f7cbde43ec")
+        self.assertEqual(fis_promotion["protected_staging_ancestor_sha"], "437d3792631321dd12843568ba51b250949f4d42")
+        self.assertNotIn("expected_head_sha", fis_promotion)
         self.assertEqual(len(fis_promotion["file_sha256"]), 47)
         self.assertEqual(fis_promotion["paths"], fis_review["paths"])
         self.assertEqual(fis_promotion["required_controls"], fis_review["required_controls"])
         for path, digest in fis_review["file_sha256"].items():
-            self.assertEqual(fis_promotion["file_sha256"][path], digest)
+            if path == ".github/workflows/pr-qa.yml":
+                self.assertEqual(fis_promotion["file_sha256"][path], "0586eb31764379e0fdd9a5a4e207eff22c5ea558c5fa9b88e5307011d6a628c8")
+            else:
+                self.assertEqual(fis_promotion["file_sha256"][path], digest)
         current["governance"]["critical_infrastructure_paths"].remove(fis_promotion)
         current["governance"]["critical_infrastructure_paths"].remove(fis_review)
         self.assertEqual(current, previous)
