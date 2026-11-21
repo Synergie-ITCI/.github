@@ -11,10 +11,55 @@ from unittest.mock import patch
 sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "scripts/fieldzilla-production")
 )
-from issued_windows import verify_issued_windows, verify_pr798_inherited_migration
+from issued_windows import (
+    verify_issued_windows,
+    verify_pr798_inherited_migration,
+    verify_pr835_password_reset_migration,
+)
 
 
 class IssuedWindowTests(unittest.TestCase):
+    def test_pr835_requires_exact_migration_bytes_and_sql_review(self):
+        from issued_windows import PR835_BASE, PR835_FILES, PR835_SOURCE
+
+        manifest = {
+            "scope": "production", "promotion_pr": 835,
+            "application": {"source_sha": PR835_SOURCE}, "base_sha": PR835_BASE,
+            "review_authorizations": {"sql": "reviewed-sql-id"},
+            "database": {
+                "name": "fieldzilla_production", "role": "pmp_fieldzilla_prod_migrator",
+                "before": ["20260909_0041", "20261117_0077"],
+                "after": ["20260909_0041", "20261121_0078"],
+            },
+        }
+        content = b"reviewed migration bytes"
+
+        def api(path):
+            if "/contents/" in path:
+                return {"type": "file", "encoding": "base64",
+                        "content": base64.b64encode(content).decode()}
+            if "/pulls/835/files?" in path:
+                return [{"filename": name} for name in sorted(PR835_FILES)]
+            raise AssertionError(path)
+
+        with patch(
+            "issued_windows.PR835_MIGRATION_SHA256", hashlib.sha256(content).hexdigest()
+        ):
+            verify_pr835_password_reset_migration(manifest, api=api)
+            changed = copy.deepcopy(manifest)
+            changed["database"]["after"] = ["20260909_0041", "20261117_0077"]
+            with self.assertRaisesRegex(ValueError, "binding differs"):
+                verify_pr835_password_reset_migration(changed, api=api)
+            with self.assertRaisesRegex(ValueError, "bytes differ"):
+                verify_pr835_password_reset_migration(
+                    manifest,
+                    api=lambda path: (
+                        {"type": "file", "encoding": "base64",
+                         "content": base64.b64encode(b"changed").decode()}
+                        if "/contents/" in path else api(path)
+                    ),
+                )
+
     def test_pr814_sql_free_binding_keeps_current_database(self):
         from issued_windows import (
             SQL_FREE_PR814_BASE, SQL_FREE_PR814_SOURCE,

@@ -191,5 +191,22 @@
     "delete_fingerprints": [],
     "approved_reviewer": {"login": "SaurabhVermaIN", "id": 52234089},
     "purpose": "Review unchanged additive production bridge 0077 inherited by PR #798 from the exact reviewed PR #794 merge. No DELETE statement is present in the migration file; downgrade is data-guarded. Bind 0041+0076 to 0041+0077 without transferring staging data."
+  },
+  {
+    "repository": "Synergie-ITCI/programme-management-platform",
+    "repository_id": 1315697868,
+    "pr_number": 835,
+    "head_ref": "promote/password-reset-migration-owner-path",
+    "base_ref": "main",
+    "expected_head_sha": "54069e56d92bfc4546d924c7963e23db4a24e439",
+    "expected_base_sha": "d63120d3a4664b163e5871aaf40eab6ad361af40",
+    "issued_at": "2026-11-21T11:01:50Z",
+    "authorization_id": "4106f52d-5097-48a8-842d-fa521b3ac0d6",
+    "expires_at": "2026-11-22T10:01:50Z",
+    "migration_path": "apps/api/alembic/versions/20261121_0078_password_reset_tenant_lookup_rls.py",
+    "migration_sha256": "e2e6991cc2f2807942b8e37d9d0f2ae65087f084f3694805426dfdb66b88cf35",
+    "delete_fingerprints": [],
+    "approved_reviewer": {"login": "SaurabhVermaIN", "id": 52234089},
+    "purpose": "Review exact PR #835 migration 0078 from production 0041+0077 to 0041+0078. The restricted NOLOGIN lookup role and narrow active-membership RLS policy require separately governed owner preparation and temporary grant-option cleanup. No DELETE statement or application-data write occurs in this migration."
   }
 ]
