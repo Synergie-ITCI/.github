@@ -312,6 +312,19 @@ class FieldzillaImportSizeTests(unittest.TestCase):
             path for path in fis_review["file_sha256"]
             if path.startswith("deploy/") or path.startswith(".github/workflows/")
         })
+        fis_promotion = next(
+            row for row in current["governance"]["critical_infrastructure_paths"]
+            if row.get("repository") == "Synergie-ITCI/fis.synergielms.com"
+            and row.get("pr_number") == 30
+        )
+        self.assertEqual(fis_promotion["expected_base_sha"], "27204807a0f92ee0f2f56f0d3f769b603c75abf8")
+        self.assertEqual(fis_promotion["expected_head_sha"], "1888e73a4a5389d8014d6811e88e86f7cbde43ec")
+        self.assertEqual(len(fis_promotion["file_sha256"]), 47)
+        self.assertEqual(fis_promotion["paths"], fis_review["paths"])
+        self.assertEqual(fis_promotion["required_controls"], fis_review["required_controls"])
+        for path, digest in fis_review["file_sha256"].items():
+            self.assertEqual(fis_promotion["file_sha256"][path], digest)
+        current["governance"]["critical_infrastructure_paths"].remove(fis_promotion)
         current["governance"]["critical_infrastructure_paths"].remove(fis_review)
         self.assertEqual(current, previous)
 
