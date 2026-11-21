@@ -2277,6 +2277,27 @@
       "relaxations": [
         "diff_size"
       ]
+    },
+    {
+      "enabled": true,
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "repository_id": 1315697868,
+      "pr_number": 841,
+      "expected_head_sha": "42730e5659959ba708fcfea4d37c80edde71fc9f",
+      "expected_base_sha": "8646fe3583dfdd4985ec6e13fbb5c01fa7bdfb4d",
+      "head_ref": "promote/pr840-household-sync",
+      "base_ref": "main",
+      "allowed_effective_additions": 7406,
+      "allowed_changed_files": 65,
+      "minimum_changed_files": 65,
+      "purpose": "One-time exact-head review of PR #841 promoting the complete PR #840 offline household workflow, Sync Centre and shared validation from staging. Relax only the 5000-addition diff-size threshold for the reviewed 65-file patch; all architecture, dependency, security, tests, review and deployment gates remain required.",
+      "issued_at": "2026-11-21T18:29:39Z",
+      "expires_after": "2026-11-22T17:29:39Z",
+      "authorization_id": "0c6cf576-19b5-4fab-aace-7d52c7ddaee1",
+      "required_pr_body_marker": "FIELDZILLA-PR841-EXACT-SIZE-42730E5",
+      "relaxations": [
+        "diff_size"
+      ]
     }
   ]
 }
