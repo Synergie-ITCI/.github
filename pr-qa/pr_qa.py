@@ -3360,14 +3360,22 @@ def governed_critical_infrastructure_authorization(ctx: PRContext, rel: str) -> 
         if str(item.get("repository") or "") != repository:
             continue
         expected_head = item.get("expected_head_sha")
-        if expected_head:
+        staging_ancestor = item.get("protected_staging_ancestor_sha")
+        if expected_head or staging_ancestor:
             pull_request = ctx.event.get("pull_request", {}) or {}
             head = str((pull_request.get("head", {}) or {}).get("sha", ""))
             base = str((pull_request.get("base", {}) or {}).get("sha", ""))
-            if (head != expected_head
-                    or base != item.get("expected_base_sha")
-                    or run_git(ctx.repo, ["rev-parse", "HEAD"]).strip() != expected_head
+            if (base != item.get("expected_base_sha")
+                    or run_git(ctx.repo, ["rev-parse", "HEAD"]).strip() != head
                     or extract_pr_number(ctx.event) != item.get("pr_number")):
+                continue
+            if expected_head:
+                if head != expected_head or staging_ancestor:
+                    continue
+            elif (not re.fullmatch(r"[0-9a-f]{40}", str(staging_ancestor))
+                  or ctx.head_ref != "staging" or ctx.base_ref != "main"
+                  or resolve_fresh_origin_staging_tip(ctx.repo) != head
+                  or not commit_is_ancestor(ctx.repo, str(staging_ancestor), head)):
                 continue
             expected_files = item.get("file_sha256", {})
             if set(ctx.changed_files) != set(expected_files):

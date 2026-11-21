@@ -61,6 +61,43 @@ class PrQaRegressionTests(unittest.TestCase):
                 (repo / path).write_text("modified\n")
                 self.assertIsNone(engine.governed_critical_infrastructure_authorization(ctx, path))
 
+    def test_protected_staging_critical_authorization_requires_ancestry_tip_and_bytes(self):
+        engine = load_engine_module()
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            path = "deploy/ssm-fis-gate-d-production.sh"
+            (repo / "deploy").mkdir()
+            (repo / path).write_text("reviewed\n")
+            digest = hashlib.sha256((repo / path).read_bytes()).hexdigest()
+            item = {
+                "repository": "Synergie-ITCI/fis.synergielms.com", "pr_number": 30,
+                "protected_staging_ancestor_sha": "a" * 40, "expected_base_sha": "b" * 40,
+                "paths": [path], "file_sha256": {path: digest},
+            }
+            event = {"repository": {"full_name": item["repository"]},
+                     "pull_request": {"number": 30, "head": {"sha": "c" * 40, "ref": "staging"},
+                                      "base": {"sha": "b" * 40, "ref": "main"}}}
+            ctx = engine.PRContext(repo=repo, config={},
+                                   policy={"governance": {"critical_infrastructure_paths": [item]}},
+                                   changed_files=[path], event=event,
+                                   head_ref="staging", base_ref="main")
+            with (mock.patch.object(engine, "run_git", return_value="c" * 40),
+                  mock.patch.object(engine, "resolve_fresh_origin_staging_tip", return_value="c" * 40),
+                  mock.patch.object(engine, "commit_is_ancestor", return_value=True)):
+                self.assertIs(engine.governed_critical_infrastructure_authorization(ctx, path), item)
+                (repo / path).write_text("modified\n")
+                self.assertIsNone(engine.governed_critical_infrastructure_authorization(ctx, path))
+                (repo / path).write_text("reviewed\n")
+                with mock.patch.object(engine, "commit_is_ancestor", return_value=False):
+                    self.assertIsNone(engine.governed_critical_infrastructure_authorization(ctx, path))
+                with mock.patch.object(engine, "resolve_fresh_origin_staging_tip", return_value="d" * 40):
+                    self.assertIsNone(engine.governed_critical_infrastructure_authorization(ctx, path))
+                ctx.head_ref = "feature"
+                self.assertIsNone(engine.governed_critical_infrastructure_authorization(ctx, path))
+                ctx.head_ref = "staging"
+                event["pull_request"]["number"] = 31
+                self.assertIsNone(engine.governed_critical_infrastructure_authorization(ctx, path))
+
     def test_secret_markdown_count_reconciles_with_complete_json(self):
         engine = load_engine_module()
         inherited = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())[
