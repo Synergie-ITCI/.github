@@ -49,6 +49,12 @@ def manifest():
 
 
 class PlanTests(unittest.TestCase):
+    def test_pr841_sql_free_task_cannot_run_a_migration(self):
+        inputs = manifest()
+        inputs["source_sha"] = module.PR841_SOURCE_SHA
+        migration = render(inputs)["task_definitions"][2]["containerDefinitions"][0]
+        self.assertEqual(migration["command"], ["alembic", "current"])
+
     def test_pr835_uses_only_reviewed_password_reset_migration(self):
         inputs = manifest()
         inputs["source_sha"] = module.PR835_SOURCE_SHA
