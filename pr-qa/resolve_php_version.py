@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -41,14 +42,15 @@ def explicit_php_versions(repo: Path) -> set[str]:
 
 
 def find_composer_metadata(repo: Path) -> list[Path]:
-    metadata = []
-    for name in ("composer.lock", "composer.json"):
-        for path in repo.rglob(name):
-            rel_parts = path.relative_to(repo).parts
-            if any(part in {"vendor", "node_modules", ".pr-qa-framework"} for part in rel_parts):
-                continue
-            metadata.append(path)
-    return metadata
+    locks: list[Path] = []
+    manifests: list[Path] = []
+    for root, dirs, files in os.walk(repo, followlinks=False):
+        dirs[:] = [name for name in dirs if name not in {"vendor", "node_modules", ".pr-qa-framework"}]
+        if "composer.lock" in files:
+            locks.append(Path(root) / "composer.lock")
+        if "composer.json" in files:
+            manifests.append(Path(root) / "composer.json")
+    return locks + manifests
 
 
 def php_requirements(data: dict[str, Any], filename: str) -> list[str]:

@@ -2,16 +2,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .base import CheckResult, PRContext, TechnologyAdapter, command_exists, command_result, failed, find_files, find_named_files, warning
+from .base import RepositoryFileInventory, CheckResult, PRContext, TechnologyAdapter, command_exists, command_result, failed, find_files, find_named_files, warning
 
 
 class SwiftAdapter(TechnologyAdapter):
     key = "swift"
     name = "Swift"
 
-    def detect(self, repo: Path) -> list[Path]:
-        roots = [path.parent for path in find_named_files(repo, {"Package.swift"})]
-        roots.extend(path.parent for path in find_files(repo, ["*.xcodeproj/project.pbxproj", "*.xcworkspace/contents.xcworkspacedata"]))
+    def detect(self, repo: Path, inventory: RepositoryFileInventory | None = None) -> list[Path]:
+        roots = [path.parent for path in find_named_files(repo, {"Package.swift"}, inventory)]
+        roots.extend(path.parent for path in find_files(repo, ["*.xcodeproj/project.pbxproj", "*.xcworkspace/contents.xcworkspacedata"], inventory))
         return sorted(set(roots))
 
     def format(self, ctx: PRContext, roots: list[Path]) -> list[CheckResult]:

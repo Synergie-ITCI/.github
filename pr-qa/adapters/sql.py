@@ -3,15 +3,15 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .base import CheckResult, PRContext, TechnologyAdapter, failed, find_files, passed, read_text, warning
+from .base import RepositoryFileInventory, CheckResult, PRContext, TechnologyAdapter, failed, find_files, passed, read_text, warning
 
 
 class SqlAdapter(TechnologyAdapter):
     key = "sql"
     name = "SQL/PostgreSQL"
 
-    def detect(self, repo: Path) -> list[Path]:
-        files = find_files(repo, ["*.sql", "**/*.sql"])
+    def detect(self, repo: Path, inventory: RepositoryFileInventory | None = None) -> list[Path]:
+        files = find_files(repo, ["*.sql", "**/*.sql"], inventory)
         return sorted({path.parent for path in files})
 
     def format(self, ctx: PRContext, roots: list[Path]) -> list[CheckResult]:

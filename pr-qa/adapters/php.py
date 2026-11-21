@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from .base import (
+    RepositoryFileInventory,
     FAIL,
     WARNING,
     CheckResult,
@@ -12,6 +14,7 @@ from .base import (
     command_result,
     failed,
     find_named_files,
+    find_files,
     passed,
     read_json,
     restricted_license_hit,
@@ -23,9 +26,12 @@ class PhpAdapter(TechnologyAdapter):
     key = "php"
     name = "PHP/Laravel"
 
-    def detect(self, repo: Path) -> list[Path]:
-        roots = [path.parent for path in find_named_files(repo, {"composer.json"})]
-        if not roots and any(repo.rglob("*.php")):
+    def detect(self, repo: Path, inventory: RepositoryFileInventory | None = None) -> list[Path]:
+        roots = [path.parent for path in find_named_files(repo, {"composer.json"}, inventory)]
+        # Preserve the legacy marker-free fallback, including PHP files under
+        # excluded directories. Its scan runs only when no composer root exists.
+        if not roots and any(name.endswith(".php") for _, dirs, files in os.walk(repo, followlinks=False)
+                             for name in dirs + files):
             roots = [repo]
         return sorted(set(roots))
 

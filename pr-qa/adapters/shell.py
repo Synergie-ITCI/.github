@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .base import CheckResult, PRContext, TechnologyAdapter, command_exists, failed, find_files, passed, warning
+from .base import RepositoryFileInventory, CheckResult, PRContext, TechnologyAdapter, command_exists, failed, find_files, passed, warning
 
 
 class ShellAdapter(TechnologyAdapter):
     key = "shell"
     name = "Shell"
 
-    def detect(self, repo: Path) -> list[Path]:
-        files = find_files(repo, ["*.sh", "*.bash"])
+    def detect(self, repo: Path, inventory: RepositoryFileInventory | None = None) -> list[Path]:
+        files = find_files(repo, ["*.sh", "*.bash"], inventory)
         return sorted({path.parent for path in files})
 
     def format(self, ctx: PRContext, roots: list[Path]) -> list[CheckResult]:

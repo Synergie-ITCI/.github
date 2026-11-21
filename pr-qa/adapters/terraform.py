@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .base import CheckResult, PRContext, TechnologyAdapter, command_exists, command_result, failed, find_files, warning
+from .base import RepositoryFileInventory, CheckResult, PRContext, TechnologyAdapter, command_exists, command_result, failed, find_files, warning
 
 
 class TerraformAdapter(TechnologyAdapter):
     key = "terraform"
     name = "Terraform/OpenTofu"
 
-    def detect(self, repo: Path) -> list[Path]:
-        return sorted(set(path.parent for path in find_files(repo, ["*.tf"])))
+    def detect(self, repo: Path, inventory: RepositoryFileInventory | None = None) -> list[Path]:
+        return sorted(set(path.parent for path in find_files(repo, ["*.tf"], inventory)))
 
     def format(self, ctx: PRContext, roots: list[Path]) -> list[CheckResult]:
         cli = self._cli()

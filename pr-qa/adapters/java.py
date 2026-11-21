@@ -2,16 +2,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .base import CheckResult, PRContext, TechnologyAdapter, command_exists, command_result, failed, find_named_files, read_text, warning
+from .base import RepositoryFileInventory, CheckResult, PRContext, TechnologyAdapter, command_exists, command_result, failed, find_named_files, read_text, warning
 
 
 class JavaAdapter(TechnologyAdapter):
     key = "java"
     name = "Java/Maven"
 
-    def detect(self, repo: Path) -> list[Path]:
+    def detect(self, repo: Path, inventory: RepositoryFileInventory | None = None) -> list[Path]:
         roots = []
-        for pom in find_named_files(repo, {"pom.xml"}):
+        for pom in find_named_files(repo, {"pom.xml"}, inventory):
             if not (pom.parent / "build.gradle").exists() and not (pom.parent / "build.gradle.kts").exists():
                 roots.append(pom.parent)
         return sorted(set(roots))

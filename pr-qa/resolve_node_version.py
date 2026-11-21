@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -49,17 +50,16 @@ def resolve_version_file(repo: Path) -> str:
 
 def explicit_engine_majors(repo: Path) -> set[int]:
     majors: set[int] = set()
-    for package_json in repo.rglob("package.json"):
-        rel_parts = package_json.relative_to(repo).parts
-        if any(part in {"node_modules", "vendor", ".pr-qa-framework"} for part in rel_parts):
-            continue
-        package = read_json(package_json)
-        engines = package.get("engines", {}) if isinstance(package, dict) else {}
-        node_range = str(engines.get("node", "") if isinstance(engines, dict) else "")
-        for major in re.findall(r"(?<![0-9])(?:v)?([0-9]{2})(?:\.[0-9x*]+)?", node_range):
-            parsed = int(major)
-            if ALLOWED_MAJOR_MIN <= parsed <= ALLOWED_MAJOR_MAX:
-                majors.add(parsed)
+    for root, dirs, files in os.walk(repo, followlinks=False):
+        dirs[:] = [name for name in dirs if name not in {"node_modules", "vendor", ".pr-qa-framework"}]
+        if "package.json" in files:
+            package = read_json(Path(root) / "package.json")
+            engines = package.get("engines", {}) if isinstance(package, dict) else {}
+            node_range = str(engines.get("node", "") if isinstance(engines, dict) else "")
+            for major in re.findall(r"(?<![0-9])(?:v)?([0-9]{2})(?:\.[0-9x*]+)?", node_range):
+                parsed = int(major)
+                if ALLOWED_MAJOR_MIN <= parsed <= ALLOWED_MAJOR_MAX:
+                    majors.add(parsed)
     return majors
 
 
