@@ -380,3 +380,60 @@ class BaselineLiveBindingTests(unittest.TestCase):
         self.assertEqual(
             self.ctx.policy["defaults"]["thresholds"]["max_changed_files"], 200
         )
+
+    def test_exact_pr841_post_merge_release_rerun_preserves_size_review(self):
+        source = "42730e5659959ba708fcfea4d37c80edde71fc9f"
+        base = "8646fe3583dfdd4985ec6e13fbb5c01fa7bdfb4d"
+        self.policy.update(
+            repository="Synergie-ITCI/programme-management-platform",
+            pr_number=841,
+            authorization_id="0c6cf576-19b5-4fab-aace-7d52c7ddaee1",
+            expected_head_sha=source,
+            expected_base_sha=base,
+            head_ref="promote/pr840-household-sync",
+            base_ref="main",
+            allowed_effective_additions=7406,
+            allowed_changed_files=65,
+            minimum_changed_files=65,
+        )
+        self.ctx.head_ref = self.live["head"]["ref"] = self.policy["head_ref"]
+        self.ctx.base_ref = self.live["base"]["ref"] = "main"
+        self.ctx.changed_files = [f"file-{index}" for index in range(65)]
+        self.size["effective_additions"] = 7406
+        self.ctx.event["repository"]["full_name"] = self.policy["repository"]
+        self.ctx.event["pull_request"]["number"] = 841
+        self.gc.update(head_sha=source, base_sha=base)
+        self.live.update(
+            number=841,
+            state="closed",
+            merged=True,
+            merge_commit_sha="e9e8690e0d212c576c4b34cabaa7abbeb11a9986",
+            merged_at=self.now.isoformat(),
+        )
+        self.live["head"]["sha"] = source
+        self.live["base"]["sha"] = base
+        for side in ("head", "base"):
+            self.live[side]["repo"].update(id=1315697868, full_name=self.policy["repository"])
+        self.env.update(
+            GITHUB_REPOSITORY=self.policy["repository"],
+            GITHUB_REPOSITORY_ID="1315697868",
+            GITHUB_REF="refs/pull/841/merge",
+            GITHUB_RUN_ID="44936685431",
+            GITHUB_RUN_ATTEMPT="3",
+        )
+        os.environ.update(self.env)
+        self.git.return_value = subprocess.CompletedProcess([], 0, source + "\n", "")
+        with mock.patch.object(binding, "read_live_main_sha", return_value="f" * 40), \
+             mock.patch.object(binding, "read_live_ancestry", return_value=True) as ancestry:
+            self.assertEqual(self.validate(), [])
+            ancestry.assert_called_once_with(
+                self.policy["repository"],
+                "daace8f2312cd77046147aff57911d48de3dd14f",
+                "f" * 40,
+                "fixture",
+            )
+        with mock.patch.object(binding, "read_live_main_sha", return_value="f" * 40), \
+             mock.patch.object(binding, "read_live_ancestry", return_value=False):
+            self.assertTrue(self.validate())
+        os.environ["GITHUB_RUN_ID"] = "1"
+        self.assertTrue(self.validate())
