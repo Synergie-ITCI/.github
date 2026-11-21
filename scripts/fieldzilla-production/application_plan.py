@@ -30,6 +30,7 @@ PR811_SOURCE_SHA = "410badf52529ace7a7e05295f012c8ff6b50be3a"
 PR814_SOURCE_SHA = "6b2b91e65452a705ae856678dfda1441f8377c6e"
 PR816_SOURCE_SHA = "d0760117e67cdff1c9b7aa9de7920533da4a35eb"
 PR819_SOURCE_SHA = "59e520f20481ed2cc192d1c9a0ba569d480a5e90"
+PR835_SOURCE_SHA = "54069e56d92bfc4546d924c7963e23db4a24e439"
 ROLE = re.compile(
     rf"arn:aws:iam::{ACCOUNT}:role/[A-Za-z0-9_+=,.@/-]*[Pp]roduction[A-Za-z0-9_+=,.@/-]*"
 )
@@ -163,6 +164,8 @@ def render(manifest: dict, *, scope: str = "production") -> dict:
             else:
                 if scope == "production" and sha in {PR802_SOURCE_SHA, PR804_SOURCE_SHA, PR806_SOURCE_SHA, PR808_SOURCE_SHA, PR811_SOURCE_SHA, PR814_SOURCE_SHA, PR816_SOURCE_SHA, PR819_SOURCE_SHA}:
                     container["command"] = ["alembic", "current"]
+                elif scope == "production" and sha == PR835_SOURCE_SHA:
+                    container["command"] = ["alembic", "upgrade", "20261121_0078"]
                 elif scope == "production" and sha == PR798_SOURCE_SHA:
                     container["command"] = ["alembic", "upgrade", "20261117_0077"]
                 elif scope == "production" and sha == PR791_SOURCE_SHA:
