@@ -1363,6 +1363,27 @@
   "one_time_baseline_alignments": [
     {
       "enabled": true,
+      "repository": "Synergie-ITCI/fis.synergielms.com",
+      "repository_id": 1037338034,
+      "pr_number": 30,
+      "expected_head_sha": "54f39fc0e294c23b6051d48241b88d6a5f8c05be",
+      "expected_base_sha": "27204807a0f92ee0f2f56f0d3f769b603c75abf8",
+      "head_ref": "staging",
+      "base_ref": "main",
+      "allowed_effective_additions": 13612,
+      "allowed_changed_files": 47,
+      "minimum_changed_files": 47,
+      "purpose": "One-time exact-head diff-size authorization for FIS PR #30, promoting the 47 SHA-256-pinned files already certified by central critical-infrastructure review. Only the diff-size threshold is relaxed; reviewers, all other QA, protected branches, backup, rollback, and production controls remain mandatory.",
+      "issued_at": "2026-11-21T07:52:05Z",
+      "expires_after": "2026-11-22T06:52:05Z",
+      "authorization_id": "c9acdbc1-a848-40d5-860e-e4766d320590",
+      "required_pr_body_marker": "FIS-PR30-EXACT-HEAD-SIZE-c9acdbc1",
+      "relaxations": [
+        "diff_size"
+      ]
+    },
+    {
+      "enabled": true,
       "repository": "Synergie-ITCI/scholarships",
       "repository_id": 1132519991,
       "pr_number": 70,

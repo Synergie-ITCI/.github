@@ -331,6 +331,12 @@ class FieldzillaImportSizeTests(unittest.TestCase):
                 self.assertEqual(fis_promotion["file_sha256"][path], digest)
         current["governance"]["critical_infrastructure_paths"].remove(fis_promotion)
         current["governance"]["critical_infrastructure_paths"].remove(fis_review)
+        fis_size = next(
+            row for row in current["one_time_baseline_alignments"]
+            if row.get("repository") == "Synergie-ITCI/fis.synergielms.com"
+            and row.get("pr_number") == 30
+        )
+        current["one_time_baseline_alignments"].remove(fis_size)
         self.assertEqual(current, previous)
 
         previous_sql = json.loads(subprocess.check_output(
