@@ -1,0 +1,386 @@
+framework: Synergie Production Application Backup Framework
+framework_version: "2026.08.09"
+defaults:
+  backup_bucket: synergie-production-app-backups-918870682888-ap-south-1
+  aws_region: ap-south-1
+  encryption: AES256
+  retention_class: daily-35d-noncurrent-35d-current-45d
+  schedule: "10 21 * * * UTC"
+monitoring:
+  default_sns_topic_arn: arn:aws:sns:ap-south-1:918870682888:synergie-monitor-platform-alerts
+applications:
+  - application_name: "Bayer"
+    slug: bayer
+    production_host: bayer.synergieinsights.in
+    environment: production
+    root: /var/www/bayer.synergieinsights.in/public_html
+    database:
+      engine: mariadb
+      name: bayer_db
+      credential_source: mysql_root_socket
+      database_secret_reference: "runtime file /var/www/bayer.synergieinsights.in/public_html/.env DB_* keys; backup job uses local MariaDB root socket"
+    persistent_paths:
+      - id: storage_app_public
+        path: /var/www/bayer.synergieinsights.in/public_html/storage/app/public
+    backup_bucket: synergie-production-app-backups-918870682888-ap-south-1
+    backup_prefix: applications/bayer
+    rpo_class: daily-standard-production
+    restore_test_class: isolated-temporary-mariadb-plus-persistent-sample
+    owner: "Central Synergie DevOps / Disaster Recovery"
+  - application_name: "Bridgestone"
+    slug: bridgestone
+    production_host: bridgestone.synergieinsights.in
+    environment: production
+    root: /var/www/bridgestone.synergieinsights.in/public_html
+    database:
+      engine: mariadb
+      name: bridgestone_db
+      credential_source: mysql_root_socket
+      database_secret_reference: "runtime file /var/www/bridgestone.synergieinsights.in/public_html/.env DB_* keys; backup job uses local MariaDB root socket"
+    persistent_paths:
+      - id: storage_app_public
+        path: /var/www/bridgestone.synergieinsights.in/public_html/storage/app/public
+      - id: public_uploads
+        path: /var/www/bridgestone.synergieinsights.in/public_html/public/uploads
+      - id: public_useruploads
+        path: /var/www/bridgestone.synergieinsights.in/public_html/public/useruploads
+    backup_bucket: synergie-production-app-backups-918870682888-ap-south-1
+    backup_prefix: applications/bridgestone
+    rpo_class: daily-standard-production
+    restore_test_class: isolated-temporary-mariadb-plus-persistent-sample
+    owner: "Central Synergie DevOps / Disaster Recovery"
+  - application_name: "Datamatics LMS"
+    slug: datamatics-lms
+    production_host: datamatics.synergielms.com
+    environment: production
+    root: /var/www/datamatics.synergielms.com/public_html
+    database:
+      engine: mariadb
+      name: datamatics_lms
+      credential_source: mysql_root_socket
+      database_secret_reference: "runtime file /var/www/datamatics.synergielms.com/public_html/.env DB_* keys; backup job uses local MariaDB root socket"
+    persistent_paths:
+      - id: storage_app_public
+        path: /var/www/datamatics.synergielms.com/public_html/storage/app/public
+    backup_bucket: synergie-production-app-backups-918870682888-ap-south-1
+    backup_prefix: applications/datamatics-lms
+    rpo_class: daily-standard-production
+    restore_test_class: isolated-temporary-mariadb-plus-persistent-sample
+    owner: "Central Synergie DevOps / Disaster Recovery"
+  - application_name: "Dhansamvaad"
+    slug: dhansamvaad
+    production_host: dhansamvaad.synergieinsights.in
+    environment: production
+    root: /var/www/dhansamvaad.synergieinsights.in/public_html
+    database:
+      engine: mariadb
+      name: dhansamvaad_db
+      credential_source: mysql_root_socket
+      database_secret_reference: "runtime file /var/www/dhansamvaad.synergieinsights.in/public_html/.env DB_* keys; backup job uses local MariaDB root socket"
+    persistent_paths:
+      - id: storage_app_audio
+        path: /var/www/dhansamvaad.synergieinsights.in/public_html/storage/app/audio
+      - id: storage_app_public
+        path: /var/www/dhansamvaad.synergieinsights.in/public_html/storage/app/public
+    backup_bucket: synergie-production-app-backups-918870682888-ap-south-1
+    backup_prefix: applications/dhansamvaad
+    rpo_class: daily-standard-production
+    restore_test_class: isolated-temporary-mariadb-plus-persistent-sample
+    owner: "Central Synergie DevOps / Disaster Recovery"
+  - application_name: "FIS LMS"
+    slug: fis-lms
+    production_host: fis.synergielms.com
+    environment: production
+    root: /var/www/fis.synergielms.com/public_html
+    database:
+      engine: mariadb
+      name: fis_db
+      credential_source: mysql_root_socket
+      database_secret_reference: "runtime file /var/www/fis.synergielms.com/public_html/.env DB_* keys; backup job uses local MariaDB root socket"
+    persistent_paths:
+      - id: storage_app_public
+        path: /var/www/fis.synergielms.com/public_html/storage/app/public
+    backup_bucket: synergie-production-app-backups-918870682888-ap-south-1
+    backup_prefix: applications/fis-lms
+    rpo_class: daily-standard-production
+    restore_test_class: isolated-temporary-mariadb-plus-persistent-sample
+    owner: "Central Synergie DevOps / Disaster Recovery"
+  - application_name: "ICICI R2S"
+    slug: icicir2s
+    production_host: icicir2s.synergieinsights.in
+    environment: production
+    root: /var/www/icicir2s.synergieinsights.in/public_html
+    database:
+      engine: mariadb
+      name: icicir2s_db
+      credential_source: mysql_root_socket
+      database_secret_reference: "runtime file /var/www/icicir2s.synergieinsights.in/public_html/.env DB_* keys; backup job uses local MariaDB root socket"
+    persistent_paths:
+      - id: storage_app_public
+        path: /var/www/icicir2s.synergieinsights.in/public_html/storage/app/public
+    backup_bucket: synergie-production-app-backups-918870682888-ap-south-1
+    backup_prefix: applications/icicir2s
+    rpo_class: daily-standard-production
+    restore_test_class: isolated-temporary-mariadb-plus-persistent-sample
+    owner: "Central Synergie DevOps / Disaster Recovery"
+  - application_name: "JioBP LMS"
+    slug: jiobp-lms
+    production_host: jiobp.synergielms.com
+    environment: production
+    root: /var/www/jiobp.synergielms.com/public_html
+    database:
+      engine: mariadb
+      name: jiobp_db
+      credential_source: mysql_root_socket
+      database_secret_reference: "runtime file /var/www/jiobp.synergielms.com/public_html/.env DB_* keys; backup job uses local MariaDB root socket"
+    persistent_paths:
+      []
+    backup_bucket: synergie-production-app-backups-918870682888-ap-south-1
+    backup_prefix: applications/jiobp-lms
+    rpo_class: daily-standard-production
+    restore_test_class: isolated-temporary-mariadb-plus-persistent-sample
+    owner: "Central Synergie DevOps / Disaster Recovery"
+  - application_name: "JioBP Cares"
+    slug: jiobpcares
+    production_host: jiobpcares.synergieinsights.in
+    environment: production
+    root: /var/www/jiobpcares.synergieinsights.in/public_html
+    database:
+      engine: mariadb
+      name: jiobpcares_db
+      credential_source: mysql_root_socket
+      database_secret_reference: "runtime file /var/www/jiobpcares.synergieinsights.in/public_html/.env DB_* keys; backup job uses local MariaDB root socket"
+    persistent_paths:
+      - id: storage_app_public
+        path: /var/www/jiobpcares.synergieinsights.in/public_html/storage/app/public
+      - id: public_uploads
+        path: /var/www/jiobpcares.synergieinsights.in/public_html/public/uploads
+      - id: public_useruploads
+        path: /var/www/jiobpcares.synergieinsights.in/public_html/public/useruploads
+    backup_bucket: synergie-production-app-backups-918870682888-ap-south-1
+    backup_prefix: applications/jiobpcares
+    rpo_class: daily-standard-production
+    restore_test_class: isolated-temporary-mariadb-plus-persistent-sample
+    owner: "Central Synergie DevOps / Disaster Recovery"
+  - application_name: "JioBP Transporter"
+    slug: jiobptransporter
+    production_host: jiobptransporter.synergieinsights.in
+    environment: production
+    root: /var/www/jiobptransporter.synergieinsights.in/public_html
+    database:
+      engine: mariadb
+      name: jiobptransporter_db
+      credential_source: mysql_root_socket
+      database_secret_reference: "runtime file /var/www/jiobptransporter.synergieinsights.in/public_html/.env DB_* keys; backup job uses local MariaDB root socket"
+    persistent_paths:
+      - id: storage_app_public
+        path: /var/www/jiobptransporter.synergieinsights.in/public_html/storage/app/public
+    backup_bucket: synergie-production-app-backups-918870682888-ap-south-1
+    backup_prefix: applications/jiobptransporter
+    rpo_class: daily-standard-production
+    restore_test_class: isolated-temporary-mariadb-plus-persistent-sample
+    owner: "Central Synergie DevOps / Disaster Recovery"
+  - application_name: "Mobile Kids"
+    slug: mobilekids
+    production_host: mobilekids.synergieinsights.in
+    environment: production
+    root: /var/www/mobilekids.synergieinsights.in/public_html
+    database:
+      engine: mariadb
+      name: mobilekids_db
+      credential_source: mysql_root_socket
+      database_secret_reference: "runtime file /var/www/mobilekids.synergieinsights.in/public_html/.env DB_* keys; backup job uses local MariaDB root socket"
+    persistent_paths:
+      - id: storage_app_public
+        path: /var/www/mobilekids.synergieinsights.in/public_html/storage/app/public
+      - id: storage_app_uploads
+        path: /var/www/mobilekids.synergieinsights.in/public_html/storage/app/uploads
+    backup_bucket: synergie-production-app-backups-918870682888-ap-south-1
+    backup_prefix: applications/mobilekids
+    rpo_class: daily-standard-production
+    restore_test_class: isolated-temporary-mariadb-plus-persistent-sample
+    owner: "Central Synergie DevOps / Disaster Recovery"
+  - application_name: "Project Demo LMS"
+    slug: projectdemo-lms
+    production_host: projectdemo.synergielms.com
+    environment: production
+    root: /var/www/projectdemo.synergielms.com/public_html
+    database:
+      engine: mariadb
+      name: projectdemo_db
+      credential_source: mysql_root_socket
+      database_secret_reference: "runtime file /var/www/projectdemo.synergielms.com/public_html/.env DB_* keys; backup job uses local MariaDB root socket"
+    persistent_paths:
+      - id: storage_app_protected
+        path: /var/www/projectdemo.synergielms.com/public_html/storage/app/protected
+      - id: storage_app_public
+        path: /var/www/projectdemo.synergielms.com/public_html/storage/app/public
+    backup_bucket: synergie-production-app-backups-918870682888-ap-south-1
+    backup_prefix: applications/projectdemo-lms
+    rpo_class: daily-standard-production
+    restore_test_class: isolated-temporary-mariadb-plus-persistent-sample
+    owner: "Central Synergie DevOps / Disaster Recovery"
+  - application_name: "Sankalp Training LMS"
+    slug: sankalptraining-lms
+    production_host: sankalptraining.synergielms.com
+    environment: production
+    root: /var/www/sankalptraining.synergielms.com/public_html
+    database:
+      engine: mariadb
+      name: sankalptraining_db
+      credential_source: mysql_root_socket
+      database_secret_reference: "runtime file /var/www/sankalptraining.synergielms.com/public_html/.env DB_* keys; backup job uses local MariaDB root socket"
+    persistent_paths:
+      - id: storage_app_public
+        path: /var/www/sankalptraining.synergielms.com/public_html/storage/app/public
+    backup_bucket: synergie-production-app-backups-918870682888-ap-south-1
+    backup_prefix: applications/sankalptraining-lms
+    rpo_class: daily-standard-production
+    restore_test_class: isolated-temporary-mariadb-plus-persistent-sample
+    owner: "Central Synergie DevOps / Disaster Recovery"
+  - application_name: "Share A Smile"
+    slug: shareasmile
+    production_host: shareasmile.wearesynergie.com
+    environment: production
+    root: /var/www/shareasmile.wearesynergie.com/public_html
+    database:
+      engine: mariadb
+      name: shareasmile_db
+      credential_source: mysql_root_socket
+      database_secret_reference: "runtime file /var/www/shareasmile.wearesynergie.com/public_html/admin/.env DB_* keys; backup job uses local MariaDB root socket"
+    persistent_paths:
+      - id: admin_storage_app_public
+        path: /var/www/shareasmile.wearesynergie.com/public_html/admin/storage/app/public
+      - id: admin_public_uploads
+        path: /var/www/shareasmile.wearesynergie.com/public_html/admin/public/uploads
+        optional: true
+    backup_bucket: synergie-production-app-backups-918870682888-ap-south-1
+    backup_prefix: applications/shareasmile
+    rpo_class: daily-standard-production
+    restore_test_class: isolated-temporary-mariadb-plus-persistent-sample
+    owner: "Central Synergie DevOps / Disaster Recovery"
+  - application_name: "SyncSR"
+    slug: syncsr
+    production_host: syncsr.in
+    environment: production
+    root: /var/www/syncsr.in/public_html
+    database:
+      engine: mariadb
+      name: shorturl_db
+      credential_source: mysql_root_socket
+      database_secret_reference: "runtime file /var/www/syncsr.in/public_html/.env DB_* keys; backup job uses local MariaDB root socket"
+    persistent_paths:
+      - id: storage_app_public
+        path: /var/www/syncsr.in/public_html/storage/app/public
+    backup_bucket: synergie-production-app-backups-918870682888-ap-south-1
+    backup_prefix: applications/syncsr
+    rpo_class: daily-standard-production
+    restore_test_class: isolated-temporary-mariadb-plus-persistent-sample
+    owner: "Central Synergie DevOps / Disaster Recovery"
+  - application_name: "Synergie Hub"
+    slug: synergie-hub
+    production_host: hub.synergieinsights.in
+    environment: production
+    root: /var/www/synergie-hub/public
+    database:
+      engine: mariadb
+      name: synergie_hub
+      credential_source: mysql_root_socket
+      database_secret_reference: "runtime file /var/www/synergie-hub/shared/.env DB_* keys and Secrets Manager partial coverage; backup job uses local MariaDB root socket"
+    persistent_paths:
+      []
+    backup_bucket: synergie-production-app-backups-918870682888-ap-south-1
+    backup_prefix: applications/synergie-hub
+    rpo_class: daily-standard-production
+    restore_test_class: isolated-temporary-mariadb-plus-persistent-sample
+    owner: "Central Synergie DevOps / Disaster Recovery"
+  - application_name: "Synergie LMS Root"
+    slug: synergielms-root
+    production_host: synergielms.com
+    environment: production
+    root: /var/www/synergielms.com/public_html
+    database:
+      engine: mariadb
+      name: lms_db
+      credential_source: mysql_root_socket
+      database_secret_reference: "runtime file /var/www/synergielms.com/public_html/LMS/.env DB_* keys; backup job uses local MariaDB root socket"
+    persistent_paths:
+      - id: lms_storage_app_public
+        path: /var/www/synergielms.com/public_html/LMS/storage/app/public
+    backup_bucket: synergie-production-app-backups-918870682888-ap-south-1
+    backup_prefix: applications/synergielms-root
+    rpo_class: daily-standard-production
+    restore_test_class: isolated-temporary-mariadb-plus-persistent-sample
+    owner: "Central Synergie DevOps / Disaster Recovery"
+  - application_name: "Telemedicine"
+    slug: telemedicine
+    production_host: telemedicine.synergieinsights.in
+    environment: production
+    root: /var/www/telemedicine.synergieinsights.in/public_html
+    database:
+      engine: mariadb
+      name: telemedicine_db
+      credential_source: mysql_root_socket
+      database_secret_reference: "runtime file /var/www/telemedicine.synergieinsights.in/public_html/.env DB_* keys; backup job uses local MariaDB root socket"
+    persistent_paths:
+      - id: storage_app_public
+        path: /var/www/telemedicine.synergieinsights.in/public_html/storage/app/public
+    backup_bucket: synergie-production-app-backups-918870682888-ap-south-1
+    backup_prefix: applications/telemedicine
+    rpo_class: daily-standard-production
+    restore_test_class: isolated-temporary-mariadb-plus-persistent-sample
+    owner: "Central Synergie DevOps / Disaster Recovery"
+  - application_name: "Timesheet LMS"
+    slug: timesheet-lms
+    production_host: timesheet.synergielms.com
+    environment: production
+    root: /var/www/timesheet.synergielms.com/public_html
+    database:
+      engine: mariadb
+      name: timesheet_db
+      credential_source: mysql_root_socket
+      database_secret_reference: "runtime file /var/www/timesheet.synergielms.com/public_html/.env DB_* keys; backup job uses local MariaDB root socket"
+    persistent_paths:
+      - id: storage_app_public
+        path: /var/www/timesheet.synergielms.com/public_html/storage/app/public
+    backup_bucket: synergie-production-app-backups-918870682888-ap-south-1
+    backup_prefix: applications/timesheet-lms
+    rpo_class: daily-standard-production
+    restore_test_class: isolated-temporary-mariadb-plus-persistent-sample
+    owner: "Central Synergie DevOps / Disaster Recovery"
+  - application_name: "We Are Synergie"
+    slug: wearesynergie
+    production_host: wearesynergie.com
+    environment: production
+    root: /var/www/wearesynergie.com/public_html
+    database:
+      engine: mariadb
+      name: wearesynergie_website
+      credential_source: mysql_root_socket
+      database_secret_reference: "runtime file /var/www/wearesynergie.com/public_html/wp-config.php DB_* defines; backup job uses local MariaDB root socket"
+    persistent_paths:
+      - id: wp_content_uploads
+        path: /var/www/wearesynergie.com/public_html/wp-content/uploads
+    backup_bucket: synergie-production-app-backups-918870682888-ap-south-1
+    backup_prefix: applications/wearesynergie
+    rpo_class: daily-standard-production
+    restore_test_class: isolated-temporary-mariadb-plus-persistent-sample
+    owner: "Central Synergie DevOps / Disaster Recovery"
+  - application_name: "We Are Synergie Insights"
+    slug: wearesynergie-insights
+    production_host: wearesynergie.synergieinsights.in
+    environment: production
+    root: /var/www/wearesynergie.synergieinsights.in/public_html
+    database:
+      engine: mariadb
+      name: wearesynergie_db
+      credential_source: mysql_root_socket
+      database_secret_reference: "runtime file /var/www/wearesynergie.synergieinsights.in/public_html/wp-config.php DB_* defines; backup job uses local MariaDB root socket"
+    persistent_paths:
+      - id: wp_content_uploads
+        path: /var/www/wearesynergie.synergieinsights.in/public_html/wp-content/uploads
+    backup_bucket: synergie-production-app-backups-918870682888-ap-south-1
+    backup_prefix: applications/wearesynergie-insights
+    rpo_class: daily-standard-production
+    restore_test_class: isolated-temporary-mariadb-plus-persistent-sample
+    owner: "Central Synergie DevOps / Disaster Recovery"
