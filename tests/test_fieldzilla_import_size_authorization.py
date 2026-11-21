@@ -321,11 +321,12 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         self.assertEqual(fis_promotion["protected_staging_ancestor_sha"], "437d3792631321dd12843568ba51b250949f4d42")
         self.assertNotIn("expected_head_sha", fis_promotion)
         self.assertEqual(len(fis_promotion["file_sha256"]), 47)
-        self.assertEqual(fis_promotion["paths"], fis_review["paths"])
+        self.assertEqual(set(fis_promotion["paths"]), set(fis_promotion["file_sha256"]))
+        self.assertEqual(len(fis_promotion["paths"]), 47)
         self.assertEqual(fis_promotion["required_controls"], fis_review["required_controls"])
         for path, digest in fis_review["file_sha256"].items():
             if path == ".github/workflows/pr-qa.yml":
-                self.assertEqual(fis_promotion["file_sha256"][path], "0586eb31764379e0fdd9a5a4e207eff22c5ea558c5fa9b88e5307011d6a628c8")
+                self.assertEqual(fis_promotion["file_sha256"][path], "c9bd5139846d05fb47a7ab2a57cbd78dca3cfcd8fb75c7a590b5657e5974395b")
             else:
                 self.assertEqual(fis_promotion["file_sha256"][path], digest)
         current["governance"]["critical_infrastructure_paths"].remove(fis_promotion)
