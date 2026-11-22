@@ -19,6 +19,32 @@ from issued_windows import (
 
 
 class IssuedWindowTests(unittest.TestCase):
+    def test_pr844_sql_free_binding_keeps_current_database(self):
+        from issued_windows import (
+            SQL_FREE_PR844_BASE, SQL_FREE_PR844_SOURCE,
+            SQL_FREE_PR841_REVISIONS, is_sql_free_update,
+        )
+
+        manifest = {
+            "scope": "production", "operation": "rollout", "promotion_pr": 844,
+            "base_sha": SQL_FREE_PR844_BASE,
+            "application": {"source_sha": SQL_FREE_PR844_SOURCE},
+            "review_authorizations": {"sql": None},
+            "database": {
+                "name": "fieldzilla_production", "role": "pmp_fieldzilla_prod_migrator",
+                "before": SQL_FREE_PR841_REVISIONS,
+                "after": SQL_FREE_PR841_REVISIONS,
+            },
+        }
+        self.assertTrue(is_sql_free_update(manifest))
+        for field, replacement in (("promotion_pr", 845), ("base_sha", "0" * 40)):
+            changed = copy.deepcopy(manifest)
+            changed[field] = replacement
+            self.assertFalse(is_sql_free_update(changed))
+        changed = copy.deepcopy(manifest)
+        changed["database"]["after"] = ["20260909_0041", "20261117_0077"]
+        self.assertFalse(is_sql_free_update(changed))
+
     def test_pr841_sql_free_binding_keeps_current_database(self):
         from issued_windows import (
             SQL_FREE_PR841_BASE, SQL_FREE_PR841_REVISIONS,
