@@ -2298,6 +2298,23 @@
       "relaxations": [
         "diff_size"
       ]
+    },
+    {
+      "enabled": true,
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "repository_id": 1315697868,
+      "pr_number": 844,
+      "expected_head_sha": "a4389d10fc8fde01b2b940ce912d748457901e8e",
+      "expected_base_sha": "99286a60b4b0e21ca6431d6d5b8708d55ec884d6",
+      "head_ref": "feature/tenant-configurable-household-eligibility",
+      "base_ref": "main",
+      "allowed_effective_additions": 491,
+      "allowed_changed_files": 13,
+      "purpose": "Exact-source image and rollout review for merged PR #844 reusable version-bound household screening eligibility at unchanged production DB 0041+0078. No QA relaxation, migration, IAM/ECR/ECS action, Nidaan content or publication approval.",
+      "issued_at": "2026-11-22T06:28:06Z",
+      "expires_after": "2026-11-23T05:28:06Z",
+      "authorization_id": "04b1b901-245a-4ea1-b0b2-a53ff5f2e7d3",
+      "relaxations": []
     }
   ]
 }
