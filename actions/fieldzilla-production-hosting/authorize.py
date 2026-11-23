@@ -95,6 +95,9 @@ def check_plan(path, phase):
     if phase == "production-routing":
         check_production_routing_plan(changes)
         return
+    if phase == "production-monitoring":
+        check_production_monitoring_plan(changes)
+        return
     shared = []
     creates = 0
     unchanged = 0
@@ -313,6 +316,86 @@ def check_production_routing_plan(changes):
                != {key: value for key, value in after.items() if key != "action"}):
         fail("production Admin cutover changes more than the reviewed 503 action")
     print(json.dumps({"phase": "production-routing", "creates": 1, "updates": 1}, sort_keys=True))
+
+
+ALARM_RECIPIENT = "saurabh.verma@synergie.in"
+MONITORING_CREATES = {
+    "aws_sns_topic.alerts": "aws_sns_topic",
+    f'aws_sns_topic_subscription.alert_email["{ALARM_RECIPIENT}"]': "aws_sns_topic_subscription",
+    "aws_db_event_subscription.database": "aws_db_event_subscription",
+    "aws_cloudwatch_metric_alarm.database_cpu": "aws_cloudwatch_metric_alarm",
+    "aws_cloudwatch_metric_alarm.database_free_storage": "aws_cloudwatch_metric_alarm",
+    "aws_cloudwatch_metric_alarm.database_freeable_memory": "aws_cloudwatch_metric_alarm",
+    "aws_cloudwatch_metric_alarm.target_5xx": "aws_cloudwatch_metric_alarm",
+    'aws_cloudwatch_metric_alarm.healthy_hosts["api"]': "aws_cloudwatch_metric_alarm",
+    'aws_cloudwatch_metric_alarm.healthy_hosts["admin"]': "aws_cloudwatch_metric_alarm",
+    "aws_cloudwatch_metric_alarm.outbox_dead_letter": "aws_cloudwatch_metric_alarm",
+    "aws_cloudwatch_metric_alarm.worker_heartbeat": "aws_cloudwatch_metric_alarm",
+    "aws_cloudwatch_log_metric_filter.outbox_dead_letter": "aws_cloudwatch_log_metric_filter",
+    "aws_cloudwatch_log_metric_filter.worker_heartbeat": "aws_cloudwatch_log_metric_filter",
+}
+MONITORING_UPDATE = "aws_lb_target_group.api"
+
+
+def check_production_monitoring_plan(changes):
+    """Allow only the reviewed alarm/SNS additions and the one API health-path update.
+
+    Every other managed resource must be an unchanged no-op. The only subscriber that may
+    be created is the designated owner address, and every alarm must notify on alarm and
+    recovery. No deletion, replacement, move or import is accepted.
+    """
+    created = {}
+    updated = None
+    for change in changes:
+        address = change["address"]
+        actions = change["change"]["actions"]
+        if change.get("previous_address") or change["change"].get("importing"):
+            fail(f"monitoring plan contains a state move or import: {address}")
+        if "staging" in address.lower():
+            fail(f"staging resource in production monitoring plan: {address}")
+        if actions == ["no-op"]:
+            if change["change"].get("before") != change["change"].get("after"):
+                fail(f"inconsistent monitoring no-op: {address}")
+            continue
+        if actions == ["create"] and address in MONITORING_CREATES and address not in created:
+            if change["type"] != MONITORING_CREATES[address]:
+                fail(f"unexpected resource type for {address}")
+            after = change["change"].get("after") or {}
+            unknown = change["change"].get("after_unknown") or {}
+            if change["type"] == "aws_sns_topic_subscription" and (
+                after.get("protocol") != "email" or after.get("endpoint") != ALARM_RECIPIENT
+            ):
+                fail("the only permitted alarm subscriber is the designated owner email")
+            if change["type"] == "aws_cloudwatch_metric_alarm" and not (
+                unknown.get("alarm_actions") and unknown.get("ok_actions")
+            ):
+                fail(f"alarm must notify on alarm and recovery: {address}")
+            created[address] = change
+            continue
+        if actions == ["update"] and address == MONITORING_UPDATE and updated is None:
+            updated = change
+            continue
+        fail(f"unreviewed production monitoring action: {address}: {actions}")
+    if set(created) != set(MONITORING_CREATES):
+        fail("monitoring plan must contain exactly the reviewed alarm and notification additions")
+    if updated is None:
+        fail("monitoring plan must contain the API target-group health-path update")
+    before = updated["change"].get("before") or {}
+    after = updated["change"].get("after") or {}
+    health_before = before.get("health_check") or []
+    health_after = after.get("health_check") or []
+    if (
+        len(health_before) != 1
+        or len(health_after) != 1
+        or health_before[0].get("path") != "/api/v1/health"
+        or health_after[0].get("path") != "/api/v1/health/ready"
+        or {k: v for k, v in health_before[0].items() if k != "path"}
+        != {k: v for k, v in health_after[0].items() if k != "path"}
+        or {k: v for k, v in before.items() if k != "health_check"}
+        != {k: v for k, v in after.items() if k != "health_check"}
+    ):
+        fail("the target-group update must change only the health-check path to /api/v1/health/ready")
+    print(json.dumps({"phase": "production-monitoring", "creates": len(created), "updates": 1}, sort_keys=True))
 
 
 def check_rehearsal_plan(path, phase="phase1", source=None, resource_expiry=None):
@@ -564,7 +647,7 @@ def main():
     parser.add_argument("--source-sha", required=True)
     parser.add_argument("--caller-sha", required=True)
     parser.add_argument("--workflow-tag", required=True)
-    parser.add_argument("--phase", required=True, choices=["phase1", "phase2", "production-bootstrap", "production-network-repair", "production-routing", "cleanup-protection", "cleanup-destroy", "cleanup-partial", "cleanup-interrupted", "cleanup-kms-residual"])
+    parser.add_argument("--phase", required=True, choices=["phase1", "phase2", "production-bootstrap", "production-network-repair", "production-routing", "production-monitoring", "cleanup-protection", "cleanup-destroy", "cleanup-partial", "cleanup-interrupted", "cleanup-kms-residual"])
     parser.add_argument("--target", choices=["production", "rehearsal"], default="production")
     parser.add_argument("--expires-at")
     parser.add_argument("--resource-expires-at")
@@ -581,7 +664,7 @@ def main():
     require_identity(args)
     if args.target == "rehearsal" and (args.phase == "phase2" or not args.expires_at):
         fail("rehearsal requires an isolated phase and an exact expiry")
-    if args.target == "production" and args.phase not in {"phase1", "phase2", "production-bootstrap", "production-network-repair", "production-routing"}:
+    if args.target == "production" and args.phase not in {"phase1", "phase2", "production-bootstrap", "production-network-repair", "production-routing", "production-monitoring"}:
         fail("production hosting cannot run rehearsal cleanup")
     if args.mode == "probe":
         probe_owner_comment(args)
