@@ -2332,6 +2332,23 @@
       "expires_after": "2026-11-23T18:44:26Z",
       "authorization_id": "d7431b4a-80b7-4e4d-b002-69c6c6ffc381",
       "relaxations": []
+    },
+    {
+      "enabled": true,
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "repository_id": 1315697868,
+      "pr_number": 857,
+      "expected_head_sha": "e1c5f8ecdc4e5e791580cf0b5a81daf19f79a8f9",
+      "expected_base_sha": "601fd19e8fef1a93e3881cca0d0b28423d4d360b",
+      "head_ref": "feature/configurable-reporting-teams",
+      "base_ref": "main",
+      "allowed_effective_additions": 3268,
+      "allowed_changed_files": 48,
+      "purpose": "Exact-source QA and image review for merged PR #857 reusable programme reporting teams and additive migration 0079 from production DB 0041+0078 to 0041+0079. All normal architecture, security, review and deployment gates remain required; this record authorizes no SQL or AWS action.",
+      "issued_at": "2026-11-23T16:41:38Z",
+      "expires_after": "2026-11-24T15:41:38Z",
+      "authorization_id": "d5bf91f1-1cdd-4b88-b255-4724950d01c6",
+      "relaxations": []
     }
   ]
 }
