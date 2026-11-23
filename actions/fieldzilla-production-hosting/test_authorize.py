@@ -442,6 +442,72 @@ class PlanSafetyTest(unittest.TestCase):
             with self.subTest(altered=altered), self.assertRaises(SystemExit):
                 self.verify(altered, "production-routing")
 
+    def monitoring_plan(self):
+        creates = []
+        for address, kind in authorize.MONITORING_CREATES.items():
+            after = {}
+            unknown = {}
+            if kind == "aws_sns_topic_subscription":
+                after = {"protocol": "email", "endpoint": authorize.ALARM_RECIPIENT}
+            if kind == "aws_cloudwatch_metric_alarm":
+                unknown = {"alarm_actions": [True], "ok_actions": [True]}
+            change = self.change(address, kind, after=after)
+            change["change"]["after_unknown"] = unknown
+            creates.append(change)
+        health = {"path": "/api/v1/health", "matcher": "200", "interval": 30}
+        target = self.change("aws_lb_target_group.api", "aws_lb_target_group", ["update"],
+                             {"name": "pmp-production-api", "health_check": [{**health, "path": "/api/v1/health/ready"}]})
+        target["change"]["before"] = {"name": "pmp-production-api", "health_check": [health]}
+        quiet = self.change("aws_db_instance.production", "aws_db_instance", ["no-op"], {"x": 1})
+        quiet["change"]["before"] = {"x": 1}
+        return creates, target, quiet
+
+    def test_production_monitoring_allows_exactly_the_reviewed_alarms_and_health_path(self):
+        creates, target, quiet = self.monitoring_plan()
+        self.verify(creates + [target, quiet], "production-monitoring")
+
+    def test_production_monitoring_rejects_any_other_subscriber_or_unnotified_alarm(self):
+        creates, target, quiet = self.monitoring_plan()
+        subscription = next(c for c in creates if c["type"] == "aws_sns_topic_subscription")
+        alarm = next(c for c in creates if c["type"] == "aws_cloudwatch_metric_alarm")
+        variants = {
+            "other recipient": [{**subscription, "change": {**subscription["change"], "after": {"protocol": "email", "endpoint": "someone.else@example.com"}}}],
+            "sms subscriber": [{**subscription, "change": {**subscription["change"], "after": {"protocol": "sms", "endpoint": authorize.ALARM_RECIPIENT}}}],
+            "alarm without notification": [{**alarm, "change": {**alarm["change"], "after_unknown": {"alarm_actions": [True]}}}],
+        }
+        for name, replacement in variants.items():
+            with self.subTest(name=name), self.assertRaises(SystemExit):
+                swapped = [replacement[0] if c["address"] == replacement[0]["address"] else c for c in creates]
+                self.verify(swapped + [target, quiet], "production-monitoring")
+
+    def test_production_monitoring_update_may_change_only_the_health_check_path(self):
+        creates, target, quiet = self.monitoring_plan()
+        before, after = target["change"]["before"], target["change"]["after"]
+        variants = {
+            "other path": {**after, "health_check": [{**after["health_check"][0], "path": "/"}]},
+            "matcher changed": {**after, "health_check": [{**after["health_check"][0], "matcher": "200-499"}]},
+            "other attribute": {**after, "name": "renamed"},
+        }
+        for name, changed in variants.items():
+            with self.subTest(name=name), self.assertRaises(SystemExit):
+                self.verify(creates + [{**target, "change": {**target["change"], "after": changed}}, quiet], "production-monitoring")
+        _ = before
+
+    def test_production_monitoring_rejects_missing_extra_destructive_or_other_updates(self):
+        creates, target, quiet = self.monitoring_plan()
+        cases = {
+            "missing create": creates[1:] + [target, quiet],
+            "missing health update": creates + [quiet],
+            "extra create": creates + [target, quiet, self.change("aws_s3_bucket.extra")],
+            "other update": creates + [target, self.change("aws_db_instance.production", "aws_db_instance", ["update"])],
+            "delete": creates + [target, self.change("aws_db_instance.production", "aws_db_instance", ["delete"])],
+            "replace target": creates + [{**target, "change": {**target["change"], "actions": ["delete", "create"]}}, quiet],
+            "staging": creates + [target, quiet, self.change("aws_s3_bucket.staging")],
+        }
+        for name, changes in cases.items():
+            with self.subTest(name=name), self.assertRaises(SystemExit):
+                self.verify(changes, "production-monitoring")
+
     def test_partial_recovery_preserves_unchanged_production_resources(self):
         unchanged = self.change("aws_lb_target_group.api", "aws_lb_target_group", ["no-op"], {"name": "pmp-production-api"})
         unchanged["change"]["before"] = unchanged["change"]["after"].copy()
@@ -570,6 +636,29 @@ class PlanSafetyTest(unittest.TestCase):
                 plan.write_bytes(b"changed binary plan")
                 with self.assertRaises(SystemExit):
                     authorize.render_approval_template(args)
+
+
+class MonitoringPhaseWorkflowTests(unittest.TestCase):
+    """The reusable workflow can create only the designated owner as alarm subscriber."""
+
+    @classmethod
+    def setUpClass(cls):
+        root = Path(__file__).resolve().parents[2]
+        cls.source = (root / ".github/workflows/fieldzilla-production-hosting.yml").read_text()
+
+    def test_phase_gets_a_fixed_single_recipient_and_other_phases_get_none(self):
+        self.assertIn("production-monitoring", self.source)
+        self.assertEqual(self.source.count("alarm_notification_emails="), 1)
+        self.assertIn("alarm_emails='[\"saurabh.verma@synergie.in\"]'", self.source)
+        self.assertEqual(self.source.count("@synergie.in"), 1)
+        self.assertIn("alarm_emails='[]'", self.source)
+        self.assertIn('if [ "${PHASE}" = production-monitoring ]; then alarm_emails=', self.source)
+
+    def test_phase_is_accepted_for_production_and_keeps_the_established_flags(self):
+        phases = [line for line in self.source.splitlines() if "production-monitoring" in line]
+        self.assertGreaterEqual(len(phases), 5)
+        for flag in ("attach=true", "private_validation=true", "activate_application=true"):
+            self.assertTrue(any(flag in line and "production-monitoring" in line for line in phases), flag)
 
 
 if __name__ == "__main__":
