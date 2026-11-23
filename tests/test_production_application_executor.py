@@ -918,3 +918,21 @@ class WorkerRolloutTests(unittest.TestCase):
         engine.hold_for_recovery()
         self.assertEqual(self.cloud.services["fieldzilla-production-worker"]["desiredCount"], 0)
         self.assertFalse(any(service == "rds" and action != "describe-db-snapshots" for service, action, _ in self.cloud.calls))
+
+
+class AwsAdapterBoundaryTests(unittest.TestCase):
+    def test_every_action_the_executor_issues_is_inside_the_real_adapter_boundary(self):
+        import re
+        import subprocess
+        from unittest import mock
+
+        import application_executor
+
+        source = Path(application_executor.__file__).read_text()
+        pairs = set(re.findall(r'aws\(\s*"([a-z0-9]+)",\s*"([a-z-]+)"', source))
+        self.assertIn(("ecs", "describe-task-definition"), pairs)
+        completed = subprocess.CompletedProcess([], 0, stdout="{}", stderr="")
+        with mock.patch.object(application_executor.subprocess, "run", return_value=completed):
+            for service, action in sorted(pairs):
+                with self.subTest(service=service, action=action):
+                    self.assertEqual(Aws()(service, action, {}), {})

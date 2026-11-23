@@ -46,6 +46,7 @@ class Aws:
                 "list-tasks",
                 "describe-tasks",
                 "describe-container-instances",
+                "describe-task-definition",
                 "register-task-definition",
                 "create-service",
                 "update-service",
