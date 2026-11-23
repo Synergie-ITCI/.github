@@ -48,6 +48,40 @@ def manifest():
     }
 
 
+class TrustedProxyTests(unittest.TestCase):
+    NAME = "APP_TRUSTED_PROXY_COUNT"
+
+    @staticmethod
+    def env(plan, family_suffix):
+        definition = next(row for row in plan["task_definitions"] if row["family"].endswith(family_suffix))
+        return {row["name"]: row["value"] for row in definition["containerDefinitions"][0].get("environment", [])}
+
+    def test_only_the_production_api_task_trusts_exactly_one_proxy_hop(self):
+        plan = render(manifest())
+        self.assertEqual(self.env(plan, "-api")[self.NAME], "1")
+        self.assertNotIn(self.NAME, self.env(plan, "-admin-web"))
+        self.assertNotIn(self.NAME, self.env(plan, "-migration"))
+
+    def test_the_isolated_rehearsal_is_not_behind_the_production_alb_and_trusts_no_proxy(self):
+        inputs = manifest()
+        for key in ("api_execution_role", "migration_execution_role", "admin_execution_role", "api_task_role"):
+            inputs[key] = inputs[key].replace("Production", "ProductionRehearsal")
+        for key in ("runtime_secret", "migration_secret"):
+            inputs[key] = inputs[key].replace("/production/", "/production-rehearsal/")
+        for key in ("api_target_group", "admin-web_target_group"):
+            inputs[key] = inputs[key].replace("pmp-production-", "pmp-production-rehearsal-")
+        plan = render(inputs, scope="production-rehearsal")
+        self.assertNotIn(self.NAME, self.env(plan, "-api"))
+
+    def test_the_rest_of_the_api_configuration_is_unchanged(self):
+        env = self.env(render(manifest()), "-api")
+        self.assertEqual(
+            set(env) - {self.NAME},
+            {"APP_ENVIRONMENT", "APP_OBJECT_STORAGE_BACKEND", "APP_OBJECT_STORAGE_REGION",
+             "APP_ADMIN_WEB_BASE_URL", "APP_CORS_ORIGINS"},
+        )
+
+
 class PlanTests(unittest.TestCase):
     def test_pr844_sql_free_task_cannot_run_a_migration(self):
         inputs = manifest()

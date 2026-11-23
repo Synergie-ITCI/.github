@@ -143,6 +143,13 @@ def render(manifest: dict, *, scope: str = "production") -> dict:
                     container["secrets"].append(
                         {"name": key, "valueFrom": secret + ":" + key + "::"}
                     )
+                if scope == "production":
+                    # Exactly one trusted proxy: the shared internet-facing ALB (X-Forwarded-For
+                    # in append mode, no WAF, no CDN, instance targets; verified live). Client IPs
+                    # for abuse limits come from the last forwarded hop, not the load balancer.
+                    container["environment"].append(
+                        {"name": "APP_TRUSTED_PROXY_COUNT", "value": "1"}
+                    )
                 container["environment"] += [
                     {"name": "APP_OBJECT_STORAGE_BACKEND", "value": "s3_private"},
                     {"name": "APP_OBJECT_STORAGE_REGION", "value": REGION},
