@@ -2315,6 +2315,23 @@
       "expires_after": "2026-11-23T05:28:06Z",
       "authorization_id": "04b1b901-245a-4ea1-b0b2-a53ff5f2e7d3",
       "relaxations": []
+    },
+    {
+      "enabled": true,
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "repository_id": 1315697868,
+      "pr_number": 853,
+      "expected_head_sha": "bfd3315a3847e3723940ec8548852d4e9c4c43fa",
+      "expected_base_sha": "e36a5eefeb2c940c7b7807963273fed5ebcdc27b",
+      "head_ref": "docs/fieldzilla-recovery-drill-results",
+      "base_ref": "main",
+      "allowed_effective_additions": 40,
+      "allowed_changed_files": 1,
+      "purpose": "Exact-source image and rollout review for merged PR #853, whose tree contains merged FieldZilla PRs #847-#852 (readiness health, structured logs, outbox handlers, authentication throttling, mobile sync, sync observability) at unchanged production DB 0041+0078. No QA relaxation, migration, IAM/ECR/ECS action, Nidaan content or publication approval.",
+      "issued_at": "2026-11-23T08:44:26Z",
+      "expires_after": "2026-11-23T18:44:26Z",
+      "authorization_id": "d7431b4a-80b7-4e4d-b002-69c6c6ffc381",
+      "relaxations": []
     }
   ]
 }
