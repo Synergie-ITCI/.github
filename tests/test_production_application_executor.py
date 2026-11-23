@@ -750,3 +750,171 @@ class RuntimeReadbackTests(unittest.TestCase):
                 for _, action, _ in self.cloud.calls[-10:]
             )
         )
+
+
+PRIOR_WORKER_DIGEST = "sha256:" + "f" * 64
+PRIOR_WORKER_ARN = "arn:aws:ecs:ap-south-1:918870682888:task-definition/fieldzilla-production-worker:1"
+NEW_WORKER_ARN = "arn:aws:ecs:ap-south-1:918870682888:task-definition/fieldzilla-production-worker:2"
+
+
+def prior_worker_definition(plan):
+    api = plan["task_definitions"][0]
+    return {
+        "taskDefinitionArn": PRIOR_WORKER_ARN, "revision": 1, "status": "ACTIVE",
+        "family": "fieldzilla-production-worker", "networkMode": "bridge",
+        "executionRoleArn": api["executionRoleArn"], "taskRoleArn": api["taskRoleArn"],
+        "requiresCompatibilities": ["EC2"], "registeredAt": "2026-11-19T00:00:00Z",
+        "registeredBy": "arn:aws:sts::918870682888:assumed-role/x/y", "compatibilities": ["EC2"],
+        "requiresAttributes": [{"name": "ecs.capability.ecr-auth"}],
+        "containerDefinitions": [{
+            "name": "worker", "essential": True, "memory": 512,
+            "image": "918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/production/api@" + PRIOR_WORKER_DIGEST,
+            "command": ["python", "-m", "app.worker.loop"],
+            "environment": [{"name": "APP_WORKER_TENANT_IDS", "value": "t1,t2"}, {"name": "APP_ENVIRONMENT", "value": "production"}],
+            "secrets": [{"name": "APP_DATABASE_URL", "valueFrom": "arn:secret:runtime:APP_DATABASE_URL::"}],
+            "logConfiguration": {"logDriver": "awslogs", "options": {"awslogs-group": "/synergie/fieldzilla/production/worker", "awslogs-stream-prefix": "old"}},
+        }],
+    }
+
+
+class WorkerRolloutCloud(LiveWorkerCloud):
+    def __init__(self, manifest):
+        super().__init__(manifest)
+        self.prior_definition = prior_worker_definition(render(manifest["application"]))
+        self.new_worker_digest = manifest["worker_target_digest"]
+
+    def __call__(self, service, action, request):
+        if action == "describe-task-definition":
+            self.calls.append((service, action, copy.deepcopy(request)))
+            return {"taskDefinition": copy.deepcopy(self.prior_definition)}
+        if action == "register-task-definition" and request["family"].endswith("-worker"):
+            self.calls.append((service, action, copy.deepcopy(request)))
+            self.registers += 1
+            return {"taskDefinition": {"taskDefinitionArn": NEW_WORKER_ARN}}
+        reply = super().__call__(service, action, request)
+        if action == "describe-tasks":
+            for row in reply["tasks"]:
+                if row.get("group", "").endswith("-worker") and row["taskDefinitionArn"] == NEW_WORKER_ARN:
+                    row["containers"][0]["imageDigest"] = self.new_worker_digest
+        return reply
+
+
+class WorkerRolloutTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        application = fixture.manifest()
+        self.manifest = {
+            "scope": "production", "application": application,
+            "snapshot_id": "approved-snapshot", "worker_digest": PRIOR_WORKER_DIGEST,
+            "worker_target_digest": application["api_digest"],
+            "container_instance_arn": "arn:aws:ecs:ap-south-1:918870682888:container-instance/fieldzilla-production/" + "d" * 32,
+            "prior_tasks": {"api": "arn:aws:ecs:ap-south-1:918870682888:task-definition/fieldzilla-production-api:1",
+                            "admin-web": "arn:aws:ecs:ap-south-1:918870682888:task-definition/fieldzilla-production-admin-web:1",
+                            "worker": PRIOR_WORKER_ARN},
+        }
+        self.cloud = WorkerRolloutCloud(self.manifest)
+        self.authorizations = 0
+
+    def engine(self, cloud=None, manifest=None):
+        engine = Executor(manifest or self.manifest, aws=cloud or self.cloud,
+                          authorize=lambda: setattr(self, "authorizations", self.authorizations + 1),
+                          journal=Path(self.temp.name) / ("journal" + str(len(list(Path(self.temp.name).iterdir())))),
+                          sleep=lambda _: None)
+        self.addCleanup(engine.close)
+        return engine
+
+    def test_target_must_be_the_approved_api_digest(self):
+        bad = {**self.manifest, "worker_target_digest": "sha256:" + "9" * 64}
+        with self.assertRaisesRegex(ExecutionError, "Worker target must be the approved API image digest"):
+            self.engine(manifest=bad)
+
+    def test_new_definition_changes_only_image_tags_and_log_prefix(self):
+        engine = self.engine()
+        engine.preflight()
+        engine.prepare()
+        registered = next(request for _, action, request in self.cloud.calls
+                          if action == "register-task-definition" and request["family"].endswith("-worker"))
+        prior = self.cloud.prior_definition
+        container, before = registered["containerDefinitions"][0], prior["containerDefinitions"][0]
+        self.assertEqual(container["image"], "918870682888.dkr.ecr.ap-south-1.amazonaws.com/synergie/fieldzilla/production/api@" + self.manifest["worker_target_digest"])
+        for key in ("command", "environment", "secrets", "memory", "name"):
+            self.assertEqual(container[key], before[key])
+        self.assertEqual(container["logConfiguration"]["options"]["awslogs-stream-prefix"], self.manifest["application"]["source_sha"])
+        for field in ("taskDefinitionArn", "revision", "status", "registeredAt", "registeredBy", "compatibilities", "requiresAttributes"):
+            self.assertNotIn(field, registered)
+        self.assertEqual(registered["executionRoleArn"], prior["executionRoleArn"])
+        self.assertEqual({t["key"]: t["value"] for t in registered["tags"]},
+                         {"environment": "production", "source-sha": self.manifest["application"]["source_sha"]})
+
+    def test_worker_is_registered_before_writers_stop_and_prior_definition_is_never_removed(self):
+        engine = self.engine()
+        engine.preflight()
+        engine.prepare()
+        order = [(action, request.get("service") or request.get("family")) for _, action, request in self.cloud.calls
+                 if action in {"register-task-definition", "update-service"}]
+        register_at = next(i for i, (a, n) in enumerate(order) if a == "register-task-definition" and n.endswith("-worker"))
+        first_stop = next(i for i, (a, _) in enumerate(order) if a == "update-service")
+        self.assertLess(register_at, first_stop)
+        self.assertFalse(any(action == "deregister-task-definition" for _, action, _ in self.cloud.calls))
+
+    def test_restoration_rolls_the_worker_to_the_new_definition_and_verifies_the_new_digest(self):
+        engine = self.engine()
+        engine.preflight()
+        engine.prepare()
+        engine.restore_worker()
+        update = [request for _, action, request in self.cloud.calls
+                  if action == "update-service" and request["service"].endswith("-worker") and request["desiredCount"] == 1][-1]
+        self.assertEqual(update["taskDefinition"], NEW_WORKER_ARN)
+        verified = engine.wait_worker(attempts=1)
+        self.assertEqual(verified["digest"], self.manifest["worker_target_digest"])
+        self.assertEqual(self.cloud.services["fieldzilla-production-worker"]["taskDefinition"], NEW_WORKER_ARN)
+
+    def test_a_worker_running_the_wrong_image_is_not_accepted(self):
+        self.cloud.new_worker_digest = "sha256:" + "8" * 64
+        engine = self.engine()
+        engine.preflight()
+        engine.prepare()
+        engine.restore_worker()
+        with self.assertRaisesRegex(ExecutionError, "Restored worker identity or image differs"):
+            engine.wait_worker(attempts=1)
+
+    def test_an_unexpected_prior_definition_is_refused_before_approval_or_any_mutation(self):
+        defects = {
+            "command": lambda d: d["containerDefinitions"][0].update(command=["python", "-m", "other"]),
+            "role": lambda d: d.update(taskRoleArn="arn:aws:iam::918870682888:role/SomethingProduction"),
+            "port": lambda d: d["containerDefinitions"][0].update(portMappings=[{"containerPort": 8000}]),
+            "family": lambda d: d.update(family="fieldzilla-production-api"),
+            "image": lambda d: d["containerDefinitions"][0].update(image="evil.example/api@" + PRIOR_WORKER_DIGEST),
+        }
+        for name, mutate in defects.items():
+            with self.subTest(defect=name):
+                cloud = WorkerRolloutCloud(self.manifest)
+                mutate(cloud.prior_definition)
+                engine = self.engine(cloud)
+                before = self.authorizations
+                with self.assertRaisesRegex(ExecutionError, "Prior worker (definition|container) differs"):
+                    engine.preflight()
+                self.assertEqual(self.authorizations, before)
+                self.assertFalse(any(action in {"register-task-definition", "update-service", "run-task"}
+                                     for _, action, _ in cloud.calls))
+
+    def test_a_manifest_without_a_target_restores_the_prior_worker_unchanged(self):
+        legacy = {k: v for k, v in self.manifest.items() if k != "worker_target_digest"}
+        cloud = WorkerRolloutCloud(legacy | {"worker_target_digest": self.manifest["worker_target_digest"]})
+        engine = self.engine(cloud, legacy)
+        engine.preflight()
+        engine.prepare()
+        engine.restore_worker()
+        self.assertFalse(any(action == "describe-task-definition" for _, action, _ in cloud.calls))
+        self.assertEqual(cloud.registers, 3)
+        self.assertEqual(cloud.services["fieldzilla-production-worker"]["taskDefinition"], PRIOR_WORKER_ARN)
+
+    def test_recovery_stops_the_rolled_worker_without_touching_the_database(self):
+        engine = self.engine()
+        engine.preflight()
+        engine.prepare()
+        engine.restore_worker()
+        engine.hold_for_recovery()
+        self.assertEqual(self.cloud.services["fieldzilla-production-worker"]["desiredCount"], 0)
+        self.assertFalse(any(service == "rds" and action != "describe-db-snapshots" for service, action, _ in self.cloud.calls))

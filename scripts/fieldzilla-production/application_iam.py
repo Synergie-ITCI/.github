@@ -32,6 +32,11 @@ def deployment_policy(manifest: dict) -> dict:
         prefix + f"service/fieldzilla-{scope}/" + row["serviceName"]
         for row in plan["service_preparation"]
     ]
+    # The worker runs the API image. Only an explicit worker rollout needs to register and
+    # run a new worker definition; otherwise the worker is just stopped and restored.
+    worker_rollout = scope == "production" and "worker_target_digest" in manifest
+    worker_family = prefix + "task-definition/fieldzilla-production-worker:*"
+    registrable = definitions + ([worker_family] if worker_rollout else [])
     services = list(application_services)
     if scope == "production":
         services.append(prefix + "service/fieldzilla-production/fieldzilla-production-worker")
@@ -66,7 +71,7 @@ def deployment_policy(manifest: dict) -> dict:
     allow(
         "RegisterOnlyTargetFamilies",
         ["ecs:RegisterTaskDefinition"],
-        definitions,
+        registrable,
         {
             "StringEquals": {
                 "aws:RequestTag/environment": scope,
@@ -78,7 +83,7 @@ def deployment_policy(manifest: dict) -> dict:
     allow(
         "TagOnlyDuringRegistration",
         ["ecs:TagResource"],
-        definitions,
+        registrable,
         {"StringEquals": {"ecs:CreateAction": "RegisterTaskDefinition"}},
     )
     allow(
@@ -97,9 +102,15 @@ def deployment_policy(manifest: dict) -> dict:
         {
             "ArnEquals": {"ecs:cluster": cluster},
             # Scaling to zero during reviewed recovery need not change the task.
-            "ArnLikeIfExists": {"ecs:task-definition": definitions[:2]},
+            "ArnLikeIfExists": {
+                "ecs:task-definition": definitions[:2]
+                + ([worker_family] if worker_rollout else [])
+            },
         },
     )
+    if worker_rollout:
+        # DescribeTaskDefinition has no resource-level permission; read-only.
+        allow("ReadPriorWorkerDefinition", ["ecs:DescribeTaskDefinition"], ["*"])
     run_families = [definitions[2]]
     if scope == "production":
         run_families.append(definitions[0])  # read-only queue attestor, exact API image

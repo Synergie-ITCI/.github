@@ -264,6 +264,40 @@ class PolicyAuthorityTests(unittest.TestCase):
             receipt.consume.assert_not_called()
 
 
+class WorkerTargetValidationTests(unittest.TestCase):
+    API = "sha256:" + "a" * 64
+
+    def manifest(self, **changes):
+        base = {
+            "operation": "rollout", "scope": "production", "expires_at": "2026-11-23T18:00:00Z",
+            "application": {"api_digest": self.API},
+            "prior_tasks": {"api": "a", "admin-web": "b", "worker": "c"},
+            "worker_digest": "sha256:" + "f" * 64,
+        }
+        base.update(changes)
+        return base
+
+    def check(self, manifest):
+        args = SimpleNamespace(expires_at="2026-11-23T18:00:00Z", approval_comment_id=1, execution_kind="production")
+        # Contexts are patched out: only the manifest rules before them are under test.
+        with (
+            patch("application_runner.verify_production_context", side_effect=RuntimeError("context reached")),
+        ):
+            return validate(b"{}", manifest, args, api=Mock(), environment={}, central_sha="b" * 40)
+
+    def test_a_target_that_is_not_the_api_digest_is_refused_before_any_context_check(self):
+        for target in ("sha256:" + "9" * 64, "not-a-digest", 5):
+            with self.subTest(target=target):
+                with self.assertRaisesRegex(ValueError, "Worker target must be the approved API image digest"):
+                    self.check(self.manifest(worker_target_digest=target))
+
+    def test_the_api_digest_as_target_and_a_missing_target_both_proceed_to_context_checks(self):
+        for manifest in (self.manifest(worker_target_digest=self.API), self.manifest()):
+            with self.subTest(manifest=sorted(manifest)):
+                with self.assertRaisesRegex(RuntimeError, "context reached"):
+                    self.check(manifest)
+
+
 class WorkflowTests(unittest.TestCase):
     def test_reusable_only_main_identity_before_credentials_and_no_application_checkout(
         self,
