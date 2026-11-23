@@ -208,5 +208,22 @@
     "delete_fingerprints": [],
     "approved_reviewer": {"login": "SaurabhVermaIN", "id": 52234089},
     "purpose": "Review exact PR #835 migration 0078 from production 0041+0077 to 0041+0078. The restricted NOLOGIN lookup role and narrow active-membership RLS policy require separately governed owner preparation and temporary grant-option cleanup. No DELETE statement or application-data write occurs in this migration."
+  },
+  {
+    "repository": "Synergie-ITCI/programme-management-platform",
+    "repository_id": 1315697868,
+    "pr_number": 857,
+    "head_ref": "feature/configurable-reporting-teams",
+    "base_ref": "main",
+    "expected_head_sha": "e1c5f8ecdc4e5e791580cf0b5a81daf19f79a8f9",
+    "expected_base_sha": "601fd19e8fef1a93e3881cca0d0b28423d4d360b",
+    "issued_at": "2026-11-23T16:41:38Z",
+    "authorization_id": "ed8579c7-5f04-442b-ad24-05dc3caeb1e9",
+    "expires_at": "2026-11-24T15:41:38Z",
+    "migration_path": "apps/api/alembic/versions/20261123_0079_team_reporting_relationships.py",
+    "migration_sha256": "1d0252e6d44e16f48d2974eff7bebb6b7d30f46098933681e4cdf6d1ad2da256",
+    "delete_fingerprints": [],
+    "approved_reviewer": {"login": "SaurabhVermaIN", "id": 52234089},
+    "purpose": "Review exact additive migration 0079 from production 0041+0078 to 0041+0079. It creates tenant-scoped team relationship, audit-event and household-attribution tables with forced RLS and no existing-row rewrite or DELETE statement. This record authorizes review, not execution."
   }
 ]

@@ -15,10 +15,62 @@ from issued_windows import (
     verify_issued_windows,
     verify_pr798_inherited_migration,
     verify_pr835_password_reset_migration,
+    verify_pr857_team_hierarchy_migration,
 )
 
 
 class IssuedWindowTests(unittest.TestCase):
+    def test_pr857_requires_exact_migration_bytes_and_sql_review(self):
+        from issued_windows import PR857_BASE, PR857_MIGRATION, PR857_SOURCE
+
+        manifest = {
+            "scope": "production", "promotion_pr": 857,
+            "application": {"source_sha": PR857_SOURCE}, "base_sha": PR857_BASE,
+            "review_authorizations": {"sql": "ed8579c7-5f04-442b-ad24-05dc3caeb1e9"},
+            "database": {
+                "name": "fieldzilla_production", "role": "pmp_fieldzilla_prod_migrator",
+                "before": ["20260909_0041", "20261121_0078"],
+                "after": ["20260909_0041", "20261123_0079"],
+            },
+        }
+        content = b"reviewed team migration bytes"
+
+        def api(path):
+            if "/contents/" in path:
+                return {"type": "file", "encoding": "base64",
+                        "content": base64.b64encode(content).decode()}
+            if "/pulls/857/files?" in path:
+                return [{"filename": PR857_MIGRATION}] + [
+                    {"filename": f"apps/api/app/reviewed_{i}.py"} for i in range(47)
+                ]
+            raise AssertionError(path)
+
+        with patch("issued_windows.PR857_MIGRATION_SHA256", hashlib.sha256(content).hexdigest()):
+            verify_pr857_team_hierarchy_migration(manifest, api=api)
+            changed = copy.deepcopy(manifest)
+            changed["database"]["after"] = ["20260909_0041", "20261121_0078"]
+            with self.assertRaisesRegex(ValueError, "binding differs"):
+                verify_pr857_team_hierarchy_migration(changed, api=api)
+            with self.assertRaisesRegex(ValueError, "bytes differ"):
+                verify_pr857_team_hierarchy_migration(
+                    manifest,
+                    api=lambda path: (
+                        {"type": "file", "encoding": "base64",
+                         "content": base64.b64encode(b"changed").decode()}
+                        if "/contents/" in path else api(path)
+                    ),
+                )
+            with self.assertRaisesRegex(ValueError, "changed migration files"):
+                verify_pr857_team_hierarchy_migration(
+                    manifest,
+                    api=lambda path: (
+                        [{"filename": PR857_MIGRATION},
+                         {"filename": "apps/api/alembic/versions/unreviewed.py"}]
+                        + [{"filename": f"apps/api/app/reviewed_{i}.py"} for i in range(46)]
+                        if "/pulls/857/files?" in path else api(path)
+                    ),
+                )
+
     def test_pr853_sql_free_binding_keeps_current_database(self):
         from issued_windows import (
             SQL_FREE_PR853_BASE, SQL_FREE_PR853_SOURCE,
