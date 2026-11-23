@@ -105,6 +105,12 @@ def validate(raw, manifest, args, *, api, environment, central_sha):
         or re.fullmatch(r"sha256:[0-9a-f]{64}", manifest["worker_digest"]) is None
     ):
         raise ValueError("Production rollout must bind the prior worker and image")
+    if production and "worker_target_digest" in manifest and (
+        not isinstance(manifest["worker_target_digest"], str)
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", manifest["worker_target_digest"]) is None
+        or manifest["worker_target_digest"] != manifest["application"].get("api_digest")
+    ):
+        raise ValueError("Worker target must be the approved API image digest")
     if manifest.get("expires_at") != args.expires_at:
         raise ValueError("Manifest and approval expiry differ")
     context = verify_production_context if production else verify_rehearsal_context

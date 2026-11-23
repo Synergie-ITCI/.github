@@ -83,3 +83,54 @@ class PolicyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WorkerRolloutPolicyTests(unittest.TestCase):
+    def setUp(self):
+        application = manifest()
+        self.base = {
+            "scope": "production",
+            "application": application,
+            "container_instance_arn": "arn:aws:ecs:ap-south-1:918870682888:container-instance/fieldzilla-production/"
+            + "d" * 32,
+            "snapshot_id": "fieldzilla-production-pre-release-20261110",
+        }
+        self.rollout = copy.deepcopy(self.base)
+        self.rollout["worker_target_digest"] = application["api_digest"]
+        self.family = "arn:aws:ecs:ap-south-1:918870682888:task-definition/fieldzilla-production-worker:*"
+
+    @staticmethod
+    def statement(policy, sid):
+        return next((s for s in policy["Statement"] if s["Sid"] == sid), None)
+
+    def test_without_a_worker_rollout_the_worker_family_is_not_granted(self):
+        policy = deployment_policy(self.base)
+        for sid in ("RegisterOnlyTargetFamilies", "TagOnlyDuringRegistration"):
+            self.assertNotIn(self.family, self.statement(policy, sid)["Resource"])
+        self.assertIsNone(self.statement(policy, "ReadPriorWorkerDefinition"))
+        update = self.statement(policy, "UpdateOnlyTargetServices")
+        self.assertNotIn(self.family, update["Condition"]["ArnLikeIfExists"]["ecs:task-definition"])
+
+    def test_a_worker_rollout_adds_exactly_the_worker_family_and_a_read_only_describe(self):
+        before = deployment_policy(self.base)
+        after = deployment_policy(self.rollout)
+        for sid in ("RegisterOnlyTargetFamilies", "TagOnlyDuringRegistration"):
+            self.assertEqual(
+                self.statement(after, sid)["Resource"],
+                self.statement(before, sid)["Resource"] + [self.family],
+            )
+        register = self.statement(after, "RegisterOnlyTargetFamilies")
+        self.assertEqual(register["Condition"]["StringEquals"]["aws:RequestTag/environment"], "production")
+        update = self.statement(after, "UpdateOnlyTargetServices")
+        self.assertIn(self.family, update["Condition"]["ArnLikeIfExists"]["ecs:task-definition"])
+        # The worker service was already updatable (stop and restore); nothing else is added.
+        self.assertEqual(update["Resource"], self.statement(before, "UpdateOnlyTargetServices")["Resource"])
+        describe = self.statement(after, "ReadPriorWorkerDefinition")
+        self.assertEqual(describe["Action"], ["ecs:DescribeTaskDefinition"])
+        self.assertEqual(describe["Resource"], ["*"])
+        # No other statement gained an unbounded resource, secret read, or routing write.
+        added = {s["Sid"] for s in after["Statement"]} - {s["Sid"] for s in before["Statement"]}
+        self.assertEqual(added, {"ReadPriorWorkerDefinition"})
+        for statement in after["Statement"]:
+            if statement["Sid"] != "ReadPriorWorkerDefinition":
+                self.assertNotIn("*", statement["Resource"])

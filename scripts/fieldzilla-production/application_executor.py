@@ -8,6 +8,7 @@ an interrupted invocation is deliberately not an automatic retry mechanism.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
@@ -18,7 +19,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from application_plan import ACCOUNT, REGION, render
+from application_plan import REGISTRY, ACCOUNT, REGION, render
 
 
 class ExecutionError(RuntimeError):
@@ -96,6 +97,15 @@ class Executor:
         self.manifest = manifest
         self.scope = manifest["scope"]
         self.has_worker = self.scope == "production" and "worker_digest" in manifest
+        # The worker runs the API image (python -m app.worker.loop). An explicit target
+        # digest, equal to the approved API digest, rolls it forward; without the field
+        # the worker is restored byte-for-byte as before.
+        self.worker_rollout = self.has_worker and "worker_target_digest" in manifest
+        if self.worker_rollout and (
+            manifest["worker_target_digest"] != manifest["application"]["api_digest"]
+        ):
+            raise ExecutionError("Worker target must be the approved API image digest")
+        self.worker_definition_request: dict[str, Any] | None = None
         self.plan = render(manifest["application"], scope=self.scope)
         self.cluster = "fieldzilla-" + self.scope
         self.instance = manifest.get("container_instance_arn", "")
@@ -184,6 +194,53 @@ class Executor:
             count = rows[0].get(key)
             if type(count) is not int or count != 0:
                 raise ExecutionError("A target-cluster task can still write")
+
+    def build_worker_definition(self) -> dict[str, Any]:
+        """Derive the new worker definition from the exact prior one; only the image changes.
+
+        Everything else (environment, secrets, command, roles, ports) is carried over, so
+        reviewed runtime configuration is preserved. A prior definition that does not match
+        the expected worker shape is refused before any approval is consumed.
+        """
+
+        prior = self.manifest["prior_tasks"]["worker"]
+        reply = self.aws("ecs", "describe-task-definition", {"taskDefinition": prior})
+        current = reply.get("taskDefinition")
+        api = self.plan["task_definitions"][0]
+        if (
+            reply.get("failures")
+            or not isinstance(current, dict)
+            or current.get("taskDefinitionArn") != prior
+            or current.get("family") != self.cluster + "-worker"
+            or current.get("status") != "ACTIVE"
+            or current.get("networkMode") != "bridge"
+            or current.get("executionRoleArn") != api["executionRoleArn"]
+            or current.get("taskRoleArn") != api["taskRoleArn"]
+            or len(current.get("containerDefinitions", [])) != 1
+        ):
+            raise ExecutionError("Prior worker definition differs from the reviewed shape")
+        container = current["containerDefinitions"][0]
+        if (
+            container.get("name") != "worker"
+            or container.get("command") != ["python", "-m", "app.worker.loop"]
+            or not str(container.get("image", "")).startswith(REGISTRY + "/api@sha256:")
+            or container.get("portMappings")
+            or container.get("privileged")
+        ):
+            raise ExecutionError("Prior worker container differs from the reviewed shape")
+        definition = copy.deepcopy(current)
+        for field in WORKER_READ_ONLY_FIELDS:
+            definition.pop(field, None)
+        container = definition["containerDefinitions"][0]
+        container["image"] = REGISTRY + "/api@" + self.manifest["worker_target_digest"]
+        options = container.get("logConfiguration", {}).get("options")
+        if isinstance(options, dict):
+            options["awslogs-stream-prefix"] = self.plan["source_sha"]
+        definition["tags"] = [
+            {"key": "environment", "value": "production"},
+            {"key": "source-sha", "value": self.plan["source_sha"]},
+        ]
+        return definition
 
     def preflight(self):
         identity = self.aws("sts", "get-caller-identity", {})
@@ -294,6 +351,9 @@ class Executor:
                     or len(containers) != 1 or containers[0].get("name") != "worker"
                     or containers[0].get("imageDigest") != self.manifest["worker_digest"]):
                 raise ExecutionError("Prior worker image differs")
+            if self.worker_rollout:
+                # Read-only; validates the prior definition before approval is consumed.
+                self.worker_definition_request = self.build_worker_definition()
         else:
             self.quiet()
 
@@ -363,6 +423,23 @@ class Executor:
                 )
             self.tasks[kind] = arn
             self.record("task_registered", kind=kind, arn=arn)
+        if self.worker_rollout:
+            if self.worker_definition_request is None:
+                raise ExecutionError("Worker definition was not validated in preflight")
+            arn = (
+                self.mutate("register-task-definition", self.worker_definition_request)
+                .get("taskDefinition", {})
+                .get("taskDefinitionArn", "")
+            )
+            if not re.fullmatch(
+                rf"arn:aws:ecs:{REGION}:{ACCOUNT}:task-definition/{self.cluster}-worker:\d+",
+                arn,
+            ) or arn == self.manifest["prior_tasks"]["worker"]:
+                raise ExecutionError(
+                    "Registered worker identity differs; stop for manual inspection"
+                )
+            self.tasks["worker"] = arn
+            self.record("task_registered", kind="worker", arn=arn)
         if self.has_worker:
             self.stop_writers()
         for request in self.plan["service_preparation"]:
@@ -561,12 +638,15 @@ class Executor:
                 or current.get("runningCount") != 0
                 or current.get("pendingCount") != 0):
             raise ExecutionError("Worker changed before restoration")
-        self.mutate("update-service", {
+        request = {
             "cluster": self.cluster,
             "service": self.cluster + "-worker",
             "desiredCount": 1,
-        })
-        self.record("worker_restoration_requested")
+        }
+        if self.worker_rollout:
+            request["taskDefinition"] = self.tasks["worker"]
+        self.mutate("update-service", request)
+        self.record("worker_restoration_requested", rolled_forward=self.worker_rollout)
 
     def running_service_tasks(self) -> list[dict[str, Any]]:
         # ECS rejects serviceName together with containerInstance. Keep the IAM
@@ -597,7 +677,10 @@ class Executor:
         if not self.has_worker or type(attempts) is not int or not 1 <= attempts <= 120:
             raise ExecutionError("Invalid worker verification request")
         name = self.cluster + "-worker"
-        expected = self.manifest["prior_tasks"]["worker"]
+        expected = self.tasks["worker"] if self.worker_rollout else self.manifest["prior_tasks"]["worker"]
+        expected_digest = (
+            self.manifest["worker_target_digest"] if self.worker_rollout else self.manifest["worker_digest"]
+        )
         for attempt in range(attempts):
             current = self.service("worker")
             if current is None or current.get("taskDefinition") != expected or current.get("desiredCount") != 1:
@@ -622,7 +705,7 @@ class Executor:
                         or len(containers) != 1
                         or containers[0].get("name") != "worker"
                         or containers[0].get("lastStatus") != "RUNNING"
-                        or containers[0].get("imageDigest") != self.manifest["worker_digest"]):
+                        or containers[0].get("imageDigest") != expected_digest):
                     raise ExecutionError("Restored worker identity or image differs")
                 self.record("worker_verified", task=row["taskArn"], digest=containers[0]["imageDigest"])
                 return {"task": row["taskArn"], "digest": containers[0]["imageDigest"]}
@@ -791,6 +874,12 @@ class Executor:
                     },
                 )
         self.record("recovery_requested", database="preserved; no restore or downgrade")
+
+
+WORKER_READ_ONLY_FIELDS = (
+    "taskDefinitionArn", "revision", "status", "requiresAttributes", "compatibilities",
+    "registeredAt", "registeredBy", "deregisteredAt",
+)
 
 
 # The one-off attestor emits metadata only. Exceptions deliberately omit URLs,
