@@ -1447,8 +1447,9 @@ exit 0
         engine = load_engine_module()
         staging_sha = "e73ccfdeb515201c10844c57668e8048829c2aa4"
         main_sha = "5ed085388f9bc8879c353f06a698133551efd289"
-        head_sha = "66694ce6637a2848ec5804c4db026182ad2a7cd6"
-        tree_sha = "10ed2f1a3a82da3ed15211d7bf7bd3696cca8785"
+        merge_sha = "66694ce6637a2848ec5804c4db026182ad2a7cd6"
+        head_sha = "1fd542e97e546607e84a62f2bdadef70740f6b93"
+        tree_sha = "a70a4602659a1b262a79213067a3d43abb71bbdb"
         ctx = SimpleNamespace(
             repo=self.tmp,
             base_ref="staging",
@@ -1460,16 +1461,18 @@ exit 0
             mock.patch.object(engine, "resolve_head_sha", return_value=head_sha),
             mock.patch.object(engine, "resolve_fresh_origin_staging_tip", return_value=staging_sha),
             mock.patch.object(engine, "resolve_fresh_origin_main_tip", return_value=main_sha),
-            mock.patch.object(engine, "git_lines", return_value=[f"{staging_sha} {main_sha}"]),
+            mock.patch.object(engine, "git_lines", side_effect=lambda _repo, args: [merge_sha] if args[-1] == head_sha else [f"{staging_sha} {main_sha}"]),
             mock.patch.object(engine, "run_git", return_value=tree_sha),
         ):
-            self.assertTrue(engine.exact_mobilekids_main_staging_reconciliation(ctx, {}, [head_sha]))
-            self.assertFalse(engine.exact_mobilekids_main_staging_reconciliation(ctx, {}, [head_sha, "unrelated-merge"]))
+            self.assertTrue(engine.exact_mobilekids_main_staging_reconciliation(ctx, {}, [merge_sha]))
+            self.assertFalse(engine.exact_mobilekids_main_staging_reconciliation(ctx, {}, [merge_sha, "unrelated-merge"]))
             ctx.event["pull_request"]["number"] = 16
-            self.assertFalse(engine.exact_mobilekids_main_staging_reconciliation(ctx, {}, [head_sha]))
+            self.assertFalse(engine.exact_mobilekids_main_staging_reconciliation(ctx, {}, [merge_sha]))
             ctx.event["pull_request"]["number"] = 15
+            with mock.patch.object(engine, "git_lines", return_value=["wrong-parent"]):
+                self.assertFalse(engine.exact_mobilekids_main_staging_reconciliation(ctx, {}, [merge_sha]))
             with mock.patch.object(engine, "run_git", return_value="other-tree"):
-                self.assertFalse(engine.exact_mobilekids_main_staging_reconciliation(ctx, {}, [head_sha]))
+                self.assertFalse(engine.exact_mobilekids_main_staging_reconciliation(ctx, {}, [merge_sha]))
 
     def test_scholarships_pr68_reconciliation_is_exact_and_tree_preserving(self) -> None:
         engine = load_engine_module()
