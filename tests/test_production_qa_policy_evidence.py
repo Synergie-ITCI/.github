@@ -17,6 +17,7 @@ from qa_policy_evidence import (
     read_final_report,
     verify_pr808_detector_log_recovery,
     verify_pr841_detector_log_recovery,
+    verify_pr857_detector_log_recovery,
     verify_qa_policy_evidence,
 )
 
@@ -191,6 +192,90 @@ class PR841DetectorRecoveryTests(unittest.TestCase):
         self.ancestry = "ahead"
         with self.assertRaises(ValueError):
             self.verify(now=datetime.fromisoformat("2026-11-22T17:29:39Z"))
+
+
+class PR857DetectorRecoveryTests(unittest.TestCase):
+    def setUp(self):
+        self.manifest = {
+            "promotion_pr": 857,
+            "application": {"source_sha": "e1c5f8ecdc4e5e791580cf0b5a81daf19f79a8f9"},
+            "base_sha": "601fd19e8fef1a93e3881cca0d0b28423d4d360b",
+        }
+        self.proof = {
+            "run_id": 45217055941,
+            "policy_sha": "2b073b7e06ee1985d16f15b41741cf05814507e9",
+        }
+        self.run = {"run_attempt": 2}
+        self.detector = {
+            "id": 137867665054,
+            "head_sha": self.manifest["application"]["source_sha"],
+            "started_at": "2026-11-23T17:10:01Z",
+            "steps": [
+                {"name": name, "conclusion": "success"}
+                for name in (
+                    "Resolve approved central PR QA release",
+                    "Checkout immutable central PR QA framework",
+                    "Detect technologies",
+                )
+            ],
+        }
+        self.selector = {
+            "state": "closed",
+            "merge_commit_sha": "292dc96beb4a82a73e904267b5ed3d4a1a2a37b0",
+            "head": {"sha": "d4993f6dc8a29a929c7820c23490f0a5f897a0ef"},
+            "base": {"sha": "170d5b3fc59aa86a9190338f08f98e60dd7f3c76"},
+            "merged_at": "2026-11-23T17:04:21Z",
+        }
+        self.ancestry = "ahead"
+
+    def api(self, path):
+        if path.endswith("/git/ref/heads/main"):
+            return {"object": {"sha": "292dc96beb4a82a73e904267b5ed3d4a1a2a37b0"}}
+        if "/compare/" in path:
+            return {"status": self.ancestry}
+        if path.endswith("/pulls/858"):
+            return self.selector
+        raise AssertionError(path)
+
+    def verify(self, *, now=None):
+        from datetime import UTC, datetime
+
+        verify_pr857_detector_log_recovery(
+            self.manifest, self.proof, "pr-qa-v1-rc399", self.run,
+            self.detector, self.api,
+            now=now or datetime(2026, 11, 24, 3, tzinfo=UTC),
+        )
+
+    def test_exact_successful_post_merge_detector_can_recover(self):
+        self.verify()
+        for target, key, bad in (
+            (self.manifest, "promotion_pr", 856),
+            (self.proof, "run_id", 1),
+            (self.proof, "policy_sha", "f" * 40),
+            (self.run, "run_attempt", 1),
+            (self.detector, "id", 1),
+            (self.detector, "head_sha", "f" * 40),
+            (self.detector, "started_at", "2026-11-23T17:03:00Z"),
+            (self.selector, "merge_commit_sha", "f" * 40),
+        ):
+            original = target[key]
+            target[key] = bad
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                self.verify()
+            target[key] = original
+        self.detector["steps"][0]["conclusion"] = "failure"
+        with self.assertRaises(ValueError):
+            self.verify()
+
+    def test_ancestry_and_expiry_fail_closed(self):
+        from datetime import datetime
+
+        self.ancestry = "diverged"
+        with self.assertRaises(ValueError):
+            self.verify()
+        self.ancestry = "ahead"
+        with self.assertRaises(ValueError):
+            self.verify(now=datetime.fromisoformat("2026-11-24T15:30:00Z"))
 
 
 class QAPolicyTests(unittest.TestCase):
