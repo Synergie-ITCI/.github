@@ -200,16 +200,18 @@ class PR857DetectorRecoveryTests(unittest.TestCase):
             "promotion_pr": 857,
             "application": {"source_sha": "e1c5f8ecdc4e5e791580cf0b5a81daf19f79a8f9"},
             "base_sha": "601fd19e8fef1a93e3881cca0d0b28423d4d360b",
+            "central_tag": "pr-qa-v1-rc401",
+            "central_sha": "c" * 40,
         }
         self.proof = {
             "run_id": 45217055941,
-            "policy_sha": "2b073b7e06ee1985d16f15b41741cf05814507e9",
+            "policy_sha": "c" * 40,
         }
-        self.run = {"run_attempt": 2}
+        self.run = {"run_attempt": 4}
         self.detector = {
-            "id": 137867665054,
+            "id": 1,
             "head_sha": self.manifest["application"]["source_sha"],
-            "started_at": "2026-11-23T17:10:01Z",
+            "started_at": "2026-11-24T03:20:06Z",
             "steps": [
                 {"name": name, "conclusion": "success"}
                 for name in (
@@ -221,19 +223,19 @@ class PR857DetectorRecoveryTests(unittest.TestCase):
         }
         self.selector = {
             "state": "closed",
-            "merge_commit_sha": "292dc96beb4a82a73e904267b5ed3d4a1a2a37b0",
-            "head": {"sha": "d4993f6dc8a29a929c7820c23490f0a5f897a0ef"},
-            "base": {"sha": "170d5b3fc59aa86a9190338f08f98e60dd7f3c76"},
-            "merged_at": "2026-11-23T17:04:21Z",
+            "merge_commit_sha": "f262f4d9203543e27f73278bda2adbc4927fcb46",
+            "head": {"sha": "594d4dfa07ee96069f39b193683c59bfa9cdfc05"},
+            "base": {"sha": "292dc96beb4a82a73e904267b5ed3d4a1a2a37b0"},
+            "merged_at": "2026-11-24T03:19:07Z",
         }
         self.ancestry = "ahead"
 
     def api(self, path):
         if path.endswith("/git/ref/heads/main"):
-            return {"object": {"sha": "292dc96beb4a82a73e904267b5ed3d4a1a2a37b0"}}
+            return {"object": {"sha": "f262f4d9203543e27f73278bda2adbc4927fcb46"}}
         if "/compare/" in path:
             return {"status": self.ancestry}
-        if path.endswith("/pulls/858"):
+        if path.endswith("/pulls/859"):
             return self.selector
         raise AssertionError(path)
 
@@ -241,7 +243,7 @@ class PR857DetectorRecoveryTests(unittest.TestCase):
         from datetime import UTC, datetime
 
         verify_pr857_detector_log_recovery(
-            self.manifest, self.proof, "pr-qa-v1-rc399", self.run,
+            self.manifest, self.proof, "pr-qa-v1-rc401", self.run,
             self.detector, self.api,
             now=now or datetime(2026, 11, 24, 3, tzinfo=UTC),
         )
@@ -252,10 +254,10 @@ class PR857DetectorRecoveryTests(unittest.TestCase):
             (self.manifest, "promotion_pr", 856),
             (self.proof, "run_id", 1),
             (self.proof, "policy_sha", "f" * 40),
-            (self.run, "run_attempt", 1),
-            (self.detector, "id", 1),
+            (self.run, "run_attempt", 3),
+            (self.manifest, "central_tag", "pr-qa-v1-rc400"),
             (self.detector, "head_sha", "f" * 40),
-            (self.detector, "started_at", "2026-11-23T17:03:00Z"),
+            (self.detector, "started_at", "2026-11-24T03:18:00Z"),
             (self.selector, "merge_commit_sha", "f" * 40),
         ):
             original = target[key]
