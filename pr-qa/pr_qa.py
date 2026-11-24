@@ -2265,6 +2265,8 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
             results.append(warning("Repository Hygiene", None, "Verified inherited staging merges and the exact development branch update for Saksham PR #210; other merges remain prohibited.", unexpected_merge_commits[:20]))
         elif unexpected_merge_commits and exact_saksham_main_staging_alignment(ctx, git_context, merge_commits):
             results.append(warning("Repository Hygiene", None, "Verified exact main-to-staging alignment for Saksham PR #211; other merges remain prohibited.", unexpected_merge_commits[:20]))
+        elif unexpected_merge_commits and exact_mobilekids_main_staging_reconciliation(ctx, git_context, merge_commits):
+            results.append(warning("Repository Hygiene", None, "Verified exact MobileKids PR #15 main-to-staging reconciliation; other merges remain prohibited.", unexpected_merge_commits[:20]))
         elif unexpected_merge_commits and baseline_allows(ctx, "historical_commit_volume"):
             results.append(warning("Repository Hygiene", None, "Historical baseline merge commits predate current promotion policy; future PRs remain governed.", unexpected_merge_commits[:20]))
         elif unexpected_merge_commits and long_lived_staging_to_main_promotion(ctx):
@@ -2342,6 +2344,27 @@ def exact_saksham_main_staging_alignment(ctx: PRContext, git_context: dict[str, 
     ):
         return False
     return git_lines(ctx.repo, ["show", "-s", "--format=%P", head_sha]) == [f"{staging_sha} {main_sha}"]
+
+
+def exact_mobilekids_main_staging_reconciliation(ctx: PRContext, git_context: dict[str, Any], merge_commits: list[str]) -> bool:
+    """Recognize only the reviewed merge of current main into MobileKids staging."""
+    staging_sha = "e73ccfdeb515201c10844c57668e8048829c2aa4"
+    main_sha = "5ed085388f9bc8879c353f06a698133551efd289"
+    head_sha = "66694ce6637a2848ec5804c4db026182ad2a7cd6"
+    tree_sha = "10ed2f1a3a82da3ed15211d7bf7bd3696cca8785"
+    pull_request = ctx.event.get("pull_request", {}) or {}
+    return (
+        resolve_repository_name(ctx) == "Synergie-ITCI/mobilekids.synergieinsights.in"
+        and ctx.base_ref == "staging"
+        and ctx.head_ref == "reconcile/main-into-staging-pr14"
+        and pull_request.get("number") == 15
+        and resolve_head_sha(ctx.repo, git_context) == head_sha
+        and resolve_fresh_origin_staging_tip(ctx.repo) == staging_sha
+        and resolve_fresh_origin_main_tip(ctx.repo) == main_sha
+        and merge_commits == [head_sha]
+        and git_lines(ctx.repo, ["show", "-s", "--format=%P", head_sha]) == [f"{staging_sha} {main_sha}"]
+        and run_git(ctx.repo, ["rev-parse", f"{head_sha}^{{tree}}"]).strip() == tree_sha
+    )
 
 
 def exact_scholarships_main_development_reconciliation(ctx: PRContext) -> bool:

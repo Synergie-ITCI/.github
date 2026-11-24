@@ -1443,6 +1443,34 @@ exit 0
             ctx.event["pull_request"]["number"] = 212
             self.assertFalse(engine.exact_saksham_main_staging_alignment(ctx, {}, [head_sha]))
 
+    def test_mobilekids_reconciliation_requires_exact_protected_heads_and_tree(self) -> None:
+        engine = load_engine_module()
+        staging_sha = "e73ccfdeb515201c10844c57668e8048829c2aa4"
+        main_sha = "5ed085388f9bc8879c353f06a698133551efd289"
+        head_sha = "66694ce6637a2848ec5804c4db026182ad2a7cd6"
+        tree_sha = "10ed2f1a3a82da3ed15211d7bf7bd3696cca8785"
+        ctx = SimpleNamespace(
+            repo=self.tmp,
+            base_ref="staging",
+            head_ref="reconcile/main-into-staging-pr14",
+            event={"pull_request": {"number": 15}},
+        )
+        with (
+            mock.patch.object(engine, "resolve_repository_name", return_value="Synergie-ITCI/mobilekids.synergieinsights.in"),
+            mock.patch.object(engine, "resolve_head_sha", return_value=head_sha),
+            mock.patch.object(engine, "resolve_fresh_origin_staging_tip", return_value=staging_sha),
+            mock.patch.object(engine, "resolve_fresh_origin_main_tip", return_value=main_sha),
+            mock.patch.object(engine, "git_lines", return_value=[f"{staging_sha} {main_sha}"]),
+            mock.patch.object(engine, "run_git", return_value=tree_sha),
+        ):
+            self.assertTrue(engine.exact_mobilekids_main_staging_reconciliation(ctx, {}, [head_sha]))
+            self.assertFalse(engine.exact_mobilekids_main_staging_reconciliation(ctx, {}, [head_sha, "unrelated-merge"]))
+            ctx.event["pull_request"]["number"] = 16
+            self.assertFalse(engine.exact_mobilekids_main_staging_reconciliation(ctx, {}, [head_sha]))
+            ctx.event["pull_request"]["number"] = 15
+            with mock.patch.object(engine, "run_git", return_value="other-tree"):
+                self.assertFalse(engine.exact_mobilekids_main_staging_reconciliation(ctx, {}, [head_sha]))
+
     def test_scholarships_pr68_reconciliation_is_exact_and_tree_preserving(self) -> None:
         engine = load_engine_module()
         development_sha = "da1d5b78e4a34512a6584c7f4ba4e6d4a990ebd3"
