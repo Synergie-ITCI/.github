@@ -88,6 +88,14 @@ class ReleasePinTests(unittest.TestCase):
         self.assertEqual((release, entry["commit"]), (selected["release"], selected["commit"]))
         verify.assert_called_once()
 
+    def test_mobilekids_uses_published_rc404_only(self):
+        selected = self.manifest["consumer_release_selection"]["repositories"]["Synergie-ITCI/mobilekids.synergieinsights.in"]
+        self.assertEqual(selected, {"release": "pr-qa-v1-rc404", "commit": "48e74d0f6e9d82b7cd04e1063b42bbd84c70f118"})
+        with patch("release_pin.verify_bound_release") as verify:
+            release, entry = resolve_consumer_release(self.manifest, "Synergie-ITCI/mobilekids.synergieinsights.in")
+        self.assertEqual((release, entry["commit"]), (selected["release"], selected["commit"]))
+        verify.assert_called_once()
+
     def test_csr_uses_approved_rc227_without_changing_default(self):
         selected = self.manifest["consumer_release_selection"]["repositories"]["Synergie-ITCI/csr-intelligence-engine"]
         self.assertEqual(selected, {"release": "pr-qa-v1-rc227", "commit": "854c27f46e9c827b6d75d2dfa5282dffbbd5af92"})
