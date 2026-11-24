@@ -337,7 +337,12 @@ def recover_unpublished_rc404(*, check_only: bool) -> None:
     run = completed_provenance(release, commit, actor, branch)
     if run["id"] != run_id:
         raise ValueError("Original successful provenance run differs")
-    command(*preflight_command(release, commit, True))
+    predecessor = "pr-qa-v1-rc403"
+    predecessor_commit = "4e3b070d76b97e7bd8d9abb099deec8236f3fd33"
+    active = command("python3", "pr-qa/release_pin.py", "--resolve-active").stdout
+    if active.strip() != f"Resolved active release {predecessor} at {predecessor_commit}":
+        raise ValueError("Active release is not the exact rc404 predecessor")
+    command(*preflight_command(predecessor, predecessor_commit, True))
     if check_only:
         print("Rc404 recovery preflight passed; no tag push attempted")
         return
