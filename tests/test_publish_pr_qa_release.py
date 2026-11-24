@@ -42,6 +42,66 @@ def wildcard_ruleset(*, organization: bool = False) -> dict:
 
 
 class PublishReleaseTests(unittest.TestCase):
+    def test_rc404_failed_push_recovery_is_exact_and_single_use(self) -> None:
+        name = "pr-qa-v1-rc404"
+        commit = "48e74d0f6e9d82b7cd04e1063b42bbd84c70f118"
+        tag_object = "53bfe5241c83a62e5424c400edf97ff614e490ce"
+        branch = f"refs/heads/pr-qa-release-source/{name}"
+        protection = ("2026-10-14T13:19:05.354+05:30", "wildcard_namespace")
+        expected = release.annotation(name, commit, 25061784, protection[0], 45459967385, protection[1])
+        pushes: list[tuple[str, ...]] = []
+        published = False
+
+        def command(*args, **_kwargs):
+            nonlocal published
+            if args == ("git", "remote", "get-url", "origin"):
+                return subprocess.CompletedProcess(args, 0, release.ORIGIN + "\n", "")
+            if args == ("git", "status", "--porcelain"):
+                return subprocess.CompletedProcess(args, 0, "", "")
+            if args == ("git", "branch", "--show-current"):
+                return subprocess.CompletedProcess(args, 0, "main\n", "")
+            if args in (("git", "rev-parse", "HEAD"), ("git", "rev-parse", "refs/remotes/origin/main")):
+                return subprocess.CompletedProcess(args, 0, "c" * 40 + "\n", "")
+            if args == ("gh", "api", f"repos/{release.REPOSITORY}/git/ref/tags/{name}"):
+                return subprocess.CompletedProcess(args, 1, "", "gh: Not Found (HTTP 404)")
+            if args == ("git", "rev-parse", f"refs/tags/{name}"):
+                return subprocess.CompletedProcess(args, 0, tag_object + "\n", "")
+            if args == ("git", "cat-file", "-t", f"refs/tags/{name}"):
+                return subprocess.CompletedProcess(args, 0, "tag\n", "")
+            if args == ("git", "rev-parse", f"refs/tags/{name}^{{commit}}"):
+                return subprocess.CompletedProcess(args, 0, commit + "\n", "")
+            if args == ("git", "cat-file", "-p", f"refs/tags/{name}"):
+                return subprocess.CompletedProcess(args, 0, "tag header\n\n" + expected, "")
+            if args == ("git", "ls-remote", "origin", branch):
+                return subprocess.CompletedProcess(args, 0, f"{commit}\t{branch}\n", "")
+            if args == ("python3", "noop"):
+                return subprocess.CompletedProcess(args, 0, "", "")
+            if args == ("git", "push", "origin", f"refs/tags/{name}:refs/tags/{name}"):
+                pushes.append(args)
+                published = True
+                return subprocess.CompletedProcess(args, 0, "", "")
+            self.fail(f"unexpected command: {args}")
+
+        def remote(_name):
+            return tag_object if published else None
+
+        with patch.object(release, "command", side_effect=command), \
+             patch.object(release, "api", return_value={"login": "SaurabhVermaIN"}), \
+             patch.object(release, "verify_source_on_main"), \
+             patch.object(release, "verify_protection", return_value=protection), \
+             patch.object(release, "remote_tag_object", side_effect=remote), \
+             patch.object(release, "completed_provenance", return_value={"id": 45459967385}), \
+             patch.object(release, "preflight_command", return_value=["python3", "noop"]), \
+             patch.object(release, "recover_published") as verified:
+            release.recover_unpublished_rc404(check_only=True)
+            self.assertEqual(pushes, [])
+            release.recover_unpublished_rc404(check_only=False)
+            self.assertEqual(len(pushes), 1)
+            verified.assert_called_once_with(name, commit, 25061784)
+            with self.assertRaisesRegex(ValueError, "already exists remotely"):
+                release.recover_unpublished_rc404(check_only=False)
+            self.assertEqual(len(pushes), 1)
+
     def test_approved_wildcard_and_legacy_exact_remain_distinct(self) -> None:
         self.assertEqual(release.validate_protection(
             "pr-qa-v1-rc219", 25061784,

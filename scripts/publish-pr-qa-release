@@ -289,6 +289,70 @@ def recover_published(release: str, commit: str, ruleset_id: int) -> None:
         raise ValueError("Local tag object differs from the verified published object")
 
 
+def recover_unpublished_rc404(*, check_only: bool) -> None:
+    """One controlled continuation after rc404's proven failed tag push.
+
+    The original publisher never retries. This exact recovery requires a new
+    reviewed control, the original successful provenance, and an absent remote
+    ref before it permits one additional push of the unchanged tag object.
+    """
+    release = "pr-qa-v1-rc404"
+    commit = "48e74d0f6e9d82b7cd04e1063b42bbd84c70f118"
+    tag_object = "53bfe5241c83a62e5424c400edf97ff614e490ce"
+    run_id = 45459967385
+    ruleset_id = 25061784
+    if command("git", "remote", "get-url", "origin").stdout.strip() != ORIGIN:
+        raise ValueError("Recovery checkout is not the central repository")
+    if command("git", "status", "--porcelain").stdout.strip():
+        raise ValueError("Recovery checkout is not clean")
+    actor = str(api("user")["login"])
+    if actor != "SaurabhVermaIN":
+        raise ValueError("Recovery actor is not the approved release owner")
+    verify_source_on_main(commit)
+    if (command("git", "branch", "--show-current").stdout.strip() != "main"
+            or command("git", "rev-parse", "HEAD").stdout.strip()
+            != command("git", "rev-parse", "refs/remotes/origin/main").stdout.strip()):
+        raise ValueError("Recovery control is not executing from current protected main")
+    protection = verify_protection(release, ruleset_id)
+    if remote_tag_object(release) is not None:
+        raise ValueError("Candidate tag already exists remotely; use read-only published recovery")
+    missing = command("gh", "api", f"repos/{REPOSITORY}/git/ref/tags/{release}", check=False)
+    if missing.returncode == 0 or "HTTP 404" not in missing.stderr:
+        raise ValueError("GitHub API did not independently confirm the candidate ref is absent")
+    if command("git", "rev-parse", f"refs/tags/{release}").stdout.strip() != tag_object:
+        raise ValueError("Local annotated tag object differs from the reviewed object")
+    if command("git", "cat-file", "-t", f"refs/tags/{release}").stdout.strip() != "tag":
+        raise ValueError("Local candidate is not an annotated tag")
+    if command("git", "rev-parse", f"refs/tags/{release}^{{commit}}").stdout.strip() != commit:
+        raise ValueError("Local candidate points to a different release commit")
+    expected = annotation(release, commit, ruleset_id, protection[0], run_id, protection[1])
+    actual = command("git", "cat-file", "-p", f"refs/tags/{release}").stdout.split("\n\n", 1)[-1]
+    if actual != expected:
+        raise ValueError("Local candidate annotation differs from the reviewed evidence")
+    branch = f"pr-qa-release-source/{release}"
+    source_ref = f"refs/heads/{branch}"
+    source = command("git", "ls-remote", "origin", source_ref).stdout.strip()
+    if source.split() != [commit, source_ref]:
+        raise ValueError("Original exact release source branch is absent")
+    run = completed_provenance(release, commit, actor, branch)
+    if run["id"] != run_id:
+        raise ValueError("Original successful provenance run differs")
+    command(*preflight_command(release, commit, True))
+    if check_only:
+        print("Rc404 recovery preflight passed; no tag push attempted")
+        return
+    verify_source_on_main(commit)
+    if verify_protection(release, ruleset_id) != protection or remote_tag_object(release):
+        raise ValueError("Protection or remote candidate changed before recovery")
+    result = command("git", "push", "origin", f"refs/tags/{release}:refs/tags/{release}", check=False)
+    if result.returncode:
+        raise ValueError("One controlled rc404 recovery push failed; do not retry")
+    if remote_tag_object(release) != tag_object:
+        raise ValueError("Recovered rc404 remote object differs; do not alter it")
+    recover_published(release, commit, ruleset_id)
+    print(f"Recovered and verified {release} at {commit}; provenance run {run_id}")
+
+
 def ensure_local_active_tag(release: str, commit: str) -> None:
     """Fetch a missing verified release tag without replacing a divergent local tag."""
     if not RELEASE.fullmatch(release) or not SHA.fullmatch(commit):
@@ -326,7 +390,13 @@ def main() -> int:
     parser.add_argument("--ruleset-id", required=True, type=int)
     parser.add_argument("--check-only", action="store_true")
     parser.add_argument("--recover-published", action="store_true")
+    parser.add_argument("--recover-unpublished-rc404", action="store_true")
     args = parser.parse_args()
+    if args.recover_unpublished_rc404:
+        if args.recover_published or args.release != "pr-qa-v1-rc404" or args.commit != "48e74d0f6e9d82b7cd04e1063b42bbd84c70f118" or args.ruleset_id != 25061784:
+            raise ValueError("Rc404 recovery requires the exact original release inputs")
+        recover_unpublished_rc404(check_only=args.check_only)
+        return 0
     if args.recover_published:
         if args.check_only:
             raise ValueError("Choose only one read-only release mode")
