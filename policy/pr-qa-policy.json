@@ -2349,6 +2349,23 @@
       "expires_after": "2026-11-24T15:41:38Z",
       "authorization_id": "d5bf91f1-1cdd-4b88-b255-4724950d01c6",
       "relaxations": []
+    },
+    {
+      "enabled": true,
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "repository_id": 1315697868,
+      "pr_number": 861,
+      "expected_head_sha": "541489c4d4645c73a8103e08e152b6eda380e16a",
+      "expected_base_sha": "a28b22e427f929b95b394d1524a8712a1e24bd74",
+      "head_ref": "fix/admin-private-evidence-image-csp",
+      "base_ref": "main",
+      "allowed_effective_additions": 1,
+      "allowed_changed_files": 1,
+      "purpose": "Exact-source image and rollout review for merged PR #861 Admin private-evidence image CSP correction at unchanged production DB 0041+0079. No QA relaxation, migration, IAM/ECR/ECS action, Nidaan content or publication approval.",
+      "issued_at": "2026-11-24T07:02:32Z",
+      "expires_after": "2026-11-25T06:02:32Z",
+      "authorization_id": "3c9daab8-5e40-4de7-a79c-94aee807956a",
+      "relaxations": []
     }
   ]
 }
