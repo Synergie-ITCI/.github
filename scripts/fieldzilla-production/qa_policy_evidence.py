@@ -148,25 +148,25 @@ def verify_pr857_detector_log_recovery(manifest, proof, release, run, detector, 
         or manifest.get("application", {}).get("source_sha") != "e1c5f8ecdc4e5e791580cf0b5a81daf19f79a8f9"
         or manifest.get("base_sha") != "601fd19e8fef1a93e3881cca0d0b28423d4d360b"
         or proof.get("run_id") != 45217055941
-        or run.get("run_attempt") != 2
-        or release != "pr-qa-v1-rc399"
-        or proof.get("policy_sha") != "2b073b7e06ee1985d16f15b41741cf05814507e9"
-        or detector.get("id") != 137867665054
+        or run.get("run_attempt") not in range(4, 11)
+        or release != "pr-qa-v1-rc401"
+        or manifest.get("central_tag") != release
+        or proof.get("policy_sha") != manifest.get("central_sha")
         or detector.get("head_sha") != manifest["application"]["source_sha"]
     ):
         raise ValueError("PR #857 detector-log recovery identity differs")
-    selector_merge = "292dc96beb4a82a73e904267b5ed3d4a1a2a37b0"
+    selector_merge = "f262f4d9203543e27f73278bda2adbc4927fcb46"
     current_main = api(f"repos/{REPOSITORY}/git/ref/heads/main").get("object", {}).get("sha")
     if not isinstance(current_main, str) or not re.fullmatch(r"[0-9a-f]{40}", current_main):
         raise ValueError("PR #857 protected main identity unavailable")
     if api(f"repos/{REPOSITORY}/compare/{selector_merge}...{current_main}").get("status") not in {"identical", "ahead"}:
         raise ValueError("PR #857 protected selector is not in main ancestry")
-    selector = api(f"repos/{REPOSITORY}/pulls/858")
+    selector = api(f"repos/{REPOSITORY}/pulls/859")
     if (
         selector.get("state") != "closed"
         or selector.get("merge_commit_sha") != selector_merge
-        or selector.get("head", {}).get("sha") != "d4993f6dc8a29a929c7820c23490f0a5f897a0ef"
-        or selector.get("base", {}).get("sha") != "170d5b3fc59aa86a9190338f08f98e60dd7f3c76"
+        or selector.get("head", {}).get("sha") != "594d4dfa07ee96069f39b193683c59bfa9cdfc05"
+        or selector.get("base", {}).get("sha") != "292dc96beb4a82a73e904267b5ed3d4a1a2a37b0"
         or not selector.get("merged_at")
     ):
         raise ValueError("PR #857 protected selector merge differs")
