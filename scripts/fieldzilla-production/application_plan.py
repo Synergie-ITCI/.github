@@ -35,6 +35,7 @@ PR841_SOURCE_SHA = "42730e5659959ba708fcfea4d37c80edde71fc9f"
 PR844_SOURCE_SHA = "a4389d10fc8fde01b2b940ce912d748457901e8e"
 PR853_SOURCE_SHA = "bfd3315a3847e3723940ec8548852d4e9c4c43fa"
 PR857_SOURCE_SHA = "e1c5f8ecdc4e5e791580cf0b5a81daf19f79a8f9"
+PR861_SOURCE_SHA = "541489c4d4645c73a8103e08e152b6eda380e16a"
 ROLE = re.compile(
     rf"arn:aws:iam::{ACCOUNT}:role/[A-Za-z0-9_+=,.@/-]*[Pp]roduction[A-Za-z0-9_+=,.@/-]*"
 )
@@ -173,7 +174,7 @@ def render(manifest: dict, *, scope: str = "production") -> dict:
                     },
                 ]
             else:
-                if scope == "production" and sha in {PR802_SOURCE_SHA, PR804_SOURCE_SHA, PR806_SOURCE_SHA, PR808_SOURCE_SHA, PR811_SOURCE_SHA, PR814_SOURCE_SHA, PR816_SOURCE_SHA, PR819_SOURCE_SHA, PR841_SOURCE_SHA, PR844_SOURCE_SHA, PR853_SOURCE_SHA}:
+                if scope == "production" and sha in {PR802_SOURCE_SHA, PR804_SOURCE_SHA, PR806_SOURCE_SHA, PR808_SOURCE_SHA, PR811_SOURCE_SHA, PR814_SOURCE_SHA, PR816_SOURCE_SHA, PR819_SOURCE_SHA, PR841_SOURCE_SHA, PR844_SOURCE_SHA, PR853_SOURCE_SHA, PR861_SOURCE_SHA}:
                     container["command"] = ["alembic", "current"]
                 elif scope == "production" and sha == PR857_SOURCE_SHA:
                     container["command"] = ["alembic", "upgrade", "20261123_0079"]
