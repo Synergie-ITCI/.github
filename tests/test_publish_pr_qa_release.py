@@ -74,6 +74,9 @@ class PublishReleaseTests(unittest.TestCase):
                 return subprocess.CompletedProcess(args, 0, "tag header\n\n" + expected, "")
             if args == ("git", "ls-remote", "origin", branch):
                 return subprocess.CompletedProcess(args, 0, f"{commit}\t{branch}\n", "")
+            if args == ("python3", "pr-qa/release_pin.py", "--resolve-active"):
+                return subprocess.CompletedProcess(args, 0,
+                    "Resolved active release pr-qa-v1-rc403 at 4e3b070d76b97e7bd8d9abb099deec8236f3fd33\n", "")
             if args == ("python3", "noop"):
                 return subprocess.CompletedProcess(args, 0, "", "")
             if args == ("git", "push", "origin", f"refs/tags/{name}:refs/tags/{name}"):
@@ -91,10 +94,11 @@ class PublishReleaseTests(unittest.TestCase):
              patch.object(release, "verify_protection", return_value=protection), \
              patch.object(release, "remote_tag_object", side_effect=remote), \
              patch.object(release, "completed_provenance", return_value={"id": 45459967385}), \
-             patch.object(release, "preflight_command", return_value=["python3", "noop"]), \
+             patch.object(release, "preflight_command", return_value=["python3", "noop"]) as preflight, \
              patch.object(release, "recover_published") as verified:
             release.recover_unpublished_rc404(check_only=True)
             self.assertEqual(pushes, [])
+            preflight.assert_called_with("pr-qa-v1-rc403", "4e3b070d76b97e7bd8d9abb099deec8236f3fd33", True)
             release.recover_unpublished_rc404(check_only=False)
             self.assertEqual(len(pushes), 1)
             verified.assert_called_once_with(name, commit, 25061784)
