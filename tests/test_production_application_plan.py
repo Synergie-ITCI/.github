@@ -83,6 +83,12 @@ class TrustedProxyTests(unittest.TestCase):
 
 
 class PlanTests(unittest.TestCase):
+    def test_pr865_uses_only_reviewed_dashboard_migration(self):
+        inputs = manifest()
+        inputs["source_sha"] = module.PR865_SOURCE_SHA
+        migration = render(inputs)["task_definitions"][2]["containerDefinitions"][0]
+        self.assertEqual(migration["command"], ["alembic", "upgrade", "20261125_0080"])
+
     def test_pr861_sql_free_task_cannot_run_a_migration(self):
         inputs = manifest()
         inputs["source_sha"] = module.PR861_SOURCE_SHA
