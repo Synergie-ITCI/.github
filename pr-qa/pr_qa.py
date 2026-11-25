@@ -2350,8 +2350,9 @@ def exact_mobilekids_main_staging_reconciliation(ctx: PRContext, git_context: di
     """Recognize only the reviewed merge of current main into MobileKids staging."""
     staging_sha = "e73ccfdeb515201c10844c57668e8048829c2aa4"
     main_sha = "5ed085388f9bc8879c353f06a698133551efd289"
-    head_sha = "66694ce6637a2848ec5804c4db026182ad2a7cd6"
-    tree_sha = "10ed2f1a3a82da3ed15211d7bf7bd3696cca8785"
+    merge_sha = "66694ce6637a2848ec5804c4db026182ad2a7cd6"
+    head_sha = "1fd542e97e546607e84a62f2bdadef70740f6b93"
+    tree_sha = "a70a4602659a1b262a79213067a3d43abb71bbdb"
     pull_request = ctx.event.get("pull_request", {}) or {}
     return (
         resolve_repository_name(ctx) == "Synergie-ITCI/mobilekids.synergieinsights.in"
@@ -2361,8 +2362,9 @@ def exact_mobilekids_main_staging_reconciliation(ctx: PRContext, git_context: di
         and resolve_head_sha(ctx.repo, git_context) == head_sha
         and resolve_fresh_origin_staging_tip(ctx.repo) == staging_sha
         and resolve_fresh_origin_main_tip(ctx.repo) == main_sha
-        and merge_commits == [head_sha]
-        and git_lines(ctx.repo, ["show", "-s", "--format=%P", head_sha]) == [f"{staging_sha} {main_sha}"]
+        and merge_commits == [merge_sha]
+        and git_lines(ctx.repo, ["show", "-s", "--format=%P", head_sha]) == [merge_sha]
+        and git_lines(ctx.repo, ["show", "-s", "--format=%P", merge_sha]) == [f"{staging_sha} {main_sha}"]
         and run_git(ctx.repo, ["rev-parse", f"{head_sha}^{{tree}}"]).strip() == tree_sha
     )
 
