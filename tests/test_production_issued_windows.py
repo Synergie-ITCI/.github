@@ -16,10 +16,46 @@ from issued_windows import (
     verify_pr798_inherited_migration,
     verify_pr835_password_reset_migration,
     verify_pr857_team_hierarchy_migration,
+    verify_pr865_dashboard_migration,
 )
 
 
 class IssuedWindowTests(unittest.TestCase):
+    def test_pr865_requires_exact_dashboard_migration_and_sql_review(self):
+        from issued_windows import PR865_BASE, PR865_MIGRATION, PR865_MIGRATION_SHA256, PR865_SOURCE
+
+        manifest = {
+            "scope": "production", "promotion_pr": 865,
+            "application": {"source_sha": PR865_SOURCE}, "base_sha": PR865_BASE,
+            "review_authorizations": {"sql": "2a5b916f-67af-441e-94e8-c1187c40166a"},
+            "database": {
+                "name": "fieldzilla_production", "role": "pmp_fieldzilla_prod_migrator",
+                "before": ["20260909_0041", "20261123_0079"],
+                "after": ["20260909_0041", "20261125_0080"],
+            },
+        }
+        # The verifier must reject changed SQL bytes, review IDs, or database targets.
+        def api(path):
+            if "/contents/" in path:
+                return {"type": "file", "encoding": "base64", "content": base64.b64encode(b"changed").decode()}
+            return [{"filename": PR865_MIGRATION}] * 30
+
+        with self.assertRaisesRegex(ValueError, "bytes differ"):
+            verify_pr865_dashboard_migration(manifest, api=api)
+        changed = copy.deepcopy(manifest)
+        changed["review_authorizations"]["sql"] = None
+        with self.assertRaisesRegex(ValueError, "binding differs"):
+            verify_pr865_dashboard_migration(changed, api=api)
+        self.assertEqual(len(PR865_MIGRATION_SHA256), 64)
+        with patch("issued_windows.hashlib.sha256") as digest:
+            digest.return_value.hexdigest.return_value = PR865_MIGRATION_SHA256
+            verify_pr865_dashboard_migration(manifest, api=api)
+            with self.assertRaisesRegex(ValueError, "changed migration files"):
+                verify_pr865_dashboard_migration(
+                    manifest,
+                    api=lambda path: api(path) if "/contents/" in path else [],
+                )
+
     def test_pr861_sql_free_binding_keeps_current_database(self):
         from issued_windows import (
             SQL_FREE_PR861_BASE, SQL_FREE_PR861_REVISIONS,

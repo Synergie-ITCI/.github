@@ -225,5 +225,25 @@
     "delete_fingerprints": [],
     "approved_reviewer": {"login": "SaurabhVermaIN", "id": 52234089},
     "purpose": "Review exact additive migration 0079 from production 0041+0078 to 0041+0079. It creates tenant-scoped team relationship, audit-event and household-attribution tables with forced RLS and no existing-row rewrite or DELETE statement. This record authorizes review, not execution."
+  },
+  {
+    "repository": "Synergie-ITCI/programme-management-platform",
+    "repository_id": 1315697868,
+    "pr_number": 865,
+    "head_ref": "feature/tenant-dashboard-config",
+    "base_ref": "main",
+    "expected_head_sha": "5b7f9551b7f388e67578a06c784a0303ac63b8b9",
+    "expected_base_sha": "74cece4e62866ebb514efed623866d431f0e3939",
+    "issued_at": "2026-11-25T15:38:37Z",
+    "authorization_id": "2a5b916f-67af-441e-94e8-c1187c40166a",
+    "expires_at": "2026-11-26T14:38:37Z",
+    "migration_path": "apps/api/alembic/versions/20261125_0080_dashboard_configuration.py",
+    "migration_sha256": "49ae1d5be93654f0fa4a913bb4bd602658e5a963d2f09f5cbe43dad8e13fab60",
+    "delete_fingerprints": [],
+    "approved_reviewer": {
+      "login": "SaurabhVermaIN",
+      "id": 52234089
+    },
+    "purpose": "Review exact additive migration 0080 from production 0041+0079 to 0041+0080. It creates tenant-scoped dashboard definition, version and audit-event tables with forced RLS and inserts reporting permissions. No existing-row rewrite or DELETE statement. Review only; execution requires a separate governed rollout."
   }
 ]

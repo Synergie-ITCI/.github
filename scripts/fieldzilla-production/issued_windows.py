@@ -93,6 +93,10 @@ PR857_SOURCE = "e1c5f8ecdc4e5e791580cf0b5a81daf19f79a8f9"
 PR857_BASE = "601fd19e8fef1a93e3881cca0d0b28423d4d360b"
 PR857_MIGRATION = "apps/api/alembic/versions/20261123_0079_team_reporting_relationships.py"
 PR857_MIGRATION_SHA256 = "1d0252e6d44e16f48d2974eff7bebb6b7d30f46098933681e4cdf6d1ad2da256"
+PR865_SOURCE = "5b7f9551b7f388e67578a06c784a0303ac63b8b9"
+PR865_BASE = "74cece4e62866ebb514efed623866d431f0e3939"
+PR865_MIGRATION = "apps/api/alembic/versions/20261125_0080_dashboard_configuration.py"
+PR865_MIGRATION_SHA256 = "49ae1d5be93654f0fa4a913bb4bd602658e5a963d2f09f5cbe43dad8e13fab60"
 PR835_FILES = {
     PR835_MIGRATION,
     "apps/api/docs/password-reset-migration-0078.md",
@@ -422,7 +426,51 @@ def verify_pr857_team_hierarchy_migration(manifest, *, api):
         raise ValueError("PR #857 changed migration files differ from reviewed patch")
 
 
+def verify_pr865_dashboard_migration(manifest, *, api):
+    """Bind additive dashboard migration 0080 to the merged, reviewed source."""
+    if manifest.get("scope") != "production" or manifest.get("promotion_pr") != 865:
+        return
+    if (
+        manifest.get("application", {}).get("source_sha") != PR865_SOURCE
+        or manifest.get("base_sha") != PR865_BASE
+        or manifest.get("review_authorizations", {}).get("sql")
+        != "2a5b916f-67af-441e-94e8-c1187c40166a"
+        or manifest.get("database") != {
+            "name": "fieldzilla_production",
+            "role": "pmp_fieldzilla_prod_migrator",
+            "before": ["20260909_0041", "20261123_0079"],
+            "after": ["20260909_0041", "20261125_0080"],
+        }
+    ):
+        raise ValueError("PR #865 dashboard migration binding differs")
+    reply = api(f"repos/{REPOSITORY}/contents/{PR865_MIGRATION}?ref={PR865_SOURCE}")
+    encoded = reply.get("content", "")
+    if (
+        reply.get("type") != "file"
+        or reply.get("encoding") != "base64"
+        or not isinstance(encoded, str)
+        or len(encoded) > 65536
+        or hashlib.sha256(base64.b64decode(encoded.replace("\n", ""), validate=True)).hexdigest()
+        != PR865_MIGRATION_SHA256
+    ):
+        raise ValueError("Reviewed migration 0080 bytes differ")
+    files = api(f"repos/{REPOSITORY}/pulls/865/files?per_page=100&page=1")
+    if (
+        not isinstance(files, list)
+        or len(files) != 30
+        or any(not isinstance(row, dict) or row.get("previous_filename") for row in files)
+        or {
+            row.get("filename")
+            for row in files
+            if str(row.get("filename", "")).startswith("apps/api/alembic/")
+        }
+        != {PR865_MIGRATION}
+    ):
+        raise ValueError("PR #865 changed migration files differ from reviewed patch")
+
+
 def verify_issued_windows(manifest, *, api, activated_policies, now=None):
+    verify_pr865_dashboard_migration(manifest, api=api)
     verify_pr857_team_hierarchy_migration(manifest, api=api)
     verify_pr835_password_reset_migration(manifest, api=api)
     verify_pr787_inherited_migration(manifest, api=api)
