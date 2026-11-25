@@ -955,6 +955,7 @@ class ReleasePreflightTests(unittest.TestCase):
                         "base": {"ref": "main"}, "head": {"sha": first_head}}],
                second: [{"number": 11, "merged_at": "2026-10-23T02:00:00Z", "merge_commit_sha": second,
                          "base": {"ref": "main"}, "head": {"sha": second_head}}]}
+        listed_prs = []
         parents = {first: f"{first} {release}", second: f"{second} {first}"}
         remote_main = [second]
         first_parent_history = [second, first, release]
@@ -1001,6 +1002,8 @@ class ReleasePreflightTests(unittest.TestCase):
                 value = prs[first]
             elif path.endswith(f"/commits/{second}/pulls"):
                 value = prs[second]
+            elif path.endswith("/pulls?state=closed&sort=updated&direction=desc&per_page=100"):
+                value = listed_prs
             elif path.endswith(f"/commits/{first_head}/check-runs?per_page=100"):
                 value = checks(first_head)
             elif path.endswith(f"/commits/{second_head}/check-runs?per_page=100"):
@@ -1025,6 +1028,14 @@ class ReleasePreflightTests(unittest.TestCase):
             prs[second] = []
             with self.assertRaisesRegex(ValueError, "no unique approved merged PR"):
                 preflight.verify_central_lineage(ROOT, "pr-qa-v1-rc204", second)
+            listed_prs[:] = [{"number": 11, "merged_at": "2026-10-23T02:00:00Z",
+                             "merge_commit_sha": second, "base": {"ref": "main"},
+                             "head": {"sha": second_head}}]
+            self.assertEqual(preflight.verify_central_lineage(ROOT, "pr-qa-v1-rc204", second), [first, second])
+            listed_prs[0]["merge_commit_sha"] = first
+            with self.assertRaisesRegex(ValueError, "no unique approved merged PR"):
+                preflight.verify_central_lineage(ROOT, "pr-qa-v1-rc204", second)
+            listed_prs.clear()
             prs[second] = [{"number": 11, "merged_at": "2026-10-23T02:00:00Z", "merge_commit_sha": second,
                             "base": {"ref": "main"}, "head": {"sha": second_head}}]
             checks_without_architecture = checks(second_head)
