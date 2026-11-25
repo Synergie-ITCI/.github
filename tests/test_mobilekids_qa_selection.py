@@ -1,4 +1,4 @@
-"""The MobileKids consumer resolves only to the protected rc404 release."""
+"""The MobileKids consumer resolves only to the protected rc405 release."""
 
 import json
 import sys
@@ -18,8 +18,8 @@ class MobileKidsQaSelectionTests(unittest.TestCase):
             release, entry = resolve_consumer_release(
                 manifest, "Synergie-ITCI/mobilekids.synergieinsights.in"
             )
-        self.assertEqual(release, "pr-qa-v1-rc404")
-        self.assertEqual(entry, {"commit": "48e74d0f6e9d82b7cd04e1063b42bbd84c70f118"})
+        self.assertEqual(release, "pr-qa-v1-rc405")
+        self.assertEqual(entry, {"commit": "066b67650e6852ab67d645f9c91d593e96ad817d"})
         verify.assert_called_once()
         self.assertEqual(verify.call_args.args[:2], (release, entry["commit"]))
 
