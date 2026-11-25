@@ -169,6 +169,15 @@ def verify_central_lineage(root: Path, release: str, candidate: str) -> list[str
         if parents[0] != commit or len(parents) not in (2, 3) or parents[1] != previous:
             raise ValueError(f"unexpected merge or direct push: {commit}")
         associated = checked_api(f"repos/Synergie-ITCI/.github/commits/{commit}/pulls")
+        if associated == []:
+            # GitHub can briefly omit a newly merged commit from its commit-to-PR
+            # index. Its independently listed closed PRs still carry the exact
+            # merge SHA. Keep all parent, head-tree, and check-run gates below.
+            associated = checked_api(
+                "repos/Synergie-ITCI/.github/pulls?state=closed&sort=updated&direction=desc&per_page=100"
+            )
+        if not isinstance(associated, list):
+            raise ValueError(f"merged PR evidence has an invalid shape: {commit}")
         matches = [pr for pr in associated if pr.get("merge_commit_sha") == commit
                    and pr.get("merged_at") and pr.get("base", {}).get("ref") == "main"]
         if len(matches) != 1:
