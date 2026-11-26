@@ -17,8 +17,8 @@ class LmsQaSelectionTests(unittest.TestCase):
         manifest = json.loads((ROOT / "policy/framework-releases.json").read_text())
         with patch("release_pin.verify_bound_release") as verify:
             release, entry = resolve_consumer_release(manifest, "Synergie-ITCI/synergielms.com")
-        self.assertEqual(release, "pr-qa-v1-rc419")
-        self.assertEqual(entry, {"commit": "521b42234c5e4281e98c2936fee5376032ced93e"})
+        self.assertEqual(release, "pr-qa-v1-rc422")
+        self.assertEqual(entry, {"commit": "19b210bd6fdcc8dc8a683bbb77fa91788a7be582"})
         verify.assert_called_once()
         self.assertEqual(verify.call_args.args[:2], (release, entry["commit"]))
 
