@@ -6601,6 +6601,7 @@ jobs:
             "runtime-certifier-action-v1.6",
             "runtime-certifier-action-v1.8",
             "runtime-certifier-action-v1.9",
+            "runtime-certifier-action-v1.11",
         ):
             with self.subTest(release=release):
                 repo, base = self.init_repo("approved-gate-d-" + release.replace(".", "-"))
