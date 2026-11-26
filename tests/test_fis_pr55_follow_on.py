@@ -20,9 +20,11 @@ class FisPr55FollowOnTests(TestCase):
         self.assertEqual(ENTRY["expected_base_sha"],
                          "b1f86b0ac589fa2bd339d3368f32d63adb914a81")
         self.assertEqual(ENTRY["expected_head_sha"],
-                         "5852a9c2c389b28434613df6241d8c350070a33d")
+                         "ab9c90812c79b665bbd654733f82988c660f06a0")
         self.assertEqual(set(ENTRY["paths"]), set(ENTRY["file_sha256"]))
-        self.assertEqual(len(ENTRY["paths"]), 10)
+        self.assertEqual(len(ENTRY["paths"]), 11)
+        self.assertEqual(ENTRY["file_sha256"][".github/workflows/pr-qa.yml"],
+                         "6ed34120ade41f7918712787b3d5e8fd2cbf628059122e3ad3455340b647f8d5")
         self.assertEqual(ENTRY["required_reviewers"], ["SaurabhVermaIN"])
         self.assertIn("fresh-backup-and-rollback", ENTRY["required_controls"])
         self.assertIn("exact-head-and-file-sha256", ENTRY["required_controls"])
