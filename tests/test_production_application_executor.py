@@ -117,6 +117,7 @@ class ExecutorTests(unittest.TestCase):
             + "d" * 32,
             "application": fixture.manifest(),
             "snapshot_id": "approved-snapshot",
+            "database": {"before": ["20261108_0072"], "after": ["20261109_0073"]},
             "prior_tasks": {"api": None, "admin-web": None},
         }
         self.cloud = Cloud(self.manifest)
@@ -338,6 +339,7 @@ class LiveWriterFenceTests(unittest.TestCase):
         self.manifest = {
             "scope": "production", "application": fixture.manifest(),
             "snapshot_id": "approved-snapshot", "worker_digest": "sha256:" + "f" * 64,
+            "database": {"before": ["20261108_0072"], "after": ["20261109_0073"]},
             "container_instance_arn": "arn:aws:ecs:ap-south-1:918870682888:container-instance/fieldzilla-production/" + "d" * 32,
             "prior_tasks": {kind: "arn:aws:ecs:ap-south-1:918870682888:task-definition/fieldzilla-production-" + kind + ":1" for kind in ("api", "admin-web", "worker")},
         }
@@ -447,7 +449,9 @@ class TaskCloud(Cloud):
                 "arn:aws:ecs:ap-south-1:918870682888:task/fieldzilla-production/"
                 + task_id
             )
-            if "overrides" not in request:
+            if request.get("overrides", {}).get("containerOverrides", [{}])[0].get(
+                "command", []
+            )[:2] == ["alembic", "upgrade"]:
                 self.revisions = self.manifest["database"]["after"]
             self.started[arn] = {
                 "taskArn": arn,
@@ -494,7 +498,7 @@ class DatabaseProtocolTests(unittest.TestCase):
             "database": {
                 "name": "synthetic",
                 "role": "synthetic_migrator",
-                "before": [],
+                "before": ["20261108_0072"],
                 "after": ["20261109_0073"],
             },
         }
@@ -518,7 +522,10 @@ class DatabaseProtocolTests(unittest.TestCase):
         self.assertEqual(len({r["clientToken"] for r in requests}), 3)
         self.assertTrue(all(len(r["clientToken"]) <= 64 for r in requests))
         self.assertIn("overrides", requests[0])
-        self.assertNotIn("overrides", requests[1])
+        self.assertEqual(
+            requests[1]["overrides"]["containerOverrides"],
+            [{"name": "migration", "command": ["alembic", "upgrade", "20261109_0073"]}],
+        )
         self.assertIn("overrides", requests[2])
         self.assertEqual(self.cloud.revisions, ["20261109_0073"])
 
@@ -533,6 +540,64 @@ class DatabaseProtocolTests(unittest.TestCase):
                 if action == "run-task"
             )
         )
+
+    def test_unchanged_revisions_run_read_only_current(self):
+        manifest = copy.deepcopy(self.manifest)
+        manifest["database"]["after"] = manifest["database"]["before"]
+        cloud = TaskCloud(manifest)
+        engine = Executor(
+            manifest, aws=cloud, authorize=lambda: None,
+            journal=Path(self.temp.name) / "journal-unchanged",
+            sleep=lambda _: None,
+        )
+        self.addCleanup(engine.close)
+        engine.prepare()
+        engine.migrate()
+        commands = [
+            request["overrides"]["containerOverrides"][0]["command"]
+            for _, action, request in cloud.calls if action == "run-task"
+        ]
+        self.assertEqual(commands[1], ["alembic", "current"])
+
+    def test_ambiguous_or_invalid_target_fails_before_any_mutation(self):
+        for after in (["20261109_0073", "20261110_0074"], ["invalid"]):
+            with self.subTest(after=after):
+                manifest = copy.deepcopy(self.manifest)
+                manifest["database"]["after"] = after
+                cloud = TaskCloud(manifest)
+                engine = Executor(
+                    manifest, aws=cloud, authorize=lambda: None,
+                    journal=Path(self.temp.name) / ("journal-" + after[0]),
+                    sleep=lambda _: None,
+                )
+                try:
+                    with self.assertRaises(ExecutionError):
+                        engine.prepare()
+                    self.assertFalse(any(
+                        action in {"register-task-definition", "update-service", "run-task"}
+                        for _, action, _ in cloud.calls
+                    ))
+                finally:
+                    engine.close()
+
+    def test_missing_database_transition_fails_before_any_mutation(self):
+        manifest = copy.deepcopy(self.manifest)
+        del manifest["database"]
+        cloud = TaskCloud(self.manifest)
+        engine = Executor(
+            manifest, aws=cloud, authorize=lambda: None,
+            journal=Path(self.temp.name) / "journal-missing-database",
+            sleep=lambda _: None,
+        )
+        try:
+            with self.assertRaisesRegex(ExecutionError, "transition is unavailable"):
+                engine.prepare()
+            self.assertFalse(any(
+                action in {"register-task-definition", "update-service", "run-task"}
+                for _, action, _ in cloud.calls
+            ))
+        finally:
+            engine.close()
 
     def test_wrong_executing_digest_prevents_accepting_exit_zero(self):
         self.cloud.wrong_image = True
@@ -646,6 +711,7 @@ class RuntimeReadbackTests(unittest.TestCase):
             + "d" * 32,
             "application": fixture.manifest(),
             "snapshot_id": "approved-snapshot",
+            "database": {"before": ["20261108_0072"], "after": ["20261109_0073"]},
             "prior_tasks": {"api": None, "admin-web": None},
         }
         self.cloud = RuntimeCloud(self.manifest)
@@ -807,6 +873,7 @@ class WorkerRolloutTests(unittest.TestCase):
         self.manifest = {
             "scope": "production", "application": application,
             "snapshot_id": "approved-snapshot", "worker_digest": PRIOR_WORKER_DIGEST,
+            "database": {"before": ["20261108_0072"], "after": ["20261109_0073"]},
             "worker_target_digest": application["api_digest"],
             "container_instance_arn": "arn:aws:ecs:ap-south-1:918870682888:container-instance/fieldzilla-production/" + "d" * 32,
             "prior_tasks": {"api": "arn:aws:ecs:ap-south-1:918870682888:task-definition/fieldzilla-production-api:1",
