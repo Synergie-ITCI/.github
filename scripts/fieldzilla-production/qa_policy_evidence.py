@@ -21,7 +21,12 @@ from pathlib import Path
 
 from execution_artifact import _unique_object
 from execution_gate import REPOSITORY
-from issued_windows import SQL_FREE_PRODUCTION_BASE, SQL_FREE_PRODUCTION_SOURCE, is_sql_free_update
+from issued_windows import (
+    SQL_FREE_PRODUCTION_BASE,
+    SQL_FREE_PRODUCTION_SOURCE,
+    is_sql_free_update,
+    verify_issued_windows,
+)
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "pr-qa"))
 from release_pin import resolve_consumer_release
@@ -258,6 +263,80 @@ def read_detector_run_log_archive(archive):
             return zipped.read(matches[0])
     except zipfile.BadZipFile as error:
         raise ValueError("QA run-log archive is invalid") from error
+
+
+def verify_independently_reviewed_migration(manifest, *, api, policies):
+    """Bind an ordinary QA result to the exact audited migration and DB heads."""
+    review_id = manifest["review_authorizations"]["sql"]
+    rows = policies["policy/audited-migration-authorizations.json"]
+    if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+        raise ValueError("Activated SQL review records are malformed")
+    matches = [row for row in rows if row.get("authorization_id") == review_id]
+    if len(matches) != 1:
+        raise ValueError("Exact activated SQL review is unavailable")
+    review = matches[0]
+    path = review.get("migration_path")
+    digest = review.get("migration_sha256")
+    if (
+        not isinstance(path, str)
+        or re.fullmatch(r"apps/api/alembic/versions/[A-Za-z0-9_]+\.py", path) is None
+        or not isinstance(digest, str)
+        or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+    ):
+        raise ValueError("Reviewed migration identity is malformed")
+    source = manifest["application"]["source_sha"]
+    content = api(f"repos/{REPOSITORY}/contents/{path}?ref={source}")
+    encoded = content.get("content")
+    if (
+        content.get("type") != "file"
+        or content.get("encoding") != "base64"
+        or not isinstance(encoded, str)
+        or len(encoded) > 131072
+    ):
+        raise ValueError("Exact reviewed migration content is unavailable")
+    migration = base64.b64decode(encoded.replace("\n", ""), validate=True)
+    if len(migration) > 65536 or hashlib.sha256(migration).hexdigest() != digest:
+        raise ValueError("Exact reviewed migration SHA-256 differs")
+    revisions = re.findall(
+        rb'(?m)^revision(?:\s*:\s*str)?\s*=\s*["\']([A-Za-z0-9_]+)["\']',
+        migration,
+    )
+    parents = re.findall(
+        rb'(?m)^down_revision(?:\s*:\s*str)?\s*=\s*["\']([A-Za-z0-9_]+)["\']',
+        migration,
+    )
+    before = manifest.get("database", {}).get("before")
+    after = manifest.get("database", {}).get("after")
+    if (
+        len(revisions) != 1 or len(parents) != 1
+        or not isinstance(before, list) or not isinstance(after, list)
+        or parents[0].decode() not in before
+        or after != [
+            revisions[0].decode() if item == parents[0].decode() else item
+            for item in before
+        ]
+        or len(before) != len(set(before))
+    ):
+        raise ValueError("Reviewed migration does not match database before/after heads")
+    found = []
+    for page in range(1, 11):
+        files = api(
+            f"repos/{REPOSITORY}/pulls/{manifest['promotion_pr']}/files"
+            f"?per_page=100&page={page}"
+        )
+        if (
+            not isinstance(files, list)
+            or len(files) > 100
+            or any(not isinstance(row, dict) for row in files)
+        ):
+            raise ValueError("Exact PR migration file evidence is unavailable")
+        found.extend(row for row in files if row.get("filename") == path)
+        if len(files) < 100:
+            break
+    else:
+        raise ValueError("Exact PR file evidence exceeds bounded read")
+    if len(found) != 1 or found[0].get("status") != "added":
+        raise ValueError("Reviewed migration is absent from the exact PR")
 
 
 def verify_qa_policy_evidence(
@@ -677,19 +756,42 @@ def verify_qa_policy_evidence(
         and binding.get("authorized") is False
         and binding.get("relaxed_checks") == []
     )
+    independently_reviewed_migration = (
+        manifest.get("scope") == "production"
+        and binding.get("requested") is False
+        and binding.get("authorized") is False
+        and binding.get("relaxed_checks") == []
+        and isinstance(manifest.get("review_authorizations"), dict)
+        and set(manifest["review_authorizations"]) == {"baseline", "sql"}
+        and all(
+            isinstance(manifest["review_authorizations"][kind], str)
+            for kind in ("baseline", "sql")
+        )
+    )
     if (
         summary.get("repository") != REPOSITORY
         or summary.get("overall_result") != "PASS"
-        or (binding.get("authorized") is not True and not ordinary_qa)
         or binding.get("source_sha") != source
         or binding.get("destination_sha") != base
     ):
+        raise ValueError("Final QA report does not prove the exact reviewed source/base")
+    if binding.get("authorized") is not True and not (
+        ordinary_qa or independently_reviewed_migration
+    ):
         raise ValueError(
-            "Final QA report does not prove the exact reviewed source/base"
+            "QA baseline alignment lacks authorization or eligible independent reviews"
         )
     policies = {
         path: read_central_json(api, path, proof["policy_sha"]) for path in POLICY_FILES
     }
     if checks.get("__merge_metadata_recovery__") is True:
         policies["__merge_metadata_recovery__"] = True
+    if independently_reviewed_migration and not ordinary_qa:
+        # Ordinary QA alone cannot authorize production. Check the exact live,
+        # unrevoked baseline and SQL reviews against the activated QA release.
+        try:
+            verify_issued_windows(manifest, api=api, activated_policies=policies)
+            verify_independently_reviewed_migration(manifest, api=api, policies=policies)
+        except (KeyError, TypeError) as error:
+            raise ValueError("Independent production review evidence is incomplete") from error
     return policies
