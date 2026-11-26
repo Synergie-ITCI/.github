@@ -14,6 +14,9 @@ import re
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 from application_executor import Aws, Executor
@@ -28,19 +31,83 @@ from rehearsal_context import verify_production_context, verify_rehearsal_contex
 
 def _read_failure_category(stderr):
     message = stderr.decode(errors="replace") if isinstance(stderr, bytes) else str(stderr)
-    match = re.search(r"\bHTTP (429|500|502|503|504)\b", message)
+    match = re.search(r"\bHTTP ([45][0-9]{2})\b", message)
     if match:
-        return "HTTP " + match[1], True
+        return "HTTP " + match[1], match[1] in {"429", "500", "502", "503", "504"}
     if any(value in message.lower() for value in ("connection reset", "connection timed out", "tls handshake timeout")):
         return "transport", True
     return "unclassified", False
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        return None
+
+
+def _github_log_bytes(path):
+    """Follow GitHub's signed log redirect without forwarding GH_TOKEN."""
+    token = os.environ.get("GH_TOKEN")
+    if not token:
+        raise RuntimeError("GitHub Actions token is unavailable")
+    opener = urllib.request.build_opener(_NoRedirect)
+    source = urllib.request.Request(
+        "https://api.github.com/" + path,
+        headers={
+            "Authorization": "Bearer " + token,
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+    )
+    for attempt in range(3):
+        category, transient = "unclassified", False
+        try:
+            try:
+                first = opener.open(source, timeout=20)
+            except urllib.error.HTTPError as error:
+                if error.code != 302:
+                    raise
+                location = error.headers.get("Location", "")
+            else:
+                with first:
+                    if first.status != 200:
+                        raise ValueError("GitHub log response status differs")
+                    data = first.read(8 * 1024 * 1024 + 1)
+                if len(data) <= 8 * 1024 * 1024:
+                    return data
+                raise ValueError("GitHub log download exceeds bounded read")
+            parsed = urllib.parse.urlsplit(location)
+            if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+                raise ValueError("GitHub log redirect is invalid")
+            # The signed URL is a capability. No Authorization header or token
+            # is attached to the second request, and further redirects fail.
+            with opener.open(urllib.request.Request(location), timeout=20) as response:
+                if response.status != 200:
+                    raise ValueError("GitHub log download status differs")
+                data = response.read(8 * 1024 * 1024 + 1)
+            if len(data) > 8 * 1024 * 1024:
+                raise ValueError("GitHub log download exceeds bounded read")
+            return data
+        except urllib.error.HTTPError as error:
+            category = f"HTTP {error.code}"
+            transient = error.code in {429, 500, 502, 503, 504}
+        except (TimeoutError, urllib.error.URLError):
+            category, transient = "transport", True
+        except ValueError:
+            category = "invalid response"
+        if not transient or attempt == 2:
+            break
+        time.sleep(attempt + 1)
+    print(f"GitHub release evidence read failed at {path} ({category})", file=sys.stderr)
+    raise RuntimeError("GitHub release evidence unavailable after bounded read attempts")
+
+
 def github_api(path, method="GET", payload=None):
-    # gh handles GitHub's artifact redirect without transporting our OAuth token
-    # in a URL or exposing a private artifact download URL to shared output.
+    # gh handles artifact redirects. Log redirects use the explicit two-step
+    # reader above so the runner token never reaches the signed download host.
     if not path.startswith((f"repos/{REPOSITORY}/", "repos/Synergie-ITCI/.github/")):
         raise ValueError("GitHub operation is outside the release repositories")
+    if method == "GET" and payload is None and path.endswith("/logs"):
+        return _github_log_bytes(path)
     command = ["gh", "api", path, "--method", method]
     if payload is not None:
         command.extend(["--input", "-"])

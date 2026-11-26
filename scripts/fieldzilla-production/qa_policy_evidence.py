@@ -390,6 +390,11 @@ def verify_qa_policy_evidence(
                     f"/attempts/{attempt}/logs"
                 )
             )
+        except ValueError as error:
+            # These messages are fixed parser categories. Never emit archive
+            # contents, job logs, redirect URLs, or credentials.
+            print(f"Exact QA run-log archive rejected: {error}", file=sys.stderr)
+            raise
         except RuntimeError:
             if manifest.get("promotion_pr") == 857:
                 verify_pr857_detector_log_recovery(
