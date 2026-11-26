@@ -1477,6 +1477,27 @@
       "enabled": true,
       "repository": "Synergie-ITCI/synergielms.com",
       "repository_id": 1118680062,
+      "pr_number": 96,
+      "expected_head_sha": "cdaf4858f1faff6955e41431cbcd813cbf43236f",
+      "expected_base_sha": "9d48cdec23574e9c7b8c3f0a957f2d735812a46b",
+      "head_ref": "reconcile/pr95-staging-history",
+      "base_ref": "development",
+      "allowed_effective_additions": 15657,
+      "allowed_changed_files": 168,
+      "minimum_changed_files": 168,
+      "purpose": "One-time exact-head diff-size authorization for LMS PR #96 reconciling protected staging history with approved development PR #95. The 168 changed files remain below the ordinary file-count threshold; only the 15,657-addition size threshold is relaxed. Secrets, repository integrity, migration, review, branch and deployment gates remain mandatory.",
+      "issued_at": "2026-11-26T19:01:58Z",
+      "expires_after": "2026-11-27T18:01:58Z",
+      "authorization_id": "45eb3e94-8b01-4741-becf-71d8abbe0567",
+      "required_pr_body_marker": "LMS-PR96-SIZE-3e4eb547",
+      "relaxations": [
+        "diff_size"
+      ]
+    },
+    {
+      "enabled": true,
+      "repository": "Synergie-ITCI/synergielms.com",
+      "repository_id": 1118680062,
       "pr_number": 95,
       "expected_head_sha": "9c8821d28ef2869d75077d0041a352098798b529",
       "expected_base_sha": "a5e13d18bbe66340366ac8d9d630f0bb1ab7ae72",
