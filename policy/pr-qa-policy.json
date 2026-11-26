@@ -2495,6 +2495,23 @@
       "expires_after": "2026-11-26T14:38:37Z",
       "authorization_id": "633e9dbb-ec17-494d-a417-0dcf2c7ba7cc",
       "relaxations": []
+    },
+    {
+      "enabled": true,
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "repository_id": 1315697868,
+      "pr_number": 872,
+      "expected_head_sha": "4c5d031e55a42173b51841f4f8144868b95a3e70",
+      "expected_base_sha": "fe7f17dd8febb7f72d01dc1d5803e2308e8bb1fc",
+      "head_ref": "fix/dashboard-role-delegation",
+      "base_ref": "main",
+      "allowed_effective_additions": 461,
+      "allowed_changed_files": 16,
+      "purpose": "Review exact PR #872 role-update permission validation and migration 0081 from production 0041+0080 to 0041+0081. Existing disabled-module grants remain inert; new grants require delegation and entitlement. This review authorizes no AWS execution.",
+      "issued_at": "2026-11-26T09:36:03Z",
+      "expires_after": "2026-11-27T08:36:03Z",
+      "authorization_id": "7202af80-e0ae-4ad6-9182-81b70bfb0319",
+      "relaxations": []
     }
   ]
 }

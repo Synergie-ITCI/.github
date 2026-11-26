@@ -245,5 +245,25 @@
       "id": 52234089
     },
     "purpose": "Review exact additive migration 0080 from production 0041+0079 to 0041+0080. It creates tenant-scoped dashboard definition, version and audit-event tables with forced RLS and inserts reporting permissions. No existing-row rewrite or DELETE statement. Review only; execution requires a separate governed rollout."
+  },
+  {
+    "repository": "Synergie-ITCI/programme-management-platform",
+    "repository_id": 1315697868,
+    "pr_number": 872,
+    "expected_head_sha": "4c5d031e55a42173b51841f4f8144868b95a3e70",
+    "expected_base_sha": "fe7f17dd8febb7f72d01dc1d5803e2308e8bb1fc",
+    "head_ref": "fix/dashboard-role-delegation",
+    "base_ref": "main",
+    "issued_at": "2026-11-26T09:36:03Z",
+    "authorization_id": "8f4be5a4-0515-4505-94d4-3643e3efb0a7",
+    "expires_at": "2026-11-27T08:36:03Z",
+    "migration_path": "apps/api/alembic/versions/20261126_0081_preserve_role_permissions.py",
+    "migration_sha256": "d25364162ec3a44c8d1fd7c628170e33c1a46024de9731514007f449dd1d2d5f",
+    "delete_fingerprints": [],
+    "approved_reviewer": {
+      "login": "SaurabhVermaIN",
+      "id": 52234089
+    },
+    "purpose": "Review exact PR #872 migration 0081, including immutable helper apps/api/alembic/production_bridge/role_permissions_0081.py SHA-256 c320c17572223070976d3c5a6b5a66608be87ee53d45cf558fe4cce874fd8467, from production 0041+0080 to 0041+0081. It replaces the role-permission guard with new-grant delegation checks and retains existing permission rows. No direct production execution is authorized."
   }
 ]
