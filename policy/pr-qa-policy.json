@@ -1477,6 +1477,40 @@
       "enabled": true,
       "repository": "Synergie-ITCI/synergielms.com",
       "repository_id": 1118680062,
+      "pr_number": 97,
+      "expected_head_sha": "d01e05ec2f9fa0ad1d2acdafb80c27a06bc5611f",
+      "expected_base_sha": "0129d7806fe064e5d59dcc754bb28467bf3ea896",
+      "head_ref": "reconcile/pr95-staging-history",
+      "base_ref": "development",
+      "allowed_effective_additions": 37282,
+      "allowed_changed_files": 660,
+      "minimum_changed_files": 660,
+      "purpose": "One-time staging promotion of approved LMS PR #95 after protected staging history was reconciled into development by PR #96. The exact reviewed post-caller-update patch permits only 660 files and 37,282 additions; all security, migration, review, branch and deployment gates remain mandatory.",
+      "issued_at": "2026-11-26T19:43:01Z",
+      "expires_after": "2026-11-27T18:43:01Z",
+      "authorization_id": "2a20ca42-28b1-4b8b-a1e5-eba7f2cf3695",
+      "required_pr_body_marker": "LMS-PR97-STAGING-SIZE-98a55c45",
+      "promotion_scope": {
+        "reviewed_patch_sha256": "98a55c45eb07ce366eca4ccc025c20a548ea1af6d9f205d5ff7f89d8ed48caa1",
+        "issued_at": "2026-11-26T19:43:01Z",
+        "expires_after": "2026-11-27T18:43:01Z",
+        "required_pr_body_marker": "LMS-PR97-STAGING-SIZE-98a55c45",
+        "branches": [
+          {
+            "head_ref": "development",
+            "base_ref": "staging"
+          }
+        ]
+      },
+      "relaxations": [
+        "changed_file_count",
+        "diff_size"
+      ]
+    },
+    {
+      "enabled": true,
+      "repository": "Synergie-ITCI/synergielms.com",
+      "repository_id": 1118680062,
       "pr_number": 96,
       "expected_head_sha": "cdaf4858f1faff6955e41431cbcd813cbf43236f",
       "expected_base_sha": "9d48cdec23574e9c7b8c3f0a957f2d735812a46b",
