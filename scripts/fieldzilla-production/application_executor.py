@@ -107,6 +107,7 @@ class Executor:
         ):
             raise ExecutionError("Worker target must be the approved API image digest")
         self.worker_definition_request: dict[str, Any] | None = None
+        self.migration_command: list[str] | None = None
         self.plan = render(manifest["application"], scope=self.scope)
         self.cluster = "fieldzilla-" + self.scope
         self.instance = manifest.get("container_instance_arn", "")
@@ -244,6 +245,27 @@ class Executor:
         return definition
 
     def preflight(self):
+        if self.scope == "production":
+            database = self.manifest.get("database")
+            if not isinstance(database, dict):
+                raise ExecutionError("Reviewed database transition is unavailable")
+            before, after = database.get("before"), database.get("after")
+            if (not isinstance(before, list) or not isinstance(after, list)
+                    or not before or not after
+                    or any(not isinstance(row, str) or not re.fullmatch(r"[0-9]{8}_[0-9]{4}", row)
+                           for row in [*before, *after])
+                    or len(set(before)) != len(before)
+                    or len(set(after)) != len(after)):
+                raise ExecutionError("Reviewed database revisions are malformed")
+            if before == after:
+                self.migration_command = ["alembic", "current"]
+            else:
+                added, removed = set(after) - set(before), set(before) - set(after)
+                if (len(added) != 1 or len(removed) != 1
+                        or len(before) != len(after)):
+                    raise ExecutionError("Reviewed database transition is not one exact revision")
+                target = next(iter(added))
+                self.migration_command = ["alembic", "upgrade", target]
         identity = self.aws("sts", "get-caller-identity", {})
         role = (
             "SynergieFieldzillaProduction"
@@ -605,9 +627,13 @@ class Executor:
         self.record("database_attested", phase=phase, revisions=facts["revisions"])
 
     def migrate(self):
+        if self.scope == "production" and self.migration_command is None:
+            raise ExecutionError("Reviewed database transition is unavailable")
         self.attest_database("before")
         self.quiet()
-        self.task("migration")
+        # The reviewed manifest selects the exact target. The task definition's
+        # historical default command must not select a migration for new sources.
+        self.task("migration", command=self.migration_command)
         self.attest_database("after")
 
     def start(self):
