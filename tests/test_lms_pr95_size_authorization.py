@@ -25,7 +25,7 @@ class LmsPr95SizeAuthorizationTests(unittest.TestCase):
         entry = entries[0]
         self.assertEqual(schema_errors(entry, schema), [])
         self.assertEqual(entry["repository_id"], 1118680062)
-        self.assertEqual(entry["expected_head_sha"], "a5af7178d4cc81e28280f6ff39036fc8a545b59e")
+        self.assertEqual(entry["expected_head_sha"], "83770813a62ad56409dd5a3c7bcf0fe840032a18")
         self.assertEqual(entry["expected_base_sha"], "a5e13d18bbe66340366ac8d9d630f0bb1ab7ae72")
         self.assertEqual(
             (entry["head_ref"], entry["base_ref"]),
@@ -35,7 +35,7 @@ class LmsPr95SizeAuthorizationTests(unittest.TestCase):
             (entry["minimum_changed_files"], entry["allowed_changed_files"]),
             (754, 754),
         )
-        self.assertEqual(entry["allowed_effective_additions"], 47649)
+        self.assertEqual(entry["allowed_effective_additions"], 47660)
         self.assertEqual(entry["relaxations"], ["changed_file_count", "diff_size"])
         self.assertEqual(entry["required_pr_body_marker"], "LMS-PR95-EXACT-SIZE-02bfe28f")
         self.assertEqual(entry["expires_after"], "2026-11-27T15:52:55Z")
