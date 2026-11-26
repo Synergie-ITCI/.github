@@ -104,6 +104,40 @@ class RunnerTests(unittest.TestCase):
                 self.assertNotIn("runner-secret", output.getvalue())
                 self.assertNotIn("signed.example.com", output.getvalue())
 
+    def test_exact_log_read_retries_transient_http_without_changing_endpoint(self):
+        path = "repos/Synergie-ITCI/programme-management-platform/actions/jobs/34/logs"
+        failure = urllib.error.HTTPError("https://api.github.com/" + path, 503, "Busy", {}, None)
+        response = Mock()
+        response.status = 200
+        response.read.return_value = b"detector evidence"
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        opener = Mock()
+        opener.open.side_effect = [failure, response]
+        with patch.dict("application_runner.os.environ", {"GH_TOKEN": "runner-secret"}), patch(
+            "application_runner.urllib.request.build_opener", return_value=opener
+        ), patch("application_runner.time.sleep") as sleep:
+            self.assertEqual(github_api(path), b"detector evidence")
+        self.assertEqual(opener.open.call_count, 2)
+        self.assertEqual(opener.open.call_args_list[0].args[0].full_url, opener.open.call_args_list[1].args[0].full_url)
+        sleep.assert_called_once_with(1)
+
+    def test_exact_log_read_rejects_oversized_binary_response(self):
+        path = "repos/Synergie-ITCI/programme-management-platform/actions/jobs/34/logs"
+        response = Mock()
+        response.status = 200
+        response.read.return_value = b"x" * (8 * 1024 * 1024 + 1)
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        opener = Mock()
+        opener.open.return_value = response
+        with patch.dict("application_runner.os.environ", {"GH_TOKEN": "runner-secret"}), patch(
+            "application_runner.urllib.request.build_opener", return_value=opener
+        ):
+            with self.assertRaisesRegex(RuntimeError, "evidence unavailable"):
+                github_api(path)
+        self.assertEqual(opener.open.call_count, 1)
+
     def setUp(self):
         self.calls = []
         self.failure = None
