@@ -46,7 +46,7 @@ class PrQaCustomCertifierDocumentTests(unittest.TestCase):
         self.assertIn("CONTROLLED_PRODUCTION_GATE_D", report)
 
     def test_unapproved_custom_document_release_is_rejected(self):
-        code, report, report_json, _ = self.run_gate("runtime-certifier-action-v1.11")
+        code, report, report_json, _ = self.run_gate("runtime-certifier-action-v1.12")
         self.assertNotEqual(code, 0, report)
         self.assertEqual(report_json["summary"]["gate_statuses"]["Deployment Risk"], "FAIL")
 

@@ -4886,6 +4886,7 @@ APPROVED_RUNTIME_CERTIFIER_ACTIONS = {
     "Synergie-ITCI/.github/actions/runtime-certifier@runtime-certifier-action-v1.6",
     "Synergie-ITCI/.github/actions/runtime-certifier@runtime-certifier-action-v1.8",
     "Synergie-ITCI/.github/actions/runtime-certifier@runtime-certifier-action-v1.9",
+    "Synergie-ITCI/.github/actions/runtime-certifier@runtime-certifier-action-v1.11",
 }
 APPROVED_CUSTOM_DOCUMENT_RUNTIME_CERTIFIER_ACTIONS = {
     "Synergie-ITCI/.github/actions/runtime-certifier@runtime-certifier-action-v1.10",
