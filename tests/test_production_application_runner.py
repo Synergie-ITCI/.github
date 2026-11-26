@@ -4,6 +4,7 @@ import sys
 import io
 import tempfile
 import unittest
+import urllib.error
 from contextlib import redirect_stderr
 from pathlib import Path
 from types import SimpleNamespace
@@ -52,11 +53,56 @@ class RunnerTests(unittest.TestCase):
 
     def test_github_nontransient_read_is_not_retried(self):
         failure = SimpleNamespace(returncode=1, stdout=b"", stderr=b"HTTP 403 private response body")
-        with patch("application_runner.subprocess.run", return_value=failure) as run, patch("application_runner.time.sleep") as sleep:
+        output = io.StringIO()
+        with patch("application_runner.subprocess.run", return_value=failure) as run, patch("application_runner.time.sleep") as sleep, redirect_stderr(output):
             with self.assertRaisesRegex(RuntimeError, "GitHub release evidence unavailable"):
                 github_api("repos/Synergie-ITCI/.github/rulesets/25061784")
             self.assertEqual(run.call_count, 1)
             sleep.assert_not_called()
+        self.assertIn("HTTP 403", output.getvalue())
+        self.assertNotIn("private response body", output.getvalue())
+
+    def test_exact_log_redirect_uses_runner_token_only_on_github_api(self):
+        path = "repos/Synergie-ITCI/programme-management-platform/actions/jobs/34/logs"
+        redirect = urllib.error.HTTPError(
+            "https://api.github.com/" + path, 302, "Found",
+            {"Location": "https://signed.example.com/private-log"}, None,
+        )
+        response = Mock()
+        response.status = 200
+        response.read.return_value = b"exact detector log"
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        opener = Mock()
+        opener.open.side_effect = [redirect, response]
+        with patch.dict("application_runner.os.environ", {"GH_TOKEN": "runner-secret"}), patch(
+            "application_runner.urllib.request.build_opener", return_value=opener
+        ):
+            self.assertEqual(github_api(path), b"exact detector log")
+        first, second = [call.args[0] for call in opener.open.call_args_list]
+        self.assertEqual(first.get_header("Authorization"), "Bearer runner-secret")
+        self.assertIsNone(second.get_header("Authorization"))
+        self.assertEqual(second.full_url, "https://signed.example.com/private-log")
+
+    def test_exact_log_redirect_fails_closed_on_bad_location_or_http_403(self):
+        path = "repos/Synergie-ITCI/programme-management-platform/actions/jobs/34/logs"
+        for status, location in ((302, "http://signed.example.com/log"), (403, None)):
+            with self.subTest(status=status):
+                failure = urllib.error.HTTPError(
+                    "https://api.github.com/" + path, status, "private",
+                    {"Location": location} if location else {}, None,
+                )
+                opener = Mock()
+                opener.open.side_effect = failure
+                output = io.StringIO()
+                with patch.dict("application_runner.os.environ", {"GH_TOKEN": "runner-secret"}), patch(
+                    "application_runner.urllib.request.build_opener", return_value=opener
+                ), redirect_stderr(output):
+                    with self.assertRaisesRegex(RuntimeError, "evidence unavailable"):
+                        github_api(path)
+                self.assertEqual(opener.open.call_count, 1)
+                self.assertNotIn("runner-secret", output.getvalue())
+                self.assertNotIn("signed.example.com", output.getvalue())
 
     def setUp(self):
         self.calls = []

@@ -939,6 +939,18 @@ class QAPolicyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.verify()
 
+    def test_unreadable_run_archive_reports_only_fixed_parser_category(self):
+        from contextlib import redirect_stderr
+
+        self.log_api_failure = True
+        self.run_log_override = b"private data, not a ZIP"
+        output = io.StringIO()
+        with redirect_stderr(output), self.assertRaisesRegex(ValueError, "QA run-log archive is invalid"):
+            self.verify()
+        self.assertEqual(self.run_log_reads, 1)
+        self.assertIn("Exact QA run-log archive rejected: QA run-log archive is invalid", output.getvalue())
+        self.assertNotIn("private data", output.getvalue())
+
     def test_phase1_expired_wrong_origin_and_wrong_attempt_artifacts_are_rejected(self):
         for key, value in (
             ("name", "pr-qa-phase-1-results"),
