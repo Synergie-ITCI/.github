@@ -19,6 +19,7 @@ from qa_policy_evidence import (
     verify_pr841_detector_log_recovery,
     verify_pr857_detector_log_recovery,
     verify_qa_policy_evidence,
+    verify_independently_reviewed_migration,
 )
 
 
@@ -591,6 +592,44 @@ class QAPolicyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.verify()
 
+    def test_generic_migration_needs_live_independent_reviews(self):
+        from unittest.mock import patch
+
+        self.manifest.update(
+            operation="rollout",
+            review_authorizations={
+                "baseline": "633e9dbb-ec17-494d-a417-0dcf2c7ba7cc",
+                "sql": "2a5b916f-67af-441e-94e8-c1187c40166a",
+            },
+        )
+        binding = self.report["summary"]["baseline_alignment"]
+        binding.update(requested=False, authorized=False, relaxed_checks=[])
+        self.rebuild_archive()
+        with patch("qa_policy_evidence.verify_issued_windows") as reviews, patch(
+            "qa_policy_evidence.verify_independently_reviewed_migration"
+        ) as migration:
+            self.verify()
+            reviews.assert_called_once()
+            self.assertIs(reviews.call_args.args[0], self.manifest)
+            reviews.reset_mock()
+            reviews.side_effect = ValueError("Central review identity is absent, revoked or ambiguous")
+            with self.assertRaisesRegex(ValueError, "revoked"):
+                self.verify()
+            reviews.assert_called_once()
+        self.manifest["review_authorizations"]["sql"] = None
+        with self.assertRaisesRegex(ValueError, "baseline alignment"):
+            self.verify()
+        self.manifest["review_authorizations"]["sql"] = "2a5b916f-67af-441e-94e8-c1187c40166a"
+        binding["relaxed_checks"] = ["diff_size"]
+        self.rebuild_archive()
+        with self.assertRaisesRegex(ValueError, "baseline alignment"):
+            self.verify()
+        binding["relaxed_checks"] = []
+        binding["destination_sha"] = "f" * 40
+        self.rebuild_archive()
+        with self.assertRaisesRegex(ValueError, "source/base"):
+            self.verify()
+
     def test_exact_pr780_database_current_rollout_accepts_ordinary_qa_only(self):
         from issued_windows import SQL_FREE_UPDATE_BASE, SQL_FREE_UPDATE_REVISIONS, SQL_FREE_UPDATE_SOURCE
 
@@ -998,3 +1037,68 @@ class QAPolicyTests(unittest.TestCase):
         data = output.getvalue()
         with self.assertRaises(ValueError):
             read_final_report(data, hashlib.sha256(data).hexdigest())
+
+
+class IndependentMigrationBindingTests(unittest.TestCase):
+    def setUp(self):
+        import base64
+
+        self.migration = b'revision: str = "20261125_0080"\ndown_revision: str = "20261123_0079"\n'
+        self.path = "apps/api/alembic/versions/20261125_0080_dashboard_configuration.py"
+        self.review = {
+            "authorization_id": "2a5b916f-67af-441e-94e8-c1187c40166a",
+            "migration_path": self.path,
+            "migration_sha256": hashlib.sha256(self.migration).hexdigest(),
+        }
+        self.policies = {"policy/audited-migration-authorizations.json": [self.review]}
+        self.manifest = {
+            "promotion_pr": 865,
+            "application": {"source_sha": "a" * 40},
+            "review_authorizations": {"sql": self.review["authorization_id"]},
+            "database": {
+                "before": ["20260909_0041", "20261123_0079"],
+                "after": ["20260909_0041", "20261125_0080"],
+            },
+        }
+        self.content = {
+            "type": "file", "encoding": "base64",
+            "content": base64.b64encode(self.migration).decode(),
+        }
+        self.files = [{"filename": self.path, "status": "added"}]
+
+    def api(self, path):
+        if "/contents/" in path:
+            self.assertTrue(path.endswith("?ref=" + "a" * 40))
+            return self.content
+        if "/pulls/865/files?" in path:
+            return self.files
+        raise AssertionError("Unexpected endpoint")
+
+    def verify(self):
+        verify_independently_reviewed_migration(
+            self.manifest, api=self.api, policies=self.policies
+        )
+
+    def test_exact_reviewed_migration_and_database_transition(self):
+        self.verify()
+        self.review["migration_sha256"] = "f" * 64
+        with self.assertRaisesRegex(ValueError, "SHA-256"):
+            self.verify()
+
+    def test_rejects_wrong_revision_and_missing_pr_file(self):
+        self.manifest["database"]["after"] = ["20260909_0041", "20261123_0079"]
+        with self.assertRaisesRegex(ValueError, "before/after"):
+            self.verify()
+        self.manifest["database"]["after"] = ["20260909_0041", "20261125_0080"]
+        self.files = []
+        with self.assertRaisesRegex(ValueError, "exact PR"):
+            self.verify()
+
+    def test_rejects_missing_review_and_unreadable_content(self):
+        self.policies["policy/audited-migration-authorizations.json"] = []
+        with self.assertRaisesRegex(ValueError, "SQL review"):
+            self.verify()
+        self.policies["policy/audited-migration-authorizations.json"] = [self.review]
+        self.content["encoding"] = "none"
+        with self.assertRaisesRegex(ValueError, "unavailable"):
+            self.verify()
