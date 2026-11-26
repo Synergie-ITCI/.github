@@ -25,7 +25,7 @@ class LmsPr95SizeAuthorizationTests(unittest.TestCase):
         entry = entries[0]
         self.assertEqual(schema_errors(entry, schema), [])
         self.assertEqual(entry["repository_id"], 1118680062)
-        self.assertEqual(entry["expected_head_sha"], "83770813a62ad56409dd5a3c7bcf0fe840032a18")
+        self.assertEqual(entry["expected_head_sha"], "9c8821d28ef2869d75077d0041a352098798b529")
         self.assertEqual(entry["expected_base_sha"], "a5e13d18bbe66340366ac8d9d630f0bb1ab7ae72")
         self.assertEqual(
             (entry["head_ref"], entry["base_ref"]),

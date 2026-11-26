@@ -1478,7 +1478,7 @@
       "repository": "Synergie-ITCI/synergielms.com",
       "repository_id": 1118680062,
       "pr_number": 95,
-      "expected_head_sha": "83770813a62ad56409dd5a3c7bcf0fe840032a18",
+      "expected_head_sha": "9c8821d28ef2869d75077d0041a352098798b529",
       "expected_base_sha": "a5e13d18bbe66340366ac8d9d630f0bb1ab7ae72",
       "head_ref": "fix/st-98-lms-part-1-changes",
       "base_ref": "development",
