@@ -106,6 +106,48 @@
       },
       {
         "repository": "Synergie-ITCI/fis.synergielms.com",
+        "pr_number": 55,
+        "expected_base_sha": "b1f86b0ac589fa2bd339d3368f32d63adb914a81",
+        "expected_head_sha": "5852a9c2c389b28434613df6241d8c350070a33d",
+        "paths": [
+          ".github/workflows/fis-gate-d-production.yml",
+          "deploy/backup-fis-production.sh",
+          "deploy/compile-fis-app-rollback-document.py",
+          "deploy/compile-fis-gate-d-document.py",
+          "deploy/compile-runtime-certifier.py",
+          "deploy/ssm-fis-app-rollback.sh",
+          "deploy/ssm-fis-gate-d-production.sh",
+          "deploy/ssm-runtime-certifier.sh",
+          "docs/fis-controlled-production-release.md",
+          "tests/test_fis_ssm_documents.py"
+        ],
+        "file_sha256": {
+          ".github/workflows/fis-gate-d-production.yml": "17a1310d6bec3d830635760153eda53fe18a20620311ee4c4f1c6f5a55f7a678",
+          "deploy/backup-fis-production.sh": "6c80efb0a6543ee784e6e38de079ec66ad4c7f6ce595efb9f3bc1a6e1d99dd2d",
+          "deploy/compile-fis-app-rollback-document.py": "86c1a6df51acd31779d9aa8738f30fefbb4201a0f660ebfc16d9c8761ed5e305",
+          "deploy/compile-fis-gate-d-document.py": "42be3f12e61fa5d7055a60888a60bd6702ea1198981a9c03dab937c518512b20",
+          "deploy/compile-runtime-certifier.py": "28e93c416f1bbd9500a760892cadc3032d39203a2855c57aba4c4ddfd4bcd66c",
+          "deploy/ssm-fis-app-rollback.sh": "10ee83243d6ab5c900ffc96189da1e878c4e12c3a9adafb6d8b85738c98e239b",
+          "deploy/ssm-fis-gate-d-production.sh": "ed81a703fd1bbc342c87c10f3281227ad21e90fd1b9abb2c0173a101ea8d1c9a",
+          "deploy/ssm-runtime-certifier.sh": "000bb216ace25638477a426613386eef87a22231d62cc215624c9b60c0cc6237",
+          "docs/fis-controlled-production-release.md": "ab73d6098921afa161b05be53502b6d353e08521b763e56b51fefae751374e43",
+          "tests/test_fis_ssm_documents.py": "0167dd8d412fb002254b968c6708a669aa095588082821f12976ef2fb16b928e"
+        },
+        "required_reviewers": [
+          "SaurabhVermaIN"
+        ],
+        "required_controls": [
+          "github-actions-oidc-only",
+          "plan-apply-separation",
+          "no-apply-from-pull-request",
+          "environment-approval-before-apply",
+          "exact-head-and-file-sha256",
+          "fresh-backup-and-rollback"
+        ],
+        "risk": "critical"
+      },
+      {
+        "repository": "Synergie-ITCI/fis.synergielms.com",
         "pr_number": 36,
         "expected_base_sha": "3ab557316f79dfa6168ce37f744a319bbd94e293",
         "expected_head_sha": "b84e1531fe9060c041944cc9d4742686cc35b4e5",
