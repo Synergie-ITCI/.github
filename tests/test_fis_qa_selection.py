@@ -1,4 +1,4 @@
-"""FIS resolves only to the protected rc411 framework release."""
+"""FIS resolves only to the protected rc413 framework release."""
 
 import json
 import sys
@@ -18,8 +18,8 @@ class FisQaSelectionTests(unittest.TestCase):
             release, entry = resolve_consumer_release(
                 manifest, "Synergie-ITCI/fis.synergielms.com"
             )
-        self.assertEqual(release, "pr-qa-v1-rc411")
-        self.assertEqual(entry, {"commit": "fa96bd15c9aa6b1698ecb044d2506e3f21f97bf2"})
+        self.assertEqual(release, "pr-qa-v1-rc413")
+        self.assertEqual(entry, {"commit": "aae965179bbde399484b23bbd3760b2614aca1fe"})
         verify.assert_called_once()
         self.assertEqual(verify.call_args.args[:2], (release, entry["commit"]))
 
