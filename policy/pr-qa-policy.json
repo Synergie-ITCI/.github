@@ -1475,6 +1475,28 @@
   "one_time_baseline_alignments": [
     {
       "enabled": true,
+      "repository": "Synergie-ITCI/synergielms.com",
+      "repository_id": 1118680062,
+      "pr_number": 95,
+      "expected_head_sha": "a5af7178d4cc81e28280f6ff39036fc8a545b59e",
+      "expected_base_sha": "a5e13d18bbe66340366ac8d9d630f0bb1ab7ae72",
+      "head_ref": "fix/st-98-lms-part-1-changes",
+      "base_ref": "development",
+      "allowed_effective_additions": 47649,
+      "allowed_changed_files": 754,
+      "minimum_changed_files": 754,
+      "purpose": "One-time exact-head size authorization for LMS PR #95. Its reviewed ST-98 patch restores required public assets and Laravel entry points and upgrades the locked dependencies to audited Laravel 12 for PHP 8.2. Only file-count and diff-size thresholds are relaxed; all security, migration, review, branch-promotion and production controls remain mandatory.",
+      "issued_at": "2026-11-26T16:52:55Z",
+      "expires_after": "2026-11-27T15:52:55Z",
+      "authorization_id": "02bfe28f-6bad-4490-b7fa-bdd772d72588",
+      "required_pr_body_marker": "LMS-PR95-EXACT-SIZE-02bfe28f",
+      "relaxations": [
+        "changed_file_count",
+        "diff_size"
+      ]
+    },
+    {
+      "enabled": true,
       "repository": "Synergie-ITCI/fis.synergielms.com",
       "repository_id": 1037338034,
       "pr_number": 30,
