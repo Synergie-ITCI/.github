@@ -1443,6 +1443,38 @@ exit 0
             ctx.event["pull_request"]["number"] = 212
             self.assertFalse(engine.exact_saksham_main_staging_alignment(ctx, {}, [head_sha]))
 
+    def test_lms_pr96_reconciliation_requires_exact_protected_merge_and_tree(self) -> None:
+        engine = load_engine_module()
+        development = "9d48cdec23574e9c7b8c3f0a957f2d735812a46b"
+        staging = "0129d7806fe064e5d59dcc754bb28467bf3ea896"
+        merge = "a66edc91a4d21256bb392d3ffbeda18f7544ec26"
+        head = "cdaf4858f1faff6955e41431cbcd813cbf43236f"
+        tree = "da2127e737552181b1e26b617eb1633eb5a55dce"
+        ctx = SimpleNamespace(
+            repo=self.tmp,
+            base_ref="development",
+            head_ref="reconcile/pr95-staging-history",
+            event={"pull_request": {"number": 96}},
+        )
+        with (
+            mock.patch.object(engine, "resolve_repository_name", return_value="Synergie-ITCI/synergielms.com"),
+            mock.patch.object(engine, "resolve_head_sha", return_value=head),
+            mock.patch.object(engine, "resolve_fresh_origin_staging_tip", return_value=staging),
+            mock.patch.object(engine, "git_lines", return_value=[f"{development} {staging}"]),
+            mock.patch.object(engine, "commit_is_ancestor", return_value=True),
+            mock.patch.object(engine, "run_git", return_value=tree),
+        ):
+            check = engine.exact_lms_pr96_staging_reconciliation
+            self.assertTrue(check(ctx, {}, [merge]))
+            self.assertFalse(check(ctx, {}, [merge, "unrelated-merge"]))
+            ctx.event["pull_request"]["number"] = 97
+            self.assertFalse(check(ctx, {}, [merge]))
+            ctx.event["pull_request"]["number"] = 96
+            with mock.patch.object(engine, "run_git", return_value="different-tree"):
+                self.assertFalse(check(ctx, {}, [merge]))
+            with mock.patch.object(engine, "git_lines", return_value=["different parents"]):
+                self.assertFalse(check(ctx, {}, [merge]))
+
     def test_saksham_approval_reconciliation_requires_exact_protected_merge(self) -> None:
         engine = load_engine_module()
         staging = "546566d8d3a5cf4376804ed538ccf29520d5110d"
