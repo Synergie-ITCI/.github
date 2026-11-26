@@ -1443,6 +1443,45 @@ exit 0
             ctx.event["pull_request"]["number"] = 212
             self.assertFalse(engine.exact_saksham_main_staging_alignment(ctx, {}, [head_sha]))
 
+    def test_saksham_approval_reconciliation_requires_exact_protected_merge(self) -> None:
+        engine = load_engine_module()
+        staging = "546566d8d3a5cf4376804ed538ccf29520d5110d"
+        main = "f91c235fe674b82ae2e60ab9e38e6273b694d22b"
+        head = "1a2bda59085f50f3534d03755cc7b53a86006670"
+        tree = "214ae7936de5ad804e6e2ebd558477e5b83e4df1"
+        ctx = SimpleNamespace(
+            repo=self.tmp,
+            base_ref="staging",
+            head_ref="reconcile/main-into-staging-approval-20261126",
+            changed_files=["tests/disbursement_eligibility.php"],
+            event={"pull_request": {"number": 222}},
+        )
+
+        def lines(_repo, args):
+            return [f"{staging} {main}"] if args[-1] == head else []
+
+        with (
+            mock.patch.object(engine, "resolve_repository_name", return_value="Synergie-ITCI/saksham"),
+            mock.patch.object(engine, "resolve_head_sha", return_value=head),
+            mock.patch.object(engine, "resolve_fresh_origin_staging_tip", return_value=staging),
+            mock.patch.object(engine, "resolve_fresh_origin_main_tip", return_value=main),
+            mock.patch.object(engine, "git_lines", side_effect=lines),
+            mock.patch.object(engine, "run_git", return_value=tree),
+        ):
+            check = engine.exact_saksham_approval_main_staging_reconciliation
+            self.assertTrue(check(ctx, {}, [head]))
+            self.assertFalse(check(ctx, {}, [head, "extra-merge"]))
+            ctx.changed_files.append("application/config/database.php")
+            self.assertFalse(check(ctx, {}, [head]))
+            ctx.changed_files.pop()
+            ctx.event["pull_request"]["number"] = 223
+            self.assertFalse(check(ctx, {}, [head]))
+            ctx.event["pull_request"]["number"] = 222
+            with mock.patch.object(engine, "run_git", return_value="wrong-tree"):
+                self.assertFalse(check(ctx, {}, [head]))
+            with mock.patch.object(engine, "git_lines", return_value=["wrong-parent"]):
+                self.assertFalse(check(ctx, {}, [head]))
+
     def test_mobilekids_reconciliation_requires_exact_protected_heads_and_tree(self) -> None:
         engine = load_engine_module()
         staging_sha = "e73ccfdeb515201c10844c57668e8048829c2aa4"
