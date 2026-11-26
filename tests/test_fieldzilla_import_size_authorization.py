@@ -243,7 +243,7 @@ class FieldzillaImportSizeTests(unittest.TestCase):
         current["one_time_baseline_alignments"][current["one_time_baseline_alignments"].index(new)] = old
         current["one_time_baseline_alignments"] = [
             row for row in current["one_time_baseline_alignments"]
-            if row.get("pr_number") not in (744, 754, 756, 772, 780, 783, 786, 787, 791, 798, 802, 804, 806, 808, 811, 814, 816, 819, 835, 840, 841, 844, 853, 857, 861, 865)
+            if row.get("pr_number") not in (744, 754, 756, 772, 780, 783, 786, 787, 791, 798, 802, 804, 806, 808, 811, 814, 816, 819, 835, 840, 841, 844, 853, 857, 861, 865, 872)
             and (row.get("repository"), row.get("pr_number")) != ("Synergie-ITCI/mobilekids.synergieinsights.in", 11)
         ]
         governed = next(
@@ -358,7 +358,7 @@ class FieldzillaImportSizeTests(unittest.TestCase):
             normalized_sql[field] = old_sql[field]
         self.assertEqual(normalized_sql, old_sql)
         current_sql[current_sql.index(new_sql)] = old_sql
-        self.assertEqual([row for row in current_sql if row.get("pr_number") not in (744, 786, 787, 791, 798, 835, 857, 865)], previous_sql)
+        self.assertEqual([row for row in current_sql if row.get("pr_number") not in (744, 786, 787, 791, 798, 835, 857, 865, 872)], previous_sql)
 
     def test_historical_sql_review_preserves_audited_bytes_and_reviewer(self):
         proposed = json.loads(PROPOSAL.read_text())
