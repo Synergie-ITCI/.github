@@ -300,6 +300,14 @@ class FieldzillaImportSizeTests(unittest.TestCase):
              142, 10470, ["changed_file_count", "diff_size"]),
         )
         current["one_time_baseline_alignments"].remove(scholarships_pr70)
+        # This historical snapshot predates the separately pinned FIS PR #55
+        # follow-on release; its exact scope has its own regression test.
+        fis_follow_on = next(
+            row for row in current["governance"]["critical_infrastructure_paths"]
+            if row.get("repository") == "Synergie-ITCI/fis.synergielms.com"
+            and row.get("pr_number") == 55
+        )
+        current["governance"]["critical_infrastructure_paths"].remove(fis_follow_on)
         fis_review = next(
             row for row in current["governance"]["critical_infrastructure_paths"]
             if row.get("repository") == "Synergie-ITCI/fis.synergielms.com"
