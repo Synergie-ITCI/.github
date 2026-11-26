@@ -64,6 +64,7 @@ SUPPORTED_PERSISTENCE_MECHANISMS = {
     "BIND_MOUNT",
     "S3_OBJECT_STORAGE",
     "DATABASE_METADATA",
+    "HOST_DIRECTORY_OUTSIDE_WEB_ROOT",
 }
 
 
@@ -218,6 +219,10 @@ def validate_persistent_data(paths: tuple[PersistentDataPath, ...]) -> None:
             validate_s3_persistence_path(item.physical_path)
         if mechanism == "DATABASE_METADATA":
             validate_database_metadata_path(item.physical_path)
+        if mechanism == "HOST_DIRECTORY_OUTSIDE_WEB_ROOT" and (
+            not item.physical_path.startswith("/") or item.physical_path == "/"
+        ):
+            raise CertifierError("Host directory physical_path must be an absolute directory path")
 
 
 def normalize_persistence_mechanism(value: str) -> str:
@@ -1080,6 +1085,21 @@ certify_persistent_data_path() {
 
       test "$resolved_source" = "$expected_target" \
         || cert_fail "Persistent Data Safety: bind mount source does not match declared physical path"
+      ;;
+    HOST_DIRECTORY_OUTSIDE_WEB_ROOT)
+      expected_target="$(readlink -f "$physical_path" 2>/dev/null)" \
+        || cert_fail "Persistent Data Safety: declared host directory is missing"
+      resolved_app="$(readlink -f "$APP_PATH" 2>/dev/null)" \
+        || cert_fail "Persistent Data Safety: application root is missing"
+
+      test -d "$expected_target" \
+        || cert_fail "Persistent Data Safety: declared host directory is missing"
+
+      case "$expected_target" in
+        "$resolved_app"|"$resolved_app"/*)
+          cert_fail "Persistent Data Safety: declared host directory is inside the release web root"
+          ;;
+      esac
       ;;
     *)
       cert_fail "Persistent Data Safety: The declared persistence mechanism is not supported by Runtime Certifier v1."
