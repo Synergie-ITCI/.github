@@ -543,7 +543,7 @@ exit 20
         cfg = config(
             app_path=str(app),
             validation_url="https://example.org/login",
-            persistent_data=tuple(persistent_data),
+            persistent_data=tuple(persistent_data(root, app) if callable(persistent_data) else persistent_data),
         )
 
         script = mod.build_remote_script(cfg)
@@ -1164,6 +1164,64 @@ class RuntimeCertifierShellHarnessTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 41)
         self.assertIn("bind mount source does not match declared physical path", proc.stdout)
         self.assertIn("PRODUCTION_MUTATED=NO", proc.stdout)
+
+    def test_host_directory_outside_web_root_passes(self):
+        def setup(root, app, mounts_file):
+            (root / "logs" / "operations").mkdir(parents=True)
+
+        proc = run_shell_harness(
+            DEPLOY,
+            persistent_data=lambda root, app: [persistent_path(
+                application_path="logs/operations",
+                physical_path=str(root / "logs" / "operations"),
+                persistence_mechanism="HOST_DIRECTORY_OUTSIDE_WEB_ROOT",
+            )],
+            persistent_setup=setup,
+        )
+
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("PERSISTENT_DATA_SAFETY=PASS", proc.stdout)
+
+    def test_host_directory_inside_web_root_fails(self):
+        def setup(root, app, mounts_file):
+            (app / "logs" / "operations").mkdir(parents=True)
+
+        proc = run_shell_harness(
+            DEPLOY,
+            persistent_data=lambda root, app: [persistent_path(
+                application_path="logs/operations",
+                physical_path=str(app / "logs" / "operations"),
+                persistence_mechanism="HOST_DIRECTORY_OUTSIDE_WEB_ROOT",
+            )],
+            persistent_setup=setup,
+        )
+
+        self.assertEqual(proc.returncode, 41)
+        self.assertIn("host directory is inside the release web root", proc.stdout)
+        self.assertIn("PRODUCTION_MUTATED=NO", proc.stdout)
+
+    def test_host_directory_missing_fails(self):
+        proc = run_shell_harness(
+            DEPLOY,
+            persistent_data=lambda root, app: [persistent_path(
+                application_path="logs/operations",
+                physical_path=str(root / "logs" / "operations"),
+                persistence_mechanism="HOST_DIRECTORY_OUTSIDE_WEB_ROOT",
+            )],
+        )
+
+        self.assertEqual(proc.returncode, 41)
+        self.assertIn("declared host directory is missing", proc.stdout)
+        self.assertIn("PRODUCTION_MUTATED=NO", proc.stdout)
+
+    def test_host_directory_requires_absolute_physical_path(self):
+        with self.assertRaisesRegex(mod.CertifierError, "absolute directory path"):
+            mod.build_remote_script(config(persistent_data=[persistent_path(
+                application_path="logs/operations",
+                physical_path="logs/operations",
+                persistence_mechanism="HOST_DIRECTORY_OUTSIDE_WEB_ROOT",
+            )]))
+
 
     def test_persistent_data_s3_object_storage_passes_without_local_directory(self):
         proc = run_shell_harness(
