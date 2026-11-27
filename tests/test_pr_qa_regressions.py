@@ -1448,8 +1448,9 @@ exit 0
         staging = "4c077a47868439d47d3cdf88cf883f58e9da1b1c"
         main = "f3afcad4a1ca6d22c54f88e7dd04600eb1dd3606"
         merge = "22e288a515742da4b72a25488f23e8ed49c03faa"
-        head = "8d0c7deb717751231373786aad2519ffbaa082df"
-        tree = "f230070719885ba376cb4856e24f113db896c1cd"
+        caller = "8d0c7deb717751231373786aad2519ffbaa082df"
+        head = "70f70f3e842ebea872704a265b1f6de9ae40cc63"
+        tree = "60e1a5b73f312dd53d7232d3ca46ea76a6a39d37"
         ctx = SimpleNamespace(
             repo=self.tmp,
             base_ref="staging",
@@ -1460,7 +1461,7 @@ exit 0
             mock.patch.object(engine, "resolve_repository_name", return_value="Synergie-ITCI/synergielms.com"),
             mock.patch.object(engine, "resolve_head_sha", return_value=head),
             mock.patch.object(engine, "resolve_fresh_origin_staging_tip", return_value=staging),
-            mock.patch.object(engine, "git_lines", side_effect=lambda _repo, args: [f"{staging} {main}"] if args[-1] == merge else [merge]),
+            mock.patch.object(engine, "git_lines", side_effect=lambda _repo, args: [f"{staging} {main}"] if args[-1] == merge else ([merge] if args[-1] == caller else [caller])),
             mock.patch.object(engine, "commit_is_ancestor", return_value=True),
             mock.patch.object(engine, "run_git", return_value=tree),
         ):
@@ -1472,7 +1473,7 @@ exit 0
             ctx.event["pull_request"]["number"] = 101
             with mock.patch.object(engine, "run_git", return_value="different-tree"):
                 self.assertFalse(check(ctx, {}, [merge]))
-            with mock.patch.object(engine, "git_lines", side_effect=[["different parents"], [merge]]):
+            with mock.patch.object(engine, "git_lines", side_effect=[["different parents"], [merge], [caller]]):
                 self.assertFalse(check(ctx, {}, [merge]))
 
     def test_lms_pr96_reconciliation_requires_exact_protected_merge_and_tree(self) -> None:
