@@ -53,6 +53,7 @@ SQL_FREE_UPDATE_REVISIONS = ["20260909_0041", "20261113_0074"]
 SQL_FREE_PR802_REVISIONS = ["20260909_0041", "20261117_0077"]
 SQL_FREE_PR841_REVISIONS = ["20260909_0041", "20261121_0078"]
 SQL_FREE_PR861_REVISIONS = ["20260909_0041", "20261123_0079"]
+CURRENT_PRODUCTION_REVISIONS = ["20260909_0041", "20261126_0081"]
 SQL_FREE_UPDATE_BINDINGS = {
     780: (SQL_FREE_UPDATE_SOURCE, SQL_FREE_UPDATE_BASE, SQL_FREE_UPDATE_REVISIONS),
     783: (SQL_FREE_PR783_SOURCE, SQL_FREE_PR783_BASE, SQL_FREE_UPDATE_REVISIONS),
@@ -130,9 +131,9 @@ from baseline_authorization import schema_errors
 
 
 def is_sql_free_update(manifest):
-    """Allow only exact reviewed hotfixes to keep the already-current DB."""
+    """Keep the current DB only for a bounded, reviewed SQL-free release."""
     source_and_base = SQL_FREE_UPDATE_BINDINGS.get(manifest.get("promotion_pr"))
-    return (
+    legacy = (
         manifest.get("scope") == "production"
         and manifest.get("operation") == "rollout"
         and source_and_base is not None
@@ -144,6 +145,37 @@ def is_sql_free_update(manifest):
             "role": "pmp_fieldzilla_prod_migrator",
             "before": source_and_base[2],
             "after": source_and_base[2],
+        }
+    )
+    if legacy:
+        return True
+    authorizations = manifest.get("review_authorizations")
+    application = manifest.get("application")
+    database = manifest.get("database")
+    return (
+        manifest.get("scope") == "production"
+        and manifest.get("operation") == "rollout"
+        and type(manifest.get("promotion_pr")) is int
+        and manifest["promotion_pr"] > 0
+        and isinstance(manifest.get("base_sha"), str)
+        and re.fullmatch(r"[0-9a-f]{40}", manifest["base_sha"]) is not None
+        and isinstance(application, dict)
+        and isinstance(application.get("source_sha"), str)
+        and re.fullmatch(r"[0-9a-f]{40}", application["source_sha"]) is not None
+        and application["source_sha"] != manifest["base_sha"]
+        and isinstance(authorizations, dict)
+        and set(authorizations) == {"baseline", "sql"}
+        and isinstance(authorizations["baseline"], str)
+        and re.fullmatch(
+            r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}",
+            authorizations["baseline"],
+        ) is not None
+        and authorizations["sql"] is None
+        and database == {
+            "name": "fieldzilla_production",
+            "role": "pmp_fieldzilla_prod_migrator",
+            "before": CURRENT_PRODUCTION_REVISIONS,
+            "after": CURRENT_PRODUCTION_REVISIONS,
         }
     )
 
