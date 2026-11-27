@@ -1443,6 +1443,37 @@ exit 0
             ctx.event["pull_request"]["number"] = 212
             self.assertFalse(engine.exact_saksham_main_staging_alignment(ctx, {}, [head_sha]))
 
+    def test_lms_pr101_reconciliation_requires_exact_protected_merge_and_tree(self) -> None:
+        engine = load_engine_module()
+        staging = "4c077a47868439d47d3cdf88cf883f58e9da1b1c"
+        main = "f3afcad4a1ca6d22c54f88e7dd04600eb1dd3606"
+        head = "22e288a515742da4b72a25488f23e8ed49c03faa"
+        tree = "8a8fd92e1d39b6f79980f29622732b366936ed77"
+        ctx = SimpleNamespace(
+            repo=self.tmp,
+            base_ref="staging",
+            head_ref="reconcile/pr95-main-history",
+            event={"pull_request": {"number": 101}},
+        )
+        with (
+            mock.patch.object(engine, "resolve_repository_name", return_value="Synergie-ITCI/synergielms.com"),
+            mock.patch.object(engine, "resolve_head_sha", return_value=head),
+            mock.patch.object(engine, "resolve_fresh_origin_staging_tip", return_value=staging),
+            mock.patch.object(engine, "git_lines", return_value=[f"{staging} {main}"]),
+            mock.patch.object(engine, "commit_is_ancestor", return_value=True),
+            mock.patch.object(engine, "run_git", return_value=tree),
+        ):
+            check = engine.exact_lms_pr101_main_staging_reconciliation
+            self.assertTrue(check(ctx, {}, [head]))
+            self.assertFalse(check(ctx, {}, [head, "unrelated-merge"]))
+            ctx.event["pull_request"]["number"] = 102
+            self.assertFalse(check(ctx, {}, [head]))
+            ctx.event["pull_request"]["number"] = 101
+            with mock.patch.object(engine, "run_git", return_value="different-tree"):
+                self.assertFalse(check(ctx, {}, [head]))
+            with mock.patch.object(engine, "git_lines", return_value=["different parents"]):
+                self.assertFalse(check(ctx, {}, [head]))
+
     def test_lms_pr96_reconciliation_requires_exact_protected_merge_and_tree(self) -> None:
         engine = load_engine_module()
         development = "9d48cdec23574e9c7b8c3f0a957f2d735812a46b"
