@@ -36,9 +36,9 @@ class LmsPr100SizeAuthorizationTests(unittest.TestCase):
         self.assertEqual(entry["relaxations"], ["changed_file_count", "diff_size"])
         self.assertEqual(
             entry["promotion_scope"]["reviewed_patch_sha256"],
-            "52cb771320a4e321179801e51474f2b6eca98a52b2bdff0933e812912051022e",
+            "d9898235811b96ba1ccd68bd87d23fc21033d00c0f9392b1126e4d65b5d882f3",
         )
-        self.assertEqual(entry["required_pr_body_marker"], "LMS-PR100-EXACT-PROMOTION-52cb7713")
+        self.assertEqual(entry["required_pr_body_marker"], "LMS-PR100-EXACT-PROMOTION-d9898235")
 
     def test_only_reviewed_branch_pair_can_use_promotion_sha(self):
         policy = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())
@@ -46,7 +46,7 @@ class LmsPr100SizeAuthorizationTests(unittest.TestCase):
             row for row in policy["one_time_baseline_alignments"]
             if row.get("repository") == "Synergie-ITCI/synergielms.com"
             and row.get("pr_number") == 101
-            and row.get("required_pr_body_marker") == "LMS-PR100-EXACT-PROMOTION-52cb7713"
+            and row.get("required_pr_body_marker") == "LMS-PR100-EXACT-PROMOTION-d9898235"
         )
         current_head = "ecf5f3e5dcbf246383a62f1dda4de82c88424a51"
         approved = SimpleNamespace(head_ref="staging", base_ref="main")

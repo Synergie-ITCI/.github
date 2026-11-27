@@ -374,7 +374,7 @@ class FieldzillaImportSizeTests(unittest.TestCase):
             row for row in current["one_time_baseline_alignments"]
             if row.get("repository") == "Synergie-ITCI/synergielms.com"
             and row.get("pr_number") == 101
-            and row.get("required_pr_body_marker") == "LMS-PR100-EXACT-PROMOTION-52cb7713"
+            and row.get("required_pr_body_marker") == "LMS-PR100-EXACT-PROMOTION-d9898235"
         )
         current["one_time_baseline_alignments"].remove(lms_main_size)
         self.assertEqual(current, previous)
