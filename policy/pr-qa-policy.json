@@ -2674,6 +2674,23 @@
       "expires_after": "2026-11-28T11:08:17Z",
       "authorization_id": "4bf1c7c9-ed05-4211-a91c-c9b3c5f524c4",
       "relaxations": []
+    },
+    {
+      "enabled": true,
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "repository_id": 1315697868,
+      "pr_number": 883,
+      "expected_head_sha": "cb6de54eabf653c0a4c045baedb7effd37c4da54",
+      "expected_base_sha": "f9e53d8bdec4924c452a7e2fb8d4abe7668c5aba",
+      "head_ref": "feat/nidaan-customer-dashboard",
+      "base_ref": "main",
+      "allowed_effective_additions": 726,
+      "allowed_changed_files": 16,
+      "purpose": "Bind exact reviewed PR #883 NIDAAN dashboard application source to production image and SQL-free rollout review at already-current DB heads 0041+0081. No QA relaxation, SQL change, IAM change or AWS execution is authorized by this record; exact owner execution approval remains separate.",
+      "issued_at": "2026-11-27T14:18:56Z",
+      "expires_after": "2026-11-28T13:18:56Z",
+      "authorization_id": "c34b98c3-8aad-44ba-909a-ae7dbef99eb3",
+      "relaxations": []
     }
   ]
 }
