@@ -9,7 +9,7 @@
       "Synergie-ITCI/csr-intelligence-engine": {"release": "pr-qa-v1-rc227", "commit": "854c27f46e9c827b6d75d2dfa5282dffbbd5af92"},
       "Synergie-ITCI/programme-management-platform": {"release": "pr-qa-v1-rc294", "commit": "cbe53c5dbc19b2adf3420aad0daf1197d0ae2cb4", "protected_main_selection": true},
       "Synergie-ITCI/fis.synergielms.com": {"release": "pr-qa-v1-rc413", "commit": "aae965179bbde399484b23bbd3760b2614aca1fe"},
-      "Synergie-ITCI/synergielms.com": {"release": "pr-qa-v1-rc426", "commit": "3453bc07a076920203ecc60042595723e1c534d4"},
+      "Synergie-ITCI/synergielms.com": {"release": "pr-qa-v1-rc428", "commit": "ab27e209ce8494b71ab64ef734fae65c0dd81e05"},
       "Synergie-ITCI/mobilekids.synergieinsights.in": {"release": "pr-qa-v1-rc405", "commit": "066b67650e6852ab67d645f9c91d593e96ad817d"},
       "Synergie-ITCI/scholarships": {"release": "pr-qa-v1-rc367", "commit": "4a2b09f610e3c4c887f45f424ddac54da661fcd4"},
       "Synergie-ITCI/saksham": {"release": "pr-qa-v1-rc416", "commit": "d872fe26555201ca54696a8946f2b077ffe46b43"}
