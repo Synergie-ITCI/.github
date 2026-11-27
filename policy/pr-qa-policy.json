@@ -1485,16 +1485,29 @@
       "allowed_effective_additions": 44935,
       "allowed_changed_files": 700,
       "minimum_changed_files": 700,
-      "purpose": "One-time exact-content size authorization for LMS PR #100 staging-to-main promotion of approved PR #95 after protected main history reconciliation. The future protected staging merge must match the reviewed 700-file, 44,935-addition patch including only the rc438 QA caller update. Only file-count and diff-size thresholds are relaxed; all security, review, migration and deployment gates remain.",
+      "purpose": "One-time exact-content size authorization for LMS PR #100 staging-to-main promotion of approved PR #95 after protected main history reconciliation. The future protected staging merge must match the reviewed 700-file, 44,935-addition patch including only the rc440 QA caller update. Only file-count and diff-size thresholds are relaxed; all security, review, migration and deployment gates remain.",
       "issued_at": "2026-11-27T11:03:59Z",
       "expires_after": "2026-11-28T10:03:59Z",
       "authorization_id": "f31cd652-406a-477f-9a5a-5e1310f2a7c9",
-      "required_pr_body_marker": "LMS-PR100-EXACT-PROMOTION-d9898235",
+      "required_pr_body_marker": "LMS-PR100-EXACT-PROMOTION-1aa7db5b",
+      "source_overlay": {
+        "approved_application_source_sha": "70f70f3e842ebea872704a265b1f6de9ae40cc63",
+        "allowed_paths": [".github/workflows/pr-qa.yml"],
+        "paths": {
+          ".github/workflows/pr-qa.yml": {
+            "source": "present",
+            "candidate": "reviewed_sha256",
+            "candidate_sha256": "2fd3fecf3ddef641e6058f3df6974c4cdc85e0cafa6bb7b2c3bc01f78fa12193",
+            "old_ref": "pr-qa-v1-rc434",
+            "new_ref": "pr-qa-v1-rc440"
+          }
+        }
+      },
       "promotion_scope": {
-        "reviewed_patch_sha256": "d9898235811b96ba1ccd68bd87d23fc21033d00c0f9392b1126e4d65b5d882f3",
+        "reviewed_patch_sha256": "1aa7db5bbd642c075757c1323c30b5736a049a9dcfdd14cc7b9a0c5b171e4cd2",
         "issued_at": "2026-11-27T11:03:59Z",
         "expires_after": "2026-11-28T10:03:59Z",
-        "required_pr_body_marker": "LMS-PR100-EXACT-PROMOTION-d9898235",
+        "required_pr_body_marker": "LMS-PR100-EXACT-PROMOTION-1aa7db5b",
         "branches": [
           {
             "head_ref": "staging",
