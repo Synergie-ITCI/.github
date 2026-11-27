@@ -1598,6 +1598,16 @@ def baseline_source_overlay_authorization(ctx: PRContext, git_context: dict[str,
     source_overlay = policy.get("source_overlay")
     expected_head_sha = str(policy.get("expected_head_sha", ""))
     if not source_overlay:
+        promotion = policy.get("promotion_scope")
+        branch_pair = {"head_ref": ctx.head_ref, "base_ref": ctx.base_ref}
+        if (
+            isinstance(promotion, dict)
+            and branch_pair in promotion.get("branches", [])
+            and branch_pair != {"head_ref": policy.get("head_ref"), "base_ref": policy.get("base_ref")}
+        ):
+            # validate_authorization already binds this promotion to the
+            # reviewed raw patch digest and live PR; its commit SHA can differ.
+            return []
         if expected_head_sha and head_sha != expected_head_sha:
             return [f"source SHA `{head_sha}` is not authorized; expected `{expected_head_sha}`."]
         return []
