@@ -12,6 +12,9 @@ sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "scripts/fieldzilla-production")
 )
 from issued_windows import (
+    CURRENT_PRODUCTION_REVISIONS,
+    is_sql_free_update,
+    verify_no_changed_sql,
     verify_issued_windows,
     verify_pr798_inherited_migration,
     verify_pr835_password_reset_migration,
@@ -21,6 +24,53 @@ from issued_windows import (
 
 
 class IssuedWindowTests(unittest.TestCase):
+    def test_current_sql_free_release_requires_exact_reviewed_shape(self):
+        manifest = {
+            "scope": "production", "operation": "rollout", "promotion_pr": 880,
+            "base_sha": "a" * 40, "application": {"source_sha": "b" * 40},
+            "review_authorizations": {
+                "baseline": "11111111-1111-1111-1111-111111111111", "sql": None,
+            },
+            "database": {
+                "name": "fieldzilla_production", "role": "pmp_fieldzilla_prod_migrator",
+                "before": CURRENT_PRODUCTION_REVISIONS,
+                "after": CURRENT_PRODUCTION_REVISIONS,
+            },
+        }
+        self.assertTrue(is_sql_free_update(manifest))
+        for path, value in (
+            (("scope",), "staging"),
+            (("operation",), "prepare"),
+            (("promotion_pr",), True),
+            (("base_sha",), "invalid"),
+            (("application", "source_sha"), "a" * 40),
+            (("review_authorizations", "baseline"), None),
+            (("review_authorizations", "sql"), "11111111-1111-1111-1111-111111111111"),
+            (("database", "after"), ["20260909_0041", "20261125_0080"]),
+        ):
+            with self.subTest(path=path):
+                changed = copy.deepcopy(manifest)
+                target = changed
+                for key in path[:-1]:
+                    target = target[key]
+                target[path[-1]] = value
+                self.assertFalse(is_sql_free_update(changed))
+
+        def files(path):
+            self.assertIn("/pulls/880/files?", path)
+            return [{"filename": "apps/api/app/modules/reporting/analytics.py"}]
+
+        verify_no_changed_sql(manifest, api=files)
+        with self.assertRaisesRegex(ValueError, "Changed SQL or migration"):
+            verify_no_changed_sql(
+                manifest,
+                api=lambda path: [{"filename": "apps/api/alembic/versions/unreviewed.py"}],
+            )
+        with self.assertRaisesRegex(ValueError, "Changed SQL or migration"):
+            verify_no_changed_sql(
+                manifest, api=lambda path: [{"filename": "deploy/production/new.sql"}],
+            )
+
     def test_pr865_requires_exact_dashboard_migration_and_sql_review(self):
         from issued_windows import PR865_BASE, PR865_MIGRATION, PR865_MIGRATION_SHA256, PR865_SOURCE
 

@@ -266,6 +266,35 @@ class RunnerTests(unittest.TestCase):
         self.assertIn("restore_worker", self.calls)
         self.assertFalse(report["production_live"])
 
+    def test_current_reviewed_sql_free_update_attests_without_migration(self):
+        from issued_windows import CURRENT_PRODUCTION_REVISIONS
+
+        self.manifest.update(
+            scope="production", operation="rollout", promotion_pr=880,
+            base_sha="a" * 40,
+            application={"source_sha": "b" * 40},
+            review_authorizations={
+                "baseline": "11111111-1111-1111-1111-111111111111", "sql": None,
+            },
+            database={
+                "name": "fieldzilla_production", "role": "pmp_fieldzilla_prod_migrator",
+                "before": CURRENT_PRODUCTION_REVISIONS,
+                "after": CURRENT_PRODUCTION_REVISIONS,
+            },
+            prior_tasks={"api": "old-api", "admin-web": "old-admin", "worker": "old-worker"},
+            worker_digest="sha256:" + "f" * 64,
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            execute_production(
+                self.manifest, self.receipt, Path(folder) / "journal",
+                aws=lambda *args: None, executor=self.engine,
+            )
+        self.assertEqual(self.calls[:7], [
+            "constructed", "preflight", "consume", "prepare",
+            "attest_database", "attest_database", "record",
+        ])
+        self.assertNotIn("migrate", self.calls)
+
     def test_production_is_separately_bound_and_does_not_claim_cutover(self):
         self.manifest.update(scope="production", operation="rollout", prior_tasks={"api": None, "admin-web": None, "worker": "exact"}, worker_digest="sha256:" + "f" * 64)
         with tempfile.TemporaryDirectory() as folder:
