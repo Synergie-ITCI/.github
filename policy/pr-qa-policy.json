@@ -2589,6 +2589,27 @@
       "expires_after": "2026-11-27T08:36:03Z",
       "authorization_id": "7202af80-e0ae-4ad6-9182-81b70bfb0319",
       "relaxations": []
+    },
+    {
+      "enabled": true,
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "repository_id": 1315697868,
+      "pr_number": 877,
+      "expected_head_sha": "d59e966cbf1cf4eb96d08168f7052c91825f878c",
+      "expected_base_sha": "9c2b12d5ab1df8ec804eb50caf697044b577719d",
+      "head_ref": "feat/staging-analytics-reconciliation",
+      "base_ref": "staging",
+      "allowed_effective_additions": 9813,
+      "allowed_changed_files": 87,
+      "minimum_changed_files": 87,
+      "purpose": "One-time exact-head staging size authorization for PR #877 reconciling the reviewed dashboard release with staging's distinct Alembic lineage. Relax only the 5000-addition diff-size threshold for the reviewed 87-file patch; all architecture, security, migration, review, branch and deployment gates remain mandatory. This grants no database or deployment authority.",
+      "issued_at": "2026-11-26T20:06:11Z",
+      "expires_after": "2026-11-27T19:06:11Z",
+      "authorization_id": "6c2c445c-b379-4301-a2b2-845a119d1a45",
+      "required_pr_body_marker": "FIELDZILLA-PR877-EXACT-SIZE-6C2C445C",
+      "relaxations": [
+        "diff_size"
+      ]
     }
   ]
 }
