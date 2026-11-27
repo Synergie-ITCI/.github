@@ -1477,6 +1477,40 @@
       "enabled": true,
       "repository": "Synergie-ITCI/synergielms.com",
       "repository_id": 1118680062,
+      "pr_number": 101,
+      "expected_head_sha": "70f70f3e842ebea872704a265b1f6de9ae40cc63",
+      "expected_base_sha": "4c077a47868439d47d3cdf88cf883f58e9da1b1c",
+      "head_ref": "reconcile/pr95-main-history",
+      "base_ref": "staging",
+      "allowed_effective_additions": 44935,
+      "allowed_changed_files": 700,
+      "minimum_changed_files": 700,
+      "purpose": "One-time exact-content size authorization for LMS PR #100 staging-to-main promotion of approved PR #95 after protected main history reconciliation. The future protected staging merge must match the reviewed 700-file, 44,935-addition patch including only the rc436 QA caller update. Only file-count and diff-size thresholds are relaxed; all security, review, migration and deployment gates remain.",
+      "issued_at": "2026-11-27T11:03:59Z",
+      "expires_after": "2026-11-28T10:03:59Z",
+      "authorization_id": "f31cd652-406a-477f-9a5a-5e1310f2a7c9",
+      "required_pr_body_marker": "LMS-PR100-EXACT-PROMOTION-52cb7713",
+      "promotion_scope": {
+        "reviewed_patch_sha256": "52cb771320a4e321179801e51474f2b6eca98a52b2bdff0933e812912051022e",
+        "issued_at": "2026-11-27T11:03:59Z",
+        "expires_after": "2026-11-28T10:03:59Z",
+        "required_pr_body_marker": "LMS-PR100-EXACT-PROMOTION-52cb7713",
+        "branches": [
+          {
+            "head_ref": "staging",
+            "base_ref": "main"
+          }
+        ]
+      },
+      "relaxations": [
+        "changed_file_count",
+        "diff_size"
+      ]
+    },
+    {
+      "enabled": true,
+      "repository": "Synergie-ITCI/synergielms.com",
+      "repository_id": 1118680062,
       "pr_number": 97,
       "expected_head_sha": "37b6b1cf530214b5cdcb9c033c364420e02f3e83",
       "expected_base_sha": "0129d7806fe064e5d59dcc754bb28467bf3ea896",
