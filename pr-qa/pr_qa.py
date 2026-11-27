@@ -2281,6 +2281,8 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
             results.append(warning("Repository Hygiene", None, "Verified exact MobileKids PR #15 main-to-staging reconciliation; other merges remain prohibited.", unexpected_merge_commits[:20]))
         elif unexpected_merge_commits and exact_lms_pr96_staging_reconciliation(ctx, git_context, merge_commits):
             results.append(warning("Repository Hygiene", None, "Verified exact LMS PR #96 protected staging reconciliation; other merges remain prohibited.", unexpected_merge_commits[:20]))
+        elif unexpected_merge_commits and exact_lms_pr101_main_staging_reconciliation(ctx, git_context, merge_commits):
+            results.append(warning("Repository Hygiene", None, "Verified exact LMS PR #101 protected main-to-staging reconciliation; other merges remain prohibited.", unexpected_merge_commits[:20]))
         elif unexpected_merge_commits and baseline_allows(ctx, "historical_commit_volume"):
             results.append(warning("Repository Hygiene", None, "Historical baseline merge commits predate current promotion policy; future PRs remain governed.", unexpected_merge_commits[:20]))
         elif unexpected_merge_commits and long_lived_staging_to_main_promotion(ctx):
@@ -2304,6 +2306,27 @@ def gate_repository_hygiene(ctx: PRContext, git_context: dict[str, Any]) -> list
         else:
             results.append(passed("Repository Hygiene", None, "No accidental merge commits detected."))
     return results
+
+
+def exact_lms_pr101_main_staging_reconciliation(ctx: PRContext, git_context: dict[str, Any], merge_commits: list[str]) -> bool:
+    """Recognize only PR #101's reviewed merge of protected main into staging."""
+    staging_sha = "4c077a47868439d47d3cdf88cf883f58e9da1b1c"
+    main_sha = "f3afcad4a1ca6d22c54f88e7dd04600eb1dd3606"
+    head_sha = "22e288a515742da4b72a25488f23e8ed49c03faa"
+    tree_sha = "8a8fd92e1d39b6f79980f29622732b366936ed77"
+    pull_request = ctx.event.get("pull_request", {}) or {}
+    return (
+        resolve_repository_name(ctx) == "Synergie-ITCI/synergielms.com"
+        and ctx.base_ref == "staging"
+        and ctx.head_ref == "reconcile/pr95-main-history"
+        and pull_request.get("number") == 101
+        and resolve_head_sha(ctx.repo, git_context) == head_sha
+        and resolve_fresh_origin_staging_tip(ctx.repo) == staging_sha
+        and merge_commits == [head_sha]
+        and git_lines(ctx.repo, ["show", "-s", "--format=%P", head_sha]) == [f"{staging_sha} {main_sha}"]
+        and commit_is_ancestor(ctx.repo, main_sha, head_sha)
+        and run_git(ctx.repo, ["rev-parse", f"{head_sha}^{{tree}}" ]).strip() == tree_sha
+    )
 
 
 def exact_lms_pr96_staging_reconciliation(ctx: PRContext, git_context: dict[str, Any], merge_commits: list[str]) -> bool:
