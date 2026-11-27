@@ -2312,8 +2312,9 @@ def exact_lms_pr101_main_staging_reconciliation(ctx: PRContext, git_context: dic
     """Recognize only PR #101's reviewed merge of protected main into staging."""
     staging_sha = "4c077a47868439d47d3cdf88cf883f58e9da1b1c"
     main_sha = "f3afcad4a1ca6d22c54f88e7dd04600eb1dd3606"
-    head_sha = "22e288a515742da4b72a25488f23e8ed49c03faa"
-    tree_sha = "8a8fd92e1d39b6f79980f29622732b366936ed77"
+    merge_sha = "22e288a515742da4b72a25488f23e8ed49c03faa"
+    head_sha = "8d0c7deb717751231373786aad2519ffbaa082df"
+    tree_sha = "f230070719885ba376cb4856e24f113db896c1cd"
     pull_request = ctx.event.get("pull_request", {}) or {}
     return (
         resolve_repository_name(ctx) == "Synergie-ITCI/synergielms.com"
@@ -2322,9 +2323,10 @@ def exact_lms_pr101_main_staging_reconciliation(ctx: PRContext, git_context: dic
         and pull_request.get("number") == 101
         and resolve_head_sha(ctx.repo, git_context) == head_sha
         and resolve_fresh_origin_staging_tip(ctx.repo) == staging_sha
-        and merge_commits == [head_sha]
-        and git_lines(ctx.repo, ["show", "-s", "--format=%P", head_sha]) == [f"{staging_sha} {main_sha}"]
-        and commit_is_ancestor(ctx.repo, main_sha, head_sha)
+        and merge_commits == [merge_sha]
+        and git_lines(ctx.repo, ["show", "-s", "--format=%P", merge_sha]) == [f"{staging_sha} {main_sha}"]
+        and commit_is_ancestor(ctx.repo, merge_sha, head_sha)
+        and git_lines(ctx.repo, ["show", "-s", "--format=%P", head_sha]) == [merge_sha]
         and run_git(ctx.repo, ["rev-parse", f"{head_sha}^{{tree}}" ]).strip() == tree_sha
     )
 
