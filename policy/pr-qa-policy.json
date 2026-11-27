@@ -2691,6 +2691,23 @@
       "expires_after": "2026-11-28T13:18:56Z",
       "authorization_id": "c34b98c3-8aad-44ba-909a-ae7dbef99eb3",
       "relaxations": []
+    },
+    {
+      "enabled": true,
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "repository_id": 1315697868,
+      "pr_number": 886,
+      "expected_head_sha": "3442029a2a617d09b86c340b8dbde57349f85836",
+      "expected_base_sha": "8fd8ab6abc84cc01ae6ca3b62bc6ff1a2f29df66",
+      "head_ref": "feat/nidaan-clinical-delta",
+      "base_ref": "main",
+      "allowed_effective_additions": 2436,
+      "allowed_changed_files": 20,
+      "purpose": "Bind exact reviewed PR #886 clinical review and medical camp application source to production image and SQL-free rollout review at already-current DB heads 0041+0081. No QA relaxation, SQL change, IAM change or AWS execution is authorized by this record; exact owner execution approval remains separate.",
+      "issued_at": "2026-11-27T19:47:39Z",
+      "expires_after": "2026-11-28T18:47:39Z",
+      "authorization_id": "948b536c-7acb-478c-96de-0c898031ecd5",
+      "relaxations": []
     }
   ]
 }
