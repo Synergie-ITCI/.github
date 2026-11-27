@@ -368,6 +368,15 @@ class FieldzillaImportSizeTests(unittest.TestCase):
             and row.get("pr_number") == 97
         )
         current["one_time_baseline_alignments"].remove(lms_staging_size)
+        # The historical Fieldzilla snapshot predates the separately tested
+        # exact-content LMS staging-to-main size allowance.
+        lms_main_size = next(
+            row for row in current["one_time_baseline_alignments"]
+            if row.get("repository") == "Synergie-ITCI/synergielms.com"
+            and row.get("pr_number") == 101
+            and row.get("required_pr_body_marker") == "LMS-PR100-EXACT-PROMOTION-52cb7713"
+        )
+        current["one_time_baseline_alignments"].remove(lms_main_size)
         self.assertEqual(current, previous)
 
         previous_sql = json.loads(subprocess.check_output(
