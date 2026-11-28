@@ -4629,6 +4629,12 @@ def classify_safe_deployment_workflows(ctx: PRContext, changed: list[str]) -> tu
         if not workflow_path.is_file():
             continue
         text = read_text(workflow_path)
+        if fieldzilla_ios_release_details(ctx, path, text):
+            details.append(
+                f"{path}: FIELDZILLA_IOS_RELEASE exact reviewed TestFlight workflow and signing script, main SHA, protected environment, and upload evidence verified."
+            )
+            safe_paths.add(path)
+            continue
         if roadsense_oidc_identity_probe_details(ctx, path, text):
             details.append(f"{path}: ROADSENSE_OIDC_PROBE exact reviewed non-deploying caller and protected release verified.")
             safe_paths.add(path)
@@ -4663,6 +4669,27 @@ def classify_safe_deployment_workflows(ctx: PRContext, changed: list[str]) -> tu
             details.extend(manual_ua)
             safe_paths.add(path)
     return details, safe_paths
+
+
+FIELDZILLA_IOS_RELEASE_WORKFLOW_PATH = ".github/workflows/fieldzilla-ios-testflight.yml"
+FIELDZILLA_IOS_RELEASE_SCRIPT_PATH = "apps/mobile/scripts/ios-testflight-release.sh"
+FIELDZILLA_IOS_RELEASE_WORKFLOW_SHA256 = "0650f421b6d154e380de8823aa120ffae9019e7ee0d16aa1bd8dfd4ee6dbebe4"
+FIELDZILLA_IOS_RELEASE_SCRIPT_SHA256 = "0fbb22fcebe56e24b65415d8853cf275cd6f201260ded325bd5015865460839d"
+
+
+def fieldzilla_ios_release_details(ctx: PRContext, path: str, text: str) -> bool:
+    """Recognize only the reviewed iOS upload lane, including its executable script.
+
+    This is not backend deployment authorization. Workflow or script changes
+    require a new central review before PR-QA recognizes the release lane.
+    """
+    if (resolve_repository_name(ctx) != "Synergie-ITCI/programme-management-platform"
+            or path != FIELDZILLA_IOS_RELEASE_WORKFLOW_PATH
+            or hashlib.sha256(text.encode("utf-8")).hexdigest() != FIELDZILLA_IOS_RELEASE_WORKFLOW_SHA256):
+        return False
+    script = ctx.repo / FIELDZILLA_IOS_RELEASE_SCRIPT_PATH
+    return (script.is_file()
+            and hashlib.sha256(script.read_bytes()).hexdigest() == FIELDZILLA_IOS_RELEASE_SCRIPT_SHA256)
 
 
 ROADSENSE_OIDC_PROBE_PATH = ".github/workflows/roadsense-oidc-identity-probe.yml"
