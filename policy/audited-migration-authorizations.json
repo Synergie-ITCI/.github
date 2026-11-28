@@ -265,5 +265,25 @@
       "id": 52234089
     },
     "purpose": "Review exact PR #872 migration 0081, including immutable helper apps/api/alembic/production_bridge/role_permissions_0081.py SHA-256 c320c17572223070976d3c5a6b5a66608be87ee53d45cf558fe4cce874fd8467, from production 0041+0080 to 0041+0081. It replaces the role-permission guard with new-grant delegation checks and retains existing permission rows. No direct production execution is authorized."
+  },
+  {
+    "authorization_id": "3ff8a49a-40d3-4b20-acbc-e6f257ef1d1b",
+    "repository": "Synergie-ITCI/programme-management-platform",
+    "repository_id": 1315697868,
+    "pr_number": 889,
+    "head_ref": "feat/clinical-question-exports",
+    "base_ref": "main",
+    "expected_head_sha": "d5b7c1e6c7db19b60e8ba51cf1bdc99ddbe3ce58",
+    "expected_base_sha": "798e14977606e4485552a290a7801048b3acbc04",
+    "migration_path": "apps/api/alembic/versions/20261128_0082_clinical_question_exports.py",
+    "migration_sha256": "0a3f5bfb9e7d74b1f621b89f3cb7e16efacdac1f9a97e16c1fe8e0e79d6a2676",
+    "delete_fingerprints": [],
+    "approved_reviewer": {
+      "login": "SaurabhVermaIN",
+      "id": 52234089
+    },
+    "issued_at": "2026-11-28T04:20:20Z",
+    "expires_at": "2026-11-29T03:20:20Z",
+    "purpose": "Review exact PR #889 migration 0082 from production 0041+0081 to 0041+0082. It extends the report export dataset constraint and inserts two distinct, ungranted clinical export permissions. The downgrade deletes only those permissions after refusing any audit history or active grants. This review does not authorize production execution."
   }
 ]

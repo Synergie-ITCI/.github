@@ -2708,6 +2708,23 @@
       "expires_after": "2026-11-28T18:47:39Z",
       "authorization_id": "948b536c-7acb-478c-96de-0c898031ecd5",
       "relaxations": []
+    },
+    {
+      "enabled": true,
+      "repository": "Synergie-ITCI/programme-management-platform",
+      "repository_id": 1315697868,
+      "pr_number": 889,
+      "expected_head_sha": "d5b7c1e6c7db19b60e8ba51cf1bdc99ddbe3ce58",
+      "expected_base_sha": "798e14977606e4485552a290a7801048b3acbc04",
+      "head_ref": "feat/clinical-question-exports",
+      "base_ref": "main",
+      "allowed_effective_additions": 1554,
+      "allowed_changed_files": 24,
+      "purpose": "Bind exact reviewed PR #889 clinical question exports and migration 0082 to production review. No QA relaxation, IAM grant, database change or AWS execution is authorized by this record; owner execution approval remains separate.",
+      "issued_at": "2026-11-28T04:20:20Z",
+      "expires_after": "2026-11-29T03:20:20Z",
+      "authorization_id": "50686209-de09-4fdb-9fa6-a802faf526ed",
+      "relaxations": []
     }
   ]
 }
