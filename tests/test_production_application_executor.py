@@ -629,6 +629,8 @@ class RuntimeCloud(Cloud):
         }:
             self.calls.append((service, action, copy.deepcopy(request)))
             if action == "list-tasks":
+                if self.tamper == "empty-list":
+                    return {"taskArns": []}
                 return {
                     "taskArns": [
                         "arn:aws:ecs:ap-south-1:918870682888:task/fieldzilla-production/"
@@ -654,6 +656,22 @@ class RuntimeCloud(Cloud):
                         }],
                     }
                     if self.tamper == "digest" and kind == "api":
+                        row["containers"][0]["imageDigest"] = "wrong"
+                    if self.tamper == "pending-admin-bad-api-digest" and kind == "api":
+                        row["containers"][0]["imageDigest"] = "wrong"
+                    if self.tamper in {
+                        "pending-admin", "pending-admin-bad-api-digest",
+                        "pending-admin-wrong-definition", "pending-admin-wrong-host",
+                        "pending-admin-wrong-digest",
+                    } and kind == "admin-web":
+                        row["lastStatus"] = "PENDING"
+                        row["containers"][0]["lastStatus"] = "PENDING"
+                        row["containers"][0]["imageDigest"] = None
+                    if self.tamper == "pending-admin-wrong-definition" and kind == "admin-web":
+                        row["taskDefinitionArn"] = "arn:aws:ecs:ap-south-1:918870682888:task-definition/unreviewed:1"
+                    if self.tamper == "pending-admin-wrong-host" and kind == "admin-web":
+                        row["containerInstanceArn"] = self.instance.replace("production/", "staging/")
+                    if self.tamper == "pending-admin-wrong-digest" and kind == "admin-web":
                         row["containers"][0]["imageDigest"] = "wrong"
                     if self.tamper == "group" and kind == "api":
                         row["group"] = "service:another"
@@ -801,6 +819,68 @@ class RuntimeReadbackTests(unittest.TestCase):
         with self.assertRaises(ExecutionError):
             self.engine.wait_runtime(attempts=3)
         self.assertEqual(sleeps, [])
+
+    def test_runtime_waits_for_expected_peer_task_to_start(self):
+        sleeps = []
+        self.cloud.tamper = "pending-admin"
+
+        def settle(seconds):
+            sleeps.append(seconds)
+            self.cloud.tamper = None
+
+        self.engine.sleep = settle
+        before = len(self.cloud.calls)
+        self.engine.wait_runtime(attempts=3)
+        self.assertEqual(sleeps, [5])
+        self.assertFalse(any(
+            action in {"update-service", "register-task-definition", "run-task"}
+            for _, action, _ in self.cloud.calls[before:]
+        ))
+
+    def test_runtime_waits_for_expected_task_listing_to_converge(self):
+        sleeps = []
+        self.cloud.tamper = "empty-list"
+
+        def settle(seconds):
+            sleeps.append(seconds)
+            self.cloud.tamper = None
+
+        self.engine.sleep = settle
+        self.engine.wait_runtime(attempts=3)
+        self.assertEqual(sleeps, [5])
+
+    def test_pending_peer_does_not_hide_running_image_mismatch(self):
+        sleeps = []
+        self.cloud.tamper = "pending-admin-bad-api-digest"
+        self.engine.sleep = sleeps.append
+        with self.assertRaisesRegex(ExecutionError, "image differs"):
+            self.engine.wait_runtime(attempts=3)
+        self.assertEqual(sleeps, [])
+
+    def test_pending_peer_with_wrong_definition_or_host_fails_immediately(self):
+        for tamper in ("pending-admin-wrong-definition", "pending-admin-wrong-host",
+                       "pending-admin-wrong-digest"):
+            with self.subTest(tamper=tamper):
+                sleeps = []
+                self.cloud.tamper = tamper
+                self.engine.sleep = sleeps.append
+                with self.assertRaises(ExecutionError):
+                    self.engine.wait_runtime(attempts=3)
+                self.assertEqual(sleeps, [])
+
+    def test_pending_peer_timeout_is_bounded_without_mutation(self):
+        self.cloud.tamper = "pending-admin"
+        sleeps = []
+        self.engine.sleep = sleeps.append
+        before = len(self.cloud.calls)
+        with self.assertRaisesRegex(ExecutionError, "Runtime did not become healthy"):
+            self.engine.wait_runtime(attempts=3)
+        self.assertEqual(sleeps, [5, 5])
+        self.assertIn("runtime_wait_timed_out", self.engine.journal.read_text())
+        self.assertFalse(any(
+            action in {"update-service", "register-task-definition", "run-task"}
+            for _, action, _ in self.cloud.calls[before:]
+        ))
 
     def test_runtime_wait_timeout_is_bounded_and_never_rolls_back_the_database(self):
         self.cloud.tamper = "health"

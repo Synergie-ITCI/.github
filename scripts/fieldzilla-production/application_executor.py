@@ -684,8 +684,10 @@ class Executor:
             "desiredStatus": "RUNNING",
         })
         arns = listing.get("taskArns", [])
-        if not arns or listing.get("nextToken") or len(arns) != len(set(arns)):
+        if listing.get("nextToken") or len(arns) != len(set(arns)):
             raise ExecutionError("Exact running task list is unavailable")
+        if not arns:
+            raise RuntimeNotReady("Expected service tasks are not listed yet")
         reply = self.aws("ecs", "describe-tasks", {"cluster": self.cluster, "tasks": arns})
         rows = reply.get("tasks", [])
         groups = {"service:" + self.cluster + "-" + kind for kind in
@@ -695,9 +697,44 @@ class Executor:
                 or len({row.get("group") for row in rows}) != len(rows)
                 or any(row.get("group") not in groups
                        or row.get("containerInstanceArn") != self.instance
-                       or row.get("lastStatus") != "RUNNING"
                        or row.get("desiredStatus") != "RUNNING" for row in rows)):
             raise ExecutionError("Running host task identity differs")
+        for row in rows:
+            kind = row["group"].removeprefix("service:" + self.cluster + "-")
+            definition = (
+                self.tasks["worker"] if self.worker_rollout else self.manifest["prior_tasks"]["worker"]
+            ) if kind == "worker" else self.tasks[kind]
+            digest = (
+                self.manifest["worker_target_digest"] if self.worker_rollout
+                else self.manifest["worker_digest"]
+            ) if kind == "worker" else self.manifest["application"][kind + "_digest"]
+            if row.get("taskDefinitionArn") != definition:
+                raise ExecutionError("Running host task definition differs")
+            containers = row.get("containers", [])
+            if containers and (len(containers) != 1
+                               or containers[0].get("name") != kind
+                               or (containers[0].get("imageDigest") is not None
+                                   and containers[0]["imageDigest"] != digest)):
+                raise ExecutionError(
+                    "Restored worker identity or image differs" if kind == "worker"
+                    else "Running host task image differs"
+                )
+            if row.get("lastStatus") == "RUNNING":
+                if (len(containers) != 1 or containers[0].get("name") != kind
+                        or containers[0].get("lastStatus") != "RUNNING"
+                        or containers[0].get("imageDigest") != digest):
+                    raise ExecutionError(
+                        "Restored worker identity or image differs" if kind == "worker"
+                        else "Running host task image differs"
+                    )
+        # ECS can list an expected task with desiredStatus RUNNING before its
+        # lastStatus becomes RUNNING. Keep that startup state inside the bounded
+        # runtime wait; unexpected identities and terminal states still fail.
+        if any(row.get("lastStatus") in {"PROVISIONING", "PENDING", "ACTIVATING"}
+               for row in rows):
+            raise RuntimeNotReady("Expected service task is still starting")
+        if any(row.get("lastStatus") != "RUNNING" for row in rows):
+            raise ExecutionError("Running host task state differs")
         return rows
 
     def wait_worker(self, *, attempts: int = 120):
@@ -719,8 +756,13 @@ class Executor:
                         or deployments[0].get("rolloutState") != "COMPLETED"
                         or deployments[0].get("taskDefinition") != expected):
                     raise ExecutionError("Restored worker rollout is not stable")
-                matches = [row for row in self.running_service_tasks()
-                           if row.get("group") == "service:" + name]
+                try:
+                    matches = [row for row in self.running_service_tasks()
+                               if row.get("group") == "service:" + name]
+                except RuntimeNotReady:
+                    if attempt + 1 < attempts:
+                        self.sleep(5)
+                    continue
                 if len(matches) != 1:
                     raise ExecutionError("Restored worker task count differs")
                 row = matches[0]
