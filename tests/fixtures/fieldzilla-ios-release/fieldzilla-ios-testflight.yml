@@ -1,0 +1,82 @@
+name: FieldZilla iOS TestFlight
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: Exact main commit approved for the iOS TestFlight archive
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fieldzilla-ios-testflight
+  cancel-in-progress: false
+
+jobs:
+  verify-source:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require the exact governed main commit
+        env:
+          TARGET_SHA: ${{ inputs.target_sha }}
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          test "${TARGET_SHA}" = "${GITHUB_SHA}"
+
+  archive-and-upload:
+    needs: verify-source
+    runs-on: macos-26
+    timeout-minutes: 120
+    environment: fieldzilla-ios-release
+    env:
+      FIELDZILLA_MOBILE_ENV: production
+      FIELDZILLA_API_BASE_URL: https://fieldzilla.synergieinsights.in
+      FIELDZILLA_ADMIN_WEB_BASE_URL: https://fieldzilla.synergieinsights.in
+      IOS_BUNDLE_ID: ${{ vars.FIELDZILLA_IOS_BUNDLE_ID }}
+      APPLE_TEAM_ID: ${{ vars.FIELDZILLA_APPLE_TEAM_ID }}
+      APP_STORE_CONNECT_KEY_ID: ${{ vars.FIELDZILLA_APP_STORE_CONNECT_KEY_ID }}
+      APP_STORE_CONNECT_ISSUER_ID: ${{ vars.FIELDZILLA_APP_STORE_CONNECT_ISSUER_ID }}
+      APP_STORE_CONNECT_API_KEY: ${{ secrets.FIELDZILLA_APP_STORE_CONNECT_API_KEY }}
+      IOS_DISTRIBUTION_P12_BASE64: ${{ secrets.FIELDZILLA_IOS_DISTRIBUTION_P12_BASE64 }}
+      IOS_DISTRIBUTION_P12_PASSWORD: ${{ secrets.FIELDZILLA_IOS_DISTRIBUTION_P12_PASSWORD }}
+      IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.FIELDZILLA_IOS_PROVISIONING_PROFILE_BASE64 }}
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3.11'
+          bundler-cache: true
+          working-directory: apps/mobile
+      - name: Install locked dependencies
+        run: |
+          set -euo pipefail
+          npm ci
+          bundle exec pod install --deployment --project-directory=ios
+      - name: Validate mobile application
+        run: |
+          set -euo pipefail
+          npm run test:all
+          npm run typecheck
+      - name: Sign, validate, and upload to TestFlight
+        run: bash scripts/ios-testflight-release.sh
+      - name: Preserve immutable upload evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: fieldzilla-ios-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fieldzilla-ios-release-evidence.json
+          if-no-files-found: error
+          retention-days: 90
