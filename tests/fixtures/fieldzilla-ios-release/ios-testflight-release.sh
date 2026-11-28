@@ -67,6 +67,8 @@ xcodebuild -workspace ios/SurveyMobApp.xcworkspace -scheme SurveyMobApp \
 app_path="$RUNNER_TEMP/FieldZilla.xcarchive/Products/Applications/SurveyMobApp.app"
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app_path/Info.plist")" = "$IOS_BUNDLE_ID"
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app_path/Info.plist")" = "$build_number"
+app_version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app_path/Info.plist")
+[[ "$app_version" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]
 codesign --verify --deep --strict "$app_path"
 codesign -d --entitlements "$signing_dir/archive-entitlements.plist" "$app_path" 2>/dev/null
 archive_app_id=$(/usr/libexec/PlistBuddy -c 'Print :application-identifier' "$signing_dir/archive-entitlements.plist")
@@ -96,11 +98,12 @@ unzip -q "$ipa" -d "$signing_dir/ipa-contents"
 ipa_app="$signing_dir/ipa-contents/Payload/SurveyMobApp.app"
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$ipa_app/Info.plist")" = "$IOS_BUNDLE_ID"
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$ipa_app/Info.plist")" = "$build_number"
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ipa_app/Info.plist")" = "$app_version"
 codesign --verify --deep --strict "$ipa_app"
 ipa_sha256=$(shasum -a 256 "$ipa" | awk '{print $1}')
 xcrun altool --upload-app --type ios --file "$ipa" \
   --apiKey "$APP_STORE_CONNECT_KEY_ID" --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID"
-export build_number ipa_sha256
+export app_version build_number ipa_sha256
 python3 - <<'PY'
 import json
 import os
@@ -112,6 +115,7 @@ evidence = {
     'github_run_attempt': os.environ['GITHUB_RUN_ATTEMPT'],
     'bundle_id': os.environ['IOS_BUNDLE_ID'],
     'team_id': os.environ['APPLE_TEAM_ID'],
+    'version': os.environ['app_version'],
     'build_number': os.environ['build_number'],
     'ipa_sha256': os.environ['ipa_sha256'],
     'upload_result': 'altool_accepted',

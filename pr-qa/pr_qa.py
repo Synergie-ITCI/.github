@@ -4674,7 +4674,7 @@ def classify_safe_deployment_workflows(ctx: PRContext, changed: list[str]) -> tu
 FIELDZILLA_IOS_RELEASE_WORKFLOW_PATH = ".github/workflows/fieldzilla-ios-testflight.yml"
 FIELDZILLA_IOS_RELEASE_SCRIPT_PATH = "apps/mobile/scripts/ios-testflight-release.sh"
 FIELDZILLA_IOS_RELEASE_WORKFLOW_SHA256 = "0650f421b6d154e380de8823aa120ffae9019e7ee0d16aa1bd8dfd4ee6dbebe4"
-FIELDZILLA_IOS_RELEASE_SCRIPT_SHA256 = "ec348cba148694f1c8bee2496fdc81ee2fe48ffa4d186255e74b2359736a0051"
+FIELDZILLA_IOS_RELEASE_SCRIPT_SHA256 = "0fbb22fcebe56e24b65415d8853cf275cd6f201260ded325bd5015865460839d"
 
 
 def fieldzilla_ios_release_details(ctx: PRContext, path: str, text: str) -> bool:
