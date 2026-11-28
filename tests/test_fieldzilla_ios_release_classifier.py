@@ -57,6 +57,13 @@ class FieldZillaIosReleaseClassifierTests(unittest.TestCase):
             with self.subTest(changed=changed[-50:]):
                 self.assertFalse(engine.fieldzilla_ios_release_details(self.ctx, WORKFLOW, changed))
 
+    def test_changed_release_workflow_still_fails_deployment_risk(self):
+        workflow = self.root / WORKFLOW
+        workflow.write_text(workflow.read_text(encoding="utf-8") + "\n# unreviewed change\n", encoding="utf-8")
+        details, paths = engine.classify_safe_deployment_workflows(self.ctx, [WORKFLOW])
+        self.assertEqual((details, paths), ([], set()))
+        self.assertIn("controlled Gate D safe shape", engine.unsafe_deployment_workflow_details(self.ctx, [WORKFLOW])[0])
+
     def test_script_or_repository_change_is_rejected(self):
         text = (self.root / WORKFLOW).read_text(encoding="utf-8")
         script_path = self.root / SCRIPT
