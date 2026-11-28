@@ -550,7 +550,7 @@ class BundledMigrationAuthorizationTests(unittest.TestCase):
         self.assertEqual(approved_872["expected_base_sha"], "fe7f17dd8febb7f72d01dc1d5803e2308e8bb1fc")
         self.assertEqual(approved_872["migration_sha256"], "d25364162ec3a44c8d1fd7c628170e33c1a46024de9731514007f449dd1d2d5f")
         self.assertEqual(approved_872["delete_fingerprints"], [])
-        known = {118, 241, 712, 786, 787, 791, 798, 835, 857, 865, 872}
+        known = {118, 241, 712, 786, 787, 791, 798, 835, 857, 865, 872, 889}
         unknown = set(by_pr) - known
         self.assertFalse(unknown, f"unexpected migration authorization PRs: {unknown}")
         policy = json.loads((ROOT / "policy/pr-qa-policy.json").read_text())
